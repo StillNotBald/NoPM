@@ -1,0 +1,17 @@
+# deps & build
+node_modules/
+**/node_modules/
+web/.next/
+web/out/
+web/coverage/
+web/test-results/
+
+# env & secrets (never commit) — .env.example is allowed
+**/.env
+**/.env.local
+**/.env.*.local
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log

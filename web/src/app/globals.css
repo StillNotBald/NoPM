@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────
+   NoPM — Claude Design Language tokens (ported from prior-console-app)
+   Warm paper canvas + coral accent, almost-flat (borders not shadows).
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --bg-canvas: #faf9f5;
+  --bg-surface: #f5f4ee;
+  --bg-sunken: #edebdf;
+  --border-subtle: #e5e2da;
+  --border-strong: #c9c5b8;
+  --text-primary: #2c2a26;
+  --text-secondary: #6b6863;
+  --text-muted: #9a968d;
+  --accent: #d97757;
+  --accent-hover: #c5644a;
+  --success: #5f8c58;
+  --warning: #c69749;
+  --danger: #b85450;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-canvas: #1f1e1b;
+    --bg-surface: #262521;
+    --bg-sunken: #2e2c27;
+    --border-subtle: #3a3833;
+    --border-strong: #4a4740;
+    --text-primary: #eceae3;
+    --text-secondary: #b5b1a8;
+    --text-muted: #8a867d;
+    --accent: #e08864;
+    --accent-hover: #e89b7b;
+    --success: #7ba873;
+    --warning: #d8ae61;
+    --danger: #d17b77;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--bg-canvas);
+  --color-surface: var(--bg-surface);
+  --color-sunken: var(--bg-sunken);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+  --color-ink: var(--text-primary);
+  --color-ink-secondary: var(--text-secondary);
+  --color-ink-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --font-sans: var(--font-inter), "Inter", ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-serif: var(--font-serif-display), "Newsreader", Georgia, serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, "SF Mono",
+    monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-sm: 0 1px 2px rgba(28, 26, 22, 0.04);
+  --shadow-md: 0 4px 12px rgba(28, 26, 22, 0.06);
+}
+
+* {
+  border-color: var(--border-subtle);
+}
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
