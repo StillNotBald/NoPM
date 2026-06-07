@@ -1,0 +1,8 @@
+{
+  "name": "nopm-cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Thin CLI for the NoPM API — drive project governance from your terminal or AI agent.",
+  "bin": { "nopm": "./nopm.mjs" }
+}
