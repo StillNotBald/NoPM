@@ -1,65 +1,108 @@
-import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+export const metadata = {
+  title: "NoPM — project governance your AI agent can operate",
+  description:
+    "A lite, API-first project-management tool your AI agent drives like the aws/supabase CLIs. Immutable audit, scoped tokens, four-eyes approval — enforced in the data layer.",
+};
+
+function Wedge({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="rounded-lg border border-border-subtle bg-surface p-6">
+      <h3 className="text-sm font-semibold text-ink">{title}</h3>
+      <p className="mt-2 text-sm leading-relaxed text-ink-secondary">{children}</p>
+    </div>
+  );
+}
+
+export default function Landing() {
+  return (
+    <div className="min-h-screen bg-canvas text-ink">
+      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
+        <div className="flex items-center gap-2">
+          <span className="grid h-7 w-7 place-items-center rounded-[8px] bg-accent text-sm font-semibold text-white">
+            N
+          </span>
+          <span className="font-medium">NoPM</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
+        <nav className="flex items-center gap-5 text-sm text-ink-secondary">
+          <a href="/llms.txt" className="hover:text-ink">Agent API</a>
+          <a href="/api/openapi.json" className="hover:text-ink">OpenAPI</a>
+          <Link href="/login" className="rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:bg-accent-hover">
+            Open console
+          </Link>
+        </nav>
+      </header>
+
+      <section className="mx-auto max-w-5xl px-6 pb-10 pt-16">
+        <p className="text-sm font-medium uppercase tracking-widest text-accent">
+          AI-native · governance-grade · lite
+        </p>
+        <h1 className="mt-4 max-w-3xl font-serif text-5xl leading-[1.1] text-ink">
+          Project governance your AI agent can actually operate.
+        </h1>
+        <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
+          NoPM is a lite, API-first project-management tool — like the <code className="font-mono text-ink">aws</code> or{" "}
+          <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Your own agent drives it
+          over a documented REST API. Immutable audit, scoped tokens, and four-eyes approval are enforced in the data
+          layer — not bolted onto the UI.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link href="/login" className="rounded-md bg-accent px-5 py-2.5 font-medium text-white hover:bg-accent-hover">
+            Open the live console →
+          </Link>
+          <a href="/llms.txt" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
+            Read the agent API
           </a>
         </div>
-      </main>
+      </section>
+
+      <section className="mx-auto max-w-5xl px-6 py-8">
+        <div className="overflow-hidden rounded-xl border border-border-subtle bg-[#1f1e1b]">
+          <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-3">
+            <span className="h-3 w-3 rounded-full bg-[#b85450]" />
+            <span className="h-3 w-3 rounded-full bg-[#c69749]" />
+            <span className="h-3 w-3 rounded-full bg-[#5f8c58]" />
+            <span className="ml-3 font-mono text-xs text-white/40">an agent drives NoPM</span>
+          </div>
+          <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-[#eceae3]">
+{`$ nopm tasks rm task_8f3a --reason "superseded by revised cutover plan"
+⏸ delete requested — pending a checker's approval (four-eyes)
+
+$ nopm approve req_2c91          # a different token: task:delete:approve
+✓ approved & committed           # one immutable audit row written
+
+$ nopm audit --limit 1
+created_at            actor_label     action        target
+2026-06-08T…          checker (agent) task.delete   task 8f3a`}
+          </pre>
+        </div>
+        <p className="mt-3 text-center text-xs text-ink-muted">
+          The same surface a human uses — 33 documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
+        </p>
+      </section>
+
+      <section className="mx-auto grid max-w-5xl gap-4 px-6 py-12 sm:grid-cols-3">
+        <Wedge title="Agent-operable">
+          Every action is a documented REST endpoint with a stable JSON shape. Scoped <code className="font-mono">resource:action</code> tokens,
+          an OpenAPI spec, an <code className="font-mono">llms.txt</code> index, and a <code className="font-mono">nopm</code> CLI — so any agent drives it over plain HTTP.
+        </Wedge>
+        <Wedge title="Institutional governance">
+          Every mutation writes exactly one append-only audit row. Destructive actions need four-eyes: a maker requests,
+          a different checker approves. Enforced by Postgres triggers &amp; constraints — even a service key can&apos;t rewrite history.
+        </Wedge>
+        <Wedge title="The whole triangle">
+          Timeline, resource and budget in one governed model — the gap most PM tools miss. Over-allocation surfaces as a
+          clash; spend rolls up to variance and burn; a locked timeline forces a rebaseline sign-off.
+        </Wedge>
+      </section>
+
+      <footer className="border-t border-border-subtle">
+        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
+          <span>Built by Cheng Chu Ling — PMP Tech PMO. Shipped solo with an AI multi-agent workflow.</span>
+          <span className="font-mono text-xs">stillnotbald.com</span>
+        </div>
+      </footer>
     </div>
   );
 }
