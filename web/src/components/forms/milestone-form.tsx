@@ -80,27 +80,27 @@ export function MilestoneForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
         </div>
       )}
 
-      {/* Name */}
+      {/* Title — prominent, borderless */}
       <div>
-        <FieldLabel required>Milestone Name</FieldLabel>
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Design Closure"
+          placeholder="Milestone name"
           required
+          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
         />
         <FieldError message={fieldErrors.name} />
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-        {/* Status */}
+      {/* Compact 2-col grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
         <div>
           <FieldLabel>Status</FieldLabel>
           <SelectInput
@@ -116,18 +116,17 @@ export function MilestoneForm({
           <FieldError message={fieldErrors.status} />
         </div>
 
-        {/* Target Date */}
         <div>
           <FieldLabel>Target Date</FieldLabel>
           <Input
             type="date"
             value={targetDate}
             onChange={(e) => setTargetDate(e.target.value)}
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.target_date} />
         </div>
 
-        {/* Completion % */}
         <div>
           <FieldLabel>Completion %</FieldLabel>
           <Input
@@ -137,17 +136,18 @@ export function MilestoneForm({
             value={completionPct}
             onChange={(e) => setCompletionPct(Number(e.target.value))}
             placeholder="0"
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.completion_pct} />
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 border-t border-border-subtle pt-4">
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
         <Button type="button" variant="ghost" onClick={modal.close} disabled={saving}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving}>
+        <Button type="submit" variant="primary" disabled={saving || !name.trim()}>
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

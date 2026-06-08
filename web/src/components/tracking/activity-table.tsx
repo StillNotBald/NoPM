@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronRight,
@@ -9,14 +9,22 @@ import {
   Plus,
   Pencil,
   Trash2,
+  AlignJustify,
+  AlignCenter,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { useModal } from "@/components/ui/modal";
-import { apiDelete } from "@/lib/api-client";
+import { useInspector } from "@/components/layout/app-shell";
+import { apiDelete, apiPost } from "@/lib/api-client";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
+import {
+  TaskDetailPanel,
+  MilestoneDetailPanel,
+} from "@/components/tracking/detail-panel";
 
 // ─── Data shapes ────────────────────────────────────────────────────────────
 
@@ -56,6 +64,10 @@ interface ActivityTableProps {
   isLocked: boolean;
 }
 
+// ─── Density ─────────────────────────────────────────────────────────────────
+
+type Density = "comfortable" | "compact";
+
 // ─── Badge helpers ────────────────────────────────────────────────────────────
 
 type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
@@ -65,17 +77,12 @@ function milestoneStatusBadge(status: Milestone["status"]): {
   label: string;
 } {
   switch (status) {
-    case "completed":
-      return { tone: "success", label: "Completed" };
-    case "on_track":
-      return { tone: "accent", label: "On track" };
-    case "at_risk":
-      return { tone: "warning", label: "At risk" };
-    case "delayed":
-      return { tone: "danger", label: "Delayed" };
+    case "completed":  return { tone: "success",  label: "Completed" };
+    case "on_track":   return { tone: "accent",   label: "On track" };
+    case "at_risk":    return { tone: "warning",  label: "At risk" };
+    case "delayed":    return { tone: "danger",   label: "Delayed" };
     case "not_started":
-    default:
-      return { tone: "neutral", label: "Not started" };
+    default:           return { tone: "neutral",  label: "Not started" };
   }
 }
 
@@ -84,17 +91,12 @@ function taskStatusBadge(statusType: Task["status_type"]): {
   label: string;
 } {
   switch (statusType) {
-    case "completed":
-      return { tone: "success", label: "Completed" };
-    case "started":
-      return { tone: "accent", label: "In progress" };
-    case "canceled":
-      return { tone: "neutral", label: "Canceled" };
-    case "backlog":
-      return { tone: "neutral", label: "Backlog" };
+    case "completed": return { tone: "success", label: "Completed" };
+    case "started":   return { tone: "accent",  label: "In progress" };
+    case "canceled":  return { tone: "neutral", label: "Canceled" };
+    case "backlog":   return { tone: "neutral", label: "Backlog" };
     case "unstarted":
-    default:
-      return { tone: "neutral", label: "To do" };
+    default:          return { tone: "neutral", label: "To do" };
   }
 }
 
@@ -103,15 +105,11 @@ function priorityBadge(priority: Task["priority"]): {
   label: string;
 } {
   switch (priority) {
-    case "urgent":
-      return { tone: "danger", label: "Urgent" };
-    case "high":
-      return { tone: "warning", label: "High" };
-    case "medium":
-      return { tone: "accent", label: "Medium" };
+    case "urgent": return { tone: "danger",  label: "Urgent" };
+    case "high":   return { tone: "warning", label: "High" };
+    case "medium": return { tone: "accent",  label: "Medium" };
     case "low":
-    default:
-      return { tone: "neutral", label: "Low" };
+    default:       return { tone: "neutral", label: "Low" };
   }
 }
 
@@ -136,8 +134,7 @@ function ProgressBar({ pct }: { pct: number }) {
 
 function fmtDate(d: string | null): string {
   if (!d) return "—";
-  const date = new Date(d);
-  return date.toLocaleDateString("en-US", {
+  return new Date(d).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -151,16 +148,94 @@ function fmtDateRange(start: string | null, end: string | null): string {
   return `${fmtDate(start)} – ${fmtDate(end)}`;
 }
 
-// ─── Confirm-delete helper ────────────────────────────────────────────────────
+// ─── Inline Quick-Add input ───────────────────────────────────────────────────
 
-function useConfirmDelete() {
-  const router = useRouter();
-  return async (url: string, label: string) => {
-    const confirmed = window.confirm(`Delete "${label}"? This cannot be undone.`);
-    if (!confirmed) return;
-    await apiDelete(url);
-    router.refresh();
-  };
+/**
+ * A ghost row that, on click, becomes an inline text input.
+ * Submits on Enter (and re-focuses for next entry); cancels on Esc or blur-when-empty.
+ */
+function QuickAddRow({
+  label,
+  colSpan,
+  onSubmit,
+  density,
+}: {
+  label: string;
+  colSpan: number;
+  onSubmit: (name: string) => Promise<void>;
+  density: Density;
+}) {
+  const [active, setActive] = useState(false);
+  const [value, setValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Focus when activated
+  useEffect(() => {
+    if (active) inputRef.current?.focus();
+  }, [active]);
+
+  async function commit() {
+    const name = value.trim();
+    if (!name) {
+      setActive(false);
+      setValue("");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit(name);
+      setValue("");
+      // keep active so user can type the next one
+      inputRef.current?.focus();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const rowPy = density === "compact" ? "py-1" : "py-1.5";
+
+  if (!active) {
+    return (
+      <tr className="group">
+        <td colSpan={colSpan}>
+          <button
+            className={cn(
+              "flex w-full items-center gap-1.5 px-4 text-xs text-ink-muted",
+              "hover:text-ink-secondary transition-colors duration-150",
+              rowPy,
+            )}
+            onClick={() => setActive(true)}
+          >
+            <Plus size={11} className="opacity-60" />
+            {label}
+          </button>
+        </td>
+      </tr>
+    );
+  }
+
+  return (
+    <tr className="border-t border-border-subtle bg-sunken/30">
+      <td colSpan={colSpan} className={cn("px-4", rowPy)}>
+        <Input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={label}
+          disabled={saving}
+          className="h-7 border-border-subtle bg-canvas text-sm focus-visible:ring-1"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); commit(); }
+            if (e.key === "Escape") { setActive(false); setValue(""); }
+          }}
+          onBlur={() => {
+            if (!value.trim()) { setActive(false); setValue(""); }
+          }}
+        />
+      </td>
+    </tr>
+  );
 }
 
 // ─── Milestone row ─────────────────────────────────────────────────────────────
@@ -173,6 +248,8 @@ function MilestoneRow({
   projectId,
   milestones,
   onDelete,
+  density,
+  onRowClick,
 }: {
   milestone: Milestone;
   wbs: string;
@@ -181,25 +258,29 @@ function MilestoneRow({
   projectId: string;
   milestones: Milestone[];
   onDelete: (id: string, name: string) => void;
+  density: Density;
+  onRowClick: (milestone: Milestone) => void;
 }) {
   const modal = useModal();
   const statusInfo = milestoneStatusBadge(milestone.status);
+  const rowPy = density === "compact" ? "py-1.5" : "py-2.5";
 
   return (
     <tr
-      className="group border-t border-border-subtle hover:bg-sunken/50 transition-colors"
+      className="group border-t border-border-subtle hover:bg-sunken/50 transition-colors duration-[200ms] cursor-pointer"
       role="row"
+      onClick={() => onRowClick(milestone)}
     >
       {/* WBS */}
-      <td className="w-14 py-2.5 pl-4 pr-2">
+      <td className={cn("w-14 pl-4 pr-2", rowPy)}>
         <span className="font-mono text-xs text-ink-muted">{wbs}</span>
       </td>
 
       {/* Expand / name */}
-      <td className="py-2.5 pr-3" colSpan={2}>
+      <td className={cn("pr-3", rowPy)} colSpan={2}>
         <div className="flex items-center gap-1.5">
           <button
-            onClick={onToggle}
+            onClick={(e) => { e.stopPropagation(); onToggle(); }}
             className="shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink"
             aria-label={isExpanded ? "Collapse" : "Expand"}
           >
@@ -211,26 +292,29 @@ function MilestoneRow({
       </td>
 
       {/* Dates */}
-      <td className="py-2.5 pr-4 text-xs text-ink-secondary">
+      <td className={cn("pr-4 text-xs text-ink-secondary", rowPy)}>
         {fmtDate(milestone.target_date)}
       </td>
 
       {/* Priority — not applicable for milestones */}
-      <td className="py-2.5 pr-4" />
+      <td className={cn("pr-4", rowPy)} />
 
       {/* Status */}
-      <td className="py-2.5 pr-4">
+      <td className={cn("pr-4", rowPy)}>
         <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
       </td>
 
       {/* Progress */}
-      <td className="py-2.5 pr-4">
+      <td className={cn("pr-4", rowPy)}>
         <ProgressBar pct={milestone.completion_pct} />
       </td>
 
       {/* Row actions */}
-      <td className="w-28 py-2.5 pr-4">
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <td className={cn("w-28 pr-4", rowPy)}>
+        <div
+          className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
           <Button
             variant="ghost"
             size="sm"
@@ -283,6 +367,8 @@ function TaskRow({
   projectId,
   milestones,
   onDelete,
+  density,
+  onRowClick,
 }: {
   task: Task;
   wbs: string;
@@ -290,23 +376,27 @@ function TaskRow({
   projectId: string;
   milestones: Milestone[];
   onDelete: (id: string, name: string) => void;
+  density: Density;
+  onRowClick: (task: Task) => void;
 }) {
   const modal = useModal();
   const statusInfo = taskStatusBadge(task.status_type);
   const prioInfo = priorityBadge(task.priority);
+  const rowPy = density === "compact" ? "py-1.5" : "py-2";
 
   return (
     <tr
-      className="group border-t border-border-subtle hover:bg-sunken/50 transition-colors"
+      className="group border-t border-border-subtle hover:bg-sunken/50 transition-colors duration-[200ms] cursor-pointer"
       role="row"
+      onClick={() => onRowClick(task)}
     >
       {/* WBS */}
-      <td className="w-14 py-2 pl-4 pr-2">
+      <td className={cn("w-14 pl-4 pr-2", rowPy)}>
         <span className="font-mono text-xs text-ink-muted">{wbs}</span>
       </td>
 
       {/* Tree connector + name */}
-      <td className="py-2 pr-1 w-5">
+      <td className={cn("pr-1 w-5", rowPy)}>
         <div className="relative flex h-full items-start justify-center">
           <div
             className={cn(
@@ -317,7 +407,7 @@ function TaskRow({
           <div className="relative mt-[10px] h-px w-2.5 bg-border-subtle" />
         </div>
       </td>
-      <td className="py-2 pr-3">
+      <td className={cn("pr-3", rowPy)}>
         <div className="flex flex-col gap-0.5">
           <span className="text-sm text-ink">{task.name}</span>
           {task.assignee_id && (
@@ -329,28 +419,31 @@ function TaskRow({
       </td>
 
       {/* Date range */}
-      <td className="py-2 pr-4 text-xs text-ink-secondary whitespace-nowrap">
+      <td className={cn("pr-4 text-xs text-ink-secondary whitespace-nowrap", rowPy)}>
         {fmtDateRange(task.start_date, task.due_date)}
       </td>
 
       {/* Priority */}
-      <td className="py-2 pr-4">
+      <td className={cn("pr-4", rowPy)}>
         <Badge tone={prioInfo.tone}>{prioInfo.label}</Badge>
       </td>
 
       {/* Status */}
-      <td className="py-2 pr-4">
+      <td className={cn("pr-4", rowPy)}>
         <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
       </td>
 
       {/* Progress */}
-      <td className="py-2 pr-4">
+      <td className={cn("pr-4", rowPy)}>
         <ProgressBar pct={task.completion_pct} />
       </td>
 
       {/* Row actions */}
-      <td className="w-28 py-2 pr-4">
-        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <td className={cn("w-28 pr-4", rowPy)}>
+        <div
+          className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
             onClick={() =>
               modal.open(
@@ -389,7 +482,11 @@ export function ActivityTable({
   isLocked,
 }: ActivityTableProps) {
   const modal = useModal();
+  const inspector = useInspector();
   const router = useRouter();
+
+  // Density toggle
+  const [density, setDensity] = useState<Density>("comfortable");
 
   // Default: all milestones expanded
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
@@ -404,6 +501,21 @@ export function ActivityTable({
       return next;
     });
   };
+
+  // Inspector openers
+  function openTaskInspector(task: Task) {
+    inspector.open(
+      <TaskDetailPanel task={task} milestones={sortedMilestones} />,
+      task.name
+    );
+  }
+
+  function openMilestoneInspector(milestone: Milestone) {
+    inspector.open(
+      <MilestoneDetailPanel milestone={milestone} />,
+      milestone.name
+    );
+  }
 
   // Confirm-delete handlers
   const confirmDeleteMilestone = async (id: string, name: string) => {
@@ -447,6 +559,9 @@ export function ActivityTable({
   const hasStandalone = standaloneTasks.length > 0;
   const isEmpty = !hasMilestones && !hasStandalone;
 
+  // Total column count (WBS + connector + name + date + priority + status + progress + actions = 8)
+  const TOTAL_COLS = 8;
+
   // ── Render rows ──────────────────────────────────────────────────────────
 
   const rows: React.ReactNode[] = [];
@@ -468,6 +583,8 @@ export function ActivityTable({
         projectId={projectId}
         milestones={sortedMilestones}
         onDelete={confirmDeleteMilestone}
+        density={density}
+        onRowClick={openMilestoneInspector}
       />
     );
 
@@ -482,9 +599,28 @@ export function ActivityTable({
             projectId={projectId}
             milestones={sortedMilestones}
             onDelete={confirmDeleteTask}
+            density={density}
+            onRowClick={openTaskInspector}
           />
         );
       });
+
+      // Inline quick-add task for this milestone
+      rows.push(
+        <QuickAddRow
+          key={`qa-task-${milestone.id}`}
+          label="+ Add task"
+          colSpan={TOTAL_COLS}
+          density={density}
+          onSubmit={async (name) => {
+            await apiPost(`/api/projects/${projectId}/tasks`, {
+              name,
+              milestone_id: milestone.id,
+            });
+            router.refresh();
+          }}
+        />
+      );
     }
   });
 
@@ -492,16 +628,17 @@ export function ActivityTable({
   if (hasStandalone) {
     const isExpanded = expandedIds.has("__standalone__");
     const standaloneWbs = String(sortedMilestones.length + 1);
+    const rowPy = density === "compact" ? "py-1.5" : "py-2.5";
 
     rows.push(
       <tr
         key="standalone-header"
         className="group border-t border-border-subtle hover:bg-sunken/50 transition-colors"
       >
-        <td className="w-14 py-2.5 pl-4 pr-2">
+        <td className={cn("w-14 pl-4 pr-2", rowPy)}>
           <span className="font-mono text-xs text-ink-muted">{standaloneWbs}</span>
         </td>
-        <td className="py-2.5 pr-3" colSpan={2}>
+        <td className={cn("pr-3", rowPy)} colSpan={2}>
           <div className="flex items-center gap-1.5">
             <button
               onClick={() => toggleExpand("__standalone__")}
@@ -535,9 +672,25 @@ export function ActivityTable({
             projectId={projectId}
             milestones={sortedMilestones}
             onDelete={confirmDeleteTask}
+            density={density}
+            onRowClick={openTaskInspector}
           />
         );
       });
+
+      // Inline quick-add for standalone tasks
+      rows.push(
+        <QuickAddRow
+          key="qa-task-standalone"
+          label="+ Add task"
+          colSpan={TOTAL_COLS}
+          density={density}
+          onSubmit={async (name) => {
+            await apiPost(`/api/projects/${projectId}/tasks`, { name });
+            router.refresh();
+          }}
+        />
+      );
     }
   }
 
@@ -548,11 +701,43 @@ export function ActivityTable({
       {/* Toolbar */}
       <div className="flex items-center gap-3">
         <h2 className="flex-1 text-base font-semibold text-ink">Activity</h2>
+
         {isLocked && (
           <Badge tone="warning" className="gap-1">
             Timeline locked
           </Badge>
         )}
+
+        {/* Density toggle */}
+        <div className="flex items-center rounded-md border border-border-subtle bg-surface p-0.5 gap-0.5">
+          <button
+            aria-label="Comfortable density"
+            title="Comfortable"
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded text-xs transition-colors duration-[200ms]",
+              density === "comfortable"
+                ? "bg-accent/10 text-accent"
+                : "text-ink-muted hover:text-ink hover:bg-sunken"
+            )}
+            onClick={() => setDensity("comfortable")}
+          >
+            <AlignJustify size={13} />
+          </button>
+          <button
+            aria-label="Compact density"
+            title="Compact"
+            className={cn(
+              "grid h-7 w-7 place-items-center rounded text-xs transition-colors duration-[200ms]",
+              density === "compact"
+                ? "bg-accent/10 text-accent"
+                : "text-ink-muted hover:text-ink hover:bg-sunken"
+            )}
+            onClick={() => setDensity("compact")}
+          >
+            <AlignCenter size={13} />
+          </button>
+        </div>
+
         <Button
           variant="secondary"
           size="sm"
@@ -630,7 +815,19 @@ export function ActivityTable({
                 <th className="w-28 py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted" />
               </tr>
             </thead>
-            <tbody>{rows}</tbody>
+            <tbody>
+              {rows}
+              {/* Bottom-level "Add milestone" ghost row */}
+              <QuickAddRow
+                label="+ Add milestone"
+                colSpan={TOTAL_COLS}
+                density={density}
+                onSubmit={async (name) => {
+                  await apiPost(`/api/projects/${projectId}/milestones`, { name });
+                  router.refresh();
+                }}
+              />
+            </tbody>
           </table>
         </div>
       )}

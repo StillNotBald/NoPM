@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -56,6 +56,9 @@ export function TaskForm({
 
   const [name, setName] = useState(task?.name ?? "");
   const [description, setDescription] = useState(task?.description ?? "");
+  const [showDescription, setShowDescription] = useState(
+    !!(task?.description && task.description.trim().length > 0)
+  );
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>(
     task?.milestone_id ?? milestoneId ?? ""
   );
@@ -112,38 +115,27 @@ export function TaskForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
         </div>
       )}
 
-      {/* Name */}
+      {/* Title — prominent */}
       <div>
-        <FieldLabel required>Task Name</FieldLabel>
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Implement login flow"
+          placeholder="Task name"
           required
+          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
         />
         <FieldError message={fieldErrors.name} />
       </div>
 
-      {/* Description */}
-      <div>
-        <FieldLabel>Description</FieldLabel>
-        <TextareaInput
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Optional details…"
-          rows={3}
-        />
-        <FieldError message={fieldErrors.description} />
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      {/* Compact properties grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
         {/* Milestone */}
         <div>
           <FieldLabel>Milestone</FieldLabel>
@@ -176,7 +168,7 @@ export function TaskForm({
           <FieldError message={fieldErrors.priority} />
         </div>
 
-        {/* Status type */}
+        {/* Status */}
         <div>
           <FieldLabel>Status</FieldLabel>
           <SelectInput
@@ -202,6 +194,7 @@ export function TaskForm({
             value={completionPct}
             onChange={(e) => setCompletionPct(Number(e.target.value))}
             placeholder="0"
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.completion_pct} />
         </div>
@@ -213,6 +206,7 @@ export function TaskForm({
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.start_date} />
         </div>
@@ -224,13 +218,36 @@ export function TaskForm({
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.due_date} />
         </div>
       </div>
 
+      {/* Description — progressive disclosure */}
+      {showDescription ? (
+        <div>
+          <FieldLabel>Description</FieldLabel>
+          <TextareaInput
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Optional details…"
+            rows={3}
+          />
+          <FieldError message={fieldErrors.description} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowDescription(true)}
+          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+        >
+          + Add description
+        </button>
+      )}
+
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 border-t border-border-subtle pt-4">
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
         <Button type="button" variant="ghost" onClick={modal.close} disabled={saving}>
           Cancel
         </Button>

@@ -1,0 +1,359 @@
+"use client";
+
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type KeyboardEvent,
+} from "react";
+import { useRouter } from "next/navigation";
+import {
+  LayoutDashboard,
+  FolderKanban,
+  AlertTriangle,
+  CircleDot,
+  Zap,
+  Users,
+  DollarSign,
+  CheckSquare,
+  ShieldCheck,
+  KeyRound,
+  Plus,
+  Search,
+} from "lucide-react";
+import { cn } from "@/lib/cn";
+import { useModal } from "@/components/ui/modal";
+import { ProjectForm } from "@/components/forms/project-form";
+
+// ── Command definitions ───────────────────────────────────────────────────────
+
+type CommandItem = {
+  id: string;
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  action: () => void;
+};
+
+// ── Fuzzy/contains match ──────────────────────────────────────────────────────
+function matches(label: string, query: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  const l = label.toLowerCase();
+  // simple subsequence-style contains
+  return l.includes(q);
+}
+
+// ── CommandPalette (internal panel) ──────────────────────────────────────────
+
+function CommandPalettePanel({ onClose }: { onClose: () => void }) {
+  const router = useRouter();
+  const modal = useModal();
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  // Build commands inside the component so hooks are in scope
+  const allCommands: CommandItem[] = [
+    {
+      id: "new-project",
+      icon: <Plus size={16} />,
+      label: "New Project",
+      hint: "Create",
+      action: () => {
+        onClose();
+        modal.open(<ProjectForm mode="create" scaffold />, {
+          title: "New Project",
+          size: "lg",
+        });
+      },
+    },
+    {
+      id: "nav-dashboard",
+      icon: <LayoutDashboard size={16} />,
+      label: "Dashboard",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/dashboard");
+      },
+    },
+    {
+      id: "nav-projects",
+      icon: <FolderKanban size={16} />,
+      label: "Projects",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/projects");
+      },
+    },
+    {
+      id: "nav-risks",
+      icon: <AlertTriangle size={16} />,
+      label: "Risks",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/risks");
+      },
+    },
+    {
+      id: "nav-issues",
+      icon: <CircleDot size={16} />,
+      label: "Issues",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/issues");
+      },
+    },
+    {
+      id: "nav-clashes",
+      icon: <Zap size={16} />,
+      label: "Clashes",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/clashes");
+      },
+    },
+    {
+      id: "nav-resources",
+      icon: <Users size={16} />,
+      label: "Resources",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/resources");
+      },
+    },
+    {
+      id: "nav-budget",
+      icon: <DollarSign size={16} />,
+      label: "Budget",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/budget");
+      },
+    },
+    {
+      id: "nav-approvals",
+      icon: <CheckSquare size={16} />,
+      label: "Approvals",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/approvals");
+      },
+    },
+    {
+      id: "nav-trust",
+      icon: <ShieldCheck size={16} />,
+      label: "Trust Center",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/trust");
+      },
+    },
+    {
+      id: "nav-tokens",
+      icon: <KeyRound size={16} />,
+      label: "Tokens",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/tokens");
+      },
+    },
+  ];
+
+  const filtered = allCommands.filter((c) => matches(c.label, query));
+
+  // Reset active index when filter changes
+  useEffect(() => {
+    setActiveIdx(0);
+  }, [query]);
+
+  // Autofocus on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Scroll active item into view
+  useEffect(() => {
+    const item = listRef.current?.children[activeIdx] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
+  function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => (i + 1) % Math.max(filtered.length, 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => (i - 1 + Math.max(filtered.length, 1)) % Math.max(filtered.length, 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      filtered[activeIdx]?.action();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onClose();
+    }
+  }
+
+  return (
+    <div className="flex flex-col overflow-hidden">
+      {/* Search input */}
+      <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
+        <Search size={15} className="shrink-0 text-ink-muted" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search commands…"
+          className="flex-1 bg-transparent text-sm text-ink placeholder:text-ink-muted focus:outline-none"
+        />
+        {query && (
+          <button
+            onClick={() => setQuery("")}
+            className="shrink-0 text-xs text-ink-muted hover:text-ink"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {/* Results list */}
+      <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
+        {filtered.length === 0 ? (
+          <li className="px-4 py-6 text-center text-sm text-ink-muted">
+            No results for &ldquo;{query}&rdquo;
+          </li>
+        ) : (
+          filtered.map((cmd, idx) => (
+            <li key={cmd.id}>
+              <button
+                onMouseEnter={() => setActiveIdx(idx)}
+                onClick={cmd.action}
+                className={cn(
+                  "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100",
+                  idx === activeIdx
+                    ? "bg-accent/10 text-ink"
+                    : "text-ink hover:bg-sunken",
+                )}
+              >
+                <span
+                  className={cn(
+                    "shrink-0",
+                    idx === activeIdx ? "text-accent" : "text-ink-secondary",
+                  )}
+                >
+                  {cmd.icon}
+                </span>
+                <span className="flex-1 text-sm font-medium">{cmd.label}</span>
+                <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
+                  {cmd.hint}
+                </span>
+              </button>
+            </li>
+          ))
+        )}
+      </ul>
+
+      {/* Footer hint */}
+      <div className="flex items-center gap-4 border-t border-border-subtle px-4 py-2">
+        <span className="flex items-center gap-1 text-[11px] text-ink-muted">
+          <kbd className="rounded bg-sunken px-1 py-0.5 font-mono text-[10px]">↑↓</kbd>
+          navigate
+        </span>
+        <span className="flex items-center gap-1 text-[11px] text-ink-muted">
+          <kbd className="rounded bg-sunken px-1 py-0.5 font-mono text-[10px]">↵</kbd>
+          run
+        </span>
+        <span className="flex items-center gap-1 text-[11px] text-ink-muted">
+          <kbd className="rounded bg-sunken px-1 py-0.5 font-mono text-[10px]">Esc</kbd>
+          close
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── CommandPalette (the mounted singleton) ────────────────────────────────────
+
+type CommandPaletteProps = {
+  /** Controlled open state (passed from app-shell) */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
+
+export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+  const close = useCallback(() => onOpenChange(false), [onOpenChange]);
+
+  // Global Cmd/Ctrl-K listener — toggles the palette from anywhere in the app
+  useEffect(() => {
+    function handleKeyDown(e: globalThis.KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        onOpenChange(!open);
+      }
+      // Esc closes when open; let the panel's own handler handle it too
+      if (e.key === "Escape" && open) {
+        onOpenChange(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onOpenChange]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/20 backdrop-blur-sm"
+        onClick={close}
+      />
+
+      {/* Panel */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command palette"
+        className={cn(
+          "relative z-10 w-full max-w-lg overflow-hidden",
+          "rounded-xl border border-border-subtle bg-surface shadow-lg",
+          "animate-in fade-in slide-in-from-top-2 duration-200",
+        )}
+      >
+        <CommandPalettePanel onClose={close} />
+      </div>
+    </div>
+  );
+}
+
+// ── CmdK trigger button (rendered in the header) ──────────────────────────────
+
+export function CmdKTrigger({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Open command palette (⌘K)"
+      className={cn(
+        "hidden items-center gap-1.5 rounded-md border border-border-subtle",
+        "bg-sunken px-2 py-1 text-xs text-ink-muted transition-colors duration-150",
+        "hover:border-border-strong hover:text-ink sm:flex",
+      )}
+    >
+      <Search size={11} />
+      <span>⌘K</span>
+    </button>
+  );
+}

@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
-import { useMemo } from "react";
-import { Diamond, Calendar } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight, Lock, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 
@@ -41,324 +41,662 @@ interface GanttChartProps {
   isLocked: boolean;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Constants ──────────────────────────────────────────────────────────────────
 
-type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
+const LEFT_COL_W = 240; // px, collapsible
+const ROW_H_MS = 44;    // milestone row height px
+const ROW_H_TASK = 36;  // task row height px
+const HEADER_H = 56;    // two-row header total height
 
-function milestoneStatusInfo(status: Milestone["status"]): {
-  tone: BadgeTone;
-  label: string;
-} {
-  switch (status) {
-    case "completed": return { tone: "success", label: "Done" };
-    case "on_track":  return { tone: "accent",  label: "On track" };
-    case "at_risk":   return { tone: "warning", label: "At risk" };
-    case "delayed":   return { tone: "danger",  label: "Delayed" };
-    default:          return { tone: "neutral", label: "Not started" };
-  }
-}
-
-function taskStatusInfo(st: Task["status_type"]): { tone: BadgeTone; label: string } {
-  switch (st) {
-    case "completed": return { tone: "success", label: "Done" };
-    case "started":   return { tone: "accent",  label: "Active" };
-    case "canceled":  return { tone: "neutral", label: "Canceled" };
-    case "backlog":   return { tone: "neutral", label: "Backlog" };
-    default:          return { tone: "neutral", label: "To do" };
-  }
-}
-
-function barColor(status_type: Task["status_type"]): string {
-  switch (status_type) {
-    case "completed": return "bg-success";
-    case "started":   return "bg-accent";
-    case "canceled":  return "bg-ink-muted";
-    default:          return "bg-border-subtle";
-  }
-}
-
-function msBarColor(status: Milestone["status"]): string {
-  switch (status) {
-    case "completed": return "bg-success";
-    case "on_track":  return "bg-accent";
-    case "at_risk":   return "bg-warning";
-    case "delayed":   return "bg-danger";
-    default:          return "bg-border-subtle";
-  }
-}
+// Day widths per view
+const DAY_W: Record<"week" | "month", number> = {
+  week: 36,
+  month: 16,
+};
 
 // ── Date utilities ────────────────────────────────────────────────────────────
 
-function toDay(d: string): number {
-  return Math.floor(new Date(d).getTime() / 86_400_000);
+function startOfDay(iso: string): Date {
+  const d = new Date(iso);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function toDay(d: Date | string): number {
+  const dt = typeof d === "string" ? startOfDay(d) : d;
+  return Math.floor(dt.getTime() / 86_400_000);
+}
+
+function addDays(base: Date, n: number): Date {
+  const d = new Date(base);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().split("T")[0];
 }
 
 function fmtShort(d: string | null): string {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return startOfDay(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function monthLabel(day: number): string {
-  return new Date(day * 86_400_000).toLocaleDateString("en-US", {
-    month: "short",
-    year: "2-digit",
-  });
+/** Iterate calendar days from startDay number inclusive. */
+function iterDays(startDay: number, count: number): Date[] {
+  const base = new Date(startDay * 86_400_000);
+  return Array.from({ length: count }, (_, i) => addDays(base, i));
+}
+
+// ── Bar colour families ───────────────────────────────────────────────────────
+
+/** Returns { track, fill, ghost } Tailwind classes. */
+function taskBarClasses(status_type: Task["status_type"]): {
+  track: string;   // outer bar background (lighter)
+  fill: string;    // inner progress fill (stronger)
+  ghost: string;   // baseline ghost
+} {
+  switch (status_type) {
+    case "completed":
+      return {
+        track: "bg-accent/20",
+        fill:  "bg-accent",
+        ghost: "bg-border-subtle",
+      };
+    case "started":
+      return {
+        track: "bg-success/20",
+        fill:  "bg-success",
+        ghost: "bg-border-subtle",
+      };
+    case "canceled":
+      return {
+        track: "bg-ink-muted/15",
+        fill:  "bg-ink-muted/50",
+        ghost: "bg-border-subtle",
+      };
+    case "backlog":
+    case "unstarted":
+    default:
+      return {
+        track: "bg-[var(--color-border-subtle)]",
+        fill:  "bg-ink-muted/60",
+        ghost: "bg-border-subtle",
+      };
+  }
+}
+
+function milestoneTrackClass(status: Milestone["status"]): string {
+  switch (status) {
+    case "completed": return "bg-accent";
+    case "on_track":  return "bg-success";
+    case "at_risk":   return "bg-warning";
+    case "delayed":   return "bg-danger";
+    default:          return "bg-ink-muted/40";
+  }
+}
+
+// ── Diamond SVG ──────────────────────────────────────────────────────────────
+
+function DiamondIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      width="11"
+      height="11"
+      viewBox="0 0 11 11"
+      fill="currentColor"
+      className={className}
+    >
+      <path d="M5.5 0L11 5.5L5.5 11L0 5.5L5.5 0Z" />
+    </svg>
+  );
 }
 
 // ── GanttChart ─────────────────────────────────────────────────────────────────
 
-const COL_W = 28; // px per day column
-
 export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
-  // Gather all dates to compute timeline bounds
-  const dates = [
-    ...milestones.flatMap((m) => [m.target_date]),
-    ...tasks.flatMap((t) => [t.start_date, t.due_date]),
-  ].filter(Boolean) as string[];
+  const [view, setView] = useState<"week" | "month">("month");
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const { minDay, maxDay, totalDays, monthMarkers } = useMemo(() => {
-    if (dates.length === 0) {
-      const today = toDay(new Date().toISOString());
-      return { minDay: today - 7, maxDay: today + 60, totalDays: 67, monthMarkers: [] as { label: string; col: number }[] };
+  const dayW = DAY_W[view];
+
+  // ── Compute date bounds ────────────────────────────────────────────────────
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayDay = toDay(today);
+
+  const { minDay, maxDay, totalDays } = useMemo(() => {
+    const allDates = [
+      ...milestones.map((m) => m.target_date),
+      ...tasks.flatMap((t) => [t.start_date, t.due_date]),
+    ].filter(Boolean) as string[];
+
+    if (allDates.length === 0) {
+      return { minDay: todayDay - 14, maxDay: todayDay + 60, totalDays: 75 };
     }
-    const days = dates.map(toDay);
-    const raw_min = Math.min(...days);
-    const raw_max = Math.max(...days);
-    const minDay = raw_min - 7;
-    const maxDay = raw_max + 14;
-    const totalDays = maxDay - minDay + 1;
 
-    // Month boundary markers
-    const markers: { label: string; col: number }[] = [];
-    let cur = minDay;
-    let prevMonth = -1;
-    while (cur <= maxDay) {
-      const d = new Date(cur * 86_400_000);
+    const days = allDates.map((d) => toDay(d));
+    const rawMin = Math.min(...days);
+    const rawMax = Math.max(...days);
+    // Pad a bit
+    const minDay = rawMin - 14;
+    const maxDay = rawMax + 28;
+    return { minDay, maxDay, totalDays: maxDay - minDay + 1 };
+  }, [milestones, tasks, todayDay]);
+
+  // ── Header ticks ──────────────────────────────────────────────────────────
+
+  interface MonthTick { label: string; col: number; isMajor: true }
+  interface WeekTick  { col: number; isMajor: false }
+  type Tick = MonthTick | WeekTick;
+
+  const ticks = useMemo((): Tick[] => {
+    const result: Tick[] = [];
+    const days = iterDays(minDay, totalDays);
+    let lastMonth = -1;
+    days.forEach((d, i) => {
       const month = d.getMonth();
-      if (month !== prevMonth) {
-        markers.push({ label: monthLabel(cur), col: cur - minDay });
-        prevMonth = month;
+      if (month !== lastMonth) {
+        result.push({
+          label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+          col: i,
+          isMajor: true,
+        });
+        lastMonth = month;
       }
-      cur++;
+      // Week boundary (Monday)
+      if (d.getDay() === 1 && i > 0) {
+        result.push({ col: i, isMajor: false });
+      }
+    });
+    return result;
+  }, [minDay, totalDays]);
+
+  // Sub-header labels (weeks in month view, day numbers in week view)
+  const subLabels = useMemo(() => {
+    const result: { label: string; col: number }[] = [];
+    const days = iterDays(minDay, totalDays);
+    if (view === "month") {
+      // Show week-start dates as sub labels
+      days.forEach((d, i) => {
+        if (d.getDay() === 1 || i === 0) {
+          result.push({
+            label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            col: i,
+          });
+        }
+      });
+    } else {
+      // Week view: show day initials
+      days.forEach((d, i) => {
+        result.push({
+          label: ["S", "M", "T", "W", "T", "F", "S"][d.getDay()],
+          col: i,
+        });
+      });
     }
+    return result;
+  }, [minDay, totalDays, view]);
 
-    return { minDay, maxDay, totalDays, monthMarkers: markers };
-  }, [dates.join(",")]);
+  const totalPx = totalDays * dayW;
+  const todayOffset = (todayDay - minDay) * dayW;
+  const todayVisible = todayDay >= minDay && todayDay <= maxDay;
 
-  const sortedMilestones = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
+  // ── Bar layout helpers ─────────────────────────────────────────────────────
 
-  const totalWidth = totalDays * COL_W;
-
-  // Today marker
-  const todayCol = toDay(new Date().toISOString()) - minDay;
-
-  function barProps(start: string | null, end: string | null) {
-    const s = start ? toDay(start) - minDay : null;
-    const e = end ? toDay(end) - minDay : null;
-    if (s === null && e === null) return null;
-    const left = (s ?? e!) * COL_W;
-    const right = (e ?? s!) * COL_W + COL_W;
-    return { left, width: Math.max(right - left, COL_W) };
+  function barLayout(start: string | null, end: string | null): { left: number; width: number } | null {
+    if (!start && !end) return null;
+    const s = start ? (toDay(start) - minDay) * dayW : null;
+    const e = end   ? (toDay(end)   - minDay) * dayW + dayW : null;
+    const left  = s ?? e!;
+    const right = e ?? (s! + dayW);
+    return { left, width: Math.max(right - left, dayW) };
   }
+
+  // ── Milestone bracket (span across its tasks) ──────────────────────────────
+
+  function msBracketLayout(ms: Milestone): { left: number; width: number } | null {
+    const msTasks = tasks.filter((t) => t.milestone_id === ms.id);
+    const dates = msTasks.flatMap((t) => [t.start_date, t.due_date]).filter(Boolean) as string[];
+    if (ms.target_date) dates.push(ms.target_date);
+    if (dates.length < 2) return null;
+    const days = dates.map(toDay);
+    const left  = (Math.min(...days) - minDay) * dayW;
+    const right = (Math.max(...days) - minDay) * dayW + dayW;
+    return { left, width: Math.max(right - left, dayW) };
+  }
+
+  // ── Sorted rows ──────────────────────────────────────────────────────────
+
+  const sortedMs = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
+
+  // ── Empty state ──────────────────────────────────────────────────────────
 
   if (milestones.length === 0 && tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-border-subtle bg-surface py-16 text-center">
-        <Calendar size={32} className="text-ink-muted opacity-40" />
-        <p className="text-sm text-ink-secondary">No milestones or tasks to display.</p>
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-border-subtle bg-surface py-20 text-center">
+        <Calendar size={32} className="text-ink-muted opacity-30" />
+        <p className="text-sm text-ink-secondary">No milestones or tasks yet.</p>
       </div>
     );
   }
 
-  return (
-    <section className="space-y-3">
-      {isLocked && (
-        <div className="flex items-center gap-2">
-          <Badge tone="warning">Timeline locked — read only</Badge>
-        </div>
-      )}
+  // ── Effective left column width ───────────────────────────────────────────
 
-      {/* Scrollable Gantt */}
-      <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface">
-        <div className="flex min-w-max">
-          {/* Left label column (sticky) */}
-          <div className="sticky left-0 z-10 bg-surface border-r border-border-subtle">
-            {/* Header spacer */}
-            <div className="h-10 border-b border-border-subtle px-4 flex items-center">
-              <span className="text-xs font-medium uppercase tracking-wide text-ink-muted">Name</span>
+  const leftW = leftCollapsed ? 40 : LEFT_COL_W;
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          {isLocked && (
+            <Badge tone="neutral" className="gap-1">
+              <Lock size={10} />
+              Locked baseline
+            </Badge>
+          )}
+        </div>
+        {/* View toggle */}
+        <div className="flex items-center rounded-lg border border-border-subtle bg-sunken p-0.5 gap-0.5">
+          {(["week", "month"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-medium transition-all duration-200",
+                view === v
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-secondary hover:text-ink"
+              )}
+            >
+              {v === "week" ? "Week" : "Month"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Gantt card */}
+      <div className="rounded-xl border border-border-subtle bg-surface shadow-sm overflow-hidden">
+        <div className="flex">
+
+          {/* ── Left sticky label column ─────────────────────────────────── */}
+          <div
+            className="shrink-0 sticky left-0 z-20 bg-surface border-r border-border-subtle flex flex-col transition-all duration-200"
+            style={{ width: leftW }}
+          >
+            {/* Header cell with collapse toggle */}
+            <div
+              className="flex items-center justify-between border-b border-border-subtle bg-sunken/60 px-3"
+              style={{ height: HEADER_H }}
+            >
+              {!leftCollapsed && (
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted select-none">
+                  Name
+                </span>
+              )}
+              <button
+                onClick={() => setLeftCollapsed((c) => !c)}
+                className="ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150"
+                title={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {leftCollapsed
+                  ? <ChevronRight size={13} />
+                  : <ChevronLeft size={13} />
+                }
+              </button>
             </div>
-            {/* Milestone + task rows */}
-            {sortedMilestones.map((ms) => {
+
+            {/* Milestone + task label rows */}
+            {sortedMs.map((ms) => {
               const msTasks = tasks
                 .filter((t) => t.milestone_id === ms.id)
                 .sort((a, b) => a.sort_order - b.sort_order);
+
               return (
                 <div key={ms.id}>
-                  {/* Milestone label */}
-                  <div className="flex items-center gap-2 border-b border-border-subtle px-4 h-10">
-                    <Diamond size={12} className="shrink-0 text-accent" />
-                    <span className="text-sm font-medium text-ink truncate max-w-[200px]">{ms.name}</span>
-                    <Badge tone={milestoneStatusInfo(ms.status).tone} className="ml-auto shrink-0">
-                      {milestoneStatusInfo(ms.status).label}
-                    </Badge>
+                  {/* Milestone label row */}
+                  <div
+                    className="flex items-center gap-2 border-b border-border-subtle px-3"
+                    style={{ height: ROW_H_MS }}
+                  >
+                    <DiamondIcon className={cn("shrink-0", milestoneTrackClass(ms.status))} />
+                    {!leftCollapsed && (
+                      <span className="text-[13px] font-semibold text-ink truncate">
+                        {ms.name}
+                      </span>
+                    )}
                   </div>
-                  {/* Task labels */}
+
+                  {/* Task label rows */}
                   {msTasks.map((t) => (
-                    <div key={t.id} className="flex items-center gap-2 border-b border-border-subtle px-4 h-9 pl-8">
-                      <span className="text-xs text-ink-secondary truncate max-w-[200px]">{t.name}</span>
-                      <Badge tone={taskStatusInfo(t.status_type).tone} className="ml-auto shrink-0 text-[10px]">
-                        {taskStatusInfo(t.status_type).label}
-                      </Badge>
+                    <div
+                      key={t.id}
+                      className="flex items-center gap-2 border-b border-border-subtle pl-6 pr-3"
+                      style={{ height: ROW_H_TASK }}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full bg-border-strong shrink-0" />
+                      {!leftCollapsed && (
+                        <span className="text-[12px] text-ink-secondary truncate">
+                          {t.name}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
               );
             })}
+
             {/* Standalone tasks */}
             {tasks
               .filter((t) => !t.milestone_id)
               .sort((a, b) => a.sort_order - b.sort_order)
               .map((t) => (
-                <div key={t.id} className="flex items-center gap-2 border-b border-border-subtle px-4 h-9">
-                  <span className="text-xs text-ink-secondary truncate max-w-[200px]">{t.name}</span>
-                  <Badge tone={taskStatusInfo(t.status_type).tone} className="ml-auto shrink-0 text-[10px]">
-                    {taskStatusInfo(t.status_type).label}
-                  </Badge>
+                <div
+                  key={t.id}
+                  className="flex items-center gap-2 border-b border-border-subtle px-3"
+                  style={{ height: ROW_H_TASK }}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-border-strong shrink-0" />
+                  {!leftCollapsed && (
+                    <span className="text-[12px] text-ink-secondary truncate">
+                      {t.name}
+                    </span>
+                  )}
                 </div>
               ))}
           </div>
 
-          {/* Right timeline area */}
-          <div className="relative" style={{ width: totalWidth }}>
-            {/* Month header */}
-            <div
-              className="relative h-10 border-b border-border-subtle bg-sunken/50"
-              style={{ width: totalWidth }}
-            >
-              {monthMarkers.map((m) => (
-                <div
-                  key={`${m.label}-${m.col}`}
-                  className="absolute top-0 h-full flex items-center px-2"
-                  style={{ left: m.col * COL_W }}
-                >
-                  <span className="text-xs font-medium text-ink-muted whitespace-nowrap">{m.label}</span>
-                  <div className="absolute left-0 top-0 h-full w-px bg-border-subtle" />
-                </div>
-              ))}
-              {/* Today line header */}
-              {todayCol >= 0 && todayCol <= totalDays && (
-                <div
-                  className="absolute top-0 h-full w-px bg-accent/50"
-                  style={{ left: todayCol * COL_W }}
-                />
-              )}
-            </div>
+          {/* ── Right scrollable timeline ─────────────────────────────────── */}
+          <div
+            ref={scrollRef}
+            className="overflow-x-auto flex-1 relative"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div style={{ width: totalPx, position: "relative", minWidth: totalPx }}>
 
-            {/* Rows */}
-            {sortedMilestones.map((ms) => {
-              const msTasks = tasks
-                .filter((t) => t.milestone_id === ms.id)
-                .sort((a, b) => a.sort_order - b.sort_order);
-
-              const msBp = ms.target_date
-                ? { left: (toDay(ms.target_date) - minDay) * COL_W, width: COL_W * 2 }
-                : null;
-
-              return (
-                <div key={ms.id}>
-                  {/* Milestone bar row */}
-                  <div className="relative h-10 border-b border-border-subtle" style={{ width: totalWidth }}>
-                    {todayCol >= 0 && todayCol <= totalDays && (
+              {/* ── Two-row sticky header ──────────────────────────────────── */}
+              <div
+                className="sticky top-0 z-10 bg-sunken/80 backdrop-blur-sm border-b border-border-subtle"
+                style={{ height: HEADER_H, width: totalPx }}
+              >
+                {/* Row 1: month labels */}
+                <div className="relative" style={{ height: HEADER_H / 2 }}>
+                  {ticks.filter((t) => t.isMajor).map((t) => (
+                    <div
+                      key={(t as MonthTick).label + t.col}
+                      className="absolute top-0 bottom-0 flex items-center px-2 pointer-events-none"
+                      style={{ left: t.col * dayW }}
+                    >
+                      {/* Strong month gridline */}
                       <div
-                        className="absolute top-0 h-full w-px bg-accent/20"
-                        style={{ left: todayCol * COL_W }}
+                        className="absolute left-0 top-0 bottom-0 w-px bg-border-subtle"
+                        style={{ opacity: 0.6 }}
                       />
-                    )}
-                    {msBp && (
-                      <div
-                        className={cn(
-                          "absolute top-1/2 -translate-y-1/2 h-5 rounded flex items-center px-2",
-                          msBarColor(ms.status),
-                          "opacity-90"
-                        )}
-                        style={{ left: msBp.left, width: msBp.width }}
-                        title={`Target: ${fmtShort(ms.target_date)}`}
-                      >
-                        <Diamond size={10} className="text-white shrink-0" />
+                      <span className="text-[11px] font-semibold text-ink-secondary whitespace-nowrap select-none">
+                        {(t as MonthTick).label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Row 2: sub-labels (week starts in month view / day initials in week view) */}
+                <div
+                  className="relative border-t border-border-subtle/40"
+                  style={{ height: HEADER_H / 2 }}
+                >
+                  {subLabels.map((sl, i) => (
+                    <div
+                      key={`${sl.col}-${i}`}
+                      className="absolute top-0 bottom-0 flex items-center pointer-events-none"
+                      style={{
+                        left: sl.col * dayW,
+                        width: view === "week" ? dayW : undefined,
+                        justifyContent: view === "week" ? "center" : "flex-start",
+                        paddingLeft: view === "month" ? 4 : 0,
+                      }}
+                    >
+                      <span className="text-[10px] text-ink-muted whitespace-nowrap select-none">
+                        {sl.label}
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* Today pill in header */}
+                  {todayVisible && (
+                    <div
+                      className="absolute top-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none"
+                      style={{ left: todayOffset }}
+                    >
+                      <div className="rounded-full bg-accent px-1.5 py-0.5">
+                        <span className="text-[9px] font-bold text-white whitespace-nowrap select-none">
+                          Today
+                        </span>
                       </div>
-                    )}
-                  </div>
-                  {/* Task bar rows */}
-                  {msTasks.map((t) => {
-                    const bp = barProps(t.start_date, t.due_date);
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Background gridlines ──────────────────────────────────── */}
+              <div
+                className="absolute inset-x-0 pointer-events-none"
+                style={{ top: HEADER_H, bottom: 0 }}
+              >
+                {/* Month strong lines */}
+                {ticks.filter((t) => t.isMajor).map((t) => (
+                  <div
+                    key={`grid-major-${t.col}`}
+                    className="absolute top-0 bottom-0 w-px bg-border-subtle"
+                    style={{ left: t.col * dayW, opacity: 0.5 }}
+                  />
+                ))}
+                {/* Week faint lines */}
+                {ticks.filter((t) => !t.isMajor).map((t, i) => (
+                  <div
+                    key={`grid-minor-${i}`}
+                    className="absolute top-0 bottom-0 w-px bg-border-subtle"
+                    style={{ left: t.col * dayW, opacity: 0.25 }}
+                  />
+                ))}
+                {/* Today line */}
+                {todayVisible && (
+                  <div
+                    className="absolute top-0 bottom-0 w-px bg-accent"
+                    style={{ left: todayOffset, opacity: 0.6 }}
+                  />
+                )}
+              </div>
+
+              {/* ── Row content ───────────────────────────────────────────── */}
+              <div style={{ position: "relative" }}>
+                {sortedMs.map((ms) => {
+                  const msTasks = tasks
+                    .filter((t) => t.milestone_id === ms.id)
+                    .sort((a, b) => a.sort_order - b.sort_order);
+
+                  const diamondLeft = ms.target_date
+                    ? (toDay(ms.target_date) - minDay) * dayW + dayW / 2
+                    : null;
+
+                  const bracket = msBracketLayout(ms);
+
+                  return (
+                    <div key={ms.id}>
+                      {/* Milestone row */}
+                      <div
+                        className="relative border-b border-border-subtle"
+                        style={{ height: ROW_H_MS, width: totalPx }}
+                      >
+                        {/* Faint bracket across tasks span */}
+                        {bracket && (
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 rounded-sm"
+                            style={{
+                              left:   bracket.left,
+                              width:  bracket.width,
+                              height: 2,
+                              background: "var(--color-border-strong)",
+                              opacity: 0.35,
+                            }}
+                          />
+                        )}
+
+                        {/* Diamond at target_date */}
+                        {diamondLeft !== null && (
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center"
+                            style={{ left: diamondLeft }}
+                            title={`Target: ${fmtShort(ms.target_date)}`}
+                          >
+                            <DiamondIcon
+                              className={cn("w-3.5 h-3.5", milestoneTrackClass(ms.status))}
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Task rows */}
+                      {msTasks.map((t) => {
+                        const bp = barLayout(t.start_date, t.due_date);
+                        const cls = taskBarClasses(t.status_type);
+                        const barPx = bp?.width ?? 0;
+                        const showPct = barPx >= 32;
+
+                        return (
+                          <div
+                            key={t.id}
+                            className="relative border-b border-border-subtle"
+                            style={{ height: ROW_H_TASK, width: totalPx }}
+                          >
+                            {bp && (
+                              <>
+                                {/* Locked ghost bar */}
+                                {isLocked && (
+                                  <div
+                                    className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full opacity-30"
+                                    style={{
+                                      left:       bp.left + 1,
+                                      width:      bp.width - 2,
+                                      background: "var(--color-border-strong)",
+                                    }}
+                                  />
+                                )}
+
+                                {/* Track bar */}
+                                <div
+                                  className={cn(
+                                    "absolute top-1/2 -translate-y-1/2 h-5 rounded-full overflow-hidden flex items-center",
+                                    cls.track
+                                  )}
+                                  style={{ left: bp.left, width: bp.width }}
+                                  title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}`}
+                                >
+                                  {/* Progress fill */}
+                                  <div
+                                    className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
+                                    style={{ width: `${Math.min(t.completion_pct, 100)}%` }}
+                                  />
+                                  {/* % label */}
+                                  {showPct && t.completion_pct > 0 && (
+                                    <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold text-white/80 select-none pointer-events-none">
+                                      {t.completion_pct}%
+                                    </span>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+
+                {/* Standalone tasks */}
+                {tasks
+                  .filter((t) => !t.milestone_id)
+                  .sort((a, b) => a.sort_order - b.sort_order)
+                  .map((t) => {
+                    const bp = barLayout(t.start_date, t.due_date);
+                    const cls = taskBarClasses(t.status_type);
+                    const barPx = bp?.width ?? 0;
+                    const showPct = barPx >= 32;
+
                     return (
                       <div
                         key={t.id}
-                        className="relative h-9 border-b border-border-subtle"
-                        style={{ width: totalWidth }}
+                        className="relative border-b border-border-subtle"
+                        style={{ height: ROW_H_TASK, width: totalPx }}
                       >
-                        {todayCol >= 0 && todayCol <= totalDays && (
-                          <div
-                            className="absolute top-0 h-full w-px bg-accent/20"
-                            style={{ left: todayCol * COL_W }}
-                          />
-                        )}
                         {bp && (
-                          <div
-                            className={cn(
-                              "absolute top-1/2 -translate-y-1/2 h-4 rounded-full",
-                              barColor(t.status_type),
-                              "opacity-80"
+                          <>
+                            {isLocked && (
+                              <div
+                                className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full opacity-30"
+                                style={{
+                                  left:       bp.left + 1,
+                                  width:      bp.width - 2,
+                                  background: "var(--color-border-strong)",
+                                }}
+                              />
                             )}
-                            style={{ left: bp.left, width: bp.width }}
-                            title={`${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}`}
-                          />
+                            <div
+                              className={cn(
+                                "absolute top-1/2 -translate-y-1/2 h-5 rounded-full overflow-hidden flex items-center",
+                                cls.track
+                              )}
+                              style={{ left: bp.left, width: bp.width }}
+                              title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}`}
+                            >
+                              <div
+                                className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
+                                style={{ width: `${Math.min(t.completion_pct, 100)}%` }}
+                              />
+                              {showPct && t.completion_pct > 0 && (
+                                <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold text-white/80 select-none pointer-events-none">
+                                  {t.completion_pct}%
+                                </span>
+                              )}
+                            </div>
+                          </>
                         )}
                       </div>
                     );
                   })}
-                </div>
-              );
-            })}
-            {/* Standalone task rows */}
-            {tasks
-              .filter((t) => !t.milestone_id)
-              .sort((a, b) => a.sort_order - b.sort_order)
-              .map((t) => {
-                const bp = barProps(t.start_date, t.due_date);
-                return (
-                  <div
-                    key={t.id}
-                    className="relative h-9 border-b border-border-subtle"
-                    style={{ width: totalWidth }}
-                  >
-                    {todayCol >= 0 && todayCol <= totalDays && (
-                      <div
-                        className="absolute top-0 h-full w-px bg-accent/20"
-                        style={{ left: todayCol * COL_W }}
-                      />
-                    )}
-                    {bp && (
-                      <div
-                        className={cn(
-                          "absolute top-1/2 -translate-y-1/2 h-4 rounded-full",
-                          barColor(t.status_type),
-                          "opacity-80"
-                        )}
-                        style={{ left: bp.left, width: bp.width }}
-                        title={`${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}`}
-                      />
-                    )}
-                  </div>
-                );
-              })}
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      <p className="text-xs text-ink-muted">
-        Blue vertical line = today. Bars span task start → due dates; diamonds mark milestone targets.
-      </p>
-    </section>
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1">
+        {[
+          { label: "Completed",   bg: "bg-accent/70" },
+          { label: "In progress", bg: "bg-success/70" },
+          { label: "Not started", bg: "bg-border-strong" },
+          { label: "Canceled",    bg: "bg-ink-muted/40" },
+        ].map(({ label, bg }) => (
+          <div key={label} className="flex items-center gap-1.5">
+            <span className={cn("h-2 w-4 rounded-full", bg)} />
+            <span className="text-[11px] text-ink-muted">{label}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-px bg-accent/60" style={{ display: "inline-block" }} />
+          <span className="text-[11px] text-ink-muted">Today</span>
+        </div>
+        {isLocked && (
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-4 rounded-full bg-border-strong opacity-40" />
+            <span className="text-[11px] text-ink-muted">Baseline</span>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

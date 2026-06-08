@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -37,10 +37,16 @@ export function IssueForm({
 
   const [title, setTitle] = useState(issue?.title ?? "");
   const [description, setDescription] = useState(issue?.description ?? "");
+  const [showDescription, setShowDescription] = useState(
+    !!(issue?.description && issue.description.trim().length > 0)
+  );
   const [priority, setPriority] = useState<Issue["priority"]>(
     issue?.priority ?? "medium"
   );
   const [resolution, setResolution] = useState(issue?.resolution ?? "");
+  const [showResolution, setShowResolution] = useState(
+    !!(issue?.resolution && issue.resolution.trim().length > 0)
+  );
   const [status, setStatus] = useState<Issue["status"]>(
     issue?.status ?? "open"
   );
@@ -87,38 +93,27 @@ export function IssueForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
         </div>
       )}
 
-      {/* Title */}
+      {/* Title — prominent */}
       <div>
-        <FieldLabel required>Title</FieldLabel>
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Integration test failures blocking deploy"
+          placeholder="Issue title"
           required
+          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
         />
         <FieldError message={fieldErrors.title} />
       </div>
 
-      {/* Description */}
-      <div>
-        <FieldLabel>Description</FieldLabel>
-        <TextareaInput
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe the issue in detail…"
-          rows={3}
-        />
-        <FieldError message={fieldErrors.description} />
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      {/* Compact properties grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
         {/* Priority */}
         <div>
           <FieldLabel>Priority</FieldLabel>
@@ -156,25 +151,58 @@ export function IssueForm({
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.due_date} />
         </div>
       </div>
 
-      {/* Resolution */}
-      <div>
-        <FieldLabel>Resolution / Action</FieldLabel>
-        <TextareaInput
-          value={resolution}
-          onChange={(e) => setResolution(e.target.value)}
-          placeholder="Steps to resolve this issue…"
-          rows={3}
-        />
-        <FieldError message={fieldErrors.resolution} />
-      </div>
+      {/* Description — progressive disclosure */}
+      {showDescription ? (
+        <div>
+          <FieldLabel>Description</FieldLabel>
+          <TextareaInput
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Describe the issue…"
+            rows={2}
+          />
+          <FieldError message={fieldErrors.description} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowDescription(true)}
+          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+        >
+          + Add description
+        </button>
+      )}
+
+      {/* Resolution — progressive disclosure */}
+      {showResolution ? (
+        <div>
+          <FieldLabel>Resolution / Action</FieldLabel>
+          <TextareaInput
+            value={resolution}
+            onChange={(e) => setResolution(e.target.value)}
+            placeholder="Steps to resolve this issue…"
+            rows={2}
+          />
+          <FieldError message={fieldErrors.resolution} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowResolution(true)}
+          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+        >
+          + Add resolution
+        </button>
+      )}
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 border-t border-border-subtle pt-4">
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
         <Button type="button" variant="ghost" onClick={modal.close} disabled={saving}>
           Cancel
         </Button>

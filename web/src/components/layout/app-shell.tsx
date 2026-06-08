@@ -1,9 +1,10 @@
 "use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
 import { Menu, PanelLeftClose, PanelLeft, X } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { cn } from "@/lib/cn";
+import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
 
 // ── Inspector (right panel) context ─────────────────────────────────────────
 type InspectorPayload = { title?: string; content: ReactNode };
@@ -24,6 +25,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [navOpen, setNavOpen] = useState(false); // mobile drawer
   const [collapsed, setCollapsed] = useState(false); // desktop icon rail
   const [inspector, setInspector] = useState<InspectorPayload | null>(null);
+  const [cmdOpen, setCmdOpen] = useState(false);
+  const openCmd = useCallback(() => setCmdOpen(true), []);
 
   return (
     <InspectorCtx.Provider
@@ -71,9 +74,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
             </button>
             <div className="flex-1" />
+            <CmdKTrigger onClick={openCmd} />
           </header>
           <main className="min-h-0 flex-1 overflow-auto">{children}</main>
         </div>
+
+        {/* command palette — singleton, mounts once, self-manages open state via Cmd/Ctrl-K */}
+        <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
 
         {/* inspector */}
         {inspector && (

@@ -34,7 +34,7 @@ export function FieldLabel({
   required?: boolean;
 }) {
   return (
-    <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-ink-muted">
+    <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
       {children}
       {required && <span className="ml-0.5 text-danger">*</span>}
     </label>
@@ -43,7 +43,7 @@ export function FieldLabel({
 
 export function FieldError({ message }: { message?: string }) {
   if (!message) return null;
-  return <p className="mt-1 text-xs text-danger">{message}</p>;
+  return <p className="mt-0.5 text-[11px] text-danger">{message}</p>;
 }
 
 export function SelectInput({
@@ -53,7 +53,7 @@ export function SelectInput({
   return (
     <select
       className={cn(
-        "h-10 w-full rounded-md border border-border-subtle bg-canvas px-3 text-sm text-ink",
+        "h-8 w-full rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink",
         "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
         "disabled:opacity-50",
         className,
@@ -70,7 +70,7 @@ export function TextareaInput({
   return (
     <textarea
       className={cn(
-        "min-h-[80px] w-full rounded-md border border-border-subtle bg-canvas px-3 py-2 text-sm text-ink",
+        "min-h-[72px] w-full rounded-md border border-border-subtle bg-canvas px-3 py-2 text-sm text-ink",
         "placeholder:text-ink-muted focus:outline-none",
         "focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
         "disabled:opacity-50",
@@ -171,35 +171,37 @@ export function ProjectForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <form onSubmit={handleSubmit} className="space-y-4">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-4 py-3 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      {/* Title — the only visually prominent field */}
+      <div>
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Project name"
+          required
+          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
+        />
+        <FieldError message={fieldErrors.name} />
+      </div>
+
+      {/* Compact properties grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
         {/* Code */}
         <div>
-          <FieldLabel>Project Code</FieldLabel>
+          <FieldLabel>Code</FieldLabel>
           <Input
             value={code}
             onChange={(e) => setCode(e.target.value)}
-            placeholder="e.g. PROJ-001"
+            placeholder="PROJ-001"
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.code} />
-        </div>
-
-        {/* Name */}
-        <div>
-          <FieldLabel required>Project Name</FieldLabel>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Platform Migration"
-            required
-          />
-          <FieldError message={fieldErrors.name} />
         </div>
 
         {/* Program */}
@@ -209,6 +211,7 @@ export function ProjectForm({
             value={program}
             onChange={(e) => setProgram(e.target.value)}
             placeholder="e.g. Digital Transformation"
+            className="h-8 text-sm"
           />
           <FieldError message={fieldErrors.program} />
         </div>
@@ -229,28 +232,6 @@ export function ProjectForm({
           <FieldError message={fieldErrors.rag_status} />
         </div>
 
-        {/* Start Date */}
-        <div>
-          <FieldLabel>Start Date</FieldLabel>
-          <Input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-          />
-          <FieldError message={fieldErrors.start_date} />
-        </div>
-
-        {/* Target Date */}
-        <div>
-          <FieldLabel>Target Date</FieldLabel>
-          <Input
-            type="date"
-            value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
-          />
-          <FieldError message={fieldErrors.target_date} />
-        </div>
-
         {/* Currency */}
         <div>
           <FieldLabel>Currency</FieldLabel>
@@ -267,14 +248,38 @@ export function ProjectForm({
           </SelectInput>
           <FieldError message={fieldErrors.currency} />
         </div>
+
+        {/* Start Date */}
+        <div>
+          <FieldLabel>Start Date</FieldLabel>
+          <Input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="h-8 text-sm"
+          />
+          <FieldError message={fieldErrors.start_date} />
+        </div>
+
+        {/* Target Date */}
+        <div>
+          <FieldLabel>Target Date</FieldLabel>
+          <Input
+            type="date"
+            value={targetDate}
+            onChange={(e) => setTargetDate(e.target.value)}
+            className="h-8 text-sm"
+          />
+          <FieldError message={fieldErrors.target_date} />
+        </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-3 border-t border-border-subtle pt-4">
+      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
         <Button type="button" variant="ghost" onClick={modal.close} disabled={saving}>
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving}>
+        <Button type="submit" variant="primary" disabled={saving || !name.trim()}>
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />
