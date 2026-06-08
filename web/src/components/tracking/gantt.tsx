@@ -43,7 +43,6 @@ interface GanttChartProps {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const LEFT_COL_W = 240; // px, collapsible
 const ROW_H_MS = 44;    // milestone row height px
 const ROW_H_TASK = 36;  // task row height px
 const HEADER_H = 56;    // two-row header total height
@@ -282,16 +281,12 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
     );
   }
 
-  // ── Effective left column width ───────────────────────────────────────────
-
-  const leftW = leftCollapsed ? 40 : LEFT_COL_W;
-
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col gap-3">
       {/* Toolbar */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           {isLocked && (
             <Badge tone="neutral" className="gap-1">
@@ -301,13 +296,13 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
           )}
         </div>
         {/* View toggle */}
-        <div className="flex items-center rounded-lg border border-border-subtle bg-sunken p-0.5 gap-0.5">
+        <div className="flex items-center rounded-lg border border-border-subtle bg-sunken p-0.5 gap-0.5 shrink-0">
           {(["week", "month"] as const).map((v) => (
             <button
               key={v}
               onClick={() => setView(v)}
               className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-all duration-200",
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[36px]",
                 view === v
                   ? "bg-surface text-ink shadow-sm"
                   : "text-ink-secondary hover:text-ink"
@@ -319,14 +314,16 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
         </div>
       </div>
 
-      {/* Gantt card */}
-      <div className="rounded-xl border border-border-subtle bg-surface shadow-sm overflow-hidden">
-        <div className="flex">
+      {/* Gantt card — outer overflow-x-auto so entire chart scrolls on mobile */}
+      <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface shadow-sm">
+        <div className="flex" style={{ minWidth: 480 }}>
 
           {/* ── Left sticky label column ─────────────────────────────────── */}
           <div
-            className="shrink-0 sticky left-0 z-20 bg-surface border-r border-border-subtle flex flex-col transition-all duration-200"
-            style={{ width: leftW }}
+            className={cn(
+              "shrink-0 sticky left-0 z-20 bg-surface border-r border-border-subtle flex flex-col transition-all duration-200",
+              leftCollapsed ? "w-10" : "w-40 sm:w-60"
+            )}
           >
             {/* Header cell with collapse toggle */}
             <div

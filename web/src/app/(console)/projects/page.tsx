@@ -4,28 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import { NewProjectButton } from "@/components/forms/new-project-button";
-
-type RagStatus = "not_started" | "red" | "amber" | "green" | "complete";
-
-function ragTone(rag: RagStatus): "neutral" | "danger" | "warning" | "success" | "accent" {
-  switch (rag) {
-    case "green": return "success";
-    case "amber": return "warning";
-    case "red": return "danger";
-    case "complete": return "accent";
-    default: return "neutral";
-  }
-}
-
-function ragLabel(rag: RagStatus): string {
-  switch (rag) {
-    case "not_started": return "Not started";
-    case "red": return "Red";
-    case "amber": return "Amber";
-    case "green": return "Green";
-    case "complete": return "Complete";
-  }
-}
+import { PageHeader } from "@/components/ui/page-header";
+import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 
 export default async function ProjectsPage() {
   const db = await createClient();
@@ -41,29 +21,20 @@ export default async function ProjectsPage() {
 
   if (error) {
     return (
-      <div className="p-8">
+      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
         <p className="text-sm text-danger">Failed to load projects: {error.message}</p>
       </div>
     );
   }
 
   return (
-    <div className="p-8 max-w-6xl mx-auto">
-      {/* Page header */}
-      <div className="mb-8 flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Projects</h1>
-          <p className="mt-1 text-sm text-ink-muted">
-            All projects in your workspace
-          </p>
-        </div>
-        <NewProjectButton />
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <PageHeader title="Projects" action={<NewProjectButton />} />
 
       {/* Table */}
-      <div className="rounded-lg border border-border-subtle bg-surface overflow-hidden">
+      <div className="rounded-lg border border-border-subtle bg-surface overflow-x-auto">
         {projects && projects.length > 0 ? (
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-border-subtle bg-sunken/50">
                 <th className="px-4 py-3 text-left font-medium text-ink-secondary w-24">Code</th>

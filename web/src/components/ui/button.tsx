@@ -5,7 +5,8 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-accent text-white hover:bg-accent-hover",
+  // acid-lime fill needs near-black text for contrast (Linear-style)
+  primary: "bg-accent text-accent-ink font-semibold hover:bg-accent-hover",
   secondary: "bg-surface text-ink border border-border-subtle hover:bg-sunken",
   ghost: "text-ink-secondary hover:bg-sunken",
   danger: "bg-danger text-white hover:opacity-90",

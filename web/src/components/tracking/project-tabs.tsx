@@ -94,24 +94,24 @@ const TABS: { id: Tab; label: string }[] = [
 
 // ── Badge helpers ─────────────────────────────────────────────────────────────
 
-type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
+type BadgeTone = "neutral" | "accent" | "info" | "success" | "warning" | "danger";
 
 function ragTone(s: Project["rag_status"]): BadgeTone {
   switch (s) {
     case "green":    return "success";
     case "amber":    return "warning";
     case "red":      return "danger";
-    case "complete": return "accent";
-    default:         return "neutral";
+    case "complete": return "success";
+    default:         return "info";
   }
 }
 
 function ragLabel(s: Project["rag_status"]): string {
   switch (s) {
-    case "not_started": return "Not started";
-    case "red":         return "Red";
-    case "amber":       return "Amber";
-    case "green":       return "Green";
+    case "not_started": return "In progress";
+    case "red":         return "Delayed";
+    case "amber":       return "At risk";
+    case "green":       return "On track";
     case "complete":    return "Complete";
   }
 }
@@ -120,7 +120,7 @@ function severityTone(s: Risk["severity"]): BadgeTone {
   switch (s) {
     case "critical": return "danger";
     case "high":     return "warning";
-    case "medium":   return "accent";
+    case "medium":   return "info";
     default:         return "neutral";
   }
 }
@@ -128,9 +128,9 @@ function severityTone(s: Risk["severity"]): BadgeTone {
 function riskStatusTone(s: Risk["status"]): BadgeTone {
   switch (s) {
     case "closed":     return "success";
-    case "accepted":   return "neutral";
+    case "accepted":   return "success";
     case "mitigating": return "warning";
-    default:           return "danger";
+    default:           return "info";
   }
 }
 
@@ -138,7 +138,7 @@ function priorityTone(p: Issue["priority"]): BadgeTone {
   switch (p) {
     case "urgent": return "danger";
     case "high":   return "warning";
-    case "medium": return "accent";
+    case "medium": return "info";
     default:       return "neutral";
   }
 }
@@ -146,9 +146,9 @@ function priorityTone(p: Issue["priority"]): BadgeTone {
 function issueStatusTone(s: Issue["status"]): BadgeTone {
   switch (s) {
     case "resolved": return "success";
-    case "closed":   return "neutral";
-    case "in_progress": return "accent";
-    default:         return "danger";
+    case "closed":   return "success";
+    case "in_progress": return "info";
+    default:         return "warning";
   }
 }
 
@@ -175,6 +175,7 @@ function StatCard({
   const toneClass: Record<BadgeTone, string> = {
     neutral: "text-ink",
     accent:  "text-accent",
+    info:    "text-info",
     success: "text-success",
     warning: "text-warning",
     danger:  "text-danger",
@@ -217,27 +218,27 @@ function OverviewTab({
   return (
     <div className="space-y-6">
       {/* Top stats */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
           label="Completion"
           value={`${Math.round(project.completion_pct)}%`}
-          tone="accent"
+          tone="neutral"
         />
         <StatCard
           label="Milestones"
           value={milestones.length}
           sub={`${completedMilestones} completed`}
-          tone={completedMilestones === milestones.length && milestones.length > 0 ? "success" : "neutral"}
+          tone="neutral"
         />
         <StatCard
           label="Open risks"
           value={openRisks}
-          tone={openRisks > 0 ? "warning" : "success"}
+          tone="neutral"
         />
         <StatCard
           label="Open issues"
           value={openIssues}
-          tone={openIssues > 0 ? "danger" : "success"}
+          tone="neutral"
         />
       </div>
 
@@ -250,8 +251,8 @@ function OverviewTab({
         <CardBody>
           <div className="flex flex-wrap gap-3">
             {[
-              { label: "Completed",   count: tasksByStatus.completed,  tone: "success" as BadgeTone, Icon: CheckCircle2 },
-              { label: "In progress", count: tasksByStatus.inProgress,  tone: "accent"  as BadgeTone, Icon: Clock       },
+              { label: "Completed",   count: tasksByStatus.completed,  tone: "neutral" as BadgeTone, Icon: CheckCircle2 },
+              { label: "In progress", count: tasksByStatus.inProgress,  tone: "neutral" as BadgeTone, Icon: Clock       },
               { label: "To do",       count: tasksByStatus.todo,        tone: "neutral" as BadgeTone, Icon: Clock       },
               { label: "Backlog",     count: tasksByStatus.backlog,     tone: "neutral" as BadgeTone, Icon: Clock       },
               { label: "Canceled",    count: tasksByStatus.canceled,    tone: "neutral" as BadgeTone, Icon: XCircle     },
@@ -348,8 +349,8 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface">
-          <table className="w-full text-sm border-collapse">
+        <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface">
+          <table className="w-full min-w-[560px] text-sm border-collapse">
             <thead>
               <tr className="border-b border-border-subtle bg-sunken/60">
                 <th className="py-2.5 px-4 text-left text-xs font-medium uppercase tracking-wide text-ink-muted">Title</th>
@@ -447,8 +448,8 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border-subtle bg-surface">
-          <table className="w-full text-sm border-collapse">
+        <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface">
+          <table className="w-full min-w-[480px] text-sm border-collapse">
             <thead>
               <tr className="border-b border-border-subtle bg-sunken/60">
                 <th className="py-2.5 px-4 text-left text-xs font-medium uppercase tracking-wide text-ink-muted">Title</th>
@@ -513,14 +514,14 @@ export function ProjectTabs({
 
   return (
     <div className="space-y-6">
-      {/* Segmented tab bar */}
-      <div className="inline-flex items-center gap-0.5 rounded-lg bg-sunken p-1 border border-border-subtle">
+      {/* Segmented tab bar — scrollable on mobile */}
+      <div className="flex gap-1 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-lg bg-sunken p-1 border border-border-subtle">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActive(tab.id)}
             className={cn(
-              "rounded-md px-4 py-1.5 text-sm font-medium transition-colors duration-150",
+              "shrink-0 rounded-md px-4 py-2.5 sm:py-1.5 text-sm font-medium transition-colors duration-150 min-h-[40px]",
               active === tab.id
                 ? "bg-surface text-ink shadow-sm"
                 : "text-ink-secondary hover:text-ink hover:bg-surface/50"

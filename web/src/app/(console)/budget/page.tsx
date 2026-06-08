@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 
 interface ProjectBudget {
@@ -68,7 +69,7 @@ export default async function BudgetPage() {
 
   if (projectsError) {
     return (
-      <div className="p-8">
+      <div className="px-4 py-5 sm:px-6 lg:px-8">
         <p className="text-sm text-danger">Failed to load projects.</p>
       </div>
     );
@@ -79,20 +80,17 @@ export default async function BudgetPage() {
 
   if (projectIds.length === 0) {
     return (
-      <div className="p-8 space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Budget</h1>
-          <p className="mt-1 text-sm text-ink-secondary">
-            Planned, committed, actual, variance and burn across all projects.
-          </p>
+      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
+        <div className="mx-auto max-w-6xl space-y-6">
+          <PageHeader title="Budget" />
+          <Card>
+            <CardBody>
+              <p className="text-sm text-ink-muted text-center py-6">
+                No projects found. Create a project to track budgets.
+              </p>
+            </CardBody>
+          </Card>
         </div>
-        <Card>
-          <CardBody>
-            <p className="text-sm text-ink-muted text-center py-6">
-              No projects found. Create a project to track budgets.
-            </p>
-          </CardBody>
-        </Card>
       </div>
     );
   }
@@ -177,27 +175,22 @@ export default async function BudgetPage() {
   ).length;
 
   return (
-    <div className="p-8 space-y-6">
-      {/* Page header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Budget</h1>
-          <p className="mt-1 text-sm text-ink-secondary">
-            Planned, committed, actual, variance and burn across all projects.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {overBudgetCount > 0 && (
-            <Badge tone="danger">{overBudgetCount} over budget</Badge>
-          )}
-          {nearBudgetCount > 0 && (
-            <Badge tone="warning">{nearBudgetCount} near limit</Badge>
-          )}
-        </div>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Budget"
+        action={
+          (overBudgetCount > 0 || nearBudgetCount > 0) ? (
+            <>
+              {overBudgetCount > 0 && <Badge tone="danger">{overBudgetCount} over budget</Badge>}
+              {nearBudgetCount > 0 && <Badge tone="warning">{nearBudgetCount} near limit</Badge>}
+            </>
+          ) : undefined
+        }
+      />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <Card>
           <CardBody className="py-4">
             <p className="text-xs text-ink-muted uppercase tracking-wide">Total Planned</p>
@@ -250,7 +243,7 @@ export default async function BudgetPage() {
           )}
         </CardHeader>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-border-subtle">
                 <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -415,6 +408,7 @@ export default async function BudgetPage() {
           </table>
         </div>
       </Card>
+      </div>
     </div>
   );
 }

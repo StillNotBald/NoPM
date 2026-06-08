@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 
 type MfaStep =
@@ -120,14 +121,9 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-xl px-6 py-10 space-y-8">
-      {/* Page header */}
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold text-ink">Security settings</h1>
-        <p className="text-sm text-ink-secondary">
-          Manage two-factor authentication and account security for your NoPM workspace.
-        </p>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-xl space-y-8">
+      <PageHeader title="Security settings" />
 
       {/* MFA card */}
       <Card>
@@ -208,7 +204,7 @@ export default function SettingsPage() {
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   disabled={step === "verifying"}
-                  className="font-mono tracking-widest text-center"
+                  className="font-mono tracking-widest text-center h-11 sm:h-10 text-base sm:text-sm"
                 />
               </div>
 
@@ -322,6 +318,7 @@ export default function SettingsPage() {
           )}
         </CardBody>
       </Card>
+      </div>
     </div>
   );
 }

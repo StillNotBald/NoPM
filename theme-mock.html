@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NoPM — macOS Terminal light themes (real palettes)</title>
+<style>
+  :root{
+    --mono: ui-monospace, "SF Mono", Menlo, "JetBrains Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:#d8d8da;font-family:var(--sans);padding:28px;display:flex;gap:26px;flex-wrap:wrap;justify-content:center;color:#111}
+  .label{width:100%;text-align:center;font:600 13px var(--sans);color:#444;margin:4px 0 -8px}
+
+  .win{width:600px;border-radius:11px;overflow:hidden;box-shadow:0 22px 60px rgba(0,0,0,.30);border:1px solid rgba(0,0,0,.14)}
+  .titlebar{height:36px;display:flex;align-items:center;gap:8px;padding:0 13px;background:var(--bar);border-bottom:1px solid var(--bd)}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+  .wintitle{flex:1;text-align:center;font:500 11px var(--mono);color:var(--muted)}
+
+  .app{background:var(--grouped);color:var(--ink)}
+  .topbar{display:flex;align-items:center;gap:10px;padding:9px 15px;border-bottom:1px solid var(--bd);background:var(--bar)}
+  .brand{font:600 13px var(--mono);color:var(--ink);display:flex;align-items:center;gap:7px}
+  .brand .cur{width:8px;height:15px;background:var(--accent);display:inline-block;border-radius:1px;animation:blink 1.1s step-end infinite}
+  @keyframes blink{50%{opacity:.25}}
+  .spacer{flex:1}
+  .kbd{font:500 11px var(--mono);color:var(--muted);border:1px solid var(--bd);border-radius:6px;padding:4px 8px;background:var(--card);display:flex;gap:7px;align-items:center}
+  .kbd .p{color:var(--accent)}
+  .live{font:500 11px var(--mono);color:var(--accent);display:flex;align-items:center;gap:6px}
+  .live .d{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+
+  .body{padding:15px}
+  h1{font:600 18px var(--sans);letter-spacing:-.01em;margin-bottom:13px;color:var(--ink)}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:13px}
+  .stat{background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:11px}
+  .stat .k{font:500 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .stat .v{font:600 25px var(--mono);margin-top:7px;color:var(--ink);letter-spacing:-.02em}
+
+  .card{background:var(--card);border:1px solid var(--bd);border-radius:9px;overflow:hidden}
+  .ch{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd)}
+  .ch .t{font:600 12px var(--sans);color:var(--ink)}
+  .ch .m{font:500 11px var(--mono);color:var(--muted)}
+  table{width:100%;border-collapse:collapse}
+  th{font:500 10px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;padding:8px 14px;border-bottom:1px solid var(--bd)}
+  td{padding:9px 14px;border-bottom:1px solid var(--bd);font:400 13px var(--sans);color:var(--ink)}
+  tr:last-child td{border-bottom:0}
+  .code{font:600 12px var(--mono);color:var(--accent)}
+  .pill{display:inline-block;font:500 11px var(--mono);padding:2px 9px;border-radius:999px;background:var(--sunken);color:var(--secondary);border:1px solid var(--bd)}
+  .pct{font:500 12px var(--mono);color:var(--secondary)}
+  .bar{height:5px;border-radius:3px;background:var(--sunken);width:84px;display:inline-block;vertical-align:middle;margin-right:8px;overflow:hidden;border:1px solid var(--bd)}
+  .bar>i{display:block;height:100%;background:var(--accent)}
+  .btn{font:600 11px var(--sans);background:var(--accent);color:var(--accent-ink);border:0;border-radius:7px;padding:6px 11px}
+
+  /* terminal audit — real ANSI palette */
+  .term{margin-top:13px;background:var(--termbg);border:1px solid var(--bd);border-radius:9px;padding:11px 14px;font:400 12px var(--mono);line-height:1.75}
+  .term .cmd{color:var(--ink)} .term .cmd .p{color:var(--ansi-green)}
+  .term .row{color:var(--secondary)} .term .row .ts{color:var(--muted)}
+  .g{color:var(--ansi-green)}.b{color:var(--ansi-blue)}.r{color:var(--ansi-red)}.m{color:var(--ansi-mag)}.y{color:var(--ansi-yellow)}
+
+  /* A · BASIC (white) — macOS Terminal default */
+  .basic{--bg:#fff;--bar:#fbfbfb;--card:#ffffff;--grouped:#f5f5f5;--sunken:#eef0ee;--termbg:#ffffff;
+    --bd:#e3e3e3;--ink:#1a1a1a;--secondary:#565656;--muted:#8a8a8a;--accent:#00a600;--accent-ink:#fff;
+    --ansi-green:#00a600;--ansi-blue:#0000b2;--ansi-red:#990000;--ansi-mag:#b200b2;--ansi-yellow:#8a7a00}
+  /* B · NOVEL (warm paper) — macOS Terminal Novel */
+  .novel{--bg:#dfdbc3;--bar:#e4e0c9;--card:#e9e6d2;--grouped:#d9d4ba;--sunken:#d3cdb1;--termbg:#e7e3cd;
+    --bd:#c9c2a4;--ink:#3b2322;--secondary:#5e4a40;--muted:#8a7868;--accent:#1f7a33;--accent-ink:#fff;
+    --ansi-green:#007401;--ansi-blue:#1807b9;--ansi-red:#8c0100;--ansi-mag:#960098;--ansi-yellow:#6f5e00}
+</style>
+</head>
+<body>
+  <div class="label">A · Basic — macOS Terminal default (white + vibrant ANSI green)</div>
+  <div class="label">B · Novel — macOS Terminal warm-paper light theme</div>
+
+  <!-- A: BASIC -->
+  <div class="win basic">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="wintitle">nopm — command-centre — ⌘K</span></div>
+    <div class="app">
+      <div class="topbar"><span class="brand"><span class="cur"></span>nopm</span><span class="spacer"></span><span class="kbd"><span class="p">❯</span>run command<span style="opacity:.6">⌘K</span></span><span class="live"><span class="d"></span>live</span></div>
+      <div class="body">
+        <div style="display:flex;justify-content:space-between;align-items:center"><h1>Command Centre</h1><button class="btn">+ New Project</button></div>
+        <div class="stats">
+          <div class="stat"><div class="k">projects</div><div class="v">6</div></div>
+          <div class="stat"><div class="k">on track</div><div class="v">2</div></div>
+          <div class="stat"><div class="k">at risk</div><div class="v">2</div></div>
+          <div class="stat"><div class="k">delayed</div><div class="v">1</div></div>
+        </div>
+        <div class="card">
+          <div class="ch"><span class="t">Portfolio</span><span class="m">6 projects</span></div>
+          <table>
+            <tr><th>code</th><th>name</th><th>status</th><th>completion</th></tr>
+            <tr><td class="code">NBC-CORE</td><td>Core Network Consolidation</td><td><span class="pill">at risk</span></td><td><span class="bar"><i style="width:62%"></i></span><span class="pct">62%</span></td></tr>
+            <tr><td class="code">NBC-BILL</td><td>Billing Platform Cutover</td><td><span class="pill">delayed</span></td><td><span class="bar"><i style="width:38%"></i></span><span class="pct">38%</span></td></tr>
+            <tr><td class="code">NBC-RET</td><td>Retail Store Migration</td><td><span class="pill">on track</span></td><td><span class="bar"><i style="width:81%"></i></span><span class="pct">81%</span></td></tr>
+            <tr><td class="code">DX-SEC</td><td>Zero-Trust Security Rollout</td><td><span class="pill">complete</span></td><td><span class="bar"><i style="width:100%"></i></span><span class="pct">100%</span></td></tr>
+          </table>
+        </div>
+        <div class="term">
+          <div class="cmd"><span class="p">➜ nopm</span> audit tail --follow</div>
+          <div class="row"><span class="ts">10:42:07</span> <span class="b">token:ai-assistant</span> <span class="g">project.create</span> DX-APP · audited</div>
+          <div class="row"><span class="ts">10:42:09</span> <span class="b">token:ai-assistant</span> <span class="y">task.delete_requested</span> → <span class="m">maker-checker</span></div>
+          <div class="row"><span class="ts">10:43:11</span> <span class="b">user:cheng</span> <span class="g">deletion_request.approved</span> four-eyes ✓</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B: NOVEL -->
+  <div class="win novel">
+    <div class="titlebar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="wintitle">nopm — command-centre — ⌘K</span></div>
+    <div class="app">
+      <div class="topbar"><span class="brand"><span class="cur"></span>nopm</span><span class="spacer"></span><span class="kbd"><span class="p">❯</span>run command<span style="opacity:.6">⌘K</span></span><span class="live"><span class="d"></span>live</span></div>
+      <div class="body">
+        <div style="display:flex;justify-content:space-between;align-items:center"><h1>Command Centre</h1><button class="btn">+ New Project</button></div>
+        <div class="stats">
+          <div class="stat"><div class="k">projects</div><div class="v">6</div></div>
+          <div class="stat"><div class="k">on track</div><div class="v">2</div></div>
+          <div class="stat"><div class="k">at risk</div><div class="v">2</div></div>
+          <div class="stat"><div class="k">delayed</div><div class="v">1</div></div>
+        </div>
+        <div class="card">
+          <div class="ch"><span class="t">Portfolio</span><span class="m">6 projects</span></div>
+          <table>
+            <tr><th>code</th><th>name</th><th>status</th><th>completion</th></tr>
+            <tr><td class="code">NBC-CORE</td><td>Core Network Consolidation</td><td><span class="pill">at risk</span></td><td><span class="bar"><i style="width:62%"></i></span><span class="pct">62%</span></td></tr>
+            <tr><td class="code">NBC-BILL</td><td>Billing Platform Cutover</td><td><span class="pill">delayed</span></td><td><span class="bar"><i style="width:38%"></i></span><span class="pct">38%</span></td></tr>
+            <tr><td class="code">NBC-RET</td><td>Retail Store Migration</td><td><span class="pill">on track</span></td><td><span class="bar"><i style="width:81%"></i></span><span class="pct">81%</span></td></tr>
+            <tr><td class="code">DX-SEC</td><td>Zero-Trust Security Rollout</td><td><span class="pill">complete</span></td><td><span class="bar"><i style="width:100%"></i></span><span class="pct">100%</span></td></tr>
+          </table>
+        </div>
+        <div class="term">
+          <div class="cmd"><span class="p">➜ nopm</span> audit tail --follow</div>
+          <div class="row"><span class="ts">10:42:07</span> <span class="b">token:ai-assistant</span> <span class="g">project.create</span> DX-APP · audited</div>
+          <div class="row"><span class="ts">10:42:09</span> <span class="b">token:ai-assistant</span> <span class="y">task.delete_requested</span> → <span class="m">maker-checker</span></div>
+          <div class="row"><span class="ts">10:43:11</span> <span class="b">user:cheng</span> <span class="g">deletion_request.approved</span> four-eyes ✓</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

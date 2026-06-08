@@ -53,7 +53,7 @@ export function SelectInput({
   return (
     <select
       className={cn(
-        "h-8 w-full rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink",
+        "h-11 sm:h-10 w-full rounded-md border border-border-subtle bg-canvas px-2.5 text-base sm:text-sm text-ink",
         "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
         "disabled:opacity-50",
         className,
@@ -70,7 +70,7 @@ export function TextareaInput({
   return (
     <textarea
       className={cn(
-        "min-h-[72px] w-full rounded-md border border-border-subtle bg-canvas px-3 py-2 text-sm text-ink",
+        "min-h-[72px] w-full rounded-md border border-border-subtle bg-canvas px-3 py-2 text-base sm:text-sm text-ink",
         "placeholder:text-ink-muted focus:outline-none",
         "focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
         "disabled:opacity-50",
@@ -191,7 +191,7 @@ export function ProjectForm({
       </div>
 
       {/* Compact properties grid */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
         {/* Code */}
         <div>
           <FieldLabel>Code</FieldLabel>
@@ -199,7 +199,7 @@ export function ProjectForm({
             value={code}
             onChange={(e) => setCode(e.target.value)}
             placeholder="PROJ-001"
-            className="h-8 text-sm"
+            className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.code} />
         </div>
@@ -211,7 +211,7 @@ export function ProjectForm({
             value={program}
             onChange={(e) => setProgram(e.target.value)}
             placeholder="e.g. Digital Transformation"
-            className="h-8 text-sm"
+            className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.program} />
         </div>
@@ -256,7 +256,7 @@ export function ProjectForm({
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="h-8 text-sm"
+            className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.start_date} />
         </div>
@@ -268,18 +268,18 @@ export function ProjectForm({
             type="date"
             value={targetDate}
             onChange={(e) => setTargetDate(e.target.value)}
-            className="h-8 text-sm"
+            className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.target_date} />
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
-        <Button type="button" variant="ghost" onClick={modal.close} disabled={saving}>
+      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
+        <Button type="button" variant="ghost" onClick={modal.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving || !name.trim()}>
+        <Button type="submit" variant="primary" disabled={saving || !name.trim()} className="w-full sm:w-auto h-11 sm:h-10">
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

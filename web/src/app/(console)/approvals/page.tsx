@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalActions } from "@/components/approvals/actions";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 
 export const metadata = { title: "Approvals — NoPM" };
@@ -47,14 +48,9 @@ export default async function ApprovalsPage() {
   const pending: DeletionRequest[] = requests ?? [];
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-6">
-      {/* Page header */}
-      <div>
-        <h1 className="text-xl font-semibold text-ink">Approvals</h1>
-        <p className="mt-1 text-sm text-ink-secondary">
-          Pending deletion requests awaiting a second reviewer.
-        </p>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-4xl space-y-6">
+      <PageHeader title="Approvals" />
 
       {/* Four-eyes banner */}
       <div className="flex gap-3 rounded-lg border border-border-subtle bg-warning/10 px-4 py-3">
@@ -116,7 +112,7 @@ export default async function ApprovalsPage() {
           {pending.map((req) => (
             <Card key={req.id}>
               <CardBody>
-                <div className="flex items-start justify-between gap-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
                   {/* Left: request detail */}
                   <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
@@ -162,6 +158,7 @@ export default async function ApprovalsPage() {
           {pending.length} request{pending.length !== 1 ? "s" : ""} pending
         </p>
       )}
+      </div>
     </div>
   );
 }

@@ -154,4 +154,4 @@ const commands = {
   },
 };
 
-(commands[cmd] || commands.help)().catch((e) => die(e.message));
+Promise.resolve((commands[cmd] || commands.help)()).catch((e) => die(e.message));

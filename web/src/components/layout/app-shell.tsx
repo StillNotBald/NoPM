@@ -1,8 +1,10 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
-import { Menu, PanelLeftClose, PanelLeft, X } from "lucide-react";
+import { PanelLeftClose, PanelLeft, X } from "lucide-react";
 import { Sidebar } from "./sidebar";
+import { BottomNav } from "./bottom-nav";
+import { ThemeToggle } from "./theme-toggle";
 import { cn } from "@/lib/cn";
 import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
 
@@ -15,15 +17,12 @@ const InspectorCtx = createContext<{
 export const useInspector = () => useContext(InspectorCtx);
 
 /**
- * Flexible 3-panel app shell (prior-console-app pattern, Apple-styled):
- *  • left  — collapsible nav (icon rail on desktop, drawer on mobile)
- *  • middle — page content
- *  • right — inspector panel (opened on demand; overlay below lg)
- * Fully responsive: mobile drawer + bottom-safe overlays.
+ * Adaptive shell (Apple-styled):
+ *  • desktop (lg+): left sidebar (collapsible) · content · right inspector
+ *  • mobile/tablet (<lg): NO sidebar — a bottom tab bar; inspector becomes a full-screen sheet
  */
 export function AppShell({ children }: { children: ReactNode }) {
-  const [navOpen, setNavOpen] = useState(false); // mobile drawer
-  const [collapsed, setCollapsed] = useState(false); // desktop icon rail
+  const [collapsed, setCollapsed] = useState(false);
   const [inspector, setInspector] = useState<InspectorPayload | null>(null);
   const [cmdOpen, setCmdOpen] = useState(false);
   const openCmd = useCallback(() => setCmdOpen(true), []);
@@ -35,72 +34,81 @@ export function AppShell({ children }: { children: ReactNode }) {
         close: () => setInspector(null),
       }}
     >
-      <div className="flex h-screen overflow-hidden bg-canvas text-ink">
-        {/* mobile nav backdrop */}
-        {navOpen && (
-          <div
-            className="fixed inset-0 z-30 bg-black/20 backdrop-blur-sm md:hidden"
-            onClick={() => setNavOpen(false)}
-          />
-        )}
-
-        {/* sidebar: fixed drawer on mobile, static rail/full on desktop */}
+      <div className="flex h-dvh overflow-hidden bg-canvas text-ink">
+        {/* sidebar — desktop only */}
         <div
           className={cn(
-            "fixed z-40 h-full shrink-0 transition-transform duration-200 ease-out md:static md:translate-x-0 md:transition-[width]",
-            navOpen ? "translate-x-0" : "-translate-x-full",
-            collapsed ? "md:w-[64px]" : "md:w-60",
-            "w-60",
+            "hidden shrink-0 lg:block lg:transition-[width]",
+            collapsed ? "lg:w-[64px]" : "lg:w-60",
           )}
         >
-          <Sidebar collapsed={collapsed} onNavigate={() => setNavOpen(false)} />
+          <Sidebar collapsed={collapsed} />
         </div>
 
         {/* main column */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle bg-canvas/80 px-3 backdrop-blur-xl">
-            <button
-              onClick={() => setNavOpen(true)}
-              className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken md:hidden"
-              aria-label="Open menu"
-            >
-              <Menu size={18} />
-            </button>
+          <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle bg-canvas/80 px-3 backdrop-blur-xl sm:px-4">
+            {/* macOS window chrome — terminal motif */}
+            <div className="hidden items-center gap-2 pr-1 sm:flex" aria-hidden>
+              <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
+              <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
+              <span className="h-3 w-3 rounded-full bg-[#28c840]" />
+            </div>
+            {/* brand shown when there's no sidebar (mobile/tablet) */}
+            <div className="flex items-center gap-1.5 lg:hidden">
+              <span className="inline-block h-4 w-[3px] animate-pulse rounded-[1px] bg-accent" />
+              <span className="font-mono font-semibold tracking-tight text-ink">nopm</span>
+            </div>
+            {/* collapse toggle — desktop only */}
             <button
               onClick={() => setCollapsed((v) => !v)}
-              className="hidden h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken md:grid"
+              className="hidden h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid"
               aria-label="Collapse sidebar"
             >
               {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
             </button>
             <div className="flex-1" />
+            {/* live indicator */}
+            <span className="mr-1 hidden items-center gap-1.5 font-mono text-xs text-ink-muted sm:flex">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+              live
+            </span>
+            <ThemeToggle />
             <CmdKTrigger onClick={openCmd} />
           </header>
-          <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+
+          {/* content — grouped grey bg so white cards lift off it (iOS layering);
+              pad bottom on mobile so the bottom nav never covers it */}
+          <main className="min-h-0 flex-1 overflow-auto bg-grouped pb-20 lg:pb-0">{children}</main>
         </div>
 
-        {/* command palette — singleton, mounts once, self-manages open state via Cmd/Ctrl-K */}
+        {/* command palette — singleton, Cmd/Ctrl-K */}
         <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
 
-        {/* inspector */}
+        {/* bottom nav — mobile + tablet */}
+        <BottomNav />
+
+        {/* inspector — full-screen sheet on mobile, right column on lg+ */}
         {inspector && (
           <>
             <div
-              className="fixed inset-0 z-30 bg-black/20 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
               onClick={() => setInspector(null)}
             />
-            <aside className="fixed right-0 top-0 z-40 flex h-full w-full max-w-[400px] shrink-0 flex-col border-l border-border-subtle bg-surface shadow-lg lg:static lg:shadow-none">
+            <aside className="fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-border-subtle bg-surface shadow-lg sm:w-[420px] lg:static lg:z-auto lg:w-[400px] lg:shadow-none">
               <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-4">
                 <span className="text-sm font-semibold text-ink">{inspector.title ?? "Details"}</span>
                 <button
                   onClick={() => setInspector(null)}
-                  className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+                  className="grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
                   aria-label="Close panel"
                 >
                   <X size={18} />
                 </button>
               </div>
-              <div className="min-h-0 flex-1 overflow-auto p-4">{inspector.content}</div>
+              <div className="min-h-0 flex-1 overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+                {inspector.content}
+              </div>
             </aside>
           </>
         )}

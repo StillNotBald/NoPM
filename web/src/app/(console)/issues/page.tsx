@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { NewIssueForm } from "@/components/registers/new-issue-form";
+import { PageHeader } from "@/components/ui/page-header";
+import { NewIssueButton } from "@/components/registers/new-issue-form";
 
 type PriorityLevel = "low" | "medium" | "high" | "urgent";
 type IssueStatus = "open" | "in_progress" | "resolved" | "closed";
@@ -10,13 +11,14 @@ type IssueStatus = "open" | "in_progress" | "resolved" | "closed";
 function priorityTone(p: PriorityLevel) {
   if (p === "urgent") return "danger" as const;
   if (p === "high") return "warning" as const;
-  if (p === "medium") return "accent" as const;
+  if (p === "medium") return "info" as const;
   return "neutral" as const;
 }
 
 function statusTone(s: IssueStatus) {
   if (s === "resolved" || s === "closed") return "success" as const;
-  if (s === "in_progress") return "warning" as const;
+  if (s === "in_progress") return "info" as const;
+  if (s === "open") return "warning" as const;
   return "neutral" as const;
 }
 
@@ -55,25 +57,18 @@ export default async function IssuesPage() {
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
 
   return (
-    <div className="px-8 py-10 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Issue Register</h1>
-          <p className="mt-0.5 text-sm text-ink-secondary">
-            {issues?.length ?? 0} issue{(issues?.length ?? 0) !== 1 ? "s" : ""} across all projects
-          </p>
-        </div>
-      </div>
-
-      {/* New issue form */}
-      <NewIssueForm projects={projects ?? []} />
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Issue Register"
+        action={<NewIssueButton projects={projects ?? []} />}
+      />
 
       {/* Table */}
       <Card>
         {issues && issues.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-border-subtle">
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -121,10 +116,11 @@ export default async function IssuesPage() {
         ) : (
           <div className="px-5 py-16 text-center">
             <p className="text-sm text-ink-muted">No issues logged yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use the form above to log the first one.</p>
+            <p className="mt-1 text-xs text-ink-muted">Use “New Issue” to log the first one.</p>
           </div>
         )}
       </Card>
+      </div>
     </div>
   );
 }

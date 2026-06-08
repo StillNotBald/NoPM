@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
 
 type ClashType = "schedule" | "resource" | "dependency";
 type ClashSeverity = "low" | "medium" | "high" | "critical";
@@ -10,20 +11,20 @@ type ClashStatus = "open" | "investigating" | "resolved";
 function typeTone(t: ClashType) {
   if (t === "resource") return "warning" as const;
   if (t === "dependency") return "danger" as const;
-  return "neutral" as const;
+  return "info" as const; // schedule
 }
 
 function severityTone(s: ClashSeverity) {
   if (s === "critical") return "danger" as const;
   if (s === "high") return "warning" as const;
-  if (s === "medium") return "accent" as const;
+  if (s === "medium") return "info" as const;
   return "neutral" as const;
 }
 
 function statusTone(s: ClashStatus) {
   if (s === "resolved") return "success" as const;
-  if (s === "investigating") return "warning" as const;
-  return "neutral" as const;
+  if (s === "investigating") return "info" as const;
+  return "warning" as const; // open
 }
 
 function typeLabel(t: ClashType) {
@@ -57,16 +58,9 @@ export default async function ClashesPage() {
   }
 
   return (
-    <div className="px-8 py-10 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Clash Register</h1>
-          <p className="mt-0.5 text-sm text-ink-secondary">
-            {clashes?.length ?? 0} clash{(clashes?.length ?? 0) !== 1 ? "es" : ""} detected across the workspace
-          </p>
-        </div>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader title="Clash Register" />
 
       {/* Legend */}
       <div className="flex items-center gap-2 text-xs text-ink-muted">
@@ -78,7 +72,7 @@ export default async function ClashesPage() {
       <Card>
         {clashes && clashes.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-border-subtle">
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -162,6 +156,7 @@ export default async function ClashesPage() {
           </div>
         )}
       </Card>
+      </div>
     </div>
   );
 }

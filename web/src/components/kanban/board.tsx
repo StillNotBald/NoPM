@@ -60,11 +60,11 @@ const COLUMN_TITLES: Record<TaskStatusType, string> = {
 
 function priorityTone(
   priority: PriorityLevel,
-): "neutral" | "warning" | "danger" | "accent" {
+): "neutral" | "info" | "warning" | "danger" | "accent" {
   switch (priority) {
     case "urgent": return "danger";
     case "high": return "warning";
-    case "medium": return "accent";
+    case "medium": return "info";
     default: return "neutral";
   }
 }

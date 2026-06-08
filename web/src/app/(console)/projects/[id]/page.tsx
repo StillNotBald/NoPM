@@ -5,30 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { ProjectActions } from "@/components/tracking/project-actions";
 import { ProjectTabs } from "@/components/tracking/project-tabs";
-
-type RagStatus = "not_started" | "red" | "amber" | "green" | "complete";
-
-function ragTone(
-  rag: RagStatus,
-): "neutral" | "danger" | "warning" | "success" | "accent" {
-  switch (rag) {
-    case "green":    return "success";
-    case "amber":    return "warning";
-    case "red":      return "danger";
-    case "complete": return "accent";
-    default:         return "neutral";
-  }
-}
-
-function ragLabel(rag: RagStatus): string {
-  switch (rag) {
-    case "not_started": return "Not started";
-    case "red":         return "Red";
-    case "amber":       return "Amber";
-    case "green":       return "Green";
-    case "complete":    return "Complete";
-  }
-}
+import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 
 export default async function ProjectDetailPage({
   params,
@@ -94,7 +71,7 @@ export default async function ProjectDetailPage({
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-8">
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 mx-auto max-w-6xl space-y-8">
       {/* Header */}
       <div>
         {/* Breadcrumb */}
@@ -106,8 +83,8 @@ export default async function ProjectDetailPage({
           <span className="text-ink-secondary">{safeProject.name}</span>
         </nav>
 
-        {/* Title row */}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+        {/* Title row: stacks on mobile, side-by-side on sm+ */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3 min-w-0">
             {safeProject.code && (
               <span className="mt-1 font-mono text-xs text-ink-muted bg-sunken border border-border-subtle rounded px-2 py-0.5 shrink-0">
@@ -139,9 +116,9 @@ export default async function ProjectDetailPage({
           </div>
         </div>
 
-        {/* Completion bar */}
+        {/* Completion bar — full width on mobile, capped on larger screens */}
         <div className="mt-5 flex items-center gap-3">
-          <div className="flex-1 max-w-xs h-2 rounded-full bg-sunken overflow-hidden">
+          <div className="flex-1 sm:max-w-xs h-2 rounded-full bg-sunken overflow-hidden">
             <div
               className="h-full rounded-full bg-accent transition-all"
               style={{ width: `${Math.min(100, safeProject.completion_pct)}%` }}

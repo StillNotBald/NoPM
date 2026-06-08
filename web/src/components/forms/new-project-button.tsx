@@ -11,6 +11,7 @@ export function NewProjectButton() {
   return (
     <Button
       variant="primary"
+      className="h-11 sm:h-10"
       onClick={() =>
         modal.open(<ProjectForm mode="create" scaffold />, {
           title: "New Project",

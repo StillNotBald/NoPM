@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import { ragLabel, ragTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
 
 // ── types ────────────────────────────────────────────────────────────────────
@@ -18,36 +20,6 @@ interface Project {
 }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
-
-function ragBadgeTone(rag: RagStatus): "success" | "warning" | "danger" | "neutral" | "accent" {
-  switch (rag) {
-    case "green":
-      return "success";
-    case "amber":
-      return "warning";
-    case "red":
-      return "danger";
-    case "complete":
-      return "accent";
-    default:
-      return "neutral";
-  }
-}
-
-function ragLabel(rag: RagStatus): string {
-  switch (rag) {
-    case "green":
-      return "Green";
-    case "amber":
-      return "Amber";
-    case "red":
-      return "Red";
-    case "not_started":
-      return "Not started";
-    case "complete":
-      return "Complete";
-  }
-}
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
@@ -81,35 +53,31 @@ export default async function DashboardPage() {
   const redCount = projects.filter((p) => p.rag_status === "red").length;
 
   return (
-    <div className="space-y-8 p-8">
-      {/* Page header */}
-      <div>
-        <p className="text-xs font-medium uppercase tracking-widest text-ink-muted">Portfolio</p>
-        <h1 className="mt-1 text-xl font-medium text-ink">Command Centre</h1>
-      </div>
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <PageHeader title="Command Centre" />
 
       {/* ── Stat row ── */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard label="Total Projects" value={totalProjects} />
         <StatCard
-          label="Green"
+          label="On track"
           value={greenCount}
           accent={<span className="inline-block h-2 w-2 rounded-full bg-success" />}
         />
         <StatCard
-          label="Amber"
+          label="At risk"
           value={amberCount}
           accent={<span className="inline-block h-2 w-2 rounded-full bg-warning" />}
         />
         <StatCard
-          label="Red"
+          label="Delayed"
           value={redCount}
           accent={<span className="inline-block h-2 w-2 rounded-full bg-danger" />}
         />
       </div>
 
       {/* ── Registers strip ── */}
-      <div className="flex items-center gap-1 rounded-md border border-border-subtle bg-surface px-4 py-3">
+      <div className="flex flex-wrap items-center gap-1 rounded-md border border-border-subtle bg-surface px-4 py-3">
         <p className="mr-3 text-xs font-medium uppercase tracking-widest text-ink-muted">
           Registers
         </p>
@@ -117,7 +85,7 @@ export default async function DashboardPage() {
         <span className="mx-2 text-border-strong">·</span>
         <RegisterPill label="Issues" count={issueCount} tone="danger" />
         <span className="mx-2 text-border-strong">·</span>
-        <RegisterPill label="Clashes" count={clashCount} tone="neutral" />
+        <RegisterPill label="Clashes" count={clashCount} tone="info" />
       </div>
 
       {/* ── Portfolio table ── */}
@@ -133,7 +101,7 @@ export default async function DashboardPage() {
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle">
                     <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
@@ -178,7 +146,7 @@ export default async function DashboardPage() {
 
                         {/* RAG Badge */}
                         <td className="px-5 py-3.5">
-                          <Badge tone={ragBadgeTone(project.rag_status)}>
+                          <Badge tone={ragTone(project.rag_status)}>
                             {ragLabel(project.rag_status)}
                           </Badge>
                         </td>
@@ -235,7 +203,7 @@ function StatCard({
           {accent}
           <p className="text-xs font-medium uppercase tracking-widest text-ink-muted">{label}</p>
         </div>
-        <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">{value}</p>
+        <p className="mt-3 font-mono text-3xl font-semibold tabular-nums tracking-tight text-ink">{value}</p>
       </CardBody>
     </Card>
   );
@@ -248,11 +216,11 @@ function RegisterPill({
 }: {
   label: string;
   count: number;
-  tone: "warning" | "danger" | "neutral";
+  tone: "info" | "warning" | "danger" | "neutral";
 }) {
   return (
     <span className="flex items-center gap-1.5 text-sm">
-      <span className="font-medium text-ink">{count}</span>
+      <Badge tone={tone}>{count}</Badge>
       <span className="text-ink-secondary">{label}</span>
     </span>
   );

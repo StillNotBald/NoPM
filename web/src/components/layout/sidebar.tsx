@@ -52,14 +52,14 @@ export function Sidebar({
         onClick={onNavigate}
         title={collapsed ? label : undefined}
         className={cn(
-          "flex items-center gap-3 rounded-lg px-2.5 py-2 text-[13px] transition-colors",
-          collapsed && "justify-center px-0",
+          "flex items-center gap-3 rounded-lg border-l-2 px-2.5 py-2 text-[13px] transition-colors",
+          collapsed && "justify-center border-l-0 px-0",
           active
-            ? "bg-canvas font-medium text-ink shadow-sm"
-            : "text-ink-secondary hover:bg-canvas/60",
+            ? "border-accent bg-canvas font-medium text-ink shadow-sm"
+            : "border-transparent text-ink-secondary hover:bg-canvas/60",
         )}
       >
-        <Icon size={18} className={active ? "text-accent" : "text-ink-muted"} strokeWidth={2} />
+        <Icon size={18} className={active ? "text-ink" : "text-ink-muted"} strokeWidth={2} />
         {!collapsed && <span className="truncate">{label}</span>}
       </Link>
     );
@@ -68,10 +68,16 @@ export function Sidebar({
   return (
     <aside className="flex h-full flex-col border-r border-border-subtle bg-sunken">
       <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", collapsed && "justify-center px-0")}>
-        <div className="grid h-7 w-7 place-items-center rounded-[7px] bg-accent text-sm font-semibold text-white">
-          N
-        </div>
-        {!collapsed && <span className="font-semibold tracking-tight text-ink">NoPM</span>}
+        {collapsed ? (
+          <span className="grid h-7 w-7 place-items-center rounded-md bg-accent font-mono text-sm font-bold text-accent-ink">
+            N
+          </span>
+        ) : (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-4 w-[3px] animate-pulse rounded-[1px] bg-accent" />
+            <span className="font-mono font-semibold tracking-tight text-ink">nopm</span>
+          </span>
+        )}
       </div>
 
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-2">

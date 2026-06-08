@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 
 interface ResourceMember {
@@ -38,7 +39,7 @@ export default async function ResourcesPage() {
 
   if (membersError) {
     return (
-      <div className="p-8">
+      <div className="px-4 py-5 sm:px-6 lg:px-8">
         <p className="text-sm text-danger">Failed to load resource members.</p>
       </div>
     );
@@ -68,28 +69,16 @@ export default async function ResourcesPage() {
   ).length;
 
   return (
-    <div className="p-8 space-y-6">
-      {/* Page header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-xl font-semibold text-ink">Resources</h1>
-          <p className="mt-1 text-sm text-ink-secondary">
-            People, cost rates, capacity, and allocation across all projects.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-ink-muted">{totalMembers} member{totalMembers !== 1 ? "s" : ""}</span>
-          {overAllocated > 0 && (
-            <Badge tone="danger">
-              {overAllocated} over-allocated
-            </Badge>
-          )}
-        </div>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
+      <div className="mx-auto max-w-6xl space-y-6">
+      <PageHeader
+        title="Resources"
+        action={overAllocated > 0 ? <Badge tone="danger">{overAllocated} over-allocated</Badge> : undefined}
+      />
 
       {/* Summary cards */}
       {rows.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
           <Card>
             <CardBody className="py-4">
               <p className="text-xs text-ink-muted uppercase tracking-wide">Total Members</p>
@@ -128,7 +117,7 @@ export default async function ResourcesPage() {
           </CardBody>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-border-subtle">
                   <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -224,6 +213,7 @@ export default async function ResourcesPage() {
           </div>
         )}
       </Card>
+      </div>
     </div>
   );
 }

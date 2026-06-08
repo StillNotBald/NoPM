@@ -347,13 +347,14 @@ export function CmdKTrigger({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       aria-label="Open command palette (⌘K)"
       className={cn(
-        "hidden items-center gap-1.5 rounded-md border border-border-subtle",
-        "bg-sunken px-2 py-1 text-xs text-ink-muted transition-colors duration-150",
+        "hidden items-center gap-2 rounded-md border border-border-subtle",
+        "bg-sunken px-2.5 py-1.5 font-mono text-xs text-ink-muted transition-colors duration-150",
         "hover:border-border-strong hover:text-ink sm:flex",
       )}
     >
-      <Search size={11} />
-      <span>⌘K</span>
+      <span className="text-accent">❯</span>
+      <span>run command</span>
+      <span className="ml-1 rounded border border-border-strong px-1 text-[10px] text-ink-muted">⌘K</span>
     </button>
   );
 }

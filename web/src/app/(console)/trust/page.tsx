@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 
 export const metadata = { title: "Trust Center — NoPM" };
@@ -89,19 +90,9 @@ export default async function TrustPage() {
   const entries: AuditRow[] = rows ?? [];
 
   return (
-    <div className="p-8 max-w-4xl mx-auto space-y-8">
-      {/* Page header */}
-      <div>
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold text-ink">Trust Center</h1>
-          <Badge tone="accent">Immutable</Badge>
-        </div>
-        <p className="mt-2 text-sm text-ink-secondary max-w-2xl">
-          Every mutation in NoPM writes one immutable audit row. Nothing here can be edited or
-          deleted — the ledger is append-only by design. Use it to verify who changed what, and
-          when.
-        </p>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-4xl space-y-8">
+      <PageHeader title="Trust Center" action={<Badge tone="accent">Immutable</Badge>} />
 
       {/* Error state */}
       {error && (
@@ -249,6 +240,7 @@ export default async function TrustPage() {
             </CardBody>
           </Card>
         </div>
+      </div>
       </div>
     </div>
   );

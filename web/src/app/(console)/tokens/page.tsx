@@ -7,6 +7,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 
 const ALL_SCOPES = [
@@ -151,15 +152,9 @@ export default function TokensPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl px-6 py-10 space-y-8">
-      {/* Page header */}
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold text-ink">API Tokens</h1>
-        <p className="text-sm text-ink-secondary max-w-2xl">
-          Scoped tokens are how an AI agent drives NoPM — least privilege, shown once. Grant only
-          the scopes the agent actually needs; you can mint multiple tokens for different callers.
-        </p>
-      </div>
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto max-w-4xl space-y-8">
+      <PageHeader title="API Tokens" />
 
       {/* Active token one-time reveal */}
       {newToken && (
@@ -193,7 +188,7 @@ export default function TokensPage() {
             <p className="px-5 py-6 text-sm text-ink-muted">No tokens yet. Mint one below.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle text-left text-xs text-ink-muted uppercase tracking-wide">
                     <th className="px-5 py-3 font-medium">Name</th>
@@ -274,6 +269,7 @@ export default function TokensPage() {
               value={mintName}
               onChange={(e) => setMintName(e.target.value)}
               disabled={minting}
+              className="h-11 sm:h-10 text-base sm:text-sm"
             />
           </div>
 
@@ -281,18 +277,18 @@ export default function TokensPage() {
             <p className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
               Scopes
             </p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-y-3 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-2 lg:grid-cols-3">
               {ALL_SCOPES.map((scope) => (
                 <label
                   key={scope}
-                  className="flex items-center gap-2 cursor-pointer group"
+                  className="flex items-center gap-2 cursor-pointer group min-h-[44px] sm:min-h-0"
                 >
                   <input
                     type="checkbox"
                     checked={selectedScopes.has(scope)}
                     onChange={() => toggleScope(scope)}
                     disabled={minting}
-                    className="h-4 w-4 rounded border-border-subtle accent-[#D97757] cursor-pointer"
+                    className="h-4 w-4 rounded border-border-subtle accent-[#D97757] cursor-pointer shrink-0"
                   />
                   <span className="text-sm text-ink font-mono group-hover:text-accent transition-colors">
                     {scope}
@@ -322,6 +318,7 @@ export default function TokensPage() {
           </Button>
         </CardBody>
       </Card>
+      </div>
     </div>
   );
 }

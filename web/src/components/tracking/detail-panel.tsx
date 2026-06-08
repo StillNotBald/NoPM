@@ -13,7 +13,7 @@ import type { Milestone, Task } from "@/components/tracking/activity-table";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
+type BadgeTone = "neutral" | "accent" | "info" | "success" | "warning" | "danger";
 
 // ─── Badge helpers (mirrored from activity-table for self-containment) ────────
 
@@ -22,12 +22,12 @@ function milestoneStatusBadge(status: Milestone["status"]): {
   label: string;
 } {
   switch (status) {
-    case "completed":  return { tone: "success",  label: "Completed" };
-    case "on_track":   return { tone: "accent",   label: "On track" };
-    case "at_risk":    return { tone: "warning",  label: "At risk" };
-    case "delayed":    return { tone: "danger",   label: "Delayed" };
+    case "completed":  return { tone: "success", label: "Completed" };
+    case "on_track":   return { tone: "success", label: "On track" };
+    case "at_risk":    return { tone: "warning", label: "At risk" };
+    case "delayed":    return { tone: "danger",  label: "Delayed" };
     case "not_started":
-    default:           return { tone: "neutral",  label: "Not started" };
+    default:           return { tone: "info",    label: "Not started" };
   }
 }
 
@@ -37,7 +37,7 @@ function taskStatusBadge(statusType: Task["status_type"]): {
 } {
   switch (statusType) {
     case "completed": return { tone: "success", label: "Completed" };
-    case "started":   return { tone: "accent",  label: "In progress" };
+    case "started":   return { tone: "info",    label: "In progress" };
     case "canceled":  return { tone: "neutral", label: "Canceled" };
     case "backlog":   return { tone: "neutral", label: "Backlog" };
     case "unstarted":
@@ -52,7 +52,7 @@ function priorityBadge(priority: Task["priority"]): {
   switch (priority) {
     case "urgent": return { tone: "danger",  label: "Urgent" };
     case "high":   return { tone: "warning", label: "High" };
-    case "medium": return { tone: "accent",  label: "Medium" };
+    case "medium": return { tone: "info",    label: "Medium" };
     case "low":
     default:       return { tone: "neutral", label: "Low" };
   }
@@ -80,7 +80,7 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-h-[40px] items-center justify-between gap-4 border-b border-border-subtle py-2.5 last:border-b-0">
+    <div className="flex min-h-[44px] items-center justify-between gap-4 border-b border-border-subtle py-2.5 last:border-b-0">
       <span className="shrink-0 text-xs font-medium text-ink-muted">{label}</span>
       <span className="text-right text-sm text-ink">{children}</span>
     </div>
@@ -172,11 +172,11 @@ export function TaskDetailPanel({
       </div>
 
       {/* Footer actions */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex flex-col gap-2 pt-1 sm:flex-row">
         <Button
           variant="secondary"
           size="sm"
-          className="flex-1"
+          className="flex-1 h-11 sm:h-9"
           onClick={() =>
             modal.open(
               <TaskForm
@@ -194,7 +194,7 @@ export function TaskDetailPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="text-danger hover:bg-danger/10"
+          className="h-11 sm:h-9 text-danger hover:bg-danger/10 sm:flex-none"
           onClick={handleDelete}
         >
           <Trash2 size={13} className="mr-1.5" />
@@ -250,11 +250,11 @@ export function MilestoneDetailPanel({ milestone }: { milestone: Milestone }) {
       </div>
 
       {/* Footer actions */}
-      <div className="flex gap-2 pt-1">
+      <div className="flex flex-col gap-2 pt-1 sm:flex-row">
         <Button
           variant="secondary"
           size="sm"
-          className="flex-1"
+          className="flex-1 h-11 sm:h-9"
           onClick={() =>
             modal.open(
               <MilestoneForm
@@ -271,7 +271,7 @@ export function MilestoneDetailPanel({ milestone }: { milestone: Milestone }) {
         <Button
           variant="ghost"
           size="sm"
-          className="text-danger hover:bg-danger/10"
+          className="h-11 sm:h-9 text-danger hover:bg-danger/10 sm:flex-none"
           onClick={handleDelete}
         >
           <Trash2 size={13} className="mr-1.5" />

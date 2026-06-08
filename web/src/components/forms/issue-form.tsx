@@ -113,7 +113,7 @@ export function IssueForm({
       </div>
 
       {/* Compact properties grid */}
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-1">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
         {/* Priority */}
         <div>
           <FieldLabel>Priority</FieldLabel>
@@ -151,7 +151,7 @@ export function IssueForm({
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="h-8 text-sm"
+            className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.due_date} />
         </div>
@@ -202,11 +202,11 @@ export function IssueForm({
       )}
 
       {/* Actions */}
-      <div className="flex items-center justify-end gap-2 border-t border-border-subtle pt-3">
-        <Button type="button" variant="ghost" onClick={modal.close} disabled={saving}>
+      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
+        <Button type="button" variant="ghost" onClick={modal.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving || !title.trim()}>
+        <Button type="submit" variant="primary" disabled={saving || !title.trim()} className="w-full sm:w-auto h-11 sm:h-10">
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

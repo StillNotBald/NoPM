@@ -70,19 +70,19 @@ type Density = "comfortable" | "compact";
 
 // ─── Badge helpers ────────────────────────────────────────────────────────────
 
-type BadgeTone = "neutral" | "accent" | "success" | "warning" | "danger";
+type BadgeTone = "neutral" | "accent" | "info" | "success" | "warning" | "danger";
 
 function milestoneStatusBadge(status: Milestone["status"]): {
   tone: BadgeTone;
   label: string;
 } {
   switch (status) {
-    case "completed":  return { tone: "success",  label: "Completed" };
-    case "on_track":   return { tone: "accent",   label: "On track" };
-    case "at_risk":    return { tone: "warning",  label: "At risk" };
-    case "delayed":    return { tone: "danger",   label: "Delayed" };
+    case "completed":  return { tone: "success", label: "Completed" };
+    case "on_track":   return { tone: "success", label: "On track" };
+    case "at_risk":    return { tone: "warning", label: "At risk" };
+    case "delayed":    return { tone: "danger",  label: "Delayed" };
     case "not_started":
-    default:           return { tone: "neutral",  label: "Not started" };
+    default:           return { tone: "info",    label: "Not started" };
   }
 }
 
@@ -92,7 +92,7 @@ function taskStatusBadge(statusType: Task["status_type"]): {
 } {
   switch (statusType) {
     case "completed": return { tone: "success", label: "Completed" };
-    case "started":   return { tone: "accent",  label: "In progress" };
+    case "started":   return { tone: "info",    label: "In progress" };
     case "canceled":  return { tone: "neutral", label: "Canceled" };
     case "backlog":   return { tone: "neutral", label: "Backlog" };
     case "unstarted":
@@ -107,7 +107,7 @@ function priorityBadge(priority: Task["priority"]): {
   switch (priority) {
     case "urgent": return { tone: "danger",  label: "Urgent" };
     case "high":   return { tone: "warning", label: "High" };
-    case "medium": return { tone: "accent",  label: "Medium" };
+    case "medium": return { tone: "info",    label: "Medium" };
     case "low":
     default:       return { tone: "neutral", label: "Low" };
   }
@@ -292,12 +292,12 @@ function MilestoneRow({
       </td>
 
       {/* Dates */}
-      <td className={cn("pr-4 text-xs text-ink-secondary", rowPy)}>
+      <td className={cn("hidden md:table-cell pr-4 text-xs text-ink-secondary", rowPy)}>
         {fmtDate(milestone.target_date)}
       </td>
 
       {/* Priority — not applicable for milestones */}
-      <td className={cn("pr-4", rowPy)} />
+      <td className={cn("hidden md:table-cell pr-4", rowPy)} />
 
       {/* Status */}
       <td className={cn("pr-4", rowPy)}>
@@ -419,12 +419,12 @@ function TaskRow({
       </td>
 
       {/* Date range */}
-      <td className={cn("pr-4 text-xs text-ink-secondary whitespace-nowrap", rowPy)}>
+      <td className={cn("hidden md:table-cell pr-4 text-xs text-ink-secondary whitespace-nowrap", rowPy)}>
         {fmtDateRange(task.start_date, task.due_date)}
       </td>
 
       {/* Priority */}
-      <td className={cn("pr-4", rowPy)}>
+      <td className={cn("hidden md:table-cell pr-4", rowPy)}>
         <Badge tone={prioInfo.tone}>{prioInfo.label}</Badge>
       </td>
 
@@ -698,8 +698,8 @@ export function ActivityTable({
 
   return (
     <section className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex items-center gap-3">
+      {/* Toolbar — wraps on mobile */}
+      <div className="flex flex-wrap items-center gap-2">
         <h2 className="flex-1 text-base font-semibold text-ink">Activity</h2>
 
         {isLocked && (
@@ -714,7 +714,7 @@ export function ActivityTable({
             aria-label="Comfortable density"
             title="Comfortable"
             className={cn(
-              "grid h-7 w-7 place-items-center rounded text-xs transition-colors duration-[200ms]",
+              "grid h-9 w-9 place-items-center rounded text-xs transition-colors duration-[200ms]",
               density === "comfortable"
                 ? "bg-accent/10 text-accent"
                 : "text-ink-muted hover:text-ink hover:bg-sunken"
@@ -727,7 +727,7 @@ export function ActivityTable({
             aria-label="Compact density"
             title="Compact"
             className={cn(
-              "grid h-7 w-7 place-items-center rounded text-xs transition-colors duration-[200ms]",
+              "grid h-9 w-9 place-items-center rounded text-xs transition-colors duration-[200ms]",
               density === "compact"
                 ? "bg-accent/10 text-accent"
                 : "text-ink-muted hover:text-ink hover:bg-sunken"
@@ -741,6 +741,7 @@ export function ActivityTable({
         <Button
           variant="secondary"
           size="sm"
+          className="h-11 sm:h-10"
           onClick={() =>
             modal.open(
               <TaskForm projectId={projectId} milestones={sortedMilestones} />,
@@ -754,6 +755,7 @@ export function ActivityTable({
         <Button
           variant="primary"
           size="sm"
+          className="h-11 sm:h-10"
           onClick={() =>
             modal.open(<MilestoneForm projectId={projectId} />, {
               title: "New Milestone",
@@ -800,10 +802,10 @@ export function ActivityTable({
                 >
                   Name
                 </th>
-                <th className="py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden md:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Date
                 </th>
-                <th className="py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden md:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Priority
                 </th>
                 <th className="py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
