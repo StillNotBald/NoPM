@@ -25,7 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ── ReviewItem shape ──────────────────────────────────────────────────────────
 
-export type ReviewKind = "approval" | "rebaseline" | "risk" | "clash" | "document";
+export type ReviewKind = "approval" | "rebaseline" | "change" | "risk" | "clash" | "document";
 
 export interface ReviewItem {
   /** Unique row id from source table */
@@ -57,9 +57,10 @@ function weight(item: ReviewItem): number {
   const kindWeight: Record<ReviewKind, number> = {
     approval: 0,
     rebaseline: 1,
-    risk: 2,
-    clash: 3,
-    document: 4,
+    change: 2,
+    risk: 3,
+    clash: 4,
+    document: 5,
   };
   const base = kindWeight[item.kind] * 10_000;
 
@@ -95,6 +96,7 @@ export async function gatherReviewItems(
     risksResult,
     clashesResult,
     documentsResult,
+    changeRequestsResult,
   ] = await Promise.allSettled([
     // 1. Deletion requests pending approval
     db
@@ -132,6 +134,19 @@ export async function gatherReviewItems(
           .from("documents")
           .select("id, title, project_id, created_at")
           .eq("status", "in_review")
+          .order("created_at", { ascending: true });
+      } catch {
+        return { data: null, error: null };
+      }
+    })(),
+
+    // 6. Change requests under review (defensive — table may not exist yet)
+    (async () => {
+      try {
+        return await db
+          .from("change_requests")
+          .select("id, title, project_id, created_at")
+          .eq("status", "under_review")
           .order("created_at", { ascending: true });
       } catch {
         return { data: null, error: null };
@@ -217,6 +232,22 @@ export async function gatherReviewItems(
         ageDays: ageDays(row.created_at),
         href: `/documents?doc=${row.id}`,
         actionLabel: "Review document",
+      });
+    }
+  }
+
+  // ── Change requests (defensive) ──────────────────────────────────────────────
+  if (changeRequestsResult.status === "fulfilled") {
+    for (const row of (changeRequestsResult.value as { data: Array<{ id: string; title: string; project_id: string | null; created_at: string }> | null }).data ?? []) {
+      const projectName = row.project_id ? projectMap.get(row.project_id) : undefined;
+      items.push({
+        id: row.id,
+        kind: "change",
+        title: row.title,
+        project: projectName,
+        ageDays: ageDays(row.created_at),
+        href: `/change-control?cr=${row.id}`,
+        actionLabel: "Decide",
       });
     }
   }

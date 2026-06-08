@@ -13,6 +13,8 @@ import {
   Users,
   Wallet,
   ListChecks,
+  GitPullRequest,
+  Gavel,
   ClipboardCheck,
   ShieldCheck,
   KeyRound,
@@ -36,6 +38,8 @@ const primary: NavItem[] = [
 
 const governance: NavItem[] = [
   { href: "/review", label: "Review", icon: ListChecks },
+  { href: "/change-control", label: "Change Control", icon: GitPullRequest },
+  { href: "/decisions", label: "Decisions", icon: Gavel },
   { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/trust", label: "Trust Center", icon: ShieldCheck },
   { href: "/tokens", label: "Tokens", icon: KeyRound },

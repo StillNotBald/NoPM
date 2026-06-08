@@ -24,6 +24,12 @@ const kindMeta: Record<
       "rounded-full bg-warning/10 px-2 py-0.5 font-mono text-xs font-medium text-warning",
     dotClass: "text-warning",
   },
+  change: {
+    label: "Change Requests in Review",
+    chipClass:
+      "rounded-full bg-[#7c3aed]/10 px-2 py-0.5 font-mono text-xs font-medium text-[#7c3aed]",
+    dotClass: "text-[#7c3aed]",
+  },
   risk: {
     label: "High / Critical Risks",
     chipClass:
@@ -52,6 +58,8 @@ function kindTone(kind: ReviewKind) {
       return "danger" as const;
     case "rebaseline":
       return "warning" as const;
+    case "change":
+      return "neutral" as const; // colour carried by the violet group chip
     case "risk":
       return "neutral" as const; // colour comes from Severity dot; badge stays neutral
     case "clash":
@@ -154,6 +162,7 @@ function GroupSection({
 const KIND_ORDER: ReviewKind[] = [
   "approval",
   "rebaseline",
+  "change",
   "risk",
   "clash",
   "document",

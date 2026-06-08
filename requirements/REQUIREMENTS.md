@@ -9,6 +9,8 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-04** Control-Tower — project timeline lock → rebaseline sign-off (multi-approver → atomic apply). — **DONE** (schema + lock/unlock/rebaseline/signoff/apply endpoints)
 - **R-05** Dual auth — Supabase session + **TOTP MFA** (enroll/verify/recover + backup codes). — **DONE** (otplib v12; enroll/verify/disable routes)
 - **R-06** Workspace RLS isolation on every table. — **DONE** (21 tables; workspace_id RLS on every table)
+- **R-07** Change-control register — raise → assess (scope/schedule/cost impact) → four-eyes decision (decider ≠ requester, DB CHECK + API guard) → audited; under-review CRs surface in the Review Queue. — **DONE**
+- **R-08** Decision log — governed record of programme decisions (context / options / decision / rationale, with a supersedes chain). — **DONE**
 
 ## PM domain (8 modules)
 - **R-10** Projects CRUD (code, owner, RAG, completion, dates, currency, lock). — **DONE**
