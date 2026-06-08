@@ -32,6 +32,8 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-35 | Trust Center | DONE | `web/src/app/(console)/trust/page.tsx`, `web/src/components/tracking/history-timeline.tsx` | — |
 | R-36 | Token management UI | DONE | `web/src/app/(console)/tokens/page.tsx` | — |
 | R-37 | Notification center | DONE | `web/supabase/migrations/20260608000007_notifications.sql`, `web/src/lib/notify/publish.ts`, `web/src/app/api/notifications/route.ts`, `web/src/app/api/notifications/[id]/route.ts`, `web/src/app/api/notifications/read-all/route.ts`, `web/src/components/notifications/bell.tsx`, `web/src/app/(console)/my-work/page.tsx` (email previews still deferred — resend absent) | — |
+| R-38 | Review Queue | DONE | `web/src/lib/review/gather.ts`, `web/src/app/(console)/review/page.tsx`, `web/src/components/review/queue-list.tsx` | — |
+| R-39 | Documents + file storage | DONE | `web/supabase/migrations/20260608000015_documents.sql`, `web/supabase/migrations/20260608000016_document_files.sql`, `web/src/app/api/documents/route.ts`, `web/src/app/api/documents/[id]/route.ts`, `web/src/app/api/documents/[id]/file/route.ts`, `web/src/app/api/documents/[id]/file/sign/route.ts`, `web/src/lib/documents/storage.ts`, `web/src/app/(console)/documents/page.tsx`, `web/src/components/documents/document-viewer.tsx`, `web/src/components/documents/file-upload.tsx` | — |
 | R-40 | Deck export | DONE | `web/src/app/api/reports/deck/route.ts`, `web/src/app/api/reports/project/[id]/route.ts`, `web/src/lib/reports/html.ts`, `web/src/lib/reports/pptx.ts`, `web/src/lib/reports/pdf.ts`, `web/src/lib/reports/gather.ts` | — |
 | R-50 | Landing + case study | DONE | `web/src/app/page.tsx` | — |
 | R-51 | One-pager PDF | TODO | — | — |

@@ -6,11 +6,13 @@ import {
   Inbox,
   LayoutDashboard,
   FolderKanban,
+  FileText,
   AlertTriangle,
   CircleAlert,
   Zap,
   Users,
   Wallet,
+  ListChecks,
   ClipboardCheck,
   ShieldCheck,
   KeyRound,
@@ -24,6 +26,7 @@ const primary: NavItem[] = [
   { href: "/my-work", label: "My Work", icon: Inbox },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/documents", label: "Documents", icon: FileText },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/issues", label: "Issues", icon: CircleAlert },
   { href: "/clashes", label: "Clashes", icon: Zap },
@@ -32,6 +35,7 @@ const primary: NavItem[] = [
 ];
 
 const governance: NavItem[] = [
+  { href: "/review", label: "Review", icon: ListChecks },
   { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
   { href: "/trust", label: "Trust Center", icon: ShieldCheck },
   { href: "/tokens", label: "Tokens", icon: KeyRound },
