@@ -57,6 +57,22 @@ function fmtDate(d: string | null): string {
   });
 }
 
+// ─── Member name resolution ─────────────────────────────────────────────────────
+
+/**
+ * Resolve a person UUID (assignee_id / owner_id) to a display name using the
+ * optional members map. Falls back to a short id when no name is known.
+ */
+function resolveMemberName(
+  id: string | null,
+  members?: Record<string, string>,
+): string | null {
+  if (!id) return null;
+  const name = members?.[id];
+  if (name) return name;
+  return id.length > 8 ? id.slice(0, 8) : id;
+}
+
 // ─── Shared UI pieces ─────────────────────────────────────────────────────────
 
 /** iOS-style "grouped list" row: label left, value right, hairline divider. */
@@ -99,9 +115,11 @@ function DetailProgress({ pct }: { pct: number }) {
 export function TaskDetailPanel({
   task,
   milestones,
+  members,
 }: {
   task: Task;
   milestones: Milestone[];
+  members?: Record<string, string>;
 }) {
   const modal = useModal();
   const inspector = useInspector();
@@ -154,7 +172,11 @@ export function TaskDetailPanel({
         <DetailRow label="Start date">{fmtDate(task.start_date)}</DetailRow>
         <DetailRow label="Due date">{fmtDate(task.due_date)}</DetailRow>
         <DetailRow label="Assignee">
-          {task.assignee_id ?? <span className="text-ink-muted">Unassigned</span>}
+          {task.assignee_id ? (
+            resolveMemberName(task.assignee_id, members)
+          ) : (
+            <span className="text-ink-muted">Unassigned</span>
+          )}
         </DetailRow>
       </div>
 
@@ -194,7 +216,13 @@ export function TaskDetailPanel({
 
 // ─── MilestoneDetailPanel ─────────────────────────────────────────────────────
 
-export function MilestoneDetailPanel({ milestone }: { milestone: Milestone }) {
+export function MilestoneDetailPanel({
+  milestone,
+  members,
+}: {
+  milestone: Milestone;
+  members?: Record<string, string>;
+}) {
   const modal = useModal();
   const inspector = useInspector();
   const router = useRouter();
@@ -230,7 +258,9 @@ export function MilestoneDetailPanel({ milestone }: { milestone: Milestone }) {
       <div className="rounded-lg border border-border-subtle bg-surface px-3">
         <DetailRow label="Target date">{fmtDate(milestone.target_date)}</DetailRow>
         <DetailRow label="Owner">
-          {milestone.owner_id ?? (
+          {milestone.owner_id ? (
+            resolveMemberName(milestone.owner_id, members)
+          ) : (
             <span className="text-ink-muted">Unassigned</span>
           )}
         </DetailRow>

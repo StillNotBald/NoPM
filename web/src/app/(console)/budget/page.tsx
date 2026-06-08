@@ -4,6 +4,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
+import { computeEvm, type EvmResult } from "@/lib/evm";
 
 interface ProjectBudget {
   project_id: string;
@@ -16,6 +17,7 @@ interface Project {
   id: string;
   name: string;
   currency: string | null;
+  completion_pct: number | null;
 }
 
 interface TimeEntryRow {
@@ -37,6 +39,8 @@ interface BudgetRow {
   actual: number;
   variance: number;
   burnPct: number;
+  completionPct: number;
+  evm: EvmResult;
 }
 
 function fmt(amount: number, currency: string): string {
@@ -54,6 +58,24 @@ function fmtVariance(variance: number, currency: string): React.ReactNode {
   return <span className="text-success">+{formatted}</span>;
 }
 
+// EVM index (CPI/SPI): ≥1 good (green), 0.9–1 watch (amber), <0.9 bad (red).
+function indexTone(value: number | null): string {
+  if (value === null) return "text-ink-muted";
+  if (value >= 1) return "text-success";
+  if (value >= 0.9) return "text-warning";
+  return "text-danger";
+}
+
+function fmtIndex(value: number | null): string {
+  return value === null ? "—" : value.toFixed(2);
+}
+
+// VAC: positive (under budget) green, negative (over budget) red.
+function vacTone(value: number | null): string {
+  if (value === null) return "text-ink-muted";
+  return value < 0 ? "text-danger" : "text-success";
+}
+
 export default async function BudgetPage() {
   const db = await createClient();
   const {
@@ -64,7 +86,7 @@ export default async function BudgetPage() {
   // Fetch all projects
   const { data: projects, error: projectsError } = await db
     .from("projects")
-    .select("id, name, currency")
+    .select("id, name, currency, completion_pct")
     .order("name");
 
   if (projectsError) {
@@ -146,6 +168,13 @@ export default async function BudgetPage() {
     const actual = timeCost + expenseCost;
     const variance = planned - actual;
     const burnPct = planned > 0 ? (actual / planned) * 100 : 0;
+    const completionPct = project.completion_pct ?? 0;
+    const evm = computeEvm({
+      planned_amount: planned,
+      completion_pct: completionPct,
+      committed_amount: committed,
+      actual_amount: actual,
+    });
 
     return {
       projectId: project.id,
@@ -156,6 +185,8 @@ export default async function BudgetPage() {
       actual,
       variance,
       burnPct,
+      completionPct,
+      evm,
     };
   });
 
@@ -168,6 +199,16 @@ export default async function BudgetPage() {
   const totalActual = rows.reduce((s, r) => s + r.actual, 0);
   const totalVariance = totalPlanned - totalActual;
   const totalBurnPct = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0;
+
+  // Portfolio EVM roll-up — completion weighted by BAC (planned) across projects.
+  const totalEv = rows.reduce((s, r) => s + r.evm.ev, 0);
+  const totalCompletionPct = totalPlanned > 0 ? (totalEv / totalPlanned) * 100 : 0;
+  const portfolioEvm = computeEvm({
+    planned_amount: totalPlanned,
+    completion_pct: totalCompletionPct,
+    committed_amount: totalCommitted,
+    actual_amount: totalActual,
+  });
 
   const overBudgetCount = rows.filter((r) => r.burnPct > 100).length;
   const nearBudgetCount = rows.filter(
@@ -233,6 +274,127 @@ export default async function BudgetPage() {
           </CardBody>
         </Card>
       </div>
+
+      {/* Earned Value (EVM) strip — read-only cost-performance, computed from stored data */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Earned Value (EVM)</CardTitle>
+          <span className="text-xs text-ink-muted">
+            CPI = cost efficiency · SPI = schedule efficiency · ≥ 1.00 is good
+          </span>
+        </CardHeader>
+
+        {/* Portfolio roll-up */}
+        {allSameCurrency && (
+          <div className="grid grid-cols-2 gap-3 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4">
+            <div>
+              <p className="text-xs text-ink-muted uppercase tracking-wide">Portfolio CPI</p>
+              <p className={cn("mt-1 text-lg font-semibold tabular-nums", indexTone(portfolioEvm.cpi))}>
+                {fmtIndex(portfolioEvm.cpi)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-ink-muted uppercase tracking-wide">Portfolio SPI</p>
+              <p className={cn("mt-1 text-lg font-semibold tabular-nums", indexTone(portfolioEvm.spi))}>
+                {fmtIndex(portfolioEvm.spi)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-ink-muted uppercase tracking-wide">Forecast (EAC)</p>
+              <p className="mt-1 text-lg font-semibold text-ink tabular-nums">
+                {portfolioEvm.eac === null ? "—" : fmt(portfolioEvm.eac, totalCurrency)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-ink-muted uppercase tracking-wide">Variance (VAC)</p>
+              <p className={cn("mt-1 text-lg font-semibold tabular-nums", vacTone(portfolioEvm.vac))}>
+                {portfolioEvm.vac === null ? "—" : fmtVariance(portfolioEvm.vac, totalCurrency)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Per-project EVM */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
+            <thead>
+              <tr className="border-b border-border-subtle">
+                <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  Project
+                </th>
+                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  CPI
+                </th>
+                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  SPI
+                </th>
+                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  EAC
+                </th>
+                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  VAC
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-subtle">
+              {rows.map((row) => {
+                const { cpi, spi, eac, vac } = row.evm;
+                // Overall health: red if either index < 0.9, amber if either < 1, else green.
+                const worst = Math.min(cpi ?? 1, spi ?? 1);
+                const dotTone =
+                  cpi === null && spi === null
+                    ? "bg-ink-muted"
+                    : worst < 0.9
+                    ? "bg-danger"
+                    : worst < 1
+                    ? "bg-warning"
+                    : "bg-success";
+
+                return (
+                  <tr
+                    key={row.projectId}
+                    className="hover:bg-sunken transition-colors duration-100"
+                  >
+                    <td className="px-5 py-4">
+                      <span
+                        className={cn(
+                          "mr-2 inline-block h-2 w-2 rounded-full align-middle",
+                          dotTone,
+                        )}
+                        aria-hidden
+                      />
+                      <span className="font-medium text-ink align-middle">{row.projectName}</span>
+                      <span className="ml-2 text-xs text-ink-muted align-middle">
+                        {row.completionPct.toFixed(0)}% done
+                      </span>
+                    </td>
+                    <td className={cn("px-5 py-4 text-right tabular-nums font-medium", indexTone(cpi))}>
+                      {fmtIndex(cpi)}
+                    </td>
+                    <td className={cn("px-5 py-4 text-right tabular-nums font-medium", indexTone(spi))}>
+                      {fmtIndex(spi)}
+                    </td>
+                    <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
+                      {eac === null ? (
+                        <span className="text-ink-muted">—</span>
+                      ) : (
+                        fmt(eac, row.currency)
+                      )}
+                    </td>
+                    <td className={cn("px-5 py-4 text-right tabular-nums font-medium", vacTone(vac))}>
+                      {vac === null ? (
+                        <span className="text-ink-muted">—</span>
+                      ) : (
+                        fmtVariance(vac, row.currency)
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       {/* Budget table */}
       <Card>

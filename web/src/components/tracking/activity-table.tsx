@@ -63,6 +63,24 @@ interface ActivityTableProps {
   milestones: Milestone[];
   tasks: Task[];
   isLocked: boolean;
+  /** Optional id→display-name map (resource members / profiles) for resolving owner/assignee UUIDs. */
+  members?: Record<string, string>;
+}
+
+// ─── Member name resolution ────────────────────────────────────────────────────
+
+/**
+ * Resolve a person UUID (assignee_id / owner_id) to a display name using the
+ * optional members map. Falls back to a short id when no name is known.
+ */
+function resolveMemberName(
+  id: string | null,
+  members?: Record<string, string>,
+): string | null {
+  if (!id) return null;
+  const name = members?.[id];
+  if (name) return name;
+  return id.length > 8 ? id.slice(0, 8) : id;
 }
 
 // ─── Density ─────────────────────────────────────────────────────────────────
@@ -357,6 +375,7 @@ function TaskRow({
   onDelete,
   density,
   onRowClick,
+  members,
 }: {
   task: Task;
   wbs: string;
@@ -366,6 +385,7 @@ function TaskRow({
   onDelete: (id: string, name: string) => void;
   density: Density;
   onRowClick: (task: Task) => void;
+  members?: Record<string, string>;
 }) {
   const modal = useModal();
   const statusInfo = taskStatusBadge(task.status_type);
@@ -399,7 +419,7 @@ function TaskRow({
           <span className="text-sm text-ink">{task.name}</span>
           {task.assignee_id && (
             <span className="text-xs text-ink-muted">
-              Assignee: {task.assignee_id}
+              Assignee: {resolveMemberName(task.assignee_id, members)}
             </span>
           )}
         </div>
@@ -467,6 +487,7 @@ export function ActivityTable({
   milestones,
   tasks,
   isLocked,
+  members,
 }: ActivityTableProps) {
   const modal = useModal();
   const inspector = useInspector();
@@ -492,14 +513,18 @@ export function ActivityTable({
   // Inspector openers
   function openTaskInspector(task: Task) {
     inspector.open(
-      <TaskDetailPanel task={task} milestones={sortedMilestones} />,
+      <TaskDetailPanel
+        task={task}
+        milestones={sortedMilestones}
+        members={members}
+      />,
       task.name
     );
   }
 
   function openMilestoneInspector(milestone: Milestone) {
     inspector.open(
-      <MilestoneDetailPanel milestone={milestone} />,
+      <MilestoneDetailPanel milestone={milestone} members={members} />,
       milestone.name
     );
   }
@@ -588,6 +613,7 @@ export function ActivityTable({
             onDelete={confirmDeleteTask}
             density={density}
             onRowClick={openTaskInspector}
+            members={members}
           />
         );
       });
@@ -661,6 +687,7 @@ export function ActivityTable({
             onDelete={confirmDeleteTask}
             density={density}
             onRowClick={openTaskInspector}
+            members={members}
           />
         );
       });

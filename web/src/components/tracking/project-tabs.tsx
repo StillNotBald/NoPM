@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useModal } from "@/components/ui/modal";
 import { cn } from "@/lib/cn";
+import { apiGet } from "@/lib/api-client";
 import { ActivityTable } from "@/components/tracking/activity-table";
 import { GanttChart } from "@/components/tracking/gantt";
+import { HistoryTimeline } from "@/components/tracking/history-timeline";
 import { RiskForm } from "@/components/forms/risk-form";
 import { IssueForm } from "@/components/forms/issue-form";
 
@@ -83,7 +85,7 @@ interface Issue {
   due_date: string | null;
 }
 
-type Tab = "overview" | "activity" | "gantt" | "risks" | "issues";
+type Tab = "overview" | "activity" | "gantt" | "risks" | "issues" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview",  label: "Overview" },
@@ -91,7 +93,16 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "gantt",     label: "Gantt" },
   { id: "risks",     label: "Risks" },
   { id: "issues",    label: "Issues" },
+  { id: "history",   label: "History" },
 ];
+
+// Row shape returned by GET /api/resources (resource_members), used to build
+// the id→name map for resolving owner/assignee UUIDs across detail views.
+interface ResourceMemberRow {
+  id: string;
+  name: string;
+  profile_id: string | null;
+}
 
 // ── Badge helpers ─────────────────────────────────────────────────────────────
 
@@ -495,6 +506,37 @@ export function ProjectTabs({
 }) {
   const [active, setActive] = useState<Tab>("overview");
 
+  // Resolve owner/assignee UUIDs to display names. Tasks/milestones reference
+  // profiles(id), so we key the map by both resource-member id AND the linked
+  // profile_id → name. Fetched once and shared down to the detail views.
+  const [members, setMembers] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMembers() {
+      try {
+        const rows = await apiGet<ResourceMemberRow[]>("/api/resources?limit=100");
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        for (const r of rows) {
+          if (r.name) {
+            map[r.id] = r.name;
+            if (r.profile_id) map[r.profile_id] = r.name;
+          }
+        }
+        setMembers(map);
+      } catch {
+        // Non-fatal: fall back to short-id rendering in the detail views.
+      }
+    }
+
+    void loadMembers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="space-y-6">
       {/* Segmented tab bar — scrollable on mobile */}
@@ -542,6 +584,7 @@ export function ProjectTabs({
           milestones={milestones}
           tasks={tasks}
           isLocked={project.is_locked}
+          members={members}
         />
       )}
       {active === "gantt" && (
@@ -557,6 +600,9 @@ export function ProjectTabs({
       )}
       {active === "issues" && (
         <IssuesTab project={project} issues={issues} />
+      )}
+      {active === "history" && (
+        <HistoryTimeline projectId={project.id} />
       )}
     </div>
   );

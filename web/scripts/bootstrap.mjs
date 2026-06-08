@@ -36,7 +36,7 @@ console.log("workspace:", ws.id);
 
 // 2) Admin login user + profile
 const ADMIN_EMAIL = "admin@stillnotbald.com";
-const ADMIN_PASSWORD = "NoPMdemo!2026";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 let userId;
 const created = await db.auth.admin.createUser({
   email: ADMIN_EMAIL,

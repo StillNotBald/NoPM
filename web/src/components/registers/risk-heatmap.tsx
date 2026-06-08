@@ -1,0 +1,172 @@
+import { cn } from "@/lib/cn";
+
+/**
+ * Risk heatmap — a PMBOK 5×5 probability × impact matrix.
+ *
+ * Pure server/static component (no client JS, no new deps): the grid is plain
+ * CSS, each cell tinted by its exposure band using the existing semantic colour
+ * tokens (--success / --warning / --info / --danger). Risks are bucketed into
+ * cells by their probability_pct (→ 1-5 likelihood band) and impact_score, and
+ * the per-cell count is rendered when non-zero.
+ *
+ * Scoring matches the register table exactly:
+ *   risk_score = round(probability_pct / 20 × impact_score), clamped to 1-5.
+ */
+
+export type ExposureBand = "low" | "medium" | "high" | "critical";
+
+/** probability_pct (0-100) → likelihood band 1-5 used for the matrix axis. */
+export function probabilityBand(probabilityPct: number | null): number {
+  if (probabilityPct == null) return 0;
+  const band = Math.ceil(probabilityPct / 20);
+  return Math.min(5, Math.max(1, band));
+}
+
+/** Computed exposure score: round(probability_pct/20 × impact_score), 1-5. */
+export function riskScore(
+  probabilityPct: number | null,
+  impactScore: number | null,
+): number | null {
+  if (probabilityPct == null || impactScore == null) return null;
+  const raw = Math.round((probabilityPct / 20) * impactScore);
+  return Math.min(5, Math.max(1, raw));
+}
+
+/** 1-5 score → exposure band. */
+export function exposureBand(score: number | null): ExposureBand | null {
+  if (score == null) return null;
+  if (score <= 1) return "low";
+  if (score === 2) return "medium";
+  if (score <= 4) return "high";
+  return "critical";
+}
+
+const BAND_LABEL: Record<ExposureBand, string> = {
+  low: "Low",
+  medium: "Med",
+  high: "High",
+  critical: "Critical",
+};
+
+// Solid fill (the cell background) + a readable foreground for the count.
+const BAND_FILL: Record<ExposureBand, string> = {
+  low: "bg-success/15 text-success",
+  medium: "bg-warning/15 text-warning",
+  high: "bg-[var(--danger)]/15 text-danger",
+  critical: "bg-danger/25 text-danger",
+};
+
+// The dot in the legend / band key.
+const BAND_DOT: Record<ExposureBand, string> = {
+  low: "bg-success",
+  medium: "bg-warning",
+  high: "bg-[color-mix(in_srgb,var(--danger)_70%,var(--warning))]",
+  critical: "bg-danger",
+};
+
+/** Band for a given (likelihood-band, impact) cell, used to colour the grid. */
+function cellBand(probBand: number, impact: number): ExposureBand {
+  // Reconstruct a representative probability_pct from the band (cell midpoint)
+  // so the matrix colouring matches the scalar score the table shows.
+  const probPctMid = probBand * 20 - 10;
+  return exposureBand(riskScore(probPctMid, impact)) ?? "low";
+}
+
+type RiskCell = {
+  probability_pct: number | null;
+  impact_score: number | null;
+};
+
+export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
+  // counts[impact 1..5][probBand 1..5]
+  const counts: number[][] = Array.from({ length: 5 }, () =>
+    Array.from({ length: 5 }, () => 0),
+  );
+  let scored = 0;
+  for (const r of risks) {
+    const pBand = probabilityBand(r.probability_pct);
+    const impact = r.impact_score;
+    if (pBand >= 1 && impact != null && impact >= 1 && impact <= 5) {
+      counts[impact - 1][pBand - 1] += 1;
+      scored += 1;
+    }
+  }
+
+  const probAxis = ["1–20%", "21–40%", "41–60%", "61–80%", "81–100%"];
+  const impactAxis = ["5", "4", "3", "2", "1"]; // top→bottom: high impact first
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="flex min-w-[520px] items-stretch gap-3">
+        {/* Y axis label */}
+        <div className="flex items-center">
+          <span className="rotate-180 text-[10px] font-medium uppercase tracking-wide text-ink-muted [writing-mode:vertical-rl]">
+            Impact (1–5)
+          </span>
+        </div>
+
+        <div className="flex-1">
+          {/* Grid: 5 impact rows (high→low) × 5 probability cols (low→high) */}
+          <div className="grid grid-cols-[auto_repeat(5,minmax(0,1fr))] gap-1">
+            {impactAxis.map((impactLabel, rowIdx) => {
+              const impact = 5 - rowIdx; // 5,4,3,2,1
+              return (
+                <div key={impact} className="contents">
+                  <div className="flex w-6 items-center justify-center text-[11px] font-medium text-ink-muted tabular-nums">
+                    {impactLabel}
+                  </div>
+                  {Array.from({ length: 5 }, (_, colIdx) => {
+                    const probBand = colIdx + 1; // 1..5
+                    const count = counts[impact - 1][probBand - 1];
+                    const band = cellBand(probBand, impact);
+                    return (
+                      <div
+                        key={probBand}
+                        title={`${BAND_LABEL[band]} exposure · ${count} risk${count === 1 ? "" : "s"}`}
+                        className={cn(
+                          "flex aspect-square items-center justify-center rounded-md text-sm font-semibold tabular-nums transition-colors",
+                          BAND_FILL[band],
+                          count === 0 && "opacity-50",
+                        )}
+                      >
+                        {count > 0 ? count : ""}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+
+            {/* X axis: probability labels under each column */}
+            <div />
+            {probAxis.map((label) => (
+              <div
+                key={label}
+                className="pt-1.5 text-center text-[10px] font-medium text-ink-muted tabular-nums"
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-1 text-center text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+            Probability
+          </div>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-col justify-center gap-2 pl-1">
+          {(Object.keys(BAND_LABEL) as ExposureBand[]).map((band) => (
+            <span key={band} className="flex items-center gap-1.5 text-xs text-ink-secondary">
+              <span className={cn("h-2.5 w-2.5 rounded-sm", BAND_DOT[band])} aria-hidden="true" />
+              {BAND_LABEL[band]}
+            </span>
+          ))}
+          <span className="mt-1 text-[10px] text-ink-muted">
+            {scored} scored
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
