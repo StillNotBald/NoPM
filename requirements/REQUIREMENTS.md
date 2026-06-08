@@ -26,6 +26,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-21** OpenAPI spec at `GET /api/openapi.json`. — **DONE**
 - **R-22** `/llms.txt` endpoint index for agent discovery. — **DONE**
 - **R-23** `nopm` CLI (auth/projects/tasks/audit/report). — **DONE** (cli/nopm.mjs)
+- **R-24** BYOK governed AI assistant — the user's own LLM (OpenAI/Anthropic/Google) operates NoPM through the REST API under an ephemeral scoped token; API keys AES-256-GCM encrypted at rest (never returned/logged); creates are audited as a token actor and deletes bounce to maker-checker. — **DONE** (crypto + assistant_credentials deny-all RLS + providers/tools/token/loop + chat/credentials routes + panel/setup UI)
 
 ## Console (prior-console-app look)
 - **R-30** RAG portfolio dashboard (health cards, project table, filter pills). — **DONE**
@@ -35,7 +36,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-34** Approvals queue. — **DONE**
 - **R-35** Trust Center — live audit stream + per-entity provenance. — **DONE**
 - **R-36** Token/scope management UI. — **DONE**
-- **R-37** Notification center + demo-mode email previews. — **DEFERRED** (resend absent; notifications table exists; no UI; explicit DEFER pending review)
+- **R-37** Notification center (in-app bell + My Work hub, fed from governed events). — **DONE** (publish.ts fail-soft notify + resolvers; /api/notifications GET/PATCH/read-all; header bell + unread badge; My Work hub; demo-mode email previews still DEFERRED — resend absent)
 
 ## Reporting & front door
 - **R-40** Deck export PPTX/PDF/HTML (data-driven, server-side). — **DONE**
@@ -44,6 +45,6 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-52** Seed script — demo workspace, users, projects, an over-allocation clash, budget variance, audit history, one pending approval. — **DONE**
 
 ## Quality & release
-- **R-60** vitest unit + governance-invariant tests (1 audit row/mutation; self-approval rejected; scope-less token 403; audit immutability). — **TODO** (vitest in devDeps; test script wired; no test files yet)
+- **R-60** vitest unit + governance-invariant tests (hashToken/generateToken; hasScope; requireScope token+user/viewer; four-eyes self-approval). — **DONE** (34/34 green; `npm test`)
 - **R-61** Playwright E2E = AI-orchestrated UAT (agent drives suite vs checklist). — **TODO** (stretch goal)
-- **R-62** Deploy to Vercel + Cloudflare DNS (stillnotbald.com); seed live. — **TODO**
+- **R-62** Deploy to Vercel + Cloudflare DNS (stillnotbald.com); seed live. — **DONE** (live on stillnotbald.com; migrations + seed applied; `apply-migrations.mjs` + `migrate.mjs`)

@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from "react";
-import { PanelLeftClose, PanelLeft } from "lucide-react";
+import { createContext, useContext, useState, useCallback, useRef, type ReactNode } from "react";
+import { PanelLeftClose, PanelLeft, Sparkles } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
 import { ThemeToggle } from "./theme-toggle";
@@ -9,6 +9,7 @@ import { NotificationBell } from "@/components/notifications/bell";
 import { cn } from "@/lib/cn";
 import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
 import { RightPushPanel, PUSH_MARGIN, PUSH_MARGIN_NONE } from "@/components/ui/right-push-panel";
+import { AssistantPanel } from "@/components/assistant/panel";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
 
@@ -34,6 +35,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const openCmd = useCallback(() => setCmdOpen(true), []);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const assistantTriggerRef = useRef<HTMLButtonElement>(null);
 
   const isOpen = inspector !== null;
 
@@ -91,6 +94,19 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
               live
             </span>
+            <button
+              ref={assistantTriggerRef}
+              onClick={() => setAssistantOpen((v) => !v)}
+              aria-label="Open AI assistant"
+              aria-pressed={assistantOpen}
+              className={cn(
+                "relative grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                assistantOpen && "bg-sunken text-accent",
+              )}
+            >
+              <Sparkles size={18} />
+            </button>
             <NotificationBell />
             <ThemeToggle />
             <CmdKTrigger onClick={openCmd} />
@@ -119,6 +135,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           {inspector?.content}
         </RightPushPanel>
+
+        {/* AI assistant panel */}
+        <AssistantPanel
+          open={assistantOpen}
+          onClose={() => setAssistantOpen(false)}
+          triggerRef={assistantTriggerRef}
+        />
       </div>
     </InspectorCtx.Provider>
   );

@@ -33,5 +33,9 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 ## Do NOT build (ask first)
 Native MCP server (strong Phase-1.5), real email send (Resend is demo-mode), dry-run gates, OAuth/PKCE, multi-tenant beyond workspace_id+RLS, custom-field engine, automations, extra view types, comments/notifications-threads, any bundled LLM.
 
+## Sanctioned (already greenlit, in scope)
+- **BYOK governed assistant** (R-24, ADR 0004) — an in-app assistant where the user pastes their **own** OpenAI/Anthropic/Google **API key** (AES-256-GCM at rest) and that model drives NoPM's REST API via an **ephemeral scoped token** (audited as a token actor; deletes → maker-checker). NoPM still ships **no model and no key** — the "no bundled LLM" rule holds. Optional owner-funded demo key (`NOPM_DEMO_LLM_*`) is rate-limited and server-only.
+- **Notification center** (R-37) — in-app bell + My Work hub fed from governed events. Email previews still deferred (Resend demo-mode).
+
 ## Hard rule
 Before adding anything not in v1 scope: **STOP and ask.**

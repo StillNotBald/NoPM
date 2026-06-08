@@ -40,7 +40,8 @@ export const GET = route(async ({ actor, request }) => {
   const { count, error: countError } = await db
     .from("api_tokens")
     .select("id", { count: "exact", head: true })
-    .eq("workspace_id", actor.workspaceId);
+    .eq("workspace_id", actor.workspaceId)
+    .not("name", "ilike", "AI Assistant ·%");
 
   if (countError) throw countError;
 
@@ -48,6 +49,7 @@ export const GET = route(async ({ actor, request }) => {
     .from("api_tokens")
     .select(SAFE_COLUMNS)
     .eq("workspace_id", actor.workspaceId)
+    .not("name", "ilike", "AI Assistant ·%")
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 

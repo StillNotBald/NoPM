@@ -23,6 +23,7 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-21 | OpenAPI spec | DONE | `web/src/app/api/openapi.json/route.ts` | — |
 | R-22 | /llms.txt | DONE | `web/src/app/llms.txt/route.ts` | — |
 | R-23 | nopm CLI | DONE | `cli/nopm.mjs`, `cli/package.json` | — |
+| R-24 | BYOK governed AI assistant | DONE | `web/src/lib/crypto.ts`, `web/supabase/migrations/20260608000014_assistant_credentials.sql`, `web/src/app/api/assistant/credentials/route.ts`, `web/src/app/api/assistant/chat/route.ts`, `web/src/lib/assistant/index.ts`, `web/src/lib/assistant/tools.ts`, `web/src/lib/assistant/token.ts`, `web/src/lib/assistant/providers/index.ts`, `web/src/components/assistant/panel.tsx`, `web/src/components/assistant/setup.tsx` | — |
 | R-30 | RAG dashboard | DONE | `web/src/app/(console)/dashboard/page.tsx`, `web/src/components/dashboard/rag-donut-card.tsx`, `web/src/components/dashboard/health-rollup-cards.tsx`, `web/src/components/dashboard/program-bar-card.tsx` | — |
 | R-31 | Registers + inspector | DONE | `web/src/components/tracking/detail-panel.tsx`, `web/src/components/tracking/activity-table.tsx`, `web/src/components/layout/app-shell.tsx` | — |
 | R-32 | Kanban (audited) | DONE | `web/src/components/kanban/board.tsx` | — |
@@ -30,11 +31,11 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-34 | Approvals queue | DONE | `web/src/app/(console)/approvals/page.tsx`, `web/src/components/approvals/` | — |
 | R-35 | Trust Center | DONE | `web/src/app/(console)/trust/page.tsx`, `web/src/components/tracking/history-timeline.tsx` | — |
 | R-36 | Token management UI | DONE | `web/src/app/(console)/tokens/page.tsx` | — |
-| R-37 | Notifications | DEFERRED | `web/supabase/migrations/20260608000007_notifications.sql` (table only; no UI; resend absent) | — |
+| R-37 | Notification center | DONE | `web/supabase/migrations/20260608000007_notifications.sql`, `web/src/lib/notify/publish.ts`, `web/src/app/api/notifications/route.ts`, `web/src/app/api/notifications/[id]/route.ts`, `web/src/app/api/notifications/read-all/route.ts`, `web/src/components/notifications/bell.tsx`, `web/src/app/(console)/my-work/page.tsx` (email previews still deferred — resend absent) | — |
 | R-40 | Deck export | DONE | `web/src/app/api/reports/deck/route.ts`, `web/src/app/api/reports/project/[id]/route.ts`, `web/src/lib/reports/html.ts`, `web/src/lib/reports/pptx.ts`, `web/src/lib/reports/pdf.ts`, `web/src/lib/reports/gather.ts` | — |
 | R-50 | Landing + case study | DONE | `web/src/app/page.tsx` | — |
 | R-51 | One-pager PDF | TODO | — | — |
 | R-52 | Seed script | DONE | `web/scripts/seed.mjs`, `web/scripts/populate-wave-b.mjs` | — |
-| R-60 | Unit + invariant tests | TODO | — (vitest in devDeps; `"test": "vitest run"` wired; no test files yet) | — |
+| R-60 | Unit + invariant tests | DONE | `web/src/lib/auth/tokens.test.ts`, `web/src/lib/auth/guard.test.ts`, `web/vitest.config.ts` | 34/34 |
 | R-61 | Playwright E2E (UAT) | TODO | — (stretch goal; deferred to post-v1) | — |
-| R-62 | Deploy live | TODO | — (stillnotbald.com; deploy pending) | — |
+| R-62 | Deploy live | DONE | `web/scripts/apply-migrations.mjs`, `web/scripts/migrate.mjs` | stillnotbald.com |
