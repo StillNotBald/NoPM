@@ -185,8 +185,33 @@ export function TaskForm({
     try {
       if (task) {
         await apiPatch(`/api/tasks/${task.id}`, payload);
+        // If blocked_by changed, wire the dependency row.
+        // We do not remove the old dep here (non-destructive on update) —
+        // the POST endpoint rejects duplicates gracefully.
+        if (blockedBy && blockedBy !== task.blocked_by) {
+          try {
+            await apiPost(`/api/tasks/${task.id}/dependencies`, {
+              predecessor_id: blockedBy,
+            });
+          } catch {
+            // Non-fatal: duplicate or circular — dependency UI shows the reason.
+          }
+        }
       } else {
-        await apiPost(`/api/projects/${projectId}/tasks`, payload);
+        const newTask = await apiPost<{ id: string }>(
+          `/api/projects/${projectId}/tasks`,
+          payload,
+        );
+        // Wire the blocked-by dependency once we have a real task id.
+        if (blockedBy && newTask?.id) {
+          try {
+            await apiPost(`/api/tasks/${newTask.id}/dependencies`, {
+              predecessor_id: blockedBy,
+            });
+          } catch {
+            // Non-fatal: error surfaced separately if needed.
+          }
+        }
       }
       router.refresh();
       inspector.close();

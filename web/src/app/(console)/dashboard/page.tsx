@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 import { RagDonutCard } from "@/components/dashboard/rag-donut-card";
 import { ProgramBarCard } from "@/components/dashboard/program-bar-card";
 import { HealthRollupCards } from "@/components/dashboard/health-rollup-cards";
+import { ExportBoardPack } from "@/components/dashboard/export-board-pack";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <PageHeader title="Command Centre" />
+      <PageHeader title="Command Centre" action={<ExportBoardPack />} />
 
       {/* ── Health rollup KPI strip ── */}
       <HealthRollupCards

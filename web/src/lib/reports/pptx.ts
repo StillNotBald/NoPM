@@ -3,36 +3,37 @@ import type { PortfolioReport, ProjectReport, TopRisk, TopIssue, MilestoneRow, E
 import type { EvmResult } from "@/lib/evm";
 
 // ─── palette ─────────────────────────────────────────────────────────────────
+// Matches app globals.css light theme: white canvas / near-black ink /
+// vibrant terminal-green accent. No cream/coral.
 
-const CORAL = "D97757";
-const INK = "2C2A26";
-const MUTED = "6B6863";
-const CREAM = "FAF9F5";
-const SURFACE = "F5F4EE";
-const LINE = "E5E2DA";
-const WHITE = "FFFFFF";
-const GREEN = "5F8C58";
-const AMBER = "C69749";
-const RED = "B85450";
+const INK     = "161616";
+const MUTED   = "8B8B90";
+const SURFACE = "F0F0F2";
+const LINE    = "E5E5E8";
+const WHITE   = "FFFFFF";
+const ACCENT  = "00A600"; // vibrant terminal-green
+const GREEN   = "16A34A";
+const AMBER   = "F59E0B";
+const RED     = "E5484D";
 
 const TONE: Record<string, string> = {
-  green: GREEN,
-  on_track: GREEN,
-  amber: AMBER,
-  at_risk: AMBER,
-  delayed: RED,
-  red: RED,
-  complete: CORAL,
-  completed: CORAL,
+  green:       GREEN,
+  on_track:    GREEN,
+  amber:       AMBER,
+  at_risk:     AMBER,
+  delayed:     RED,
+  red:         RED,
+  complete:    ACCENT,
+  completed:   ACCENT,
   not_started: MUTED,
 };
 
 const SEV_COLOR: Record<string, string> = {
   critical: RED,
-  high: AMBER,
-  medium: MUTED,
-  low: GREEN,
-  urgent: RED,
+  high:     AMBER,
+  medium:   MUTED,
+  low:      GREEN,
+  urgent:   RED,
 };
 
 const fmt = (n: number | null | undefined, decimals = 0): string =>
@@ -46,7 +47,7 @@ const fmtIdx = (n: number | null | undefined): string =>
 function addCoverSlide(p: pptxgen, title: string, subtitle: string, ts: string): void {
   const s = p.addSlide();
   s.background = { color: INK };
-  s.addText(subtitle, { x: 0.7, y: 2.0, w: 12, h: 0.5, fontSize: 16, color: CORAL });
+  s.addText(subtitle, { x: 0.7, y: 2.0, w: 12, h: 0.5, fontSize: 16, color: ACCENT });
   s.addText(title, { x: 0.7, y: 2.6, w: 12, h: 1.2, fontSize: 36, bold: true, color: WHITE });
   s.addText(ts, { x: 0.7, y: 6.6, w: 12, h: 0.4, fontSize: 11, color: MUTED });
 }
@@ -222,7 +223,7 @@ export async function renderPptx(r: PortfolioReport, sections?: string[]): Promi
         ["Green", r.rag.green ?? 0, GREEN],
         ["Amber", r.rag.amber ?? 0, AMBER],
         ["Red", r.rag.red ?? 0, RED],
-        ["Complete", r.rag.complete ?? 0, CORAL],
+        ["Complete", r.rag.complete ?? 0, ACCENT],
       ],
       `Open Risks ${r.registers.risks}    ·    Open Issues ${r.registers.issues}    ·    Clashes ${r.registers.clashes}`,
     );
@@ -266,7 +267,7 @@ export async function renderProjectPptx(r: ProjectReport, sections?: string[]): 
     const s = p.addSlide();
     s.background = { color: INK };
     const programLine = [r.workspaceName, proj.program].filter(Boolean).join(" · ");
-    s.addText(programLine, { x: 0.7, y: 1.8, w: 12, h: 0.5, fontSize: 16, color: CORAL });
+    s.addText(programLine, { x: 0.7, y: 1.8, w: 12, h: 0.5, fontSize: 16, color: ACCENT });
     const titleLine = proj.code ? `${proj.name}  (${proj.code})` : proj.name;
     s.addText(titleLine, { x: 0.7, y: 2.4, w: 12, h: 1.0, fontSize: 32, bold: true, color: WHITE });
     s.addText(`RAG: ${proj.rag_status.toUpperCase()}   |   ${proj.completion_pct}% complete`, {
@@ -288,7 +289,7 @@ export async function renderProjectPptx(r: ProjectReport, sections?: string[]): 
       "Project Health",
       [
         ["RAG Status", proj.rag_status, ragCol],
-        ["Completion", `${proj.completion_pct}%`, CORAL],
+        ["Completion", `${proj.completion_pct}%`, ACCENT],
         ["Open Risks", r.registers.risks, AMBER],
         ["Open Issues", r.registers.issues, RED],
       ],

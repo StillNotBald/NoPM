@@ -2,25 +2,41 @@ import type { PortfolioReport, ProjectReport, TopRisk, TopIssue, MilestoneRow, E
 import type { EvmResult } from "@/lib/evm";
 
 // ─── palette ─────────────────────────────────────────────────────────────────
+// App palette: white canvas / near-black ink / vibrant terminal-green accent.
+// Matches globals.css light theme exactly — no cream/coral.
+
+const P = {
+  canvas:  "#ffffff",
+  surface: "#f0f0f2",
+  ink:     "#161616",
+  muted:   "#8b8b90",
+  line:    "#e5e5e8",
+  accent:  "#00a600",   // vibrant terminal-green — buttons / indicators
+  // semantic
+  green:   "#16a34a",
+  amber:   "#f59e0b",
+  red:     "#e5484d",
+  info:    "#2563eb",
+} as const;
 
 const TONE: Record<string, string> = {
-  green: "#5f8c58",
-  amber: "#c69749",
-  red: "#b85450",
-  complete: "#d97757",
-  not_started: "#9a968d",
-  on_track: "#5f8c58",
-  at_risk: "#c69749",
-  delayed: "#b85450",
-  completed: "#d97757",
+  green:       P.green,
+  on_track:    P.green,
+  amber:       P.amber,
+  at_risk:     P.amber,
+  red:         P.red,
+  delayed:     P.red,
+  complete:    P.accent,
+  completed:   P.accent,
+  not_started: P.muted,
 };
 
 const SEV_COLOR: Record<string, string> = {
-  critical: "#b85450",
-  high: "#c69749",
-  medium: "#9a968d",
-  low: "#5f8c58",
-  urgent: "#b85450",
+  critical: P.red,
+  high:     P.amber,
+  medium:   P.muted,
+  low:      P.green,
+  urgent:   P.red,
 };
 
 const esc = (s: string) =>
@@ -35,22 +51,27 @@ const fmtIdx = (n: number | null | undefined): string =>
 // ─── shared CSS ──────────────────────────────────────────────────────────────
 
 const BASE_CSS = `
-  :root{--cream:#faf9f5;--surface:#f5f4ee;--ink:#2c2a26;--muted:#6b6863;--line:#e5e2da;--coral:#d97757}
-  *{box-sizing:border-box} body{margin:0;background:var(--cream);color:var(--ink);
-    font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+  :root{
+    --canvas:${P.canvas};--surface:${P.surface};--ink:${P.ink};--muted:${P.muted};
+    --line:${P.line};--accent:${P.accent};
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",sans-serif;
+    -webkit-font-smoothing:antialiased}
   .wrap{max-width:1100px;margin:0 auto;padding:56px 40px}
-  .cover{min-height:260px;background:var(--ink);border-radius:16px;padding:48px 56px;margin-bottom:48px;
+  .cover{min-height:260px;background:var(--ink);border-radius:14px;padding:48px 56px;margin-bottom:48px;
     display:flex;flex-direction:column;justify-content:flex-end}
   .cover h1{font-size:38px;font-weight:600;margin:0;color:#fff}
-  .cover .subtitle{color:var(--coral);font-size:20px;margin:8px 0 2px}
-  .cover .ts{color:#9a968d;font-size:13px}
-  h2{font-size:22px;font-weight:600;margin:40px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line)}
-  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin:0 0 28px}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
-  .num{font-size:34px;font-weight:600;line-height:1} .lbl{color:var(--muted);font-size:13px;margin-top:8px}
+  .cover .subtitle{color:var(--accent);font-size:18px;margin:8px 0 2px;font-family:ui-monospace,"SF Mono",monospace}
+  .cover .ts{color:#8b8b90;font-size:13px}
+  h2{font-size:20px;font-weight:600;margin:40px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:0 0 28px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:20px}
+  .num{font-size:32px;font-weight:600;line-height:1} .lbl{color:var(--muted);font-size:13px;margin-top:8px}
   .reg{color:var(--ink);font-size:14px;margin:4px 0 28px}
   table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);
-    border-radius:14px;overflow:hidden;margin-bottom:32px}
+    border-radius:11px;overflow:hidden;margin-bottom:32px}
   th,td{text-align:left;padding:10px 14px;font-size:13px;border-bottom:1px solid var(--line)}
   th{color:var(--muted);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.04em;
     background:var(--surface)}
@@ -58,26 +79,26 @@ const BASE_CSS = `
   .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px;vertical-align:middle}
   .bar{display:inline-block;width:80px;height:6px;background:var(--line);border-radius:99px;overflow:hidden;
     margin-right:8px;vertical-align:middle}
-  .bar i{display:block;height:100%;background:var(--coral)}
+  .bar i{display:block;height:100%;background:var(--accent)}
   .badge{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500;
     text-transform:capitalize}
   td.right,th.right{text-align:right}
-  .neg{color:#b85450} .pos{color:#5f8c58} .neutral{color:#6b6863}
+  .neg{color:${P.red}} .pos{color:${P.green}} .neutral{color:${P.muted}}
   .foot{color:var(--muted);font-size:12px;margin-top:36px;border-top:1px solid var(--line);padding-top:16px}
 `;
 
 // ─── shared section builders ──────────────────────────────────────────────────
 
 function ragSummarySection(rag: Record<string, number>, registers: { risks: number; issues: number; clashes: number }): string {
-  const card = (label: string, val: number, color = "#d97757") =>
+  const card = (label: string, val: number, color: string = P.accent) =>
     `<div class="card"><div class="num" style="color:${color}">${val}</div><div class="lbl">${label}</div></div>`;
   return `<h2>RAG Summary</h2>
 <div class="cards">
-  ${card("Green", rag.green ?? 0, "#5f8c58")}
-  ${card("Amber", rag.amber ?? 0, "#c69749")}
-  ${card("Red", rag.red ?? 0, "#b85450")}
-  ${card("Not Started", rag.not_started ?? 0, "#9a968d")}
-  ${card("Complete", rag.complete ?? 0, "#d97757")}
+  ${card("Green", rag.green ?? 0, P.green)}
+  ${card("Amber", rag.amber ?? 0, P.amber)}
+  ${card("Red", rag.red ?? 0, P.red)}
+  ${card("Not Started", rag.not_started ?? 0, P.muted)}
+  ${card("Complete", rag.complete ?? 0, P.accent)}
 </div>
 <div class="reg">Open Risks <b>${registers.risks}</b> · Open Issues <b>${registers.issues}</b> · Clashes <b>${registers.clashes}</b></div>`;
 }
@@ -206,7 +227,7 @@ export function renderHtml(r: PortfolioReport, sections?: string[]): string {
   }
 
   if (include("rag")) {
-    const totalCard = `<div class="card"><div class="num" style="color:#2c2a26">${r.projects.length}</div><div class="lbl">Projects</div></div>`;
+    const totalCard = `<div class="card"><div class="num" style="color:${P.ink}">${r.projects.length}</div><div class="lbl">Projects</div></div>`;
     const body = ragSummarySection(r.rag, r.registers);
     // inject total card before the rag cards by replacing the first <div class="cards">
     parts.push(body.replace(`<div class="cards">`, `<div class="cards">${totalCard}`));
@@ -265,9 +286,9 @@ export function renderProjectHtml(r: ProjectReport, sections?: string[]): string
     parts.push(`<h2>Project Health</h2>
 <div class="cards">
   <div class="card"><div class="num" style="color:${col}">${esc(p.rag_status)}</div><div class="lbl">RAG Status</div></div>
-  <div class="card"><div class="num" style="color:var(--coral)">${p.completion_pct}%</div><div class="lbl">Completion</div></div>
-  <div class="card"><div class="num" style="color:#c69749">${r.registers.risks}</div><div class="lbl">Open Risks</div></div>
-  <div class="card"><div class="num" style="color:#b85450">${r.registers.issues}</div><div class="lbl">Open Issues</div></div>
+  <div class="card"><div class="num" style="color:var(--accent)">${p.completion_pct}%</div><div class="lbl">Completion</div></div>
+  <div class="card"><div class="num" style="color:${P.amber}">${r.registers.risks}</div><div class="lbl">Open Risks</div></div>
+  <div class="card"><div class="num" style="color:${P.red}">${r.registers.issues}</div><div class="lbl">Open Issues</div></div>
 </div>`);
   }
 

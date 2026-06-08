@@ -18,6 +18,8 @@ interface Project {
   name: string;
   currency: string | null;
   completion_pct: number | null;
+  baseline_start_date: string | null;
+  baseline_target_date: string | null;
 }
 
 interface TimeEntryRow {
@@ -83,10 +85,13 @@ export default async function BudgetPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  // Fetch all projects
+  // Reporting date — used as the "as of" reference for schedule-based SPI.
+  const asOfDate = new Date().toISOString().slice(0, 10);
+
+  // Fetch all projects (include baseline dates for schedule-aware SPI)
   const { data: projects, error: projectsError } = await db
     .from("projects")
-    .select("id, name, currency, completion_pct")
+    .select("id, name, currency, completion_pct, baseline_start_date, baseline_target_date")
     .order("name");
 
   if (projectsError) {
@@ -174,6 +179,9 @@ export default async function BudgetPage() {
       completion_pct: completionPct,
       committed_amount: committed,
       actual_amount: actual,
+      baseline_start_date: project.baseline_start_date,
+      baseline_target_date: project.baseline_target_date,
+      as_of_date: asOfDate,
     });
 
     return {

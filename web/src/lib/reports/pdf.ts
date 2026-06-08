@@ -3,29 +3,31 @@ import type { PortfolioReport, ProjectReport, TopRisk, TopIssue, MilestoneRow, E
 import type { EvmResult } from "@/lib/evm";
 
 // ─── palette (RGB tuples) ─────────────────────────────────────────────────────
+// Matches app globals.css light theme: white canvas / near-black ink /
+// vibrant terminal-green accent. No cream/coral.
 
-const C_INK: [number, number, number] = [44, 42, 38];
-const C_CREAM: [number, number, number] = [250, 249, 245];
-const C_SURFACE: [number, number, number] = [245, 244, 238];
-const C_LINE: [number, number, number] = [229, 226, 218];
-const C_CORAL: [number, number, number] = [217, 119, 87];
-const C_MUTED: [number, number, number] = [107, 104, 99];
-const C_GREEN: [number, number, number] = [95, 140, 88];
-const C_AMBER: [number, number, number] = [198, 151, 73];
-const C_RED: [number, number, number] = [184, 84, 80];
-const C_WHITE: [number, number, number] = [255, 255, 255];
+const C_INK:     [number, number, number] = [22,  22,  22];   // #161616
+const C_CANVAS:  [number, number, number] = [255, 255, 255];  // #ffffff
+const C_SURFACE: [number, number, number] = [240, 240, 242];  // #f0f0f2
+const C_LINE:    [number, number, number] = [229, 229, 232];  // #e5e5e8
+const C_ACCENT:  [number, number, number] = [0,   166,  0];   // #00a600 terminal-green
+const C_MUTED:   [number, number, number] = [139, 139, 144];  // #8b8b90
+const C_GREEN:   [number, number, number] = [22,  163,  74];  // #16a34a
+const C_AMBER:   [number, number, number] = [245, 158,  11];  // #f59e0b
+const C_RED:     [number, number, number] = [229,  72,  77];  // #e5484d
+const C_WHITE:   [number, number, number] = [255, 255, 255];
 
 const TONE_RGB: Record<string, [number, number, number]> = {
-  green: C_GREEN, on_track: C_GREEN,
-  amber: C_AMBER, at_risk: C_AMBER,
-  red: C_RED, delayed: C_RED,
-  complete: C_CORAL, completed: C_CORAL,
+  green:       C_GREEN,  on_track:    C_GREEN,
+  amber:       C_AMBER,  at_risk:     C_AMBER,
+  red:         C_RED,    delayed:     C_RED,
+  complete:    C_ACCENT, completed:   C_ACCENT,
   not_started: C_MUTED,
 };
 
 const SEV_RGB: Record<string, [number, number, number]> = {
   critical: C_RED, high: C_AMBER, medium: C_MUTED, low: C_GREEN,
-  urgent: C_RED,
+  urgent:   C_RED,
 };
 
 const fmt = (n: number | null | undefined, decimals = 0): string =>
@@ -46,7 +48,7 @@ interface DocState {
 
 function newPage(state: DocState): void {
   state.doc.addPage();
-  state.doc.setFillColor(...C_CREAM);
+  state.doc.setFillColor(...C_CANVAS);
   state.doc.rect(0, 0, state.W, state.H, "F");
   state.y = 56;
 }
@@ -97,7 +99,7 @@ export function renderPdf(r: PortfolioReport, sections?: string[]): Buffer {
     doc.setFillColor(...C_INK);
     doc.rect(0, 0, W, H / 2.8, "F");
 
-    doc.setTextColor(...C_CORAL);
+    doc.setTextColor(...C_ACCENT);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(13);
     doc.text(r.workspaceName, margin, 72);
@@ -107,16 +109,16 @@ export function renderPdf(r: PortfolioReport, sections?: string[]): Buffer {
     doc.setFontSize(28);
     doc.text("Portfolio Status Report", margin, 104);
 
-    doc.setTextColor(154, 150, 141);
+    doc.setTextColor(...C_MUTED);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.text(`Generated ${new Date(r.generatedAt).toLocaleString()} · NoPM`, margin, 126);
 
     state.y = H / 2.8 + 32;
-    doc.setFillColor(...C_CREAM);
+    doc.setFillColor(...C_CANVAS);
     doc.rect(0, H / 2.8, W, H - H / 2.8, "F");
   } else {
-    doc.setFillColor(...C_CREAM);
+    doc.setFillColor(...C_CANVAS);
     doc.rect(0, 0, W, H, "F");
     state.y = 56;
   }
@@ -131,7 +133,7 @@ export function renderPdf(r: PortfolioReport, sections?: string[]): Buffer {
       ["Green", r.rag.green ?? 0, C_GREEN],
       ["Amber", r.rag.amber ?? 0, C_AMBER],
       ["Red", r.rag.red ?? 0, C_RED],
-      ["Complete", r.rag.complete ?? 0, C_CORAL],
+      ["Complete", r.rag.complete ?? 0, C_ACCENT],
     ];
     cards.forEach(([label, val, color], i) => {
       const x = margin + i * (cardW + 4);
@@ -370,7 +372,7 @@ export function renderProjectPdf(r: ProjectReport, sections?: string[]): Buffer 
     doc.setFillColor(...C_INK);
     doc.rect(0, 0, W, H / 2.8, "F");
 
-    doc.setTextColor(...C_CORAL);
+    doc.setTextColor(...C_ACCENT);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(12);
     const programLine = [r.workspaceName, proj.program].filter(Boolean).join(" · ");
@@ -388,7 +390,7 @@ export function renderProjectPdf(r: ProjectReport, sections?: string[]): Buffer 
     doc.text(`${proj.rag_status.toUpperCase()}   ·   ${proj.completion_pct}% complete`, margin, 118);
 
     if (proj.target_date) {
-      doc.setTextColor(154, 150, 141);
+      doc.setTextColor(...C_MUTED);
       doc.setFontSize(10);
       doc.text(
         `Target: ${new Date(proj.target_date).toLocaleDateString("en", { day: "numeric", month: "long", year: "numeric" })}`,
@@ -396,12 +398,12 @@ export function renderProjectPdf(r: ProjectReport, sections?: string[]): Buffer 
       );
     }
 
-    doc.setTextColor(154, 150, 141);
+    doc.setTextColor(...C_MUTED);
     doc.setFontSize(10);
     doc.text(`Generated ${new Date(r.generatedAt).toLocaleString()} · NoPM`, margin, 152);
 
     state.y = H / 2.8 + 32;
-    doc.setFillColor(...C_CREAM);
+    doc.setFillColor(...C_CANVAS);
     doc.rect(0, H / 2.8, W, H - H / 2.8, "F");
 
     if (proj.description) {
@@ -413,7 +415,7 @@ export function renderProjectPdf(r: ProjectReport, sections?: string[]): Buffer 
       state.y += lines.slice(0, 3).length * 14 + 12;
     }
   } else {
-    doc.setFillColor(...C_CREAM);
+    doc.setFillColor(...C_CANVAS);
     doc.rect(0, 0, W, H, "F");
     state.y = 56;
   }
@@ -424,7 +426,7 @@ export function renderProjectPdf(r: ProjectReport, sections?: string[]): Buffer 
     const cardW = (W - 2 * margin - 12) / 4;
     const cards: [string, string | number, [number, number, number]][] = [
       ["RAG Status", proj.rag_status, ragColor],
-      ["Completion", `${proj.completion_pct}%`, C_CORAL],
+      ["Completion", `${proj.completion_pct}%`, C_ACCENT],
       ["Open Risks", r.registers.risks, C_AMBER],
       ["Open Issues", r.registers.issues, C_RED],
     ];

@@ -18,6 +18,7 @@ import { Severity } from "@/components/ui/severity";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
+import { useModal } from "@/components/ui/modal";
 import { apiDelete, apiPost } from "@/lib/api-client";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
@@ -59,6 +60,12 @@ export interface Task {
   completion_pct: number;
   sort_order: number;
   assignee_id: string | null;
+  // ── content-enrichment (0008) — additive, all optional/nullable ──────────────
+  acceptance_criteria?: string | null;
+  estimate_hours?: number | null;
+  story_points?: number | null;
+  labels?: string[] | null;
+  blocked_by?: string | null;
   checklist?: ChecklistItem[] | null;
 }
 
@@ -259,6 +266,7 @@ function MilestoneRow({
   onToggle,
   projectId,
   milestones,
+  tasks,
   onDelete,
   density,
   onRowClick,
@@ -269,6 +277,8 @@ function MilestoneRow({
   onToggle: () => void;
   projectId: string;
   milestones: Milestone[];
+  /** Full project tasks list — forwarded to TaskForm for the Blocked-by picker. */
+  tasks: Task[];
   onDelete: (id: string, name: string) => void;
   density: Density;
   onRowClick: (milestone: Milestone) => void;
@@ -336,6 +346,7 @@ function MilestoneRow({
                   projectId={projectId}
                   milestoneId={milestone.id}
                   milestones={milestones}
+                  tasks={tasks}
                 />,
                 "New Task",
               )
@@ -378,6 +389,7 @@ function TaskRow({
   isLast,
   projectId,
   milestones,
+  tasks,
   onDelete,
   density,
   onRowClick,
@@ -388,6 +400,8 @@ function TaskRow({
   isLast: boolean;
   projectId: string;
   milestones: Milestone[];
+  /** Full sibling-tasks list — forwarded to TaskForm for the Blocked-by picker. */
+  tasks: Task[];
   onDelete: (id: string, name: string) => void;
   density: Density;
   onRowClick: (task: Task) => void;
@@ -471,6 +485,7 @@ function TaskRow({
                   projectId={projectId}
                   task={task}
                   milestones={milestones}
+                  tasks={tasks}
                 />,
                 "Edit Task",
               )
@@ -503,7 +518,11 @@ export function ActivityTable({
   members,
 }: ActivityTableProps) {
   const inspector = useInspector();
+  const modal = useModal();
   const router = useRouter();
+
+  // Inline delete-error banner (shown when a delete API call fails)
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Density toggle
   const [density, setDensity] = useState<Density>("comfortable");
@@ -522,12 +541,14 @@ export function ActivityTable({
     });
   };
 
-  // Inspector openers
+  // Inspector openers — pass the full tasks list so TaskForm can populate
+  // the "Blocked by" dropdown with sibling tasks.
   function openTaskInspector(task: Task) {
     inspector.open(
       <TaskDetailPanel
         task={task}
         milestones={sortedMilestones}
+        tasks={tasks}
         members={members}
       />,
       task.name
@@ -541,23 +562,79 @@ export function ActivityTable({
     );
   }
 
-  // Confirm-delete handlers
-  const confirmDeleteMilestone = async (id: string, name: string) => {
-    const confirmed = window.confirm(
-      `Delete milestone "${name}"? All tasks within it will be unlinked. This cannot be undone.`
+  // Styled confirm-delete handlers (no window.confirm)
+  const confirmDeleteMilestone = (id: string, name: string) => {
+    setDeleteError(null);
+    modal.open(
+      <div className="flex flex-col gap-5">
+        <p className="text-sm text-ink leading-relaxed">
+          Delete milestone <span className="font-semibold">"{name}"</span>?
+          All tasks within it will be unlinked. This cannot be undone.
+        </p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="ghost" size="sm" className="h-10" onClick={modal.close}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            onClick={async () => {
+              modal.close();
+              try {
+                await apiDelete(`/api/milestones/${id}`);
+                router.refresh();
+              } catch (err) {
+                setDeleteError(
+                  err instanceof Error ? err.message : "Delete failed. Please try again."
+                );
+              }
+            }}
+          >
+            <Trash2 size={13} className="mr-1.5" />
+            Delete milestone
+          </Button>
+        </div>
+      </div>,
+      { title: "Delete milestone?" }
     );
-    if (!confirmed) return;
-    await apiDelete(`/api/milestones/${id}`);
-    router.refresh();
   };
 
-  const confirmDeleteTask = async (id: string, name: string) => {
-    const confirmed = window.confirm(
-      `Delete task "${name}"? This cannot be undone.`
+  const confirmDeleteTask = (id: string, name: string) => {
+    setDeleteError(null);
+    modal.open(
+      <div className="flex flex-col gap-5">
+        <p className="text-sm text-ink leading-relaxed">
+          Delete task <span className="font-semibold">"{name}"</span>?
+          This cannot be undone.
+        </p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="ghost" size="sm" className="h-10" onClick={modal.close}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            onClick={async () => {
+              modal.close();
+              try {
+                await apiDelete(`/api/tasks/${id}`);
+                router.refresh();
+              } catch (err) {
+                setDeleteError(
+                  err instanceof Error ? err.message : "Delete failed. Please try again."
+                );
+              }
+            }}
+          >
+            <Trash2 size={13} className="mr-1.5" />
+            Delete task
+          </Button>
+        </div>
+      </div>,
+      { title: "Delete task?" }
     );
-    if (!confirmed) return;
-    await apiDelete(`/api/tasks/${id}`);
-    router.refresh();
   };
 
   // Group tasks by milestone_id
@@ -606,6 +683,7 @@ export function ActivityTable({
         onToggle={() => toggleExpand(milestone.id)}
         projectId={projectId}
         milestones={sortedMilestones}
+        tasks={tasks}
         onDelete={confirmDeleteMilestone}
         density={density}
         onRowClick={openMilestoneInspector}
@@ -622,6 +700,7 @@ export function ActivityTable({
             isLast={tIdx === mTasks.length - 1}
             projectId={projectId}
             milestones={sortedMilestones}
+            tasks={tasks}
             onDelete={confirmDeleteTask}
             density={density}
             onRowClick={openTaskInspector}
@@ -696,6 +775,7 @@ export function ActivityTable({
             isLast={tIdx === standaloneTasks.length - 1}
             projectId={projectId}
             milestones={sortedMilestones}
+            tasks={tasks}
             onDelete={confirmDeleteTask}
             density={density}
             onRowClick={openTaskInspector}
@@ -724,6 +804,20 @@ export function ActivityTable({
 
   return (
     <section className="space-y-4">
+      {/* Inline delete-error banner */}
+      {deleteError && (
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger flex items-center justify-between gap-2">
+          <span>{deleteError}</span>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="shrink-0 text-danger/70 hover:text-danger text-xs"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Toolbar — wraps on mobile */}
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="flex-1 text-base font-semibold text-ink">Activity</h2>
@@ -770,7 +864,11 @@ export function ActivityTable({
           className="h-11 sm:h-10"
           onClick={() =>
             inspector.open(
-              <TaskForm projectId={projectId} milestones={sortedMilestones} />,
+              <TaskForm
+                projectId={projectId}
+                milestones={sortedMilestones}
+                tasks={tasks}
+              />,
               "New Task",
             )
           }

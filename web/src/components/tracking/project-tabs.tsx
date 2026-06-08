@@ -12,8 +12,10 @@ import { apiGet } from "@/lib/api-client";
 import { ActivityTable } from "@/components/tracking/activity-table";
 import { GanttChart, type TaskDependency } from "@/components/tracking/gantt";
 import { HistoryTimeline } from "@/components/tracking/history-timeline";
-import { RiskForm } from "@/components/forms/risk-form";
-import { IssueForm } from "@/components/forms/issue-form";
+import { RiskForm, type RiskResponseStrategy, type RiskCategoryValue, type RiskImpactArea } from "@/components/forms/risk-form";
+import { IssueForm, type IssueSeverity, type IssueCategory } from "@/components/forms/issue-form";
+import { RiskDetail } from "@/components/registers/risk-detail";
+import { IssueDetail } from "@/components/registers/issue-detail";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 
@@ -62,6 +64,7 @@ interface Task {
 interface Risk {
   id: string;
   project_id: string;
+  reference_id?: string | null;
   title: string;
   description: string;
   severity: "low" | "medium" | "high" | "critical";
@@ -71,11 +74,19 @@ interface Risk {
   status: "open" | "mitigating" | "closed" | "accepted";
   raised_at: string;
   due_date: string | null;
+  probability_pct?: number | null;
+  impact_score?: number | null;
+  response_strategy?: RiskResponseStrategy;
+  risk_category?: RiskCategoryValue | null;
+  impact_area?: RiskImpactArea | null;
+  trigger?: string | null;
+  residual_risk?: string | null;
 }
 
 interface Issue {
   id: string;
   project_id: string;
+  reference_id?: string | null;
   title: string;
   description: string;
   priority: "low" | "medium" | "high" | "urgent";
@@ -83,6 +94,11 @@ interface Issue {
   status: "open" | "in_progress" | "resolved" | "closed";
   raised_at: string;
   due_date: string | null;
+  severity?: IssueSeverity | null;
+  issue_category?: IssueCategory | null;
+  impact?: string | null;
+  resolution_eta?: string | null;
+  resolved_at?: string | null;
 }
 
 type Tab = "overview" | "activity" | "gantt" | "risks" | "issues" | "history";
@@ -352,18 +368,39 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
               {risks.map((r, i) => (
                 <tr
                   key={r.id}
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    "transition-colors hover:bg-sunken/40 cursor-pointer",
+                    "transition-colors hover:bg-sunken/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
                     i < risks.length - 1 && "border-b border-border-subtle"
                   )}
                   onClick={() =>
-                    inspector.open(<RiskForm projectId={project.id} risk={r} />, "Edit Risk")
+                    inspector.open(
+                      <RiskDetail risk={r} projectName={project.name} />,
+                      r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
+                    )
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      inspector.open(
+                        <RiskDetail risk={r} projectName={project.name} />,
+                        r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
+                      );
+                    }
+                  }}
                 >
                   <td className="py-3 px-4">
-                    <p className="font-medium text-ink">{r.title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {r.reference_id && (
+                        <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
+                          {r.reference_id}
+                        </span>
+                      )}
+                      <p className="font-medium text-ink">{r.title}</p>
+                    </div>
                     {r.category && (
-                      <p className="text-xs text-ink-muted">{r.category}</p>
+                      <p className="text-xs text-ink-muted mt-0.5">{r.category}</p>
                     )}
                   </td>
                   <td className="py-3 px-4">
@@ -441,16 +478,37 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
               {issues.map((iss, i) => (
                 <tr
                   key={iss.id}
+                  role="button"
+                  tabIndex={0}
                   className={cn(
-                    "transition-colors hover:bg-sunken/40 cursor-pointer",
+                    "transition-colors hover:bg-sunken/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
                     i < issues.length - 1 && "border-b border-border-subtle"
                   )}
                   onClick={() =>
-                    inspector.open(<IssueForm projectId={project.id} issue={iss} />, "Edit Issue")
+                    inspector.open(
+                      <IssueDetail issue={iss} projectName={project.name} />,
+                      iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
+                    )
                   }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      inspector.open(
+                        <IssueDetail issue={iss} projectName={project.name} />,
+                        iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
+                      );
+                    }
+                  }}
                 >
                   <td className="py-3 px-4">
-                    <p className="font-medium text-ink">{iss.title}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {iss.reference_id && (
+                        <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
+                          {iss.reference_id}
+                        </span>
+                      )}
+                      <p className="font-medium text-ink">{iss.title}</p>
+                    </div>
                   </td>
                   <td className="py-3 px-4">
                     <Severity level={iss.priority} />

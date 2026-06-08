@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useModal } from "@/components/ui/modal";
+import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -41,7 +41,7 @@ export function BudgetForm({
   projectId: string;
   budget?: ProjectBudget;
 }) {
-  const modal = useModal();
+  const inspector = useInspector();
   const router = useRouter();
 
   const [plannedAmount, setPlannedAmount] = useState(
@@ -93,7 +93,7 @@ export function BudgetForm({
     try {
       await apiPatch(`/api/projects/${projectId}/budget`, payload);
       router.refresh();
-      modal.close();
+      inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
       setSaving(false);
@@ -210,7 +210,7 @@ export function BudgetForm({
         <Button
           type="button"
           variant="ghost"
-          onClick={modal.close}
+          onClick={inspector.close}
           disabled={saving}
           className="w-full sm:w-auto h-11 sm:h-10"
         >

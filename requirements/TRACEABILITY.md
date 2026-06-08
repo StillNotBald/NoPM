@@ -4,37 +4,37 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 
 | R-ID | Title | Status | Code | Tests |
 |------|-------|--------|------|-------|
-| R-01 | Immutable audit log | DONE | `web/supabase/migrations/...006_governance.sql`, `web/src/lib/audit/write.ts` | R-60 |
-| R-02 | Scoped Bearer PAT | PARTIAL | `web/src/lib/auth/{tokens,guard}.ts`, `...002_identity.sql` | R-60 |
-| R-03 | Maker-checker delete-task | PARTIAL | `...006_governance.sql` (CHECK) | R-60 |
-| R-04 | Control-Tower rebaseline | PARTIAL | `...006_governance.sql` | — |
-| R-05 | Dual auth + TOTP MFA | TODO | — | — |
-| R-06 | Workspace RLS isolation | DONE | `web/supabase/migrations/*` | R-60 |
-| R-10 | Projects CRUD | TODO | — | — |
-| R-11 | Milestones CRUD | TODO | — | — |
-| R-12 | Tasks CRUD + typed status | TODO | — | — |
-| R-13 | Risk register | TODO | — | — |
-| R-14 | Issue register | TODO | — | — |
-| R-15 | Clash register | TODO | — | — |
-| R-16 | Resource + allocation | TODO | — | — |
-| R-17 | Timesheets | TODO | — | — |
-| R-18 | Budget | TODO | — | — |
-| R-20 | API contract | PARTIAL | `web/src/lib/api/*` | — |
-| R-21 | OpenAPI spec | TODO | — | — |
-| R-22 | /llms.txt | TODO | — | — |
-| R-23 | nopm CLI | TODO | — | — |
-| R-30 | RAG dashboard | TODO | — | — |
-| R-31 | Registers + inspector | TODO | — | — |
-| R-32 | Kanban (audited) | TODO | — | — |
-| R-33 | Gantt (lock→rebaseline) | TODO | — | — |
-| R-34 | Approvals queue | TODO | — | — |
-| R-35 | Trust Center | TODO | — | — |
-| R-36 | Token management UI | TODO | — | — |
-| R-37 | Notifications | TODO | — | — |
-| R-40 | Deck export | TODO | — | — |
-| R-50 | Landing + case study | TODO | — | — |
+| R-01 | Immutable audit log | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/src/lib/audit/write.ts` | R-60 |
+| R-02 | Scoped Bearer PAT | DONE | `web/src/lib/auth/tokens.ts`, `web/src/lib/auth/guard.ts`, `web/src/app/api/tokens/route.ts`, `web/src/app/api/tokens/[id]/route.ts` | R-60 |
+| R-03 | Maker-checker delete-task | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/src/app/api/deletion-requests/route.ts`, `web/src/app/api/deletion-requests/[id]/approve/route.ts`, `web/src/app/api/deletion-requests/[id]/reject/route.ts` | R-60 |
+| R-04 | Control-Tower rebaseline | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/src/app/api/projects/[id]/lock/route.ts`, `web/src/app/api/projects/[id]/unlock/route.ts`, `web/src/app/api/projects/[id]/rebaselines/route.ts`, `web/src/app/api/rebaselines/[id]/signoff/route.ts`, `web/src/app/api/rebaselines/[id]/apply/route.ts` | — |
+| R-05 | Dual auth + TOTP MFA | DONE | `web/src/app/api/auth/mfa/route.ts`, `web/src/app/api/auth/mfa/enroll/route.ts`, `web/src/app/api/auth/mfa/verify/route.ts`, `web/src/app/api/auth/mfa/disable/route.ts` | — |
+| R-06 | Workspace RLS isolation | DONE | `web/supabase/migrations/20260608000001_init.sql`, `web/supabase/migrations/20260608000002_identity.sql`, `web/supabase/migrations/20260608000003_projects.sql`, `web/supabase/migrations/20260608000004_resource_budget.sql`, `web/supabase/migrations/20260608000005_registers.sql` | R-60 |
+| R-10 | Projects CRUD | DONE | `web/src/app/api/projects/route.ts`, `web/src/app/api/projects/[id]/route.ts`, `web/src/app/(console)/projects/page.tsx`, `web/src/components/forms/project-form.tsx`, `web/src/components/tracking/project-tabs.tsx` | — |
+| R-11 | Milestones CRUD | DONE | `web/src/app/api/projects/[id]/milestones/route.ts`, `web/src/app/api/milestones/[id]/route.ts`, `web/src/components/forms/milestone-form.tsx`, `web/src/components/tracking/activity-table.tsx` | — |
+| R-12 | Tasks CRUD + typed status | DONE | `web/src/app/api/projects/[id]/tasks/route.ts`, `web/src/app/api/tasks/[id]/route.ts`, `web/src/app/api/tasks/[id]/dependencies/route.ts`, `web/src/components/forms/task-form.tsx`, `web/src/components/kanban/board.tsx` | — |
+| R-13 | Risk register | DONE | `web/src/app/api/projects/[id]/risks/route.ts`, `web/src/app/api/risks/[id]/route.ts`, `web/src/app/(console)/risks/page.tsx`, `web/src/components/registers/risk-detail.tsx`, `web/src/components/registers/risk-heatmap.tsx` | — |
+| R-14 | Issue register | DONE | `web/src/app/api/projects/[id]/issues/route.ts`, `web/src/app/api/issues/[id]/route.ts`, `web/src/app/(console)/issues/page.tsx`, `web/src/components/registers/issue-detail.tsx` | — |
+| R-15 | Clash register | DONE | `web/src/app/api/clashes/route.ts`, `web/src/app/api/clashes/[id]/route.ts`, `web/src/app/(console)/clashes/page.tsx`, `web/src/lib/clash/detect.ts` | — |
+| R-16 | Resource + allocation | DONE | `web/src/app/api/resources/route.ts`, `web/src/app/api/resources/[id]/route.ts`, `web/src/app/api/allocations/route.ts`, `web/src/app/api/allocations/[id]/route.ts`, `web/src/app/(console)/resources/page.tsx` | — |
+| R-17 | Timesheets | DONE | `web/src/app/api/time-entries/route.ts`, `web/src/app/api/time-entries/[id]/route.ts` | — |
+| R-18 | Budget | DONE | `web/src/app/api/projects/[id]/budget/route.ts`, `web/src/app/api/projects/[id]/expenses/route.ts`, `web/src/app/api/expenses/[id]/route.ts`, `web/src/app/(console)/budget/page.tsx`, `web/src/lib/evm.ts` | — |
+| R-20 | API contract | DONE | `web/src/lib/api/handler.ts`, `web/src/lib/api/response.ts`, `web/src/lib/api/errors.ts` | — |
+| R-21 | OpenAPI spec | DONE | `web/src/app/api/openapi.json/route.ts` | — |
+| R-22 | /llms.txt | DONE | `web/src/app/llms.txt/route.ts` | — |
+| R-23 | nopm CLI | DONE | `cli/nopm.mjs`, `cli/package.json` | — |
+| R-30 | RAG dashboard | DONE | `web/src/app/(console)/dashboard/page.tsx`, `web/src/components/dashboard/rag-donut-card.tsx`, `web/src/components/dashboard/health-rollup-cards.tsx`, `web/src/components/dashboard/program-bar-card.tsx` | — |
+| R-31 | Registers + inspector | DONE | `web/src/components/tracking/detail-panel.tsx`, `web/src/components/tracking/activity-table.tsx`, `web/src/components/layout/app-shell.tsx` | — |
+| R-32 | Kanban (audited) | DONE | `web/src/components/kanban/board.tsx` | — |
+| R-33 | Gantt (lock→rebaseline) | DONE | `web/src/components/tracking/gantt.tsx`, `web/src/lib/schedule/cpm.ts`, `web/src/components/tracking/project-actions.tsx` | — |
+| R-34 | Approvals queue | DONE | `web/src/app/(console)/approvals/page.tsx`, `web/src/components/approvals/` | — |
+| R-35 | Trust Center | DONE | `web/src/app/(console)/trust/page.tsx`, `web/src/components/tracking/history-timeline.tsx` | — |
+| R-36 | Token management UI | DONE | `web/src/app/(console)/tokens/page.tsx` | — |
+| R-37 | Notifications | DEFERRED | `web/supabase/migrations/20260608000007_notifications.sql` (table only; no UI; resend absent) | — |
+| R-40 | Deck export | DONE | `web/src/app/api/reports/deck/route.ts`, `web/src/app/api/reports/project/[id]/route.ts`, `web/src/lib/reports/html.ts`, `web/src/lib/reports/pptx.ts`, `web/src/lib/reports/pdf.ts`, `web/src/lib/reports/gather.ts` | — |
+| R-50 | Landing + case study | DONE | `web/src/app/page.tsx` | — |
 | R-51 | One-pager PDF | TODO | — | — |
-| R-52 | Seed script | TODO | — | — |
-| R-60 | Unit + invariant tests | TODO | — | — |
-| R-61 | Playwright E2E (UAT) | TODO | — | — |
-| R-62 | Deploy live | TODO | — | — |
+| R-52 | Seed script | DONE | `web/scripts/seed.mjs`, `web/scripts/populate-wave-b.mjs` | — |
+| R-60 | Unit + invariant tests | TODO | — (vitest in devDeps; `"test": "vitest run"` wired; no test files yet) | — |
+| R-61 | Playwright E2E (UAT) | TODO | — (stretch goal; deferred to post-v1) | — |
+| R-62 | Deploy live | TODO | — (stillnotbald.com; deploy pending) | — |

@@ -58,14 +58,14 @@ export default function Landing() {
       </section>
 
       <section className="mx-auto max-w-5xl px-6 py-8">
-        <div className="overflow-hidden rounded-xl border border-border-subtle bg-[#1f1e1b]">
-          <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-3">
-            <span className="h-3 w-3 rounded-full bg-[#b85450]" />
-            <span className="h-3 w-3 rounded-full bg-[#c69749]" />
-            <span className="h-3 w-3 rounded-full bg-[#5f8c58]" />
+        <div className="overflow-hidden rounded-xl border border-border-subtle bg-[#0e0e0f]">
+          <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" aria-hidden />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" aria-hidden />
+            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" aria-hidden />
             <span className="ml-3 font-mono text-xs text-white/40">an agent drives NoPM</span>
           </div>
-          <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-[#eceae3]">
+          <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-white/80">
 {`$ nopm tasks rm task_8f3a --reason "superseded by revised cutover plan"
 ⏸ delete requested — pending a checker's approval (four-eyes)
 

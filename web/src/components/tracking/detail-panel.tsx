@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { useInspector } from "@/components/layout/app-shell";
+import { useModal } from "@/components/ui/modal";
 import { apiDelete } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 import { MilestoneForm } from "@/components/forms/milestone-form";
@@ -115,31 +117,79 @@ function DetailProgress({ pct }: { pct: number }) {
 export function TaskDetailPanel({
   task,
   milestones,
+  tasks = [],
   members,
 }: {
   task: Task;
   milestones: Milestone[];
+  /** Sibling tasks — forwarded to TaskForm for the Blocked-by picker. */
+  tasks?: Task[];
   members?: Record<string, string>;
 }) {
   const inspector = useInspector();
+  const modal = useModal();
   const router = useRouter();
+
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const statusInfo = taskStatusBadge(task.status_type);
 
   const parentMilestone = milestones.find((m) => m.id === task.milestone_id);
 
-  async function handleDelete() {
-    const confirmed = window.confirm(
-      `Delete task "${task.name}"? This cannot be undone.`
+  function handleDelete() {
+    setDeleteError(null);
+    modal.open(
+      <div className="flex flex-col gap-5">
+        <p className="text-sm text-ink leading-relaxed">
+          Delete task <span className="font-semibold">"{task.name}"</span>?
+          This cannot be undone.
+        </p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="ghost" size="sm" className="h-10" onClick={modal.close}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            onClick={async () => {
+              modal.close();
+              try {
+                await apiDelete(`/api/tasks/${task.id}`);
+                router.refresh();
+                inspector.close();
+              } catch (err) {
+                setDeleteError(
+                  err instanceof Error ? err.message : "Delete failed. Please try again."
+                );
+              }
+            }}
+          >
+            <Trash2 size={13} className="mr-1.5" />
+            Delete task
+          </Button>
+        </div>
+      </div>,
+      { title: "Delete task?" }
     );
-    if (!confirmed) return;
-    await apiDelete(`/api/tasks/${task.id}`);
-    router.refresh();
-    inspector.close();
   }
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Inline delete-error banner */}
+      {deleteError && (
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger flex items-center justify-between gap-2">
+          <span>{deleteError}</span>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="shrink-0 text-danger/70 hover:text-danger text-xs"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Header name + status */}
       <div className="space-y-1.5">
         <p className="text-base font-semibold text-ink leading-snug">{task.name}</p>
@@ -223,7 +273,36 @@ export function TaskDetailPanel({
             <span className="text-ink-muted">Unassigned</span>
           )}
         </DetailRow>
+        {task.estimate_hours != null && (
+          <DetailRow label="Estimate">{task.estimate_hours}h</DetailRow>
+        )}
+        {task.story_points != null && (
+          <DetailRow label="Story points">{task.story_points}</DetailRow>
+        )}
+        {task.labels && task.labels.length > 0 && (
+          <DetailRow label="Labels">
+            <span className="flex flex-wrap justify-end gap-1">
+              {task.labels.map((l) => (
+                <span key={l} className="rounded-full border border-border-subtle bg-sunken px-2 py-0.5 text-xs text-ink-secondary">
+                  {l}
+                </span>
+              ))}
+            </span>
+          </DetailRow>
+        )}
       </div>
+
+      {/* Acceptance criteria */}
+      {task.acceptance_criteria && (
+        <div className="rounded-lg border border-border-subtle bg-surface px-3 py-3">
+          <p className="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1.5">
+            Acceptance criteria
+          </p>
+          <p className="text-sm text-ink leading-relaxed whitespace-pre-wrap">
+            {task.acceptance_criteria}
+          </p>
+        </div>
+      )}
 
       {/* Footer actions */}
       <div className="flex flex-col gap-2 pt-1 sm:flex-row">
@@ -237,6 +316,7 @@ export function TaskDetailPanel({
                 projectId={task.project_id}
                 task={task}
                 milestones={milestones}
+                tasks={tasks}
               />,
               "Edit Task",
             )
@@ -269,22 +349,67 @@ export function MilestoneDetailPanel({
   members?: Record<string, string>;
 }) {
   const inspector = useInspector();
+  const modal = useModal();
   const router = useRouter();
+
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const statusInfo = milestoneStatusBadge(milestone.status);
 
-  async function handleDelete() {
-    const confirmed = window.confirm(
-      `Delete milestone "${milestone.name}"? All tasks within it will be unlinked. This cannot be undone.`
+  function handleDelete() {
+    setDeleteError(null);
+    modal.open(
+      <div className="flex flex-col gap-5">
+        <p className="text-sm text-ink leading-relaxed">
+          Delete milestone <span className="font-semibold">"{milestone.name}"</span>?
+          All tasks within it will be unlinked. This cannot be undone.
+        </p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="ghost" size="sm" className="h-10" onClick={modal.close}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            onClick={async () => {
+              modal.close();
+              try {
+                await apiDelete(`/api/milestones/${milestone.id}`);
+                router.refresh();
+                inspector.close();
+              } catch (err) {
+                setDeleteError(
+                  err instanceof Error ? err.message : "Delete failed. Please try again."
+                );
+              }
+            }}
+          >
+            <Trash2 size={13} className="mr-1.5" />
+            Delete milestone
+          </Button>
+        </div>
+      </div>,
+      { title: "Delete milestone?" }
     );
-    if (!confirmed) return;
-    await apiDelete(`/api/milestones/${milestone.id}`);
-    router.refresh();
-    inspector.close();
   }
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Inline delete-error banner */}
+      {deleteError && (
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger flex items-center justify-between gap-2">
+          <span>{deleteError}</span>
+          <button
+            onClick={() => setDeleteError(null)}
+            className="shrink-0 text-danger/70 hover:text-danger text-xs"
+            aria-label="Dismiss error"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Header name + status */}
       <div className="space-y-1.5">
         <p className="text-base font-semibold text-ink leading-snug">{milestone.name}</p>

@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run",
+    "rtm:verify": "node scripts/rtm-verify.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -33,6 +35,7 @@
     "eslint-config-next": "16.2.7",
     "supabase": "^2.105.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.0.0"
   }
 }

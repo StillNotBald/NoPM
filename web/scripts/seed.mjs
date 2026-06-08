@@ -37,76 +37,76 @@ console.log("cleared");
 // ── projects (with PMBOK charter block + baseline pair + phase) ─────────────
 const P = [
   {
-    code: "NBC-CORE", name: "Core Network Consolidation", program: "NBC-H Merger",
+    code: "ERP-EMEA", name: "S/4HANA Core Rollout — EMEA", program: "Global ERP Consolidation",
     rag_status: "amber", completion_pct: 62, is_locked: true, lock_reason: "Baseline frozen for steerco",
     phase: "execution",
-    business_case: "The NBC-H merger duplicated two national core networks at a combined run-rate of RM 18M/yr. Consolidating onto a single converged core removes the duplicate OPEX, frees three data-centre halls for divestment, and is the dependency gate for every downstream Digital Transformation programme.",
-    objective: "Migrate all subscriber traffic onto the unified core, decommission the legacy NBC ring, and achieve a single network-operations pane of glass — with zero unplanned customer outage during cutover.",
-    scope_summary: "In scope: transport convergence, IP/MPLS re-homing, NOC tooling unification, and legacy decommission. Out of scope: radio access refresh (separate programme) and retail POS (NBC-RET).",
-    sponsor: "Datuk Lim Cheng Wei (Group CTO)",
-    project_manager: "Aisyah Rahman",
-    health_commentary: "Amber: vendor integration gates are slipping and float is being consumed, but no scope or budget breach yet. Holding amber pending the SLA escalation outcome.",
+    business_case: "Meridian Global runs eleven legacy ERP instances across EMEA at a combined run-rate of $14M/yr in licence, hosting, and reconciliation cost. Consolidating the region onto a single S/4HANA core removes the duplicate OPEX, retires three end-of-life ECC instances, and is the dependency gate for every downstream finance and supply-chain initiative in the portfolio.",
+    objective: "Migrate all EMEA operating companies onto the unified S/4HANA core, decommission the legacy ECC instances, and establish a single regional finance and logistics system of record — with zero unplanned period-close disruption during cutover.",
+    scope_summary: "In scope: financials, procurement, and order-to-cash convergence across the EMEA operating companies, plus legacy ECC decommission. Out of scope: APAC and Americas templates (separate waves) and the standalone treasury platform.",
+    sponsor: "Sofia Almeida (Group CFO)",
+    project_manager: "Elena Rossi",
+    health_commentary: "Amber: systems-integrator delivery gates are slipping and float is being consumed, but no scope or budget breach yet. Holding amber pending the SLA escalation outcome.",
   },
   {
-    code: "NBC-BILL", name: "Billing Platform Cutover", program: "NBC-H Merger",
+    code: "FIN-MIG", name: "Finance Data Migration — Global", program: "Global ERP Consolidation",
     rag_status: "red", completion_pct: 38,
     phase: "execution",
-    business_case: "Two billing stacks cannot co-exist past the regulatory merger deadline; running both risks double-billing customers and a MCMC compliance finding. A single billing platform is mandatory for the merged licence and unlocks RM 6M/yr in licence and support savings.",
-    objective: "Cut all 4.2M subscriber accounts over to the unified billing platform within one regulated billing cycle, with reconciled balances and no revenue leakage.",
-    scope_summary: "In scope: account migration, rating/charging re-platform, dunning, and finance GL re-integration. Out of scope: CRM front-end (DX-APP) and historical statement archival.",
-    sponsor: "Sarah Goh (Group CFO)",
-    project_manager: "Aisyah Rahman",
-    health_commentary: "Red: reconciliation defects in the rating engine are blocking the cutover dress-rehearsal, and the regulated billing-cycle window is fixed. Recovery plan tabled at steerco; needs an extra QA squad.",
+    business_case: "Legacy finance master and transactional data cannot be carried into the new ERP cores without cleansing and harmonisation; running parallel ledgers past the fiscal-year cutover risks a material misstatement and an external-audit finding. A single, reconciled global finance data set is mandatory for the consolidation and unlocks $6M/yr in close-acceleration and reconciliation savings.",
+    objective: "Migrate and reconcile all general-ledger, vendor, and customer master data into the unified finance model within one fiscal-year close window, with tied-out balances and no financial leakage.",
+    scope_summary: "In scope: master-data harmonisation, GL conversion, open-item migration, and finance reconciliation. Out of scope: the order-to-cash front-end (CDP-CORE) and historical statutory-archive migration.",
+    sponsor: "Sofia Almeida (Group CFO)",
+    project_manager: "Elena Rossi",
+    health_commentary: "Red: reconciliation defects in the GL conversion engine are blocking the migration dress-rehearsal, and the fiscal-year close window is fixed. Recovery plan tabled at steerco; needs an extra reconciliation QA squad.",
   },
   {
-    code: "NBC-RET", name: "Retail Store Migration", program: "NBC-H Merger",
+    code: "CLD-APAC", name: "Datacenter Exit to Cloud — APAC", program: "Cloud & Platform Modernization",
     rag_status: "green", completion_pct: 81,
     phase: "execution",
-    business_case: "320 combined retail outlets run two incompatible POS and inventory systems. Unifying onto one retail stack standardises the customer experience, enables group-wide promotions, and reduces in-store support cost.",
-    objective: "Migrate all 320 stores to the unified POS/inventory platform in waves, with under 30 minutes of till downtime per store and full stock reconciliation.",
-    scope_summary: "In scope: POS rollout, inventory cut, staff enablement, and store-network re-homing. Out of scope: e-commerce and warehouse WMS.",
-    sponsor: "Tan Boon Huat (Retail MD)",
-    project_manager: "Aisyah Rahman",
-    health_commentary: "Green: wave 1-3 stores live and stable, ahead of the enablement curve. Watching only the final-wave network re-home, which depends on NBC-CORE.",
+    business_case: "Meridian Global operates two ageing leased datacenters across APAC running incompatible virtualisation and storage estates. Migrating these workloads to the public cloud exits the lease liabilities, standardises the regional operating model, and reduces infrastructure run cost while improving resilience.",
+    objective: "Migrate all in-scope APAC workloads to the cloud landing zone in waves, exit both leased datacenters, and achieve under 30 minutes of cutover downtime per workload with full data reconciliation.",
+    scope_summary: "In scope: workload migration, landing-zone build, network re-homing, and datacenter exit. Out of scope: the e-commerce estate (ECM-WEB) and the regional analytics warehouse.",
+    sponsor: "Hiroshi Tanaka (Regional COO, APAC)",
+    project_manager: "Elena Rossi",
+    health_commentary: "Green: wave 1-3 workloads live and stable, ahead of the migration curve. Watching only the final-wave network re-home, which depends on ERP-EMEA shared connectivity.",
   },
   {
-    code: "DX-DATA", name: "Customer Data Platform", program: "Digital Transformation",
+    code: "CDP-CORE", name: "Customer Data Platform", program: "Cloud & Platform Modernization",
     rag_status: "amber", completion_pct: 47,
     phase: "execution",
-    business_case: "Customer data is fragmented across 11 source systems, blocking any single-customer-view, personalisation, or churn modelling. A unified CDP is the foundational data asset for the entire Digital Transformation programme and the precondition for the Super-App.",
+    business_case: "Customer data is fragmented across 11 regional source systems, blocking any single-customer-view, personalisation, or churn modelling. A unified CDP is the foundational data asset for the modernization programme and the precondition for the global e-commerce replatform.",
     objective: "Stand up a governed customer data platform with a resolved single-customer-view across all source systems, exposed via a consent-aware API.",
     scope_summary: "In scope: ingestion, identity resolution, consent management, and the CDP serving API. Out of scope: ML model training and marketing-automation tooling.",
-    sponsor: "Datuk Lim Cheng Wei (Group CTO)",
-    project_manager: "Aisyah Rahman",
+    sponsor: "Sofia Almeida (Group CFO)",
+    project_manager: "Elena Rossi",
     health_commentary: "Amber: identity-resolution match rates are below target on legacy records and the data-engineering lead is over-allocated across three programmes. Resourcing flagged as a clash.",
   },
   {
-    code: "DX-APP", name: "Super-App Launch", program: "Digital Transformation",
+    code: "ECM-WEB", name: "Global E-Commerce Replatform", program: "Cloud & Platform Modernization",
     rag_status: "green", completion_pct: 73,
     phase: "execution",
-    business_case: "Customers interact through five disconnected apps with low engagement. A single super-app consolidating telco, retail, and payments raises monthly active usage, opens a cross-sell channel, and is the flagship customer-facing proof of the transformation.",
-    objective: "Launch a unified super-app (telco self-care + retail + wallet) to general availability, hitting the agreed activation and crash-free-session targets.",
-    scope_summary: "In scope: app shell, self-care, retail catalogue, wallet onboarding, and the CDP-backed personalisation surface. Out of scope: third-party mini-programs (phase 2).",
-    sponsor: "Sarah Goh (Group CFO)",
-    project_manager: "Aisyah Rahman",
-    health_commentary: "Green: beta cohort metrics are above target and the store-submission track is on schedule. Dependency on DX-DATA personalisation is the only watch item.",
+    business_case: "Customers transact through five disconnected regional storefronts with low conversion and high maintenance cost. A single global commerce platform consolidating catalogue, checkout, and payments raises conversion, opens a cross-region merchandising channel, and is the flagship customer-facing proof of the modernization programme.",
+    objective: "Launch a unified global e-commerce platform (catalogue + checkout + payments) to general availability, hitting the agreed conversion and uptime targets.",
+    scope_summary: "In scope: storefront shell, catalogue, checkout, payment onboarding, and the CDP-backed personalisation surface. Out of scope: third-party marketplace integrations (phase 2).",
+    sponsor: "Hiroshi Tanaka (Regional COO, APAC)",
+    project_manager: "Elena Rossi",
+    health_commentary: "Green: beta cohort metrics are above target and the launch-readiness track is on schedule. Dependency on CDP-CORE personalisation is the only watch item.",
   },
   {
-    code: "DX-SEC", name: "Zero-Trust Security Rollout", program: "Digital Transformation",
+    code: "IAM-SEC", name: "Identity & Access Modernization", program: "Cloud & Platform Modernization",
     rag_status: "complete", completion_pct: 100,
     phase: "closing",
-    business_case: "The merged estate inherited flat-network trust and inconsistent identity controls — an audit and breach exposure. A zero-trust architecture (identity-aware access, micro-segmentation, continuous verification) was mandated by the board risk committee.",
-    objective: "Roll out zero-trust access and micro-segmentation across all corporate and production estates, retire legacy VPN trust, and pass the independent control assessment.",
-    scope_summary: "In scope: IAM uplift, device posture, network micro-segmentation, and VPN decommission. Out of scope: customer-facing fraud controls.",
-    sponsor: "Datuk Lim Cheng Wei (Group CTO)",
-    project_manager: "Aisyah Rahman",
-    health_commentary: "Complete: independent control assessment passed with no major findings; legacy VPN trust retired. Programme in closeout / benefits-tracking.",
+    business_case: "The multi-region estate inherited fragmented directories and inconsistent access controls — an audit and breach exposure. A modern identity-and-access architecture (single identity fabric, conditional access, continuous verification) was mandated by the board risk committee.",
+    objective: "Roll out the unified identity fabric and conditional access across all corporate and production estates, retire legacy directory trust, and pass the independent control assessment.",
+    scope_summary: "In scope: identity-fabric uplift, device posture, conditional-access policy, and legacy directory decommission. Out of scope: customer-facing fraud controls.",
+    sponsor: "Sofia Almeida (Group CFO)",
+    project_manager: "Elena Rossi",
+    health_commentary: "Complete: independent control assessment passed with no major findings; legacy directory trust retired. Programme in closeout / benefits-tracking.",
   },
 ];
 const projects = [];
 for (const p of P) {
   projects.push(await ins("projects", {
-    workspace_id: W, owner_id: owner, currency: "MYR",
+    workspace_id: W, owner_id: owner, currency: "USD",
     start_date: days(-90), target_date: days(60),
     baseline_start_date: days(-90), baseline_target_date: days(45), // baseline finish earlier than current target → visible schedule slip
     ...p,
@@ -222,18 +222,18 @@ console.log("milestones + tasks done");
 // ── risks (PMBOK register: probability/impact, strategy, category, trigger, residual) ──
 const RISKS = [
   {
-    title: "Core-network vendor SLA slippage",
-    description: "The converged-core vendor has missed two consecutive integration gates, and their named technical lead rolled off without a backfill. Each slip consumes schedule float on the critical re-homing path, and a third miss would push the cutover into the change-freeze window ahead of the merger deadline. Commercial leverage exists but has not yet been exercised.",
+    title: "Systems-integrator SLA slippage on EMEA build",
+    description: "The S/4HANA systems integrator has missed two consecutive build gates, and their named solution lead rolled off without a backfill. Each slip consumes schedule float on the critical conversion path, and a third miss would push the EMEA cutover into the period-close freeze window. Commercial leverage exists under the master-services agreement but has not yet been exercised.",
     severity: "high", likelihood: "high", probability_pct: 70, impact_score: 4,
     response_strategy: "transfer", risk_category: "dependencies_third_party", impact_area: "schedule",
-    trigger: "Any single integration gate slips more than five business days, or the vendor lead is unavailable for two consecutive ceremonies.",
+    trigger: "Any single build gate slips more than five business days, or the integrator's solution lead is unavailable for two consecutive ceremonies.",
     residual_risk: "Moderate — even with the SLA escalation and 10% retention held back, some schedule float is consumed; residual exposure remains on the cutover date.",
-    mitigation: "Escalate to the master-services SLA with the liquidated-damages clause; hold 10% retention; require a named backfill within five working days.",
+    mitigation: "Escalate under the master-services SLA with the liquidated-damages clause; hold 10% retention; require a named backfill within five working days.",
     status: "mitigating", category: "Dependencies (Project & 3rd Party)",
   },
   {
-    title: "Billing reconciliation defects block cutover",
-    description: "The rating engine is producing reconciliation breaks above tolerance on a subset of converted accounts, and the regulated billing-cycle window that the cutover must hit is fixed by MCMC. If the defect rate is not driven below the agreed threshold before the dress rehearsal, the cutover cannot proceed and slips a full billing cycle — a revenue-leakage and compliance exposure.",
+    title: "Finance reconciliation defects block migration cutover",
+    description: "The GL conversion engine is producing reconciliation breaks above tolerance on a subset of converted accounts, and the fiscal-year close window that the migration must hit is fixed by group finance. If the defect rate is not driven below the agreed threshold before the dress rehearsal, the cutover cannot proceed and slips a full close cycle — a financial-misstatement and external-audit exposure.",
     severity: "critical", likelihood: "high", probability_pct: 65, impact_score: 5,
     response_strategy: "mitigate", risk_category: "technology_infrastructure", impact_area: "cost",
     trigger: "Reconciliation break rate stays above 0.5% within ten days of the dress-rehearsal date.",
@@ -242,13 +242,13 @@ const RISKS = [
     status: "open", category: "Technology & Infrastructure",
   },
   {
-    title: "Final-wave store network re-home dependency",
-    description: "The last wave of retail stores depends on the NBC-CORE re-homing completing first. NBC-CORE is amber on vendor gates, so a slip there cascades directly into the retail go-live wave. The retail programme itself is healthy, but it cannot de-risk this externally-owned dependency on its own.",
+    title: "Final-wave cloud network re-home dependency",
+    description: "The last wave of APAC workloads depends on the ERP-EMEA shared connectivity re-homing completing first. ERP-EMEA is amber on integrator gates, so a slip there cascades directly into the final datacenter-exit wave. The cloud programme itself is healthy, but it cannot de-risk this externally-owned dependency on its own.",
     severity: "medium", likelihood: "medium", probability_pct: 40, impact_score: 3,
     response_strategy: "accept", risk_category: "dependencies_third_party", impact_area: "schedule",
-    trigger: "NBC-CORE re-homing milestone forecast moves past the final retail-wave start date.",
+    trigger: "ERP-EMEA connectivity re-homing milestone forecast moves past the final datacenter-exit wave start date.",
     residual_risk: "Low-moderate — the wave can be re-sequenced to a later window with limited business impact if the dependency slips.",
-    mitigation: "Maintain a re-sequenced fallback wave plan; weekly dependency check against NBC-CORE; pre-brief affected store regions.",
+    mitigation: "Maintain a re-sequenced fallback wave plan; weekly dependency check against ERP-EMEA; pre-brief affected regional ops teams.",
     status: "open", category: "Dependencies (Project & 3rd Party)",
   },
   {
@@ -262,18 +262,18 @@ const RISKS = [
     status: "mitigating", category: "Data & Information Management",
   },
   {
-    title: "Super-App store-review rejection risk",
-    description: "App-store review guidelines for wallet onboarding and data-consent flows are strict and have shifted recently. A rejection at submission would push the general-availability launch past the marketing-committed date, with reputational and momentum cost given the flagship visibility of this programme.",
+    title: "E-commerce payment-compliance launch risk",
+    description: "PCI-DSS and regional payment-compliance requirements for the new checkout and payment-onboarding flows are strict and have shifted recently. A compliance gate failure at launch readiness would push the general-availability launch past the merchandising-committed date, with reputational and momentum cost given the flagship visibility of this programme.",
     severity: "medium", likelihood: "low", probability_pct: 25, impact_score: 3,
     response_strategy: "avoid", risk_category: "compliance_regulatory", impact_area: "reputation",
-    trigger: "Pre-submission policy review flags any wallet or consent flow as non-compliant.",
-    residual_risk: "Low — a pre-submission compliance review and a staged rollout largely remove the exposure.",
-    mitigation: "Run a pre-submission guideline review with the platform vendor; stage a phased rollout; keep a hotfix lane reserved.",
+    trigger: "Pre-launch compliance review flags any checkout or payment-onboarding flow as non-compliant.",
+    residual_risk: "Low — a pre-launch compliance review and a staged regional rollout largely remove the exposure.",
+    mitigation: "Run a pre-launch PCI review with the payments partner; stage a phased regional rollout; keep a hotfix lane reserved.",
     status: "accepted", category: "Compliance & Regulatory",
   },
   {
-    title: "Zero-trust change fatigue (residual)",
-    description: "The zero-trust rollout completed, but the volume of access-policy and posture changes created change fatigue in some business units, with a tail of access exceptions still being rationalised. This is now a managed, closing-out residual rather than an active delivery threat.",
+    title: "Identity-modernization change fatigue (residual)",
+    description: "The identity-and-access rollout completed, but the volume of access-policy and conditional-access changes created change fatigue in some business units, with a tail of access exceptions still being rationalised. This is now a managed, closing-out residual rather than an active delivery threat.",
     severity: "low", likelihood: "low", probability_pct: 15, impact_score: 2,
     response_strategy: "accept", risk_category: "change_stakeholder", impact_area: "scope",
     trigger: "Access-exception backlog stops trending down for two consecutive weeks.",
@@ -287,21 +287,21 @@ const RISKS = [
 const ISSUES = [
   {
     title: "UAT defect backlog exceeding burn-down rate",
-    description: "Open UAT defects on the core re-homing workstream are being raised faster than they are closed, and the trend has held for three sprints. Several are clustered in the routing-policy area, suggesting a systemic configuration gap rather than isolated bugs.",
+    description: "Open UAT defects on the EMEA financials workstream are being raised faster than they are closed, and the trend has held for three sprints. Several are clustered in the procurement-configuration area, suggesting a systemic template gap rather than isolated bugs.",
     impact: "If the backlog is not arrested, the build-phase exit gate slips, which in turn compresses the already-tight cutover rehearsal window.",
     priority: "high", severity: "high", issue_category: "technical_defect",
     status: "open", resolution: null, resolution_eta: days(14),
   },
   {
-    title: "Cutover window conflicts with retail go-live",
-    description: "The billing cutover window and a retail go-live wave were independently scheduled into the same weekend, and both need the shared network-operations bridge. Only one change of this blast radius can be safely run at a time.",
-    impact: "Running both concurrently risks contention on the NOC bridge and a confused rollback picture; one must move, affecting at least one programme's committed date.",
+    title: "Migration cutover window conflicts with cloud exit wave",
+    description: "The finance migration cutover window and an APAC datacenter-exit wave were independently scheduled into the same weekend, and both need the shared change-management bridge. Only one change of this blast radius can be safely run at a time.",
+    impact: "Running both concurrently risks contention on the change bridge and a confused rollback picture; one must move, affecting at least one programme's committed date.",
     priority: "urgent", severity: "critical", issue_category: "dependency_delay",
-    status: "in_progress", resolution: "Change board to arbitrate; proposing to move the retail wave by one week.", resolution_eta: days(5),
+    status: "in_progress", resolution: "Change board to arbitrate; proposing to move the datacenter-exit wave by one week.", resolution_eta: days(5),
   },
   {
-    title: "Test-data shortfall for migration dress rehearsal",
-    description: "A production-representative data set for the migration dress rehearsal is not yet available because the data-masking pipeline is incomplete. Synthetic data does not exercise the legacy edge-cases that the reconciliation logic must handle.",
+    title: "Test-data shortfall for cloud migration dress rehearsal",
+    description: "A production-representative data set for the workload migration dress rehearsal is not yet available because the data-masking pipeline is incomplete. Synthetic data does not exercise the legacy edge-cases that the reconciliation logic must handle.",
     impact: "The dress rehearsal cannot fully validate reconciliation, leaving a blind spot going into the real cutover.",
     priority: "high", severity: "high", issue_category: "data_quality",
     status: "open", resolution: null, resolution_eta: days(10),
@@ -309,20 +309,20 @@ const ISSUES = [
   {
     title: "Integration timeout on consent-API under load",
     description: "Under representative load, the consent-aware CDP serving API intermittently times out on identity-resolution lookups against the largest source system. The behaviour was reproduced in performance testing and traced to an un-indexed join.",
-    impact: "Personalisation calls would degrade at peak, hurting the Super-App experience that depends on this API.",
+    impact: "Personalisation calls would degrade at peak, hurting the e-commerce storefront experience that depends on this API.",
     priority: "medium", severity: "medium", issue_category: "technical_defect",
     status: "resolved", resolution: "Added the missing composite index and a read-through cache; p99 latency now within SLA.", resolution_eta: days(-3), resolved_at: days(-2),
   },
   {
-    title: "Training gap for store staff on new POS",
-    description: "Early-wave stores reported that floor staff were not confident on the refund and stock-adjustment flows of the new POS, leading to longer queues in the first days post go-live.",
-    impact: "Slower transactions and a dip in customer experience during the store-transition window; risk of staff workarounds.",
+    title: "Training gap for support staff on new checkout flows",
+    description: "Early-region pilots reported that customer-support agents were not confident on the refund and order-adjustment flows of the new commerce platform, leading to longer handle times in the first days post go-live.",
+    impact: "Slower resolution and a dip in customer experience during the region-transition window; risk of agent workarounds.",
     priority: "medium", severity: "medium", issue_category: "operational_bottleneck",
-    status: "in_progress", resolution: "Added a short refresher module and floor-walker support for the first 48 hours of each wave.", resolution_eta: days(7),
+    status: "in_progress", resolution: "Added a short refresher module and floor-walker support for the first 48 hours of each region launch.", resolution_eta: days(7),
   },
   {
-    title: "Zero-trust sign-off documentation pending",
-    description: "All zero-trust controls passed the independent assessment, but the final signed control-attestation pack was outstanding pending two stakeholder approvals.",
+    title: "Identity sign-off documentation pending",
+    description: "All identity-and-access controls passed the independent assessment, but the final signed control-attestation pack was outstanding pending two stakeholder approvals.",
     impact: "Programme could not formally close and book benefits until the attestation pack was complete.",
     priority: "low", severity: "low", issue_category: "stakeholder_conflict",
     status: "resolved", resolution: "Both approvals obtained; attestation pack archived in the Trust Center; programme moved to closeout.", resolution_eta: days(-8), resolved_at: days(-6),
@@ -333,6 +333,7 @@ for (const [i, proj] of projects.entries()) {
   const r = RISKS[i];
   await ins("risks", {
     workspace_id: W, project_id: proj.id, owner_id: owner,
+    reference_id: `R-${String(i + 1).padStart(3, "0")}`,
     title: r.title, description: r.description,
     severity: r.severity, likelihood: r.likelihood,
     probability_pct: r.probability_pct, impact_score: r.impact_score,
@@ -345,6 +346,7 @@ for (const [i, proj] of projects.entries()) {
   const iss = ISSUES[i];
   await ins("issues", {
     workspace_id: W, project_id: proj.id, owner_id: owner,
+    reference_id: `ISS-${String(i + 1).padStart(3, "0")}`,
     title: iss.title, description: iss.description,
     priority: iss.priority, severity: iss.severity, issue_category: iss.issue_category,
     impact: iss.impact, resolution: iss.resolution,
@@ -356,15 +358,15 @@ console.log("risks + issues done");
 
 // ── resources + allocations (one over-allocated) ─────────────────────────
 const people = [
-  { name: "Aisyah Rahman", role_title: "Programme Lead", cost_rate: 220, capacity_hours_per_week: 40 },
-  { name: "Wei Jie Tan", role_title: "Solution Architect", cost_rate: 260, capacity_hours_per_week: 40 },
+  { name: "Elena Rossi", role_title: "Programme Lead", cost_rate: 220, capacity_hours_per_week: 40 },
+  { name: "Marcus Bauer", role_title: "Solution Architect", cost_rate: 260, capacity_hours_per_week: 40 },
   { name: "Priya Nair", role_title: "Data Engineer", cost_rate: 180, capacity_hours_per_week: 40 },
-  { name: "Daniel Lim", role_title: "QA Lead", cost_rate: 160, capacity_hours_per_week: 40 },
-  { name: "Faiz Othman", role_title: "Network Engineer", cost_rate: 190, capacity_hours_per_week: 40 },
+  { name: "Daniel Okafor", role_title: "QA Lead", cost_rate: 160, capacity_hours_per_week: 40 },
+  { name: "Carlos Mendes", role_title: "Cloud Engineer", cost_rate: 190, capacity_hours_per_week: 40 },
 ];
 const members = [];
 for (const p of people) members.push(await ins("resource_members", { workspace_id: W, ...p }));
-// Wei Jie Tan (index 1) is over-allocated across 3 projects = 140%
+// Marcus Bauer (index 1) is over-allocated across 3 projects = 140%
 const allocPlan = [
   [0, 0, 60], [1, 0, 50], [1, 1, 50], [1, 3, 40], [2, 3, 70], [3, 4, 80], [4, 2, 65],
 ];
@@ -379,26 +381,31 @@ console.log("resources + allocations done");
 // ── clashes (resource over-allocation + a schedule clash) ────────────────
 await ins("clashes", {
   workspace_id: W, type: "resource", severity: "high", status: "open",
+  reference_id: "CL-001",
   title: `Over-allocation: ${members[1].name} (140%)`, resource_member_id: members[1].id,
   window_start: days(-14), window_end: days(28), owner_id: owner,
   resolution: null,
 });
 await ins("clashes", {
   workspace_id: W, type: "schedule", severity: "medium", status: "investigating",
-  title: "Cutover window overlap: Billing vs Retail", project_a_id: projects[1].id, project_b_id: projects[2].id,
+  reference_id: "CL-002",
+  title: "Cutover window overlap: Finance Migration vs Cloud Exit", project_a_id: projects[1].id, project_b_id: projects[2].id,
   window_start: days(18), window_end: days(25), owner_id: owner,
 });
 console.log("clashes done");
 
 // ── budgets + expenses + time entries (EVM-ready spread, actuals + reserves) ──
 // [planned, committed, actual] — actual tuned so CPI/SPI tell a story across the portfolio.
+// SPI is schedule-aware: PV = BAC × (elapsed / baseline_duration). Baseline = days(-90)..days(45)
+// → 135-day span; as of today (day 0) elapsed = 90 days → plannedSchedulePct ≈ 66.7%.
+// FIN-MIG: completion 38% vs planned 66.7% → SPI ≈ 0.57 (genuinely behind schedule).
 const budgets = [
-  [1_200_000, 740_000, 790_000],  // NBC-CORE: slightly over on AC vs EV → CPI < 1
-  [900_000, 610_000, 540_000],    // NBC-BILL: behind schedule (low completion) → SPI < 1
-  [500_000, 300_000, 300_000],    // NBC-RET: healthy
-  [800_000, 350_000, 410_000],    // DX-DATA: AC creeping ahead of progress
-  [1_500_000, 1_050_000, 1_020_000], // DX-APP: healthy, on track
-  [400_000, 400_000, 398_000],    // DX-SEC: complete, on budget
+  [8_000_000, 4_900_000, 5_250_000],  // ERP-EMEA: completion 62% vs planned 66.7% → CPI < 1 (AC > EV), SPI ≈ 0.93
+  [4_800_000, 3_250_000, 2_880_000],  // FIN-MIG: completion 38% vs planned 66.7% → CPI > 1 (under-spent), SPI ≈ 0.57 (behind schedule)
+  [3_200_000, 1_920_000, 1_920_000],  // CLD-APAC: completion 81% vs planned 66.7% → CPI = 1.00, SPI ≈ 1.22 (ahead)
+  [3_600_000, 1_580_000, 1_850_000],  // CDP-CORE: completion 47% vs planned 66.7% → CPI < 1 (AC creeping), SPI ≈ 0.71
+  [5_400_000, 3_780_000, 3_670_000],  // ECM-WEB: completion 73% vs planned 66.7% → healthy, SPI ≈ 1.10
+  [1_200_000, 1_200_000, 1_194_000],  // IAM-SEC: complete (100%) → SPI ≈ 1.50, on budget
 ];
 for (const [i, proj] of projects.entries()) {
   const [planned, committed, actual] = budgets[i];
@@ -407,7 +414,7 @@ for (const [i, proj] of projects.entries()) {
     planned_amount: planned, committed_amount: committed, actual_amount: actual,
     contingency_reserve: Math.round(planned * 0.05),
     management_reserve: Math.round(planned * 0.03),
-    currency: "MYR",
+    currency: "USD",
   });
   await ins("expenses", { workspace_id: W, project_id: proj.id, description: "Vendor licences", amount: committed * 0.3, category: "Software", incurred_on: days(-20) });
   await ins("expenses", { workspace_id: W, project_id: proj.id, description: "Professional services (integration partner)", amount: committed * 0.22, category: "Services", incurred_on: days(-12) });

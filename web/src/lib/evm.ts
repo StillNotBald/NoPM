@@ -5,8 +5,16 @@
  *   BAC  = planned_amount (project_budget)
  *   AC   = actual_amount  (Σ time_entries.cost + Σ expenses — computed by the budget GET)
  *   EV   = BAC × completion_pct / 100  (project completion)
- *   PV   = BAC × planned-schedule %    (approximated with completion_pct until a
- *                                       schedule baseline / planned-% basis lands)
+ *   PV   = BAC × planned-schedule %
+ *
+ * PV / SPI — two modes:
+ *   Schedule-aware (preferred): when baseline_start_date, baseline_target_date, and
+ *   as_of_date are all supplied, PV is computed from elapsed-vs-planned duration:
+ *     plannedSchedulePct = (asOf − baselineStart) / (baselineTarget − baselineStart) × 100
+ *   This makes SPI meaningful — a project behind its baseline schedule will show SPI < 1.
+ *
+ *   Fallback (backward-compatible): when any baseline date is absent, plannedSchedulePct
+ *   is approximated by completion_pct (PV == EV, SPI == 1.00, schedule-neutral).
  *
  * No I/O, no side effects, no audit — derived numbers only (constitution-safe).
  * Every ratio guards divide-by-zero and returns `null` when undefined.
@@ -21,6 +29,22 @@ export interface EvmInput {
   committed_amount: number;
   /** AC — Actual Cost (Σ time.cost + Σ expenses), as computed by the budget GET. */
   actual_amount: number;
+  /**
+   * OPTIONAL — PMBOK baseline start date (ISO 8601 date string, e.g. "2025-01-15").
+   * Required together with baseline_target_date and as_of_date for schedule-aware SPI.
+   */
+  baseline_start_date?: string | null;
+  /**
+   * OPTIONAL — PMBOK baseline finish date (ISO 8601 date string).
+   * Required together with baseline_start_date and as_of_date for schedule-aware SPI.
+   */
+  baseline_target_date?: string | null;
+  /**
+   * OPTIONAL — The reporting date used as "today" for schedule-based PV (ISO 8601).
+   * Defaults to the current date when omitted. Accepted as a parameter so callers can
+   * pass a deterministic date in tests and the function remains pure.
+   */
+  as_of_date?: string | null;
 }
 
 export interface EvmResult {
@@ -59,12 +83,45 @@ function clampPct(pct: number): number {
 }
 
 /**
+ * Parse an ISO 8601 date string ("YYYY-MM-DD" or full ISO timestamp) into a UTC
+ * midnight timestamp (ms). Returns `null` for missing / unparseable values.
+ */
+function parseDate(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Derive a schedule-based planned-% from baseline dates and a reporting date.
+ *
+ * plannedSchedulePct = clamp((asOf − baselineStart) / (baselineTarget − baselineStart) × 100, 0, 100)
+ *
+ * Returns `null` when any date is missing or the baseline duration is zero (guard
+ * against same-day start = target edge case).
+ */
+function schedulePlannedPct(
+  baselineStart: string | null | undefined,
+  baselineTarget: string | null | undefined,
+  asOf: string | null | undefined,
+): number | null {
+  const start = parseDate(baselineStart);
+  const target = parseDate(baselineTarget);
+  const ref = parseDate(asOf);
+  if (start === null || target === null || ref === null) return null;
+  const duration = target - start;
+  if (duration <= 0) return null; // degenerate baseline
+  return clampPct(((ref - start) / duration) * 100);
+}
+
+/**
  * Compute the full EVM number set. Pure function — same input, same output.
  *
- * PV approximation: with no schedule baseline stored, planned-schedule % is
- * approximated by completion_pct, so PV == EV and SPI == 1 (schedule-neutral)
- * until a real planned-% basis exists. This keeps the panel honest rather than
- * inventing a schedule signal NoPM cannot yet derive.
+ * SPI mode selection:
+ *   • Schedule-aware: baseline_start_date + baseline_target_date + as_of_date supplied
+ *     → PV derived from elapsed-vs-planned duration; SPI reflects real schedule position.
+ *   • Fallback (backward-compatible): any date absent → plannedSchedulePct = completion_pct,
+ *     PV == EV, SPI == 1.00 (schedule-neutral, honest about missing data).
  */
 export function computeEvm(input: EvmInput): EvmResult {
   const bac = Number.isFinite(input.planned_amount) ? input.planned_amount : 0;
@@ -74,8 +131,20 @@ export function computeEvm(input: EvmInput): EvmResult {
     : 0;
 
   const completion = clampPct(input.completion_pct);
-  // No schedule baseline yet → approximate planned-schedule % with completion %.
-  const plannedSchedulePct = completion;
+
+  // Resolve as_of_date: use provided value, or today's date (ISO string).
+  const asOfResolved: string =
+    input.as_of_date ??
+    new Date().toISOString().slice(0, 10);
+
+  // Attempt schedule-aware PV; fall back to completion-% approximation.
+  const schedPct = schedulePlannedPct(
+    input.baseline_start_date,
+    input.baseline_target_date,
+    asOfResolved,
+  );
+  // If schedule dates were supplied but produced null (degenerate), stay with fallback.
+  const plannedSchedulePct = schedPct !== null ? schedPct : completion;
 
   const ev = (bac * completion) / 100;
   const pv = (bac * plannedSchedulePct) / 100;

@@ -43,7 +43,7 @@ export default async function ProjectDetailPage({
       .order("sort_order", { ascending: true }),
     db
       .from("tasks")
-      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, completion_pct, sort_order, assignee_id")
+      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by")
       .eq("project_id", id)
       .order("sort_order", { ascending: true }),
     db
