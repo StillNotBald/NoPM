@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { notify } from "@/lib/notify/publish";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -81,6 +82,18 @@ export const POST = route(async ({ actor, params, request }) => {
       ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
     },
   });
+
+  // Notify the original requester — fail-soft
+  if (deletionRequest.requested_by_id) {
+    void notify({
+      workspaceId: actor.workspaceId,
+      recipientIds: [deletionRequest.requested_by_id],
+      type: "approval.rejected",
+      title: "Your deletion request was rejected",
+      body: parsed.data.reason ?? `The deletion of ${deletionRequest.target_type} was not approved.`,
+      payload: { requestId: deletionRequest.id, targetType: deletionRequest.target_type, targetId: deletionRequest.target_id },
+    });
+  }
 
   return ok({ rejected: true });
 });

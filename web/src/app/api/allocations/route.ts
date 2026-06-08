@@ -3,6 +3,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { ok, okList, created, safeJson, validationError } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write";
+import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocation } from "@/lib/clash/detect";
 
@@ -82,7 +83,21 @@ export const POST = route(async ({ actor, request }) => {
   });
 
   // Detect over-allocation after writing the new allocation
-  await detectOverAllocation(db, actor.workspaceId, parsed.data.member_id, actor);
+  const clashDetected = await detectOverAllocation(db, actor.workspaceId, parsed.data.member_id, actor);
+
+  // Notify workspace approvers when a clash is detected — fail-soft
+  if (clashDetected) {
+    void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) => {
+      return notify({
+        workspaceId: actor.workspaceId,
+        recipientIds: approverIds,
+        type: "clash.detected",
+        title: `Over-allocation clash detected`,
+        body: `A resource over-allocation clash was detected after a new allocation was created.`,
+        payload: { memberId: parsed.data.member_id, allocationId: row.id },
+      });
+    });
+  }
 
   return created(row);
 });

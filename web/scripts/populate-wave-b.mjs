@@ -63,4 +63,17 @@ for (const c of clashes) {
 }
 console.log("clashes enriched:", clashes.length);
 
+// 4. demo notifications for the workspace owner (so the bell + My Work show data)
+const owner = (await db.from("profiles").select("id").eq("workspace_id", W).limit(1).single()).data.id;
+await db.from("notifications").delete().eq("workspace_id", W);
+const notifs = [
+  { type: "approval.requested", title: "Approval needed: delete task", body: "A task deletion is awaiting a second reviewer (four-eyes).", payload: { href: "/approvals" } },
+  { type: "risk.escalated", title: "High risk logged", body: "Integrator SLA slippage flagged High on S/4HANA Core Rollout — EMEA.", payload: { href: "/risks" } },
+  { type: "clash.detected", title: "Resource over-allocation", body: "Marcus Bauer is allocated ~140% — a resource clash was auto-detected.", payload: { href: "/clashes" } },
+];
+for (const n of notifs) {
+  await db.from("notifications").insert({ workspace_id: W, recipient_id: owner, ...n });
+}
+console.log("notifications:", notifs.length);
+
 console.log("✓ Wave B demo data populated.");

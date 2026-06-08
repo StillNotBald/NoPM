@@ -8,12 +8,16 @@ import type { Actor } from "@/lib/auth/guard";
  *
  * Called after every allocation POST/PATCH. Audit action: clash.auto_detected.
  */
+/**
+ * Returns true when an over-allocation clash was detected (new or existing),
+ * false when allocation is within limits (clash resolved or no clash).
+ */
 export async function detectOverAllocation(
   db: SupabaseClient,
   workspaceId: string,
   memberId: string,
   actor: Actor,
-): Promise<void> {
+): Promise<boolean> {
   // Fetch the member name for the clash title
   const { data: member } = await db
     .from("resource_members")
@@ -22,7 +26,7 @@ export async function detectOverAllocation(
     .eq("workspace_id", workspaceId)
     .maybeSingle();
 
-  if (!member) return;
+  if (!member) return false;
 
   // Fetch all allocations for this member, including window info
   const { data: allocations, error } = await db
@@ -31,7 +35,7 @@ export async function detectOverAllocation(
     .eq("member_id", memberId)
     .eq("workspace_id", workspaceId);
 
-  if (error || !allocations || allocations.length === 0) return;
+  if (error || !allocations || allocations.length === 0) return false;
 
   // Find overlapping groups. For each allocation, check if it overlaps with
   // any other and accumulate pct. Use a simple sweep: collect all unique
@@ -95,7 +99,7 @@ export async function detectOverAllocation(
       .eq("resource_member_id", memberId)
       .eq("type", "resource")
       .eq("status", "open");
-    return;
+    return false;
   }
 
   // Determine severity by how far over 100% we are
@@ -195,4 +199,6 @@ export async function detectOverAllocation(
       after: inserted,
     });
   }
+
+  return true;
 }

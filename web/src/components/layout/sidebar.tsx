@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Inbox,
   LayoutDashboard,
   FolderKanban,
   AlertTriangle,
@@ -20,6 +21,7 @@ import { cn } from "@/lib/cn";
 type NavItem = { href: string; label: string; icon: LucideIcon };
 
 const primary: NavItem[] = [
+  { href: "/my-work", label: "My Work", icon: Inbox },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/risks", label: "Risks", icon: AlertTriangle },

@@ -5,6 +5,7 @@ import { PanelLeftClose, PanelLeft } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
 import { ThemeToggle } from "./theme-toggle";
+import { NotificationBell } from "@/components/notifications/bell";
 import { cn } from "@/lib/cn";
 import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
 import { RightPushPanel, PUSH_MARGIN, PUSH_MARGIN_NONE } from "@/components/ui/right-push-panel";
@@ -90,6 +91,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="h-1.5 w-1.5 rounded-full bg-accent" />
               live
             </span>
+            <NotificationBell />
             <ThemeToggle />
             <CmdKTrigger onClick={openCmd} />
           </header>

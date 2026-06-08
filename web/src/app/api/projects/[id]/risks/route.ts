@@ -4,6 +4,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { createRiskSchema } from "@/app/api/risks/_schema";
 import { nextRefId } from "@/lib/ref-id";
 
@@ -107,6 +108,21 @@ export const POST = route(async ({ actor, params, request }) => {
     before: null,
     after: row,
   });
+
+  // Notify project owner when severity is high or critical — fail-soft
+  if (input.severity === "high" || input.severity === "critical") {
+    void resolveProjectOwner(actor.workspaceId, projectId).then((ownerId) => {
+      if (!ownerId) return;
+      return notify({
+        workspaceId: actor.workspaceId,
+        recipientIds: [ownerId],
+        type: "risk.escalated",
+        title: `${input.severity.toUpperCase()} risk raised: ${input.title}`,
+        body: input.description ?? undefined,
+        payload: { riskId: row.id, projectId, severity: input.severity, refId: row.reference_id },
+      });
+    });
+  }
 
   return created(row);
 });

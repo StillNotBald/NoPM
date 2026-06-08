@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { notify } from "@/lib/notify/publish";
 
 export const runtime = "nodejs";
 
@@ -96,6 +97,18 @@ export const POST = route(async ({ actor, params }) => {
     before: { status: "pending" },
     after: { status: "committed" },
   });
+
+  // Notify the original requester — fail-soft
+  if (request.requested_by_id) {
+    void notify({
+      workspaceId: actor.workspaceId,
+      recipientIds: [request.requested_by_id],
+      type: "approval.approved",
+      title: "Your deletion request was approved",
+      body: `The deletion of ${request.target_type} has been approved and committed.`,
+      payload: { requestId: request.id, targetType: request.target_type, targetId: request.target_id },
+    });
+  }
 
   return ok({ committed: true });
 });

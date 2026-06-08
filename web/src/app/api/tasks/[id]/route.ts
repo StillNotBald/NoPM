@@ -6,6 +6,7 @@ import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
+import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 
 export const runtime = "nodejs";
 
@@ -178,6 +179,18 @@ export const DELETE = route(async ({ actor, params, request }) => {
     targetId: params.id,
     before: task,
     after: null,
+  });
+
+  // Notify approvers — fail-soft (never throws)
+  void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) => {
+    return notify({
+      workspaceId: actor.workspaceId,
+      recipientIds: approverIds,
+      type: "approval.requested",
+      title: `Deletion request: task "${task.title ?? params.id}"`,
+      body: reason ?? undefined,
+      payload: { href: "/approvals", taskId: params.id, requestId: deletionRequest.id },
+    });
   });
 
   // Return 202 Accepted with the deletion_request
