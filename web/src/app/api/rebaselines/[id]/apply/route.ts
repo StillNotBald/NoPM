@@ -56,5 +56,62 @@ export const POST = route(async ({ actor, params }) => {
     after,
   });
 
+  // ── Re-baseline snapshot ───────────────────────────────────────────────────
+  // When a rebaseline is applied, the newly-approved dates become the new
+  // baseline: set baseline_* = current schedule dates for all milestones and
+  // tasks in the project.  This overwrites any existing baseline (intentional —
+  // the governance trail lives in audit_log, not in the column history).
+  //
+  // Guard: rebaseline.project_id must exist; if the shape ever changes this
+  // block is skipped gracefully so the apply itself is never blocked.
+  const projectId: string | null = rebaseline.project_id ?? null;
+
+  if (projectId) {
+    // Milestones: set baseline_target_date = current target_date
+    const { data: milestones, error: msErr } = await db
+      .from("milestones")
+      .select("id, target_date")
+      .eq("project_id", projectId)
+      .eq("workspace_id", actor.workspaceId);
+
+    if (msErr) throw msErr;
+
+    if (milestones && milestones.length > 0) {
+      for (const ms of milestones) {
+        if (ms.target_date == null) continue;
+        const { error: msUpdateErr } = await db
+          .from("milestones")
+          .update({ baseline_target_date: ms.target_date })
+          .eq("id", ms.id)
+          .eq("workspace_id", actor.workspaceId);
+        if (msUpdateErr) throw msUpdateErr;
+      }
+    }
+
+    // Tasks: set baseline_start_date/baseline_due_date = current start_date/due_date
+    const { data: tasks, error: tasksErr } = await db
+      .from("tasks")
+      .select("id, start_date, due_date")
+      .eq("project_id", projectId)
+      .eq("workspace_id", actor.workspaceId);
+
+    if (tasksErr) throw tasksErr;
+
+    if (tasks && tasks.length > 0) {
+      for (const task of tasks) {
+        if (task.start_date == null && task.due_date == null) continue;
+        const { error: taskUpdateErr } = await db
+          .from("tasks")
+          .update({
+            baseline_start_date: task.start_date ?? null,
+            baseline_due_date: task.due_date ?? null,
+          })
+          .eq("id", task.id)
+          .eq("workspace_id", actor.workspaceId);
+        if (taskUpdateErr) throw taskUpdateErr;
+      }
+    }
+  }
+
   return ok(after);
 });

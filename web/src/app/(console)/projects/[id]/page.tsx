@@ -28,6 +28,7 @@ export default async function ProjectDetailPage({
     { data: risks },
     { data: issues },
     { data: dependencies },
+    { data: charterDocs },
   ] = await Promise.all([
     db
       .from("projects")
@@ -38,12 +39,12 @@ export default async function ProjectDetailPage({
       .single(),
     db
       .from("milestones")
-      .select("id, project_id, name, target_date, status, completion_pct, owner_id, sort_order")
+      .select("id, project_id, name, target_date, baseline_target_date, status, completion_pct, owner_id, sort_order")
       .eq("project_id", id)
       .order("sort_order", { ascending: true }),
     db
       .from("tasks")
-      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by")
+      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, baseline_start_date, baseline_due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by")
       .eq("project_id", id)
       .order("sort_order", { ascending: true }),
     db
@@ -59,6 +60,13 @@ export default async function ProjectDetailPage({
     db
       .from("task_dependencies")
       .select("id, predecessor_id, successor_id, type, lag_days"),
+    db
+      .from("documents")
+      .select("id, workspace_id, project_id, reference_id, folder, title, doc_type, status, version, summary, body, external_url, owner_id, created_at")
+      .eq("project_id", id)
+      .eq("doc_type", "charter")
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   if (projectError || !project) notFound();
@@ -152,6 +160,7 @@ export default async function ProjectDetailPage({
         risks={risks ?? []}
         issues={issues ?? []}
         dependencies={dependencies ?? []}
+        charterDoc={charterDocs?.[0] ?? null}
       />
     </div>
   );

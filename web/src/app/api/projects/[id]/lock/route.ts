@@ -63,5 +63,58 @@ export const POST = route(async ({ actor, params, request }) => {
     after,
   });
 
+  // ── Baseline snapshot ──────────────────────────────────────────────────────
+  // Capture the approved plan dates exactly once: only rows where the baseline
+  // is still null (i.e. never been baselined).  A subsequent rebaseline.apply
+  // will overwrite these with the newly-approved dates.
+
+  // Milestones: snapshot target_date → baseline_target_date (null only)
+  const { data: milestones, error: msErr } = await db
+    .from("milestones")
+    .select("id, target_date")
+    .eq("project_id", params.id)
+    .eq("workspace_id", actor.workspaceId)
+    .is("baseline_target_date", null);
+
+  if (msErr) throw msErr;
+
+  if (milestones && milestones.length > 0) {
+    for (const ms of milestones) {
+      if (ms.target_date == null) continue; // nothing to snapshot
+      const { error: msUpdateErr } = await db
+        .from("milestones")
+        .update({ baseline_target_date: ms.target_date })
+        .eq("id", ms.id)
+        .eq("workspace_id", actor.workspaceId);
+      if (msUpdateErr) throw msUpdateErr;
+    }
+  }
+
+  // Tasks: snapshot start_date/due_date → baseline_start_date/baseline_due_date (null only)
+  const { data: tasks, error: tasksErr } = await db
+    .from("tasks")
+    .select("id, start_date, due_date")
+    .eq("project_id", params.id)
+    .eq("workspace_id", actor.workspaceId)
+    .is("baseline_start_date", null)
+    .is("baseline_due_date", null);
+
+  if (tasksErr) throw tasksErr;
+
+  if (tasks && tasks.length > 0) {
+    for (const task of tasks) {
+      if (task.start_date == null && task.due_date == null) continue;
+      const { error: taskUpdateErr } = await db
+        .from("tasks")
+        .update({
+          baseline_start_date: task.start_date ?? null,
+          baseline_due_date: task.due_date ?? null,
+        })
+        .eq("id", task.id)
+        .eq("workspace_id", actor.workspaceId);
+      if (taskUpdateErr) throw taskUpdateErr;
+    }
+  }
+
   return ok(after);
 });

@@ -16,6 +16,7 @@ import { RiskForm, type RiskResponseStrategy, type RiskCategoryValue, type RiskI
 import { IssueForm, type IssueSeverity, type IssueCategory } from "@/components/forms/issue-form";
 import { RiskDetail } from "@/components/registers/risk-detail";
 import { IssueDetail } from "@/components/registers/issue-detail";
+import { CharterSection, type CharterDocument } from "@/components/tracking/charter-section";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 
@@ -39,6 +40,7 @@ interface Milestone {
   project_id: string;
   name: string;
   target_date: string | null;
+  baseline_target_date: string | null;
   status: "not_started" | "on_track" | "at_risk" | "delayed" | "completed";
   completion_pct: number;
   owner_id: string | null;
@@ -56,6 +58,8 @@ interface Task {
   priority: "low" | "medium" | "high" | "urgent";
   start_date: string | null;
   due_date: string | null;
+  baseline_start_date: string | null;
+  baseline_due_date: string | null;
   completion_pct: number;
   sort_order: number;
   assignee_id: string | null;
@@ -101,9 +105,10 @@ interface Issue {
   resolved_at?: string | null;
 }
 
-type Tab = "overview" | "activity" | "gantt" | "risks" | "issues" | "history";
+type Tab = "charter" | "overview" | "activity" | "gantt" | "risks" | "issues" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
+  { id: "charter",   label: "Charter" },
   { id: "overview",  label: "Overview" },
   { id: "activity",  label: "Activity" },
   { id: "gantt",     label: "Gantt" },
@@ -538,6 +543,7 @@ export function ProjectTabs({
   risks,
   issues,
   dependencies = [],
+  charterDoc = null,
 }: {
   project: Project;
   milestones: Milestone[];
@@ -545,8 +551,9 @@ export function ProjectTabs({
   risks: Risk[];
   issues: Issue[];
   dependencies?: TaskDependency[];
+  charterDoc?: CharterDocument | null;
 }) {
-  const [active, setActive] = useState<Tab>("overview");
+  const [active, setActive] = useState<Tab>("charter");
 
   // Resolve owner/assignee UUIDs to display names. Tasks/milestones reference
   // profiles(id), so we key the map by both resource-member id AND the linked
@@ -611,6 +618,12 @@ export function ProjectTabs({
       </div>
 
       {/* Tab content */}
+      {active === "charter" && (
+        <CharterSection
+          project={project}
+          charterDoc={charterDoc}
+        />
+      )}
       {active === "overview" && (
         <OverviewTab
           project={project}

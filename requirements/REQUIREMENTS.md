@@ -34,7 +34,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-30** RAG portfolio dashboard (health cards, project table, filter pills). — **DONE**
 - **R-31** Registers as tables + right-inspector. — **DONE**
 - **R-32** Kanban — drag = an audited status change. — **DONE**
-- **R-33** Gantt — read-mostly; locked timeline → rebaseline flow. — **DONE**
+- **R-33** Gantt — read-mostly; locked timeline → rebaseline flow; milestone/task **baselines** captured on lock (slip = current vs baseline shown as ghost bars + variance). — **DONE**
 - **R-34** Approvals queue. — **DONE**
 - **R-35** Trust Center — live audit stream + per-entity provenance. — **DONE**
 - **R-36** Token/scope management UI. — **DONE**
@@ -45,7 +45,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 ## Reporting & front door
 - **R-40** Deck export PPTX/PDF/HTML (data-driven, server-side). — **DONE**
 - **R-50** Public landing + case study (wedges, hero, try-demo). — **DONE**
-- **R-51** One-page case-study PDF. — **TODO**
+- **R-51** One-page case-study PDF (employer-facing) + public `/case-study` page. — **DONE** (client jsPDF one-pager: thesis, wedges, build summary, proof metrics, live URL)
 - **R-52** Seed script — demo workspace, users, projects, an over-allocation clash, budget variance, audit history, one pending approval. — **DONE**
 
 ## Quality & release

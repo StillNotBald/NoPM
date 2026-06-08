@@ -26,6 +26,7 @@ export default function Landing() {
           <span className="font-medium">NoPM</span>
         </div>
         <nav className="flex items-center gap-5 text-sm text-ink-secondary">
+          <Link href="/case-study" className="hover:text-ink">Case study</Link>
           <a href="/llms.txt" className="hover:text-ink">Agent API</a>
           <a href="/api/openapi.json" className="hover:text-ink">OpenAPI</a>
           <Link href="/login" className="rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:bg-accent-hover">

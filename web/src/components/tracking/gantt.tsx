@@ -25,6 +25,7 @@ export interface Milestone {
   project_id: string;
   name: string;
   target_date: string | null;
+  baseline_target_date: string | null;
   status: "not_started" | "on_track" | "at_risk" | "delayed" | "completed";
   completion_pct: number;
   owner_id: string | null;
@@ -42,6 +43,8 @@ export interface Task {
   priority: "low" | "medium" | "high" | "urgent";
   start_date: string | null;
   due_date: string | null;
+  baseline_start_date: string | null;
+  baseline_due_date: string | null;
   completion_pct: number;
   sort_order: number;
   assignee_id: string | null;
@@ -94,6 +97,17 @@ function isoDate(d: Date): string {
 function fmtShort(d: string | null): string {
   if (!d) return "—";
   return startOfDay(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Returns the slip in calendar days (positive = current is later than baseline). */
+function slipDays(current: string | null, baseline: string | null): number | null {
+  if (!current || !baseline) return null;
+  return toDay(current) - toDay(baseline);
+}
+
+function fmtSlip(days: number | null): string | null {
+  if (days === null || days === 0) return null;
+  return days > 0 ? `+${days}d` : `${days}d`;
 }
 
 /** Iterate calendar days from startDay number inclusive. */
@@ -238,8 +252,8 @@ export function GanttChart({
 
   const { minDay, maxDay, totalDays } = useMemo(() => {
     const allDates = [
-      ...milestones.map((m) => m.target_date),
-      ...tasks.flatMap((t) => [t.start_date, t.due_date]),
+      ...milestones.flatMap((m) => [m.target_date, m.baseline_target_date]),
+      ...tasks.flatMap((t) => [t.start_date, t.due_date, t.baseline_start_date, t.baseline_due_date]),
     ].filter(Boolean) as string[];
 
     if (allDates.length === 0) {
@@ -607,6 +621,14 @@ export function GanttChart({
                     ? (toDay(ms.target_date) - minDay) * dayW + dayW / 2
                     : null;
 
+                  // Baseline diamond for milestone
+                  const baselineDiamondLeft = ms.baseline_target_date
+                    ? (toDay(ms.baseline_target_date) - minDay) * dayW + dayW / 2
+                    : null;
+
+                  // Milestone slip
+                  const msSlip = fmtSlip(slipDays(ms.target_date, ms.baseline_target_date));
+
                   const bracket = msBracketLayout(ms);
 
                   return (
@@ -630,16 +652,36 @@ export function GanttChart({
                           />
                         )}
 
+                        {/* Baseline diamond at baseline_target_date (ghost, faint) */}
+                        {baselineDiamondLeft !== null && (
+                          <div
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center"
+                            style={{ left: baselineDiamondLeft, opacity: 0.3 }}
+                            title={`Baseline target: ${fmtShort(ms.baseline_target_date)}`}
+                          >
+                            <DiamondIcon className="w-3.5 h-3.5 text-ink-muted" />
+                          </div>
+                        )}
+
                         {/* Diamond at target_date */}
                         {diamondLeft !== null && (
                           <div
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center"
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center"
                             style={{ left: diamondLeft }}
-                            title={`Target: ${fmtShort(ms.target_date)}`}
+                            title={`Target: ${fmtShort(ms.target_date)}${ms.baseline_target_date ? ` · Baseline: ${fmtShort(ms.baseline_target_date)}` : ""}`}
                           >
                             <DiamondIcon
                               className={cn("w-3.5 h-3.5", milestoneTrackClass(ms.status))}
                             />
+                            {/* Slip indicator */}
+                            {msSlip && (
+                              <span
+                                className="ml-0.5 font-mono text-[9px] font-semibold text-warning select-none whitespace-nowrap"
+                                title={`Slipped ${msSlip} vs baseline`}
+                              >
+                                {msSlip}
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>
@@ -647,10 +689,14 @@ export function GanttChart({
                       {/* Task rows */}
                       {msTasks.map((t) => {
                         const bp = barLayout(t.start_date, t.due_date);
+                        const bpBaseline = barLayout(t.baseline_start_date, t.baseline_due_date);
                         const cls = taskBarClasses(t.status_type);
                         const barPx = bp?.width ?? 0;
                         const showPct = barPx >= 32;
                         const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
+
+                        // Slip: compare due_date vs baseline_due_date
+                        const taskSlip = fmtSlip(slipDays(t.due_date, t.baseline_due_date));
 
                         return (
                           <div
@@ -660,15 +706,16 @@ export function GanttChart({
                           >
                             {bp && (
                               <>
-                                {/* Locked ghost bar */}
-                                {isLocked && (
+                                {/* Baseline ghost bar (behind current bar) */}
+                                {bpBaseline && (
                                   <div
-                                    className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full opacity-30"
+                                    className="absolute top-1/2 -translate-y-1/2 h-4 rounded-full opacity-25 pointer-events-none"
                                     style={{
-                                      left:       bp.left + 1,
-                                      width:      bp.width - 2,
+                                      left:       bpBaseline.left,
+                                      width:      bpBaseline.width,
                                       background: "var(--color-border-strong)",
                                     }}
+                                    title={`Baseline: ${fmtShort(t.baseline_start_date)} – ${fmtShort(t.baseline_due_date)}`}
                                   />
                                 )}
 
@@ -692,7 +739,7 @@ export function GanttChart({
                                     cls.track
                                   )}
                                   style={{ left: bp.left, width: bp.width }}
-                                  title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}`}
+                                  title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}${taskSlip ? ` · Slip ${taskSlip}` : ""}`}
                                 >
                                   {/* Progress fill */}
                                   <div
@@ -706,6 +753,17 @@ export function GanttChart({
                                     </span>
                                   )}
                                 </div>
+
+                                {/* Slip indicator label to the right of the bar */}
+                                {taskSlip && (
+                                  <span
+                                    className="absolute top-1/2 -translate-y-1/2 font-mono text-[9px] font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
+                                    style={{ left: bp.left + bp.width + 4 }}
+                                    title={`Slipped ${taskSlip} vs baseline`}
+                                  >
+                                    {taskSlip}
+                                  </span>
+                                )}
                               </>
                             )}
                           </div>
@@ -721,10 +779,14 @@ export function GanttChart({
                   .sort((a, b) => a.sort_order - b.sort_order)
                   .map((t) => {
                     const bp = barLayout(t.start_date, t.due_date);
+                    const bpBaseline = barLayout(t.baseline_start_date, t.baseline_due_date);
                     const cls = taskBarClasses(t.status_type);
                     const barPx = bp?.width ?? 0;
                     const showPct = barPx >= 32;
                     const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
+
+                    // Slip: compare due_date vs baseline_due_date
+                    const taskSlip = fmtSlip(slipDays(t.due_date, t.baseline_due_date));
 
                     return (
                       <div
@@ -734,14 +796,16 @@ export function GanttChart({
                       >
                         {bp && (
                           <>
-                            {isLocked && (
+                            {/* Baseline ghost bar (behind current bar) */}
+                            {bpBaseline && (
                               <div
-                                className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full opacity-30"
+                                className="absolute top-1/2 -translate-y-1/2 h-4 rounded-full opacity-25 pointer-events-none"
                                 style={{
-                                  left:       bp.left + 1,
-                                  width:      bp.width - 2,
+                                  left:       bpBaseline.left,
+                                  width:      bpBaseline.width,
                                   background: "var(--color-border-strong)",
                                 }}
+                                title={`Baseline: ${fmtShort(t.baseline_start_date)} – ${fmtShort(t.baseline_due_date)}`}
                               />
                             )}
                             {/* Critical-path ring (coral outline) */}
@@ -762,7 +826,7 @@ export function GanttChart({
                                 cls.track
                               )}
                               style={{ left: bp.left, width: bp.width }}
-                              title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}`}
+                              title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}${taskSlip ? ` · Slip ${taskSlip}` : ""}`}
                             >
                               <div
                                 className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
@@ -774,6 +838,16 @@ export function GanttChart({
                                 </span>
                               )}
                             </div>
+                            {/* Slip indicator label to the right of the bar */}
+                            {taskSlip && (
+                              <span
+                                className="absolute top-1/2 -translate-y-1/2 font-mono text-[9px] font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
+                                style={{ left: bp.left + bp.width + 4 }}
+                                title={`Slipped ${taskSlip} vs baseline`}
+                              >
+                                {taskSlip}
+                              </span>
+                            )}
                           </>
                         )}
                       </div>
@@ -920,9 +994,11 @@ export function GanttChart({
           <span className="h-2 w-px bg-accent/60" style={{ display: "inline-block" }} />
           <span className="text-[11px] text-ink-muted">Today</span>
         </div>
-        {isLocked && (
+        {/* Baseline legend entry — shown when any task/milestone has baseline data */}
+        {(tasks.some((t) => t.baseline_start_date || t.baseline_due_date) ||
+          milestones.some((m) => m.baseline_target_date)) && (
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-4 rounded-full bg-border-strong opacity-40" />
+            <span className="h-2 w-4 rounded-full bg-border-strong opacity-30" />
             <span className="text-[11px] text-ink-muted">Baseline</span>
           </div>
         )}
