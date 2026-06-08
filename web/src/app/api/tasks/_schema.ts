@@ -10,6 +10,14 @@ export const StatusType = z.enum([
 
 export const Priority = z.enum(["low", "medium", "high", "urgent"]);
 
+export const ChecklistItemSchema = z.object({
+  id: z.string().min(1),
+  text: z.string().min(1).max(500),
+  done: z.boolean(),
+});
+
+export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
+
 export const TaskCreateSchema = z.object({
   // id/workspace_id/project_id are taken from the route, ignored from body
   project_id: z.string().uuid("project_id must be a UUID").optional(),
@@ -30,6 +38,7 @@ export const TaskCreateSchema = z.object({
   story_points: z.number().min(0, "story_points must be >= 0").nullable().optional(),
   labels: z.array(z.string()).optional(),
   blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
+  checklist: z.array(ChecklistItemSchema).nullable().optional(),
 });
 
 export const TaskUpdateSchema = z.object({
@@ -50,6 +59,7 @@ export const TaskUpdateSchema = z.object({
   story_points: z.number().min(0, "story_points must be >= 0").nullable().optional(),
   labels: z.array(z.string()).optional(),
   blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
+  checklist: z.array(ChecklistItemSchema).nullable().optional(),
 }).strict();
 
 export const TaskDeleteRequestSchema = z.object({

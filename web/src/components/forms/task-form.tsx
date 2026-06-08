@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import type { ChecklistItem } from "@/app/api/tasks/_schema";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 
@@ -42,6 +43,14 @@ export interface Task {
   story_points?: number | null;
   labels?: string[] | null;
   blocked_by?: string | null;
+  checklist?: ChecklistItem[] | null;
+}
+
+/** Lightweight shape returned by GET /api/resources */
+interface WorkspaceMember {
+  id: string;
+  name: string;
+  role_title?: string | null;
 }
 
 // ── TaskForm ──────────────────────────────────────────────────────────────────
@@ -94,6 +103,45 @@ export function TaskForm({
   const [labels, setLabels] = useState((task?.labels ?? []).join(", "));
   const [blockedBy, setBlockedBy] = useState(task?.blocked_by ?? "");
 
+  // ── assignee picker ──────────────────────────────────────────────────────────
+  const [assigneeId, setAssigneeId] = useState(task?.assignee_id ?? "");
+  const [members, setMembers] = useState<WorkspaceMember[]>([]);
+
+  useEffect(() => {
+    apiGet<{ items?: WorkspaceMember[]; data?: WorkspaceMember[] }>("/api/resources?limit=100")
+      .then((res) => {
+        const list = (res as unknown as { items?: WorkspaceMember[]; data?: WorkspaceMember[] });
+        setMembers(list.items ?? list.data ?? []);
+      })
+      .catch(() => {/* non-critical — picker just stays empty */});
+  }, []);
+
+  // ── checklist ────────────────────────────────────────────────────────────────
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(
+    task?.checklist ?? []
+  );
+  const [newItemText, setNewItemText] = useState("");
+
+  function addChecklistItem() {
+    const text = newItemText.trim();
+    if (!text) return;
+    setChecklist((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), text, done: false },
+    ]);
+    setNewItemText("");
+  }
+
+  function toggleChecklistItem(id: string) {
+    setChecklist((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
+    );
+  }
+
+  function removeChecklistItem(id: string) {
+    setChecklist((prev) => prev.filter((item) => item.id !== id));
+  }
+
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -125,11 +173,13 @@ export function TaskForm({
       start_date: startDate || null,
       due_date: dueDate || null,
       completion_pct: Number(completionPct),
+      assignee_id: assigneeId || null,
       acceptance_criteria: acceptanceCriteria.trim() || null,
       estimate_hours: estimateHours.trim() === "" ? null : Number(estimateHours),
       story_points: storyPoints.trim() === "" ? null : Number(storyPoints),
       labels: parsedLabels,
       blocked_by: blockedBy || null,
+      checklist: checklist.length > 0 ? checklist : null,
     };
 
     try {
@@ -285,6 +335,23 @@ export function TaskForm({
           <FieldError message={fieldErrors.story_points} />
         </div>
 
+        {/* Assignee */}
+        <div>
+          <FieldLabel>Assignee</FieldLabel>
+          <SelectInput
+            value={assigneeId}
+            onChange={(e) => setAssigneeId(e.target.value)}
+          >
+            <option value="">— Unassigned —</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}{m.role_title ? ` (${m.role_title})` : ""}
+              </option>
+            ))}
+          </SelectInput>
+          <FieldError message={fieldErrors.assignee_id} />
+        </div>
+
         {/* Blocked by */}
         <div>
           <FieldLabel>Blocked by</FieldLabel>
@@ -349,6 +416,64 @@ export function TaskForm({
           rows={3}
         />
         <FieldError message={fieldErrors.acceptance_criteria} />
+      </div>
+
+      {/* Checklist */}
+      <div>
+        <div className="flex items-center justify-between mb-1.5">
+          <FieldLabel>
+            Checklist
+            {checklist.length > 0 && (
+              <span className="ml-2 text-xs font-normal text-ink-muted">
+                {checklist.filter((i) => i.done).length}/{checklist.length}
+              </span>
+            )}
+          </FieldLabel>
+        </div>
+        {checklist.length > 0 && (
+          <ul className="mb-2 space-y-1 rounded-md border border-border-subtle bg-sunken/40 px-3 py-2">
+            {checklist.map((item) => (
+              <li key={item.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={() => toggleChecklistItem(item.id)}
+                  className="accent-accent h-3.5 w-3.5 shrink-0 cursor-pointer"
+                />
+                <span className={item.done ? "line-through text-ink-muted flex-1" : "flex-1 text-ink"}>
+                  {item.text}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeChecklistItem(item.id)}
+                  className="shrink-0 text-ink-muted hover:text-danger text-xs px-1"
+                  aria-label="Remove checklist item"
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex gap-2">
+          <Input
+            value={newItemText}
+            onChange={(e) => setNewItemText(e.target.value)}
+            placeholder="Add checklist item…"
+            className="h-9 text-sm flex-1"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") { e.preventDefault(); addChecklistItem(); }
+            }}
+          />
+          <button
+            type="button"
+            onClick={addChecklistItem}
+            disabled={!newItemText.trim()}
+            className="h-9 px-3 rounded-md border border-border-subtle text-xs text-ink-muted hover:text-ink hover:bg-sunken disabled:opacity-40 transition-colors"
+          >
+            Add
+          </button>
+        </div>
       </div>
 
       {/* Actions */}

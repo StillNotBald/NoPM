@@ -44,7 +44,7 @@ interface BudgetRow {
 }
 
 function fmt(amount: number, currency: string): string {
-  return `${currency} ${amount.toLocaleString("en-MY", {
+  return `${currency} ${amount.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -160,7 +160,7 @@ export default async function BudgetPage() {
   const rows: BudgetRow[] = projectList.map((project) => {
     const budget = budgetByProject[project.id];
     const currency =
-      budget?.currency ?? project.currency ?? "MYR";
+      budget?.currency ?? project.currency ?? "USD";
     const planned = budget?.planned_amount ?? 0;
     const committed = budget?.committed_amount ?? 0;
     const timeCost = timeEntryCostByProject[project.id] ?? 0;
@@ -190,10 +190,10 @@ export default async function BudgetPage() {
     };
   });
 
-  // Totals (use first currency or MYR for display — mixed currencies show individually)
+  // Totals (use first currency or USD for display — mixed currencies show individually)
   const allSameCurrency =
     new Set(rows.map((r) => r.currency)).size <= 1;
-  const totalCurrency = rows[0]?.currency ?? "MYR";
+  const totalCurrency = rows[0]?.currency ?? "USD";
   const totalPlanned = rows.reduce((s, r) => s + r.planned, 0);
   const totalCommitted = rows.reduce((s, r) => s + r.committed, 0);
   const totalActual = rows.reduce((s, r) => s + r.actual, 0);

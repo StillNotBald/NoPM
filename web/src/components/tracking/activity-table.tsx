@@ -39,6 +39,12 @@ export interface Milestone {
   sort_order: number;
 }
 
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface Task {
   id: string;
   project_id: string;
@@ -53,6 +59,7 @@ export interface Task {
   completion_pct: number;
   sort_order: number;
   assignee_id: string | null;
+  checklist?: ChecklistItem[] | null;
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -415,10 +422,17 @@ function TaskRow({
       </td>
       <td className={cn("pr-3", rowPy)}>
         <div className="flex flex-col gap-0.5">
-          <span className="text-sm text-ink">{task.name}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-ink">{task.name}</span>
+            {task.checklist && task.checklist.length > 0 && (
+              <span className="inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-muted">
+                {task.checklist.filter((i) => i.done).length}/{task.checklist.length}
+              </span>
+            )}
+          </div>
           {task.assignee_id && (
             <span className="text-xs text-ink-muted">
-              Assignee: {resolveMemberName(task.assignee_id, members)}
+              {resolveMemberName(task.assignee_id, members)}
             </span>
           )}
         </div>

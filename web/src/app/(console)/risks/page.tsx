@@ -11,6 +11,7 @@ import {
   exposureBand,
   type ExposureBand,
 } from "@/components/registers/risk-heatmap";
+import { RiskRowButton } from "@/components/registers/risk-detail";
 
 type SeverityLevel = "low" | "medium" | "high" | "critical";
 type RiskStatus = "open" | "mitigating" | "closed" | "accepted";
@@ -61,7 +62,7 @@ export default async function RisksPage() {
     db
       .from("risks")
       .select(
-        "id, reference_id, title, project_id, severity, status, owner_id, due_date, probability_pct, impact_score, response_strategy, risk_category, impact_area, trigger, residual_risk",
+        "id, reference_id, title, description, project_id, severity, likelihood, status, owner_id, due_date, probability_pct, impact_score, response_strategy, risk_category, impact_area, trigger, residual_risk, category, mitigation, raised_at",
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
@@ -152,7 +153,12 @@ export default async function RisksPage() {
                   const score = riskScore(risk.probability_pct, risk.impact_score);
                   const band = exposureBand(score);
                   return (
-                  <tr key={risk.id} className="hover:bg-sunken transition-colors duration-100">
+                  <RiskRowButton
+                    key={risk.id}
+                    risk={risk}
+                    projectName={risk.project_id ? (projectMap[risk.project_id] ?? undefined) : undefined}
+                    ownerName={ownerName(risk.owner_id)}
+                  >
                     <td className="px-5 py-3.5">
                       {risk.reference_id ? (
                         <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
@@ -202,7 +208,7 @@ export default async function RisksPage() {
                     <td className="px-5 py-3.5 text-ink-secondary tabular-nums">
                       {formatDate(risk.due_date)}
                     </td>
-                  </tr>
+                  </RiskRowButton>
                   );
                 })}
               </tbody>

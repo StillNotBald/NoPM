@@ -105,6 +105,7 @@ export const POST = route(async ({ actor, params, request }) => {
       due_date: input.due_date ?? null,
       completion_pct: input.completion_pct,
       sort_order: input.sort_order ?? 0,
+      checklist: input.checklist ?? null,
     })
     .select()
     .single();

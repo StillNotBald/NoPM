@@ -39,7 +39,7 @@ export default async function ClashesPage() {
   const [{ data: clashes }, { data: projects }] = await Promise.all([
     db
       .from("clashes")
-      .select("id, reference_id, title, type, severity, project_a_id, project_b_id, status")
+      .select("id, reference_id, title, type, severity, project_a_id, project_b_id, status, description, over_allocation_pct, recommended_action")
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
   ]);
@@ -86,6 +86,9 @@ export default async function ClashesPage() {
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Status
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                    Details
                   </th>
                 </tr>
               </thead>
@@ -144,6 +147,26 @@ export default async function ClashesPage() {
                         <Badge tone={statusTone(clash.status as ClashStatus)}>
                           {statusLabel(clash.status as ClashStatus)}
                         </Badge>
+                      </td>
+                      <td className="px-5 py-3.5 max-w-xs">
+                        {clash.over_allocation_pct != null && (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mb-1">
+                            +{Number(clash.over_allocation_pct).toFixed(0)}% over
+                          </span>
+                        )}
+                        {clash.description && (
+                          <p className="text-xs text-ink-secondary leading-snug line-clamp-2">
+                            {clash.description}
+                          </p>
+                        )}
+                        {clash.recommended_action && (
+                          <p className="mt-1 text-xs text-ink-muted leading-snug line-clamp-2 italic">
+                            {clash.recommended_action}
+                          </p>
+                        )}
+                        {!clash.over_allocation_pct && !clash.description && !clash.recommended_action && (
+                          <span className="text-ink-muted">—</span>
+                        )}
                       </td>
                     </tr>
                   );

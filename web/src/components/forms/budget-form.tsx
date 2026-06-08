@@ -50,7 +50,7 @@ export function BudgetForm({
   const [committedAmount, setCommittedAmount] = useState(
     budget?.committed_amount != null ? String(budget.committed_amount) : "",
   );
-  const [currency, setCurrency] = useState(budget?.currency ?? "MYR");
+  const [currency, setCurrency] = useState(budget?.currency ?? "USD");
 
   // ── Content enrichment (0008): PMBOK actual cost + reserves ─────────────────
   const [actualAmount, setActualAmount] = useState(
@@ -83,7 +83,7 @@ export function BudgetForm({
     const payload = {
       planned_amount: toAmount(plannedAmount) ?? 0,
       committed_amount: toAmount(committedAmount) ?? 0,
-      currency: currency.trim() || "MYR",
+      currency: currency.trim() || "USD",
       // ── Content enrichment (0008) — omitted when blank so the DB default holds.
       actual_amount: toAmount(actualAmount),
       contingency_reserve: toAmount(contingencyReserve),
@@ -149,7 +149,7 @@ export function BudgetForm({
           <Input
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
-            placeholder="MYR"
+            placeholder="USD"
             maxLength={10}
             className="h-11 sm:h-10 text-base sm:text-sm uppercase"
           />

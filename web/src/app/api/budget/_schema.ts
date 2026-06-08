@@ -3,7 +3,7 @@ import { z } from "zod";
 export const upsertBudgetSchema = z.object({
   planned_amount: z.number().nonnegative("planned_amount must be >= 0"),
   committed_amount: z.number().nonnegative("committed_amount must be >= 0").optional().default(0),
-  currency: z.string().min(1).max(10).optional().default("MYR"),
+  currency: z.string().min(1).max(10).optional().default("USD"),
   // ── Content enrichment (0008): PMBOK actual cost + reserves ─────────────────
   // All numeric(14,2) >= 0 with a DB default of 0; kept optional so existing
   // upserts that omit them continue to work (the column default applies).

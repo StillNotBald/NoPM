@@ -4,8 +4,21 @@ import { useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Lock, Calendar } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
+import {
+  calculateCriticalPath,
+  toCpmMap,
+  type CpmInputDep,
+} from "@/lib/schedule/cpm";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
+
+export interface TaskDependency {
+  id: string;
+  predecessor_id: string;
+  successor_id: string;
+  type: "FS" | "SS" | "FF" | "SF";
+  lag_days: number;
+}
 
 export interface Milestone {
   id: string;
@@ -39,6 +52,9 @@ interface GanttChartProps {
   milestones: Milestone[];
   tasks: Task[];
   isLocked: boolean;
+  /** Optional task dependency rows. When provided, dependency arrows and
+   *  critical-path tinting are rendered. Degrades gracefully when absent. */
+  dependencies?: TaskDependency[];
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -152,12 +168,67 @@ function DiamondIcon({ className }: { className?: string }) {
 
 // ── GanttChart ─────────────────────────────────────────────────────────────────
 
-export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
+export function GanttChart({
+  milestones,
+  tasks,
+  isLocked,
+  dependencies = [],
+}: GanttChartProps) {
   const [view, setView] = useState<"week" | "month">("month");
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dayW = DAY_W[view];
+
+  // ── CPM: critical path + dep arrows ───────────────────────────────────────
+
+  const cpmMap = useMemo(() => {
+    if (dependencies.length === 0) return new Map();
+    const cpmDeps: CpmInputDep[] = dependencies.map((d) => ({
+      predecessor_id: d.predecessor_id,
+      successor_id: d.successor_id,
+      type: d.type,
+      lag_days: d.lag_days ?? 0,
+    }));
+    const results = calculateCriticalPath(tasks, cpmDeps);
+    return toCpmMap(results);
+  }, [tasks, dependencies]);
+
+  /**
+   * Build an ordered flat list of visible task rows (milestone tasks first,
+   * then standalone tasks). Mirrors exactly the row order drawn in the
+   * timeline so we can calculate Y-coordinates for arrow endpoints.
+   *
+   * Each entry carries the row's top-Y offset (relative to the row content
+   * div, i.e. below HEADER_H).
+   */
+  const taskRowIndex = useMemo(() => {
+    const index = new Map<string, number>(); // taskId → rowIndex (0-based)
+    let rowIdx = 0;
+
+    const sortedMsCopy = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
+
+    for (const ms of sortedMsCopy) {
+      rowIdx++; // milestone row itself
+      const msTasks = tasks
+        .filter((t) => t.milestone_id === ms.id)
+        .sort((a, b) => a.sort_order - b.sort_order);
+      for (const t of msTasks) {
+        index.set(t.id, rowIdx);
+        rowIdx++;
+      }
+    }
+
+    const standalone = tasks
+      .filter((t) => !t.milestone_id)
+      .sort((a, b) => a.sort_order - b.sort_order);
+    for (const t of standalone) {
+      index.set(t.id, rowIdx);
+      rowIdx++;
+    }
+
+    return index;
+  }, [milestones, tasks]);
 
   // ── Compute date bounds ────────────────────────────────────────────────────
 
@@ -241,6 +312,23 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
   const totalPx = totalDays * dayW;
   const todayOffset = (todayDay - minDay) * dayW;
   const todayVisible = todayDay >= minDay && todayDay <= maxDay;
+
+  /**
+   * Pre-compute per-task bar pixel layout so arrow rendering can look it up
+   * without re-calling barLayout inside the SVG pass (minDay is now in scope).
+   */
+  const taskBarPixels = useMemo(() => {
+    const map = new Map<string, { left: number; width: number }>();
+    for (const t of tasks) {
+      if (!t.start_date && !t.due_date) continue;
+      const s = t.start_date ? (toDay(t.start_date) - minDay) * dayW : null;
+      const e = t.due_date ? (toDay(t.due_date) - minDay) * dayW + dayW : null;
+      const left = s ?? e!;
+      const right = e ?? (s! + dayW);
+      map.set(t.id, { left, width: Math.max(right - left, dayW) });
+    }
+    return map;
+  }, [tasks, minDay, dayW]);
 
   // ── Bar layout helpers ─────────────────────────────────────────────────────
 
@@ -562,6 +650,7 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
                         const cls = taskBarClasses(t.status_type);
                         const barPx = bp?.width ?? 0;
                         const showPct = barPx >= 32;
+                        const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
 
                         return (
                           <div
@@ -583,6 +672,19 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
                                   />
                                 )}
 
+                                {/* Critical-path ring (coral outline) */}
+                                {isCritical && (
+                                  <div
+                                    className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full pointer-events-none"
+                                    style={{
+                                      left:   bp.left - 2,
+                                      width:  bp.width + 4,
+                                      outline: "2px solid var(--color-danger)",
+                                      outlineOffset: 1,
+                                    }}
+                                  />
+                                )}
+
                                 {/* Track bar */}
                                 <div
                                   className={cn(
@@ -590,7 +692,7 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
                                     cls.track
                                   )}
                                   style={{ left: bp.left, width: bp.width }}
-                                  title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}`}
+                                  title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}`}
                                 >
                                   {/* Progress fill */}
                                   <div
@@ -622,6 +724,7 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
                     const cls = taskBarClasses(t.status_type);
                     const barPx = bp?.width ?? 0;
                     const showPct = barPx >= 32;
+                    const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
 
                     return (
                       <div
@@ -641,13 +744,25 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
                                 }}
                               />
                             )}
+                            {/* Critical-path ring (coral outline) */}
+                            {isCritical && (
+                              <div
+                                className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full pointer-events-none"
+                                style={{
+                                  left:   bp.left - 2,
+                                  width:  bp.width + 4,
+                                  outline: "2px solid var(--color-danger)",
+                                  outlineOffset: 1,
+                                }}
+                              />
+                            )}
                             <div
                               className={cn(
                                 "absolute top-1/2 -translate-y-1/2 h-5 rounded-full overflow-hidden flex items-center",
                                 cls.track
                               )}
                               style={{ left: bp.left, width: bp.width }}
-                              title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}`}
+                              title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}`}
                             >
                               <div
                                 className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
@@ -664,6 +779,124 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
                       </div>
                     );
                   })}
+
+                {/* ── Dependency arrows SVG overlay ─────────────────────────── */}
+                {dependencies.length > 0 && (() => {
+                  // Compute total height of the row area to size the SVG
+                  const sortedMsCopy2 = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
+                  let totalRowH = 0;
+                  for (const ms of sortedMsCopy2) {
+                    totalRowH += ROW_H_MS;
+                    const msTasks = tasks.filter((t) => t.milestone_id === ms.id);
+                    totalRowH += msTasks.length * ROW_H_TASK;
+                  }
+                  const standaloneCnt = tasks.filter((t) => !t.milestone_id).length;
+                  totalRowH += standaloneCnt * ROW_H_TASK;
+
+                  const arrows = dependencies.flatMap((dep) => {
+                    const predRowIdx = taskRowIndex.get(dep.predecessor_id);
+                    const succRowIdx = taskRowIndex.get(dep.successor_id);
+                    if (predRowIdx === undefined || succRowIdx === undefined) return [];
+
+                    const predBar = taskBarPixels.get(dep.predecessor_id);
+                    const succBar = taskBarPixels.get(dep.successor_id);
+                    if (!predBar || !succBar) return [];
+
+                    // For each row index, accumulate its Y position
+                    // Row index 0 is a milestone row (ROW_H_MS), subsequent task rows are ROW_H_TASK.
+                    // We walk the same structure used in taskRowIndex to compute Y offsets.
+                    const getRowY = (rowIdx: number): number => {
+                      const sortedMsLocal = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
+                      let y = 0;
+                      let idx = 0;
+                      for (const ms of sortedMsLocal) {
+                        if (idx === rowIdx) return y + ROW_H_MS / 2;
+                        y += ROW_H_MS;
+                        idx++;
+                        const msTasks = tasks
+                          .filter((t) => t.milestone_id === ms.id)
+                          .sort((a, b) => a.sort_order - b.sort_order);
+                        for (const _t of msTasks) {
+                          if (idx === rowIdx) return y + ROW_H_TASK / 2;
+                          y += ROW_H_TASK;
+                          idx++;
+                        }
+                      }
+                      const standalone = tasks
+                        .filter((t) => !t.milestone_id)
+                        .sort((a, b) => a.sort_order - b.sort_order);
+                      for (const _t of standalone) {
+                        if (idx === rowIdx) return y + ROW_H_TASK / 2;
+                        y += ROW_H_TASK;
+                        idx++;
+                      }
+                      return y;
+                    };
+
+                    const x1 = predBar.left + predBar.width; // right edge of predecessor bar
+                    const y1 = getRowY(predRowIdx);
+                    const x2 = succBar.left;                 // left edge of successor bar
+                    const y2 = getRowY(succRowIdx);
+
+                    const isCrit =
+                      (cpmMap.get(dep.predecessor_id)?.isCritical ?? false) &&
+                      (cpmMap.get(dep.successor_id)?.isCritical ?? false);
+
+                    const color = isCrit ? "var(--color-danger)" : "var(--color-border-strong)";
+                    const opacity = isCrit ? 0.85 : 0.5;
+
+                    // Elbow path: right → down/up → right
+                    const midX = x1 + Math.max((x2 - x1) / 2, 12);
+                    const d = `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
+
+                    return [{ d, color, opacity, key: `${dep.predecessor_id}→${dep.successor_id}`, x2, y2 }];
+                  });
+
+                  if (arrows.length === 0) return null;
+
+                  return (
+                    <svg
+                      className="absolute inset-0 pointer-events-none"
+                      width={totalPx}
+                      height={totalRowH}
+                      style={{ overflow: "visible" }}
+                    >
+                      <defs>
+                        <marker
+                          id="arrow-normal"
+                          markerWidth="6"
+                          markerHeight="6"
+                          refX="5"
+                          refY="3"
+                          orient="auto"
+                        >
+                          <path d="M0,0 L6,3 L0,6 Z" fill="var(--color-border-strong)" opacity="0.5" />
+                        </marker>
+                        <marker
+                          id="arrow-critical"
+                          markerWidth="6"
+                          markerHeight="6"
+                          refX="5"
+                          refY="3"
+                          orient="auto"
+                        >
+                          <path d="M0,0 L6,3 L0,6 Z" fill="var(--color-danger)" opacity="0.85" />
+                        </marker>
+                      </defs>
+                      {arrows.map((arrow) => (
+                        <path
+                          key={arrow.key}
+                          d={arrow.d}
+                          stroke={arrow.color}
+                          strokeOpacity={arrow.opacity}
+                          strokeWidth={1.5}
+                          fill="none"
+                          markerEnd={arrow.color === "var(--color-danger)" ? "url(#arrow-critical)" : "url(#arrow-normal)"}
+                        />
+                      ))}
+                    </svg>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -692,6 +925,24 @@ export function GanttChart({ milestones, tasks, isLocked }: GanttChartProps) {
             <span className="h-2 w-4 rounded-full bg-border-strong opacity-40" />
             <span className="text-[11px] text-ink-muted">Baseline</span>
           </div>
+        )}
+        {dependencies.length > 0 && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-0 w-4 rounded-full"
+                style={{ borderTop: "2px solid var(--color-danger)", opacity: 0.85 }}
+              />
+              <span className="text-[11px] text-ink-muted">Critical path</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-0 w-4 rounded-full"
+                style={{ borderTop: "2px solid var(--color-border-strong)", opacity: 0.5 }}
+              />
+              <span className="text-[11px] text-ink-muted">Dependency</span>
+            </div>
+          </>
         )}
       </div>
     </div>

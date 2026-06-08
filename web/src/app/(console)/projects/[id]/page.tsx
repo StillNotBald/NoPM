@@ -27,6 +27,7 @@ export default async function ProjectDetailPage({
     { data: tasks },
     { data: risks },
     { data: issues },
+    { data: dependencies },
   ] = await Promise.all([
     db
       .from("projects")
@@ -55,6 +56,9 @@ export default async function ProjectDetailPage({
       .select("id, project_id, title, description, priority, resolution, status, raised_at, due_date")
       .eq("project_id", id)
       .order("raised_at", { ascending: false }),
+    db
+      .from("task_dependencies")
+      .select("id, predecessor_id, successor_id, type, lag_days"),
   ]);
 
   if (projectError || !project) notFound();
@@ -147,6 +151,7 @@ export default async function ProjectDetailPage({
         tasks={tasks ?? []}
         risks={risks ?? []}
         issues={issues ?? []}
+        dependencies={dependencies ?? []}
       />
     </div>
   );

@@ -20,8 +20,8 @@ interface AllocationRow {
 
 function fmt_currency(amount: number | null, currency: string | null): string {
   if (amount == null) return "—";
-  const sym = currency ?? "MYR";
-  return `${sym} ${amount.toLocaleString("en-MY", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const sym = currency ?? "USD";
+  return `${sym} ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export default async function ResourcesPage() {
@@ -161,7 +161,7 @@ export default async function ResourcesPage() {
 
                       {/* Cost rate */}
                       <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
-                        {fmt_currency(member.cost_rate, "MYR")}
+                        {fmt_currency(member.cost_rate, "USD")}
                       </td>
 
                       {/* Capacity */}

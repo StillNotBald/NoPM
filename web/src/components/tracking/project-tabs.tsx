@@ -10,7 +10,7 @@ import { useInspector } from "@/components/layout/app-shell";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/api-client";
 import { ActivityTable } from "@/components/tracking/activity-table";
-import { GanttChart } from "@/components/tracking/gantt";
+import { GanttChart, type TaskDependency } from "@/components/tracking/gantt";
 import { HistoryTimeline } from "@/components/tracking/history-timeline";
 import { RiskForm } from "@/components/forms/risk-form";
 import { IssueForm } from "@/components/forms/issue-form";
@@ -479,12 +479,14 @@ export function ProjectTabs({
   tasks,
   risks,
   issues,
+  dependencies = [],
 }: {
   project: Project;
   milestones: Milestone[];
   tasks: Task[];
   risks: Risk[];
   issues: Issue[];
+  dependencies?: TaskDependency[];
 }) {
   const [active, setActive] = useState<Tab>("overview");
 
@@ -574,6 +576,7 @@ export function ProjectTabs({
           projectId={project.id}
           milestones={milestones}
           tasks={tasks}
+          dependencies={dependencies}
           isLocked={project.is_locked}
         />
       )}

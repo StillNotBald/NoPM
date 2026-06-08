@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { useInspector } from "@/components/layout/app-shell";
 import { apiDelete } from "@/lib/api-client";
+import { cn } from "@/lib/cn";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
 import type { Milestone, Task } from "@/components/tracking/activity-table";
@@ -157,6 +158,52 @@ export function TaskDetailPanel({
       <div className="rounded-lg bg-sunken/50 px-3 py-3">
         <DetailProgress pct={task.completion_pct} />
       </div>
+
+      {/* Checklist */}
+      {task.checklist && task.checklist.length > 0 && (() => {
+        const doneCount = task.checklist.filter((i) => i.done).length;
+        const totalCount = task.checklist.length;
+        const pct = Math.round((doneCount / totalCount) * 100);
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+                Checklist
+              </span>
+              <span className="text-xs tabular-nums text-ink-muted">
+                {doneCount}/{totalCount} &middot; {pct}%
+              </span>
+            </div>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
+              <div
+                className="h-full rounded-full bg-accent transition-all duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <ul className="space-y-1 rounded-md border border-border-subtle bg-sunken/40 px-3 py-2">
+              {task.checklist.map((item) => (
+                <li key={item.id} className="flex items-center gap-2 text-sm">
+                  <span
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0 rounded-sm border border-border-subtle flex items-center justify-center",
+                      item.done ? "bg-accent border-accent" : "bg-canvas",
+                    )}
+                  >
+                    {item.done && (
+                      <svg viewBox="0 0 10 10" className="h-2.5 w-2.5 stroke-white" strokeWidth={1.8} fill="none">
+                        <polyline points="1.5,5 4,7.5 8.5,2.5" />
+                      </svg>
+                    )}
+                  </span>
+                  <span className={item.done ? "line-through text-ink-muted" : "text-ink"}>
+                    {item.text}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })()}
 
       {/* Grouped details */}
       <div className="rounded-lg border border-border-subtle bg-surface px-3">

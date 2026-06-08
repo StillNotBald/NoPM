@@ -5,6 +5,7 @@ import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { NewIssueButton } from "@/components/registers/new-issue-form";
+import { IssueRowButton } from "@/components/registers/issue-detail";
 
 type PriorityLevel = "low" | "medium" | "high" | "urgent";
 type IssueStatus = "open" | "in_progress" | "resolved" | "closed";
@@ -36,7 +37,9 @@ export default async function IssuesPage() {
   const [{ data: issues }, { data: projects }] = await Promise.all([
     db
       .from("issues")
-      .select("id, reference_id, title, project_id, priority, status, due_date")
+      .select(
+        "id, reference_id, title, description, project_id, priority, status, due_date, resolution, raised_at, severity, issue_category, impact, resolution_eta, resolved_at",
+      )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
   ]);
@@ -80,7 +83,11 @@ export default async function IssuesPage() {
               </thead>
               <tbody className="divide-y divide-border-subtle">
                 {issues.map((issue) => (
-                  <tr key={issue.id} className="hover:bg-sunken transition-colors duration-100">
+                  <IssueRowButton
+                    key={issue.id}
+                    issue={issue}
+                    projectName={issue.project_id ? (projectMap[issue.project_id] ?? undefined) : undefined}
+                  >
                     <td className="px-5 py-3.5">
                       {issue.reference_id ? (
                         <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
@@ -105,7 +112,7 @@ export default async function IssuesPage() {
                     <td className="px-5 py-3.5 text-ink-secondary tabular-nums">
                       {formatDate(issue.due_date)}
                     </td>
-                  </tr>
+                  </IssueRowButton>
                 ))}
               </tbody>
             </table>

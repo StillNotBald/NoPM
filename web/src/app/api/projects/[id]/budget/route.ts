@@ -70,7 +70,7 @@ export const GET = route(async ({ actor, params }) => {
       workspace_id: actor.workspaceId,
       planned_amount: 0,
       committed_amount: 0,
-      currency: "MYR",
+      currency: "USD",
     }),
     actual,
     variance,

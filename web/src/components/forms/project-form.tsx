@@ -128,7 +128,7 @@ export function ProjectForm({
   );
   const [startDate, setStartDate] = useState(project?.start_date ?? "");
   const [targetDate, setTargetDate] = useState(project?.target_date ?? "");
-  const [currency, setCurrency] = useState(project?.currency ?? "MYR");
+  const [currency, setCurrency] = useState(project?.currency ?? "USD");
 
   // ── Content enrichment (0008): PMBOK charter + baseline pair + phase ────────
   const [phase, setPhase] = useState<ProjectPhase>(project?.phase ?? "planning");
@@ -287,7 +287,6 @@ export function ProjectForm({
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
           >
-            <option value="MYR">MYR</option>
             <option value="USD">USD</option>
             <option value="SGD">SGD</option>
             <option value="EUR">EUR</option>

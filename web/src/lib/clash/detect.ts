@@ -111,6 +111,19 @@ export async function detectOverAllocation(
 
   const title = `Over-allocation: ${member.name}`;
 
+  const overAllocationPct = Math.round((maxPct - 100) * 100) / 100;
+
+  const description = `${member.name} is allocated at ${maxPct.toFixed(0)}% capacity (${overAllocationPct.toFixed(0)}% over the 100% limit) during the detected overlap window.`;
+
+  const recommendedAction =
+    overAllocationPct >= 100
+      ? `Immediately redistribute or defer work for ${member.name}. Consider reassigning tasks to another resource or splitting the allocation across the overlap window.`
+      : overAllocationPct >= 50
+        ? `Review and reduce allocations for ${member.name}. Negotiate timeline adjustments or partial task handoffs to bring capacity within limits.`
+        : overAllocationPct >= 20
+          ? `Monitor ${member.name}'s schedule closely. Adjust lower-priority task windows or reduce allocation percentages on overlapping assignments.`
+          : `Minor over-allocation detected for ${member.name}. Review allocation windows and consider trimming low-priority commitments.`;
+
   // Check for an existing open clash for this member
   const { data: existing } = await db
     .from("clashes")
@@ -130,6 +143,9 @@ export async function detectOverAllocation(
         severity,
         window_start: overlapWindowStart,
         window_end: overlapWindowEnd,
+        description,
+        recommended_action: recommendedAction,
+        over_allocation_pct: overAllocationPct,
       })
       .eq("id", existing.id)
       .eq("workspace_id", workspaceId)
@@ -160,6 +176,9 @@ export async function detectOverAllocation(
         window_start: overlapWindowStart,
         window_end: overlapWindowEnd,
         status: "open",
+        description,
+        recommended_action: recommendedAction,
+        over_allocation_pct: overAllocationPct,
       })
       .select()
       .single();

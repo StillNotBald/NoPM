@@ -16,6 +16,9 @@ export const createClashSchema = z.object({
   status: ClashStatusEnum.default("open"),
   owner_id: z.string().uuid().optional().nullable(),
   resolution: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  recommended_action: z.string().optional().nullable(),
+  over_allocation_pct: z.number().nonnegative().optional().nullable(),
 });
 
 export const patchClashSchema = createClashSchema.partial();
