@@ -49,6 +49,6 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-52** Seed script — demo workspace, users, projects, an over-allocation clash, budget variance, audit history, one pending approval. — **DONE**
 
 ## Quality & release
-- **R-60** vitest unit + governance-invariant tests (hashToken/generateToken; hasScope; requireScope token+user/viewer; four-eyes self-approval). — **DONE** (34/34 green; `npm test`)
+- **R-60** vitest unit + governance-invariant tests — token hashing/scopes; requireScope token+user/viewer; four-eyes self-approval; BYOK crypto (round-trip/tamper/wrong-key); assistant token scopes (can request but never approve a delete); document storage path-safety. — **DONE** (102/102 green; `npm test`)
 - **R-61** Playwright E2E = AI-orchestrated UAT (agent drives suite vs checklist). — **TODO** (stretch goal)
 - **R-62** Deploy to Vercel + Cloudflare DNS (stillnotbald.com); seed live. — **DONE** (live on stillnotbald.com; migrations + seed applied; `apply-migrations.mjs` + `migrate.mjs`)

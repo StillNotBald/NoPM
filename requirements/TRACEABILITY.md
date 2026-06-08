@@ -40,6 +40,6 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-50 | Landing + case study | DONE | `web/src/app/page.tsx` | — |
 | R-51 | One-pager PDF | TODO | — | — |
 | R-52 | Seed script | DONE | `web/scripts/seed.mjs`, `web/scripts/populate-wave-b.mjs` | — |
-| R-60 | Unit + invariant tests | DONE | `web/src/lib/auth/tokens.test.ts`, `web/src/lib/auth/guard.test.ts`, `web/vitest.config.ts` | 34/34 |
+| R-60 | Unit + invariant tests | DONE | `web/src/lib/auth/tokens.test.ts`, `web/src/lib/auth/guard.test.ts`, `web/src/lib/crypto.test.ts`, `web/src/lib/assistant/scopes.test.ts`, `web/src/lib/documents/storage.test.ts`, `web/vitest.config.ts` | 102/102 |
 | R-61 | Playwright E2E (UAT) | TODO | — (stretch goal; deferred to post-v1) | — |
 | R-62 | Deploy live | DONE | `web/scripts/apply-migrations.mjs`, `web/scripts/migrate.mjs` | stillnotbald.com |
