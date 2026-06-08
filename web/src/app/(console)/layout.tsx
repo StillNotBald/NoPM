@@ -1,10 +1,10 @@
-import { Sidebar } from "@/components/layout/sidebar";
+import { AppShell } from "@/components/layout/app-shell";
+import { ModalProvider } from "@/components/ui/modal";
 
 export default function ConsoleLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen bg-canvas">
-      <Sidebar />
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
+    <ModalProvider>
+      <AppShell>{children}</AppShell>
+    </ModalProvider>
   );
 }

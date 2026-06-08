@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
+import { NewProjectButton } from "@/components/forms/new-project-button";
 
 type RagStatus = "not_started" | "red" | "amber" | "green" | "complete";
 
@@ -49,11 +50,14 @@ export default async function ProjectsPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto">
       {/* Page header */}
-      <div className="mb-8">
-        <h1 className="text-xl font-semibold text-ink">Projects</h1>
-        <p className="mt-1 text-sm text-ink-muted">
-          All projects in your workspace
-        </p>
+      <div className="mb-8 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold text-ink">Projects</h1>
+          <p className="mt-1 text-sm text-ink-muted">
+            All projects in your workspace
+          </p>
+        </div>
+        <NewProjectButton />
       </div>
 
       {/* Table */}
