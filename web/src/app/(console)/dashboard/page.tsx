@@ -5,6 +5,9 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { ragLabel, ragTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
+import { RagDonutCard } from "@/components/dashboard/rag-donut-card";
+import { ProgramBarCard } from "@/components/dashboard/program-bar-card";
+import { HealthRollupCards } from "@/components/dashboard/health-rollup-cards";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -17,9 +20,8 @@ interface Project {
   rag_status: RagStatus;
   completion_pct: number | null;
   program: string | null;
+  target_date: string | null;
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
@@ -35,57 +37,84 @@ export default async function DashboardPage() {
 
   // Parallel fetches
   const [projectsResult, risksResult, issuesResult, clashesResult] = await Promise.all([
-    db.from("projects").select("*"),
-    db.from("risks").select("id", { count: "exact", head: true }),
-    db.from("issues").select("id", { count: "exact", head: true }),
+    db.from("projects").select("id,code,name,rag_status,completion_pct,program,target_date"),
+    db.from("risks").select("project_id,status"),
+    db.from("issues").select("project_id,status"),
     db.from("clashes").select("id", { count: "exact", head: true }),
   ]);
 
   const projects: Project[] = (projectsResult.data ?? []) as Project[];
-  const riskCount = risksResult.count ?? 0;
-  const issueCount = issuesResult.count ?? 0;
+  const riskRows = (risksResult.data ?? []) as { project_id: string | null; status: string }[];
+  const issueRows = (issuesResult.data ?? []) as { project_id: string | null; status: string }[];
+  const riskCount = riskRows.length;
+  const issueCount = issueRows.length;
   const clashCount = clashesResult.count ?? 0;
 
-  // Stat counts
+  // per-project OPEN counts — the iron-triangle health shown on each portfolio row
+  const openRisksByProject = new Map<string, number>();
+  for (const r of riskRows) {
+    if (r.project_id && (r.status === "open" || r.status === "mitigating")) {
+      openRisksByProject.set(r.project_id, (openRisksByProject.get(r.project_id) ?? 0) + 1);
+    }
+  }
+  const openIssuesByProject = new Map<string, number>();
+  for (const it of issueRows) {
+    if (it.project_id && (it.status === "open" || it.status === "in_progress")) {
+      openIssuesByProject.set(it.project_id, (openIssuesByProject.get(it.project_id) ?? 0) + 1);
+    }
+  }
+
+  // ── RAG counts ──────────────────────────────────────────────────────────────
   const totalProjects = projects.length;
-  const greenCount = projects.filter((p) => p.rag_status === "green").length;
-  const amberCount = projects.filter((p) => p.rag_status === "amber").length;
-  const redCount = projects.filter((p) => p.rag_status === "red").length;
+  const greenCount    = projects.filter((p) => p.rag_status === "green").length;
+  const amberCount    = projects.filter((p) => p.rag_status === "amber").length;
+  const redCount      = projects.filter((p) => p.rag_status === "red").length;
+  const completeCount = projects.filter((p) => p.rag_status === "complete").length;
+  const notStarted    = projects.filter((p) => p.rag_status === "not_started").length;
+
+  // ── Overdue count — projects with target_date in the past and not complete ─
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const overdueCount = projects.filter((p) => {
+    if (p.rag_status === "complete") return false;
+    if (!p.target_date) return false;
+    return new Date(p.target_date) < today;
+  }).length;
+
+  // ── Program breakdown ───────────────────────────────────────────────────────
+  const programMap = new Map<string | null, number>();
+  for (const p of projects) {
+    const key = p.program ?? null;
+    programMap.set(key, (programMap.get(key) ?? 0) + 1);
+  }
+  const programs = Array.from(programMap.entries()).map(([program, count]) => ({
+    program,
+    count,
+  }));
+
+  const ragCounts = { green: greenCount, amber: amberCount, red: redCount, complete: completeCount, not_started: notStarted };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <PageHeader title="Command Centre" />
 
-      {/* ── Stat row ── */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard label="Total Projects" value={totalProjects} />
-        <StatCard
-          label="On track"
-          value={greenCount}
-          accent={<span className="inline-block h-2 w-2 rounded-full bg-success" />}
-        />
-        <StatCard
-          label="At risk"
-          value={amberCount}
-          accent={<span className="inline-block h-2 w-2 rounded-full bg-warning" />}
-        />
-        <StatCard
-          label="Delayed"
-          value={redCount}
-          accent={<span className="inline-block h-2 w-2 rounded-full bg-danger" />}
-        />
-      </div>
+      {/* ── Health rollup KPI strip ── */}
+      <HealthRollupCards
+        totalProjects={totalProjects}
+        greenCount={greenCount}
+        amberCount={amberCount}
+        redCount={redCount}
+        completeCount={completeCount}
+        riskCount={riskCount}
+        issueCount={issueCount}
+        clashCount={clashCount}
+        overdueCount={overdueCount}
+      />
 
-      {/* ── Registers strip ── */}
-      <div className="flex flex-wrap items-center gap-1 rounded-md border border-border-subtle bg-surface px-4 py-3">
-        <p className="mr-3 text-xs font-medium uppercase tracking-widest text-ink-muted">
-          Registers
-        </p>
-        <RegisterPill label="Risks" count={riskCount} tone="warning" />
-        <span className="mx-2 text-border-strong">·</span>
-        <RegisterPill label="Issues" count={issueCount} tone="danger" />
-        <span className="mx-2 text-border-strong">·</span>
-        <RegisterPill label="Clashes" count={clashCount} tone="info" />
+      {/* ── Charts row: RAG donut + program bar ── */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RagDonutCard counts={ragCounts} />
+        <ProgramBarCard programs={programs} />
       </div>
 
       {/* ── Portfolio table ── */}
@@ -117,13 +146,29 @@ export default async function DashboardPage() {
                       Completion
                     </th>
                     <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
+                      Risks
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
+                      Issues
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
                       Program
+                    </th>
+                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
+                      Target
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   {projects.map((project, i) => {
                     const pct = Math.min(100, Math.max(0, project.completion_pct ?? 0));
+                    const isOverdue =
+                      project.rag_status !== "complete" &&
+                      !!project.target_date &&
+                      new Date(project.target_date) < today;
+                    const openR = openRisksByProject.get(project.id) ?? 0;
+                    const openI = openIssuesByProject.get(project.id) ?? 0;
+
                     return (
                       <tr
                         key={project.id}
@@ -166,9 +211,56 @@ export default async function DashboardPage() {
                           </div>
                         </td>
 
+                        {/* Open risks */}
+                        <td className="px-5 py-3.5">
+                          {openR > 0 ? (
+                            <span className="inline-flex min-w-[1.6rem] justify-center rounded-md bg-danger/10 px-1.5 py-0.5 text-xs font-medium tabular-nums text-danger">
+                              {openR}
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </td>
+
+                        {/* Open issues */}
+                        <td className="px-5 py-3.5">
+                          {openI > 0 ? (
+                            <span className="inline-flex min-w-[1.6rem] justify-center rounded-md bg-warning/10 px-1.5 py-0.5 text-xs font-medium tabular-nums text-warning">
+                              {openI}
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </td>
+
                         {/* Program */}
                         <td className="px-5 py-3.5 text-ink-secondary">
                           {project.program ?? (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </td>
+
+                        {/* Target date */}
+                        <td className="px-5 py-3.5">
+                          {project.target_date ? (
+                            <span
+                              className={cn(
+                                "font-mono text-xs tabular-nums",
+                                isOverdue ? "text-danger font-medium" : "text-ink-secondary",
+                              )}
+                            >
+                              {new Date(project.target_date).toLocaleDateString("en-GB", {
+                                day: "2-digit",
+                                month: "short",
+                                year: "numeric",
+                              })}
+                              {isOverdue && (
+                                <span className="ml-1.5 inline-block rounded-full bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger">
+                                  overdue
+                                </span>
+                              )}
+                            </span>
+                          ) : (
                             <span className="text-ink-muted">—</span>
                           )}
                         </td>
@@ -182,46 +274,5 @@ export default async function DashboardPage() {
         </CardBody>
       </Card>
     </div>
-  );
-}
-
-// ── sub-components ────────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  accent,
-}: {
-  label: string;
-  value: number;
-  accent?: React.ReactNode;
-}) {
-  return (
-    <Card>
-      <CardBody className="p-5">
-        <div className="flex items-center gap-2">
-          {accent}
-          <p className="text-xs font-medium uppercase tracking-widest text-ink-muted">{label}</p>
-        </div>
-        <p className="mt-3 font-mono text-3xl font-semibold tabular-nums tracking-tight text-ink">{value}</p>
-      </CardBody>
-    </Card>
-  );
-}
-
-function RegisterPill({
-  label,
-  count,
-  tone,
-}: {
-  label: string;
-  count: number;
-  tone: "info" | "warning" | "danger" | "neutral";
-}) {
-  return (
-    <span className="flex items-center gap-1.5 text-sm">
-      <Badge tone={tone}>{count}</Badge>
-      <span className="text-ink-secondary">{label}</span>
-    </span>
   );
 }

@@ -36,7 +36,7 @@ export default async function IssuesPage() {
   const [{ data: issues }, { data: projects }] = await Promise.all([
     db
       .from("issues")
-      .select("id, title, project_id, priority, status, due_date")
+      .select("id, reference_id, title, project_id, priority, status, due_date")
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
   ]);
@@ -59,6 +59,9 @@ export default async function IssuesPage() {
               <thead>
                 <tr className="border-b border-border-subtle">
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                    Ref
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Title
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -78,6 +81,15 @@ export default async function IssuesPage() {
               <tbody className="divide-y divide-border-subtle">
                 {issues.map((issue) => (
                   <tr key={issue.id} className="hover:bg-sunken transition-colors duration-100">
+                    <td className="px-5 py-3.5">
+                      {issue.reference_id ? (
+                        <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+                          {issue.reference_id}
+                        </span>
+                      ) : (
+                        <span className="text-ink-muted">—</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3.5 font-medium text-ink">{issue.title}</td>
                     <td className="px-5 py-3.5 text-ink-secondary">
                       {issue.project_id ? (projectMap[issue.project_id] ?? "—") : "—"}

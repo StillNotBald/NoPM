@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useModal } from "@/components/ui/modal";
+import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -88,7 +88,7 @@ export function RiskForm({
   projectId: string;
   risk?: Risk;
 }) {
-  const modal = useModal();
+  const inspector = useInspector();
   const router = useRouter();
 
   const [title, setTitle] = useState(risk?.title ?? "");
@@ -178,7 +178,7 @@ export function RiskForm({
         await apiPost(`/api/projects/${projectId}/risks`, payload);
       }
       router.refresh();
-      modal.close();
+      inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
       setSaving(false);
@@ -434,7 +434,7 @@ export function RiskForm({
 
       {/* Actions */}
       <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" onClick={modal.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
+        <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={saving || !title.trim()} className="w-full sm:w-auto h-11 sm:h-10">

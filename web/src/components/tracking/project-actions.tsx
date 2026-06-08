@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Lock, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useModal } from "@/components/ui/modal";
+import { useInspector } from "@/components/layout/app-shell";
 import { apiPost, type ApiError } from "@/lib/api-client";
 import { ProjectForm, type Project } from "@/components/forms/project-form";
 
@@ -15,7 +15,7 @@ interface ProjectActionsProps {
 
 export function ProjectActions({ project }: ProjectActionsProps) {
   const router = useRouter();
-  const modal = useModal();
+  const inspector = useInspector();
   const [locking, setLocking] = useState(false);
 
   async function handleLockToggle() {
@@ -44,9 +44,9 @@ export function ProjectActions({ project }: ProjectActionsProps) {
         variant="secondary"
         size="sm"
         onClick={() =>
-          modal.open(
+          inspector.open(
             <ProjectForm mode="edit" project={project} />,
-            { title: "Edit Project", size: "lg" }
+            "Edit Project",
           )
         }
       >

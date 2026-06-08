@@ -5,6 +5,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { createIssueSchema } from "@/app/api/issues/_schema";
+import { nextRefId } from "@/lib/ref-id";
 
 export const runtime = "nodejs";
 
@@ -73,11 +74,14 @@ export const POST = route(async ({ actor, params, request }) => {
 
   const input = parsed.data;
 
+  const refId = await nextRefId(db, actor.workspaceId, "issues", "ISS");
+
   const { data: row, error } = await db
     .from("issues")
     .insert({
       workspace_id: actor.workspaceId,
       project_id: projectId,
+      reference_id: refId,
       title: input.title,
       description: input.description ?? null,
       priority: input.priority,

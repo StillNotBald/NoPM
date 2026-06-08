@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
-import { useModal } from "@/components/ui/modal";
+import { useInspector } from "@/components/layout/app-shell";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/api-client";
 import { ActivityTable } from "@/components/tracking/activity-table";
@@ -299,7 +299,7 @@ function OverviewTab({
 // ── Risks tab ─────────────────────────────────────────────────────────────────
 
 function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
-  const modal = useModal();
+  const inspector = useInspector();
 
   return (
     <div className="space-y-4">
@@ -311,10 +311,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
             size="sm"
             variant="primary"
             onClick={() =>
-              modal.open(<RiskForm projectId={project.id} />, {
-                title: "Add Risk",
-                size: "lg",
-              })
+              inspector.open(<RiskForm projectId={project.id} />, "Add Risk")
             }
           >
             <Plus size={14} className="mr-1" />
@@ -331,10 +328,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
               size="sm"
               variant="secondary"
               onClick={() =>
-                modal.open(<RiskForm projectId={project.id} />, {
-                  title: "Add Risk",
-                  size: "lg",
-                })
+                inspector.open(<RiskForm projectId={project.id} />, "Add Risk")
               }
             >
               <Plus size={14} className="mr-1" />
@@ -363,10 +357,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                     i < risks.length - 1 && "border-b border-border-subtle"
                   )}
                   onClick={() =>
-                    modal.open(<RiskForm projectId={project.id} risk={r} />, {
-                      title: "Edit Risk",
-                      size: "lg",
-                    })
+                    inspector.open(<RiskForm projectId={project.id} risk={r} />, "Edit Risk")
                   }
                 >
                   <td className="py-3 px-4">
@@ -398,7 +389,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
 // ── Issues tab ────────────────────────────────────────────────────────────────
 
 function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
-  const modal = useModal();
+  const inspector = useInspector();
 
   return (
     <div className="space-y-4">
@@ -410,10 +401,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
             size="sm"
             variant="primary"
             onClick={() =>
-              modal.open(<IssueForm projectId={project.id} />, {
-                title: "Add Issue",
-                size: "lg",
-              })
+              inspector.open(<IssueForm projectId={project.id} />, "Add Issue")
             }
           >
             <Plus size={14} className="mr-1" />
@@ -430,10 +418,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
               size="sm"
               variant="secondary"
               onClick={() =>
-                modal.open(<IssueForm projectId={project.id} />, {
-                  title: "Add Issue",
-                  size: "lg",
-                })
+                inspector.open(<IssueForm projectId={project.id} />, "Add Issue")
               }
             >
               <Plus size={14} className="mr-1" />
@@ -461,10 +446,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                     i < issues.length - 1 && "border-b border-border-subtle"
                   )}
                   onClick={() =>
-                    modal.open(<IssueForm projectId={project.id} issue={iss} />, {
-                      title: "Edit Issue",
-                      size: "lg",
-                    })
+                    inspector.open(<IssueForm projectId={project.id} issue={iss} />, "Edit Issue")
                   }
                 >
                   <td className="py-3 px-4">

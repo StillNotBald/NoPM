@@ -39,7 +39,7 @@ export default async function ClashesPage() {
   const [{ data: clashes }, { data: projects }] = await Promise.all([
     db
       .from("clashes")
-      .select("id, title, type, severity, project_a_id, project_b_id, status")
+      .select("id, reference_id, title, type, severity, project_a_id, project_b_id, status")
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
   ]);
@@ -70,6 +70,9 @@ export default async function ClashesPage() {
               <thead>
                 <tr className="border-b border-border-subtle">
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                    Ref
+                  </th>
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Title
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -97,6 +100,15 @@ export default async function ClashesPage() {
                       key={clash.id}
                       className="hover:bg-sunken transition-colors duration-100"
                     >
+                      <td className="px-5 py-3.5">
+                        {clash.reference_id ? (
+                          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+                            {clash.reference_id}
+                          </span>
+                        ) : (
+                          <span className="text-ink-muted">—</span>
+                        )}
+                      </td>
                       <td className="px-5 py-3.5">
                         <span className="font-medium text-ink">{clash.title}</span>
                         {isAuto && (

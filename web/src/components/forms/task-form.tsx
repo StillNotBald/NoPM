@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useModal } from "@/components/ui/modal";
+import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -60,7 +60,7 @@ export function TaskForm({
   /** Sibling tasks in the project — populates the "Blocked by" dependency select. */
   tasks?: Task[];
 }) {
-  const modal = useModal();
+  const inspector = useInspector();
   const router = useRouter();
 
   const [name, setName] = useState(task?.name ?? "");
@@ -139,7 +139,7 @@ export function TaskForm({
         await apiPost(`/api/projects/${projectId}/tasks`, payload);
       }
       router.refresh();
-      modal.close();
+      inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
       setSaving(false);
@@ -353,7 +353,7 @@ export function TaskForm({
 
       {/* Actions */}
       <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" onClick={modal.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
+        <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={saving || !name.trim()} className="w-full sm:w-auto h-11 sm:h-10">

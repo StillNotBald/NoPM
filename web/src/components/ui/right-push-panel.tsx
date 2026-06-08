@@ -1,0 +1,192 @@
+"use client";
+
+/**
+ * RightPushPanel — non-modal right-side panel that PUSHES the content column.
+ *
+ * Design contract (ported from predecessor-platform's RightPushPanel.tsx):
+ *  - Slides in from the right edge; NO backdrop/overlay on desktop.
+ *  - On desktop (lg+) the caller's <main> gets a right-margin via the exported
+ *    PUSH_MARGIN / PUSH_MARGIN_NONE helpers so the columns sit side-by-side.
+ *  - Mobile: full-screen sheet with a light backdrop (matches existing AppShell pattern).
+ *  - Escape closes; close button receives focus on open; focus returns to
+ *    returnFocusRef on close.  No focus-trap — Tab may leave the panel.
+ *  - Expand/collapse toggle is shown when onToggleExpand is provided.
+ */
+
+import React, { useEffect, useRef } from "react";
+
+// ── Public margin helpers ─────────────────────────────────────────────────────
+
+/**
+ * Apply to the <main> content column while the panel is open (and not expanded).
+ * Matches the default panel width (28rem) + 0 breathing room.
+ */
+export const PUSH_MARGIN =
+  "transition-[margin] duration-300 lg:mr-[28rem]";
+
+/** Idle state — keeps the transition present so the spring-back is smooth. */
+export const PUSH_MARGIN_NONE = "transition-[margin] duration-300";
+
+// ── Props ─────────────────────────────────────────────────────────────────────
+
+export interface RightPushPanelProps {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  /** Tailwind width class when NOT expanded. Default: `"lg:w-[28rem]"`. */
+  widthClass?: string;
+  children: React.ReactNode;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
+}
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
+export function RightPushPanel({
+  open,
+  onClose,
+  title,
+  expanded = false,
+  onToggleExpand,
+  widthClass = "lg:w-[28rem]",
+  children,
+  returnFocusRef,
+}: RightPushPanelProps) {
+  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // Focus the close button when the panel opens.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => {
+      closeBtnRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  // Escape closes and returns focus to the trigger element.
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        handleClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  function handleClose() {
+    onClose();
+    const target = returnFocusRef?.current ?? null;
+    if (target) {
+      requestAnimationFrame(() => target.focus());
+    }
+  }
+
+  // Width / position — expanded fills the full viewport width.
+  const sizeClasses = expanded
+    ? "left-0 w-auto"
+    : `w-full lg:left-auto ${widthClass}`;
+
+  return (
+    <>
+      {/* Mobile backdrop — hidden on lg+ */}
+      {open && (
+        <div
+          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
+          onClick={handleClose}
+          aria-hidden="true"
+        />
+      )}
+
+      <div
+        role="dialog"
+        aria-modal={false}
+        aria-label={title}
+        aria-hidden={!open}
+        className={[
+          "fixed inset-y-0 right-0 z-50 flex flex-col",
+          "border-l border-border-subtle bg-surface shadow-2xl",
+          "transition-all duration-300",
+          open ? "translate-x-0" : "translate-x-full pointer-events-none",
+          sizeClasses,
+        ].join(" ")}
+      >
+        {/* ── Header ──────────────────────────────────────────────────────────── */}
+        <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4">
+          <span className="truncate text-sm font-semibold text-ink">
+            {title}
+          </span>
+
+          <div className="flex shrink-0 items-center gap-1">
+            {/* Expand / collapse — desktop only */}
+            {onToggleExpand && (
+              <button
+                type="button"
+                onClick={onToggleExpand}
+                aria-label={expanded ? "Collapse panel" : "Expand panel"}
+                aria-pressed={expanded}
+                className="hidden h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid"
+              >
+                <svg
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  {expanded ? (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9 9V4.5M9 9H4.5M9 9 3.75 3.75M15 9h4.5M15 9V4.5M15 9l5.25-5.25M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 15h4.5M15 15v4.5m0-4.5 5.25 5.25"
+                    />
+                  ) : (
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9m11.25-5.25h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25v-4.5m0 4.5h-4.5m4.5 0L15 15M3.75 20.25h4.5m-4.5 0v-4.5m0 4.5L9 15"
+                    />
+                  )}
+                </svg>
+              </button>
+            )}
+
+            {/* Close — always visible; receives focus on open */}
+            <button
+              ref={closeBtnRef}
+              type="button"
+              onClick={handleClose}
+              aria-label="Close panel"
+              className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+            >
+              <svg
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Body ────────────────────────────────────────────────────────────── */}
+        <div className="min-h-0 flex-1 overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {children}
+        </div>
+      </div>
+    </>
+  );
+}

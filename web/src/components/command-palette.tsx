@@ -23,7 +23,7 @@ import {
   Search,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useModal } from "@/components/ui/modal";
+import { useInspector } from "@/components/layout/app-shell";
 import { ProjectForm } from "@/components/forms/project-form";
 
 // ── Command definitions ───────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ function matches(label: string, query: string): boolean {
 
 function CommandPalettePanel({ onClose }: { onClose: () => void }) {
   const router = useRouter();
-  const modal = useModal();
+  const inspector = useInspector();
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -64,10 +64,7 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
       hint: "Create",
       action: () => {
         onClose();
-        modal.open(<ProjectForm mode="create" scaffold />, {
-          title: "New Project",
-          size: "lg",
-        });
+        inspector.open(<ProjectForm mode="create" scaffold />, "New Project");
       },
     },
     {

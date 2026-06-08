@@ -5,7 +5,6 @@ import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
-import { useModal } from "@/components/ui/modal";
 import { useInspector } from "@/components/layout/app-shell";
 import { apiDelete } from "@/lib/api-client";
 import { MilestoneForm } from "@/components/forms/milestone-form";
@@ -121,7 +120,6 @@ export function TaskDetailPanel({
   milestones: Milestone[];
   members?: Record<string, string>;
 }) {
-  const modal = useModal();
   const inspector = useInspector();
   const router = useRouter();
 
@@ -187,13 +185,13 @@ export function TaskDetailPanel({
           size="sm"
           className="flex-1 h-11 sm:h-9"
           onClick={() =>
-            modal.open(
+            inspector.open(
               <TaskForm
                 projectId={task.project_id}
                 task={task}
                 milestones={milestones}
               />,
-              { title: "Edit Task", size: "lg" }
+              "Edit Task",
             )
           }
         >
@@ -223,7 +221,6 @@ export function MilestoneDetailPanel({
   milestone: Milestone;
   members?: Record<string, string>;
 }) {
-  const modal = useModal();
   const inspector = useInspector();
   const router = useRouter();
 
@@ -273,12 +270,12 @@ export function MilestoneDetailPanel({
           size="sm"
           className="flex-1 h-11 sm:h-9"
           onClick={() =>
-            modal.open(
+            inspector.open(
               <MilestoneForm
                 projectId={milestone.project_id}
                 milestone={milestone}
               />,
-              { title: "Edit Milestone" }
+              "Edit Milestone",
             )
           }
         >

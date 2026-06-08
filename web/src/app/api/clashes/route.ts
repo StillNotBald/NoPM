@@ -4,6 +4,7 @@ import { ok, okList, created, safeJson, validationError } from "@/lib/api/respon
 import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClashSchema } from "./_schema";
+import { nextRefId } from "@/lib/ref-id";
 
 export const runtime = "nodejs";
 
@@ -49,11 +50,14 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
+  const refId = await nextRefId(db, actor.workspaceId, "clashes", "CL");
+
   const { data: row, error } = await db
     .from("clashes")
     .insert({
       ...parsed.data,
       workspace_id: actor.workspaceId,
+      reference_id: refId,
     })
     .select()
     .single();

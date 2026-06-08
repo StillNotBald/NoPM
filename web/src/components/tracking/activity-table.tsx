@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
-import { useModal } from "@/components/ui/modal";
 import { useInspector } from "@/components/layout/app-shell";
 import { apiDelete, apiPost } from "@/lib/api-client";
 import { MilestoneForm } from "@/components/forms/milestone-form";
@@ -267,7 +266,7 @@ function MilestoneRow({
   density: Density;
   onRowClick: (milestone: Milestone) => void;
 }) {
-  const modal = useModal();
+  const inspector = useInspector();
   const statusInfo = milestoneStatusBadge(milestone.status);
   const rowPy = density === "compact" ? "py-1.5" : "py-2.5";
 
@@ -325,13 +324,13 @@ function MilestoneRow({
             variant="ghost"
             size="sm"
             onClick={() =>
-              modal.open(
+              inspector.open(
                 <TaskForm
                   projectId={projectId}
                   milestoneId={milestone.id}
                   milestones={milestones}
                 />,
-                { title: "New Task", size: "lg" }
+                "New Task",
               )
             }
             className="h-7 gap-1 px-2 text-xs"
@@ -341,9 +340,9 @@ function MilestoneRow({
           </Button>
           <button
             onClick={() =>
-              modal.open(
+              inspector.open(
                 <MilestoneForm projectId={projectId} milestone={milestone} />,
-                { title: "Edit Milestone" }
+                "Edit Milestone",
               )
             }
             className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink"
@@ -387,7 +386,7 @@ function TaskRow({
   onRowClick: (task: Task) => void;
   members?: Record<string, string>;
 }) {
-  const modal = useModal();
+  const inspector = useInspector();
   const statusInfo = taskStatusBadge(task.status_type);
   const rowPy = density === "compact" ? "py-1.5" : "py-2";
 
@@ -453,13 +452,13 @@ function TaskRow({
         >
           <button
             onClick={() =>
-              modal.open(
+              inspector.open(
                 <TaskForm
                   projectId={projectId}
                   task={task}
                   milestones={milestones}
                 />,
-                { title: "Edit Task", size: "lg" }
+                "Edit Task",
               )
             }
             className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink"
@@ -489,7 +488,6 @@ export function ActivityTable({
   isLocked,
   members,
 }: ActivityTableProps) {
-  const modal = useModal();
   const inspector = useInspector();
   const router = useRouter();
 
@@ -757,9 +755,9 @@ export function ActivityTable({
           size="sm"
           className="h-11 sm:h-10"
           onClick={() =>
-            modal.open(
+            inspector.open(
               <TaskForm projectId={projectId} milestones={sortedMilestones} />,
-              { title: "New Task", size: "lg" }
+              "New Task",
             )
           }
         >
@@ -771,9 +769,7 @@ export function ActivityTable({
           size="sm"
           className="h-11 sm:h-10"
           onClick={() =>
-            modal.open(<MilestoneForm projectId={projectId} />, {
-              title: "New Milestone",
-            })
+            inspector.open(<MilestoneForm projectId={projectId} />, "New Milestone")
           }
         >
           <Plus size={14} className="mr-1" />
@@ -792,9 +788,7 @@ export function ActivityTable({
             variant="primary"
             size="sm"
             onClick={() =>
-              modal.open(<MilestoneForm projectId={projectId} />, {
-                title: "New Milestone",
-              })
+              inspector.open(<MilestoneForm projectId={projectId} />, "New Milestone")
             }
           >
             <Plus size={14} className="mr-1" />
