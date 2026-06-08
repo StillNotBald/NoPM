@@ -36,6 +36,12 @@ export interface Task {
   completion_pct: number;
   sort_order: number;
   assignee_id: string | null;
+  // ── content-enrichment (0008) — additive, all optional/nullable ──────────────
+  acceptance_criteria?: string | null;
+  estimate_hours?: number | null;
+  story_points?: number | null;
+  labels?: string[] | null;
+  blocked_by?: string | null;
 }
 
 // ── TaskForm ──────────────────────────────────────────────────────────────────
@@ -45,11 +51,14 @@ export function TaskForm({
   milestoneId,
   task,
   milestones,
+  tasks = [],
 }: {
   projectId: string;
   milestoneId?: string | null;
   task?: Task;
   milestones: Milestone[];
+  /** Sibling tasks in the project — populates the "Blocked by" dependency select. */
+  tasks?: Task[];
 }) {
   const modal = useModal();
   const router = useRouter();
@@ -72,6 +81,19 @@ export function TaskForm({
   const [dueDate, setDueDate] = useState(task?.due_date?.slice(0, 10) ?? "");
   const [completionPct, setCompletionPct] = useState(task?.completion_pct ?? 0);
 
+  // ── content-enrichment (0008) fields — all optional ──────────────────────────
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState(
+    task?.acceptance_criteria ?? ""
+  );
+  const [estimateHours, setEstimateHours] = useState(
+    task?.estimate_hours != null ? String(task.estimate_hours) : ""
+  );
+  const [storyPoints, setStoryPoints] = useState(
+    task?.story_points != null ? String(task.story_points) : ""
+  );
+  const [labels, setLabels] = useState((task?.labels ?? []).join(", "));
+  const [blockedBy, setBlockedBy] = useState(task?.blocked_by ?? "");
+
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -89,6 +111,11 @@ export function TaskForm({
     setFieldErrors({});
     setSaving(true);
 
+    const parsedLabels = labels
+      .split(",")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0);
+
     const payload = {
       name: name.trim(),
       description: description.trim() || null,
@@ -98,6 +125,11 @@ export function TaskForm({
       start_date: startDate || null,
       due_date: dueDate || null,
       completion_pct: Number(completionPct),
+      acceptance_criteria: acceptanceCriteria.trim() || null,
+      estimate_hours: estimateHours.trim() === "" ? null : Number(estimateHours),
+      story_points: storyPoints.trim() === "" ? null : Number(storyPoints),
+      labels: parsedLabels,
+      blocked_by: blockedBy || null,
     };
 
     try {
@@ -222,6 +254,67 @@ export function TaskForm({
           />
           <FieldError message={fieldErrors.due_date} />
         </div>
+
+        {/* Estimate (hours) */}
+        <div>
+          <FieldLabel>Estimate (hours)</FieldLabel>
+          <Input
+            type="number"
+            min={0}
+            step={0.25}
+            value={estimateHours}
+            onChange={(e) => setEstimateHours(e.target.value)}
+            placeholder="e.g. 8"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.estimate_hours} />
+        </div>
+
+        {/* Story Points */}
+        <div>
+          <FieldLabel>Story Points</FieldLabel>
+          <Input
+            type="number"
+            min={0}
+            step={0.5}
+            value={storyPoints}
+            onChange={(e) => setStoryPoints(e.target.value)}
+            placeholder="e.g. 3"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.story_points} />
+        </div>
+
+        {/* Blocked by */}
+        <div>
+          <FieldLabel>Blocked by</FieldLabel>
+          <SelectInput
+            value={blockedBy}
+            onChange={(e) => setBlockedBy(e.target.value)}
+          >
+            <option value="">— None —</option>
+            {tasks
+              .filter((t) => t.id !== task?.id)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+          </SelectInput>
+          <FieldError message={fieldErrors.blocked_by} />
+        </div>
+
+        {/* Labels */}
+        <div>
+          <FieldLabel>Labels</FieldLabel>
+          <Input
+            value={labels}
+            onChange={(e) => setLabels(e.target.value)}
+            placeholder="comma, separated, tags"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.labels} />
+        </div>
       </div>
 
       {/* Description — progressive disclosure */}
@@ -245,6 +338,18 @@ export function TaskForm({
           + Add description
         </button>
       )}
+
+      {/* Acceptance criteria — definition of done */}
+      <div>
+        <FieldLabel>Acceptance Criteria</FieldLabel>
+        <TextareaInput
+          value={acceptanceCriteria}
+          onChange={(e) => setAcceptanceCriteria(e.target.value)}
+          placeholder="Definition of done — what must be true for this task to be accepted?"
+          rows={3}
+        />
+        <FieldError message={fieldErrors.acceptance_criteria} />
+      </div>
 
       {/* Actions */}
       <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">

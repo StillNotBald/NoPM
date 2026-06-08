@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Plus, AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useModal } from "@/components/ui/modal";
@@ -116,30 +117,12 @@ function ragLabel(s: Project["rag_status"]): string {
   }
 }
 
-function severityTone(s: Risk["severity"]): BadgeTone {
-  switch (s) {
-    case "critical": return "danger";
-    case "high":     return "warning";
-    case "medium":   return "info";
-    default:         return "neutral";
-  }
-}
-
 function riskStatusTone(s: Risk["status"]): BadgeTone {
   switch (s) {
     case "closed":     return "success";
     case "accepted":   return "success";
     case "mitigating": return "warning";
     default:           return "info";
-  }
-}
-
-function priorityTone(p: Issue["priority"]): BadgeTone {
-  switch (p) {
-    case "urgent": return "danger";
-    case "high":   return "warning";
-    case "medium": return "info";
-    default:       return "neutral";
   }
 }
 
@@ -382,10 +365,10 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                     )}
                   </td>
                   <td className="py-3 px-4">
-                    <Badge tone={severityTone(r.severity)} className="capitalize">{r.severity}</Badge>
+                    <Severity level={r.severity} />
                   </td>
                   <td className="py-3 px-4">
-                    <Badge tone={severityTone(r.likelihood)} className="capitalize">{r.likelihood}</Badge>
+                    <Severity level={r.likelihood} />
                   </td>
                   <td className="py-3 px-4">
                     <Badge tone={riskStatusTone(r.status)} className="capitalize">{r.status}</Badge>
@@ -477,7 +460,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                     <p className="font-medium text-ink">{iss.title}</p>
                   </td>
                   <td className="py-3 px-4">
-                    <Badge tone={priorityTone(iss.priority)} className="capitalize">{iss.priority}</Badge>
+                    <Severity level={iss.priority} />
                   </td>
                   <td className="py-3 px-4">
                     <Badge tone={issueStatusTone(iss.status)} className="capitalize">

@@ -1,19 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
+import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { NewIssueButton } from "@/components/registers/new-issue-form";
 
 type PriorityLevel = "low" | "medium" | "high" | "urgent";
 type IssueStatus = "open" | "in_progress" | "resolved" | "closed";
-
-function priorityTone(p: PriorityLevel) {
-  if (p === "urgent") return "danger" as const;
-  if (p === "high") return "warning" as const;
-  if (p === "medium") return "info" as const;
-  return "neutral" as const;
-}
 
 function statusTone(s: IssueStatus) {
   if (s === "resolved" || s === "closed") return "success" as const;
@@ -25,13 +19,6 @@ function statusTone(s: IssueStatus) {
 function formatDate(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
-
-function priorityLabel(p: PriorityLevel) {
-  if (p === "urgent") return "Urgent";
-  if (p === "high") return "High";
-  if (p === "medium") return "Medium";
-  return "Low";
 }
 
 function statusLabel(s: IssueStatus) {
@@ -96,9 +83,7 @@ export default async function IssuesPage() {
                       {issue.project_id ? (projectMap[issue.project_id] ?? "—") : "—"}
                     </td>
                     <td className="px-5 py-3.5">
-                      <Badge tone={priorityTone(issue.priority as PriorityLevel)}>
-                        {priorityLabel(issue.priority as PriorityLevel)}
-                      </Badge>
+                      <Severity level={issue.priority as PriorityLevel} />
                     </td>
                     <td className="px-5 py-3.5">
                       <Badge tone={statusTone(issue.status as IssueStatus)}>

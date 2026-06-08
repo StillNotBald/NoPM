@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Severity } from "@/components/ui/severity";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 import { useModal } from "@/components/ui/modal";
@@ -97,19 +98,6 @@ function taskStatusBadge(statusType: Task["status_type"]): {
     case "backlog":   return { tone: "neutral", label: "Backlog" };
     case "unstarted":
     default:          return { tone: "neutral", label: "To do" };
-  }
-}
-
-function priorityBadge(priority: Task["priority"]): {
-  tone: BadgeTone;
-  label: string;
-} {
-  switch (priority) {
-    case "urgent": return { tone: "danger",  label: "Urgent" };
-    case "high":   return { tone: "warning", label: "High" };
-    case "medium": return { tone: "info",    label: "Medium" };
-    case "low":
-    default:       return { tone: "neutral", label: "Low" };
   }
 }
 
@@ -381,7 +369,6 @@ function TaskRow({
 }) {
   const modal = useModal();
   const statusInfo = taskStatusBadge(task.status_type);
-  const prioInfo = priorityBadge(task.priority);
   const rowPy = density === "compact" ? "py-1.5" : "py-2";
 
   return (
@@ -425,7 +412,7 @@ function TaskRow({
 
       {/* Priority */}
       <td className={cn("hidden md:table-cell pr-4", rowPy)}>
-        <Badge tone={prioInfo.tone}>{prioInfo.label}</Badge>
+        <Severity level={task.priority} />
       </td>
 
       {/* Status */}

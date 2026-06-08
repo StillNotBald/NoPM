@@ -3,6 +3,21 @@ import { z } from "zod";
 const priorityEnum = z.enum(["low", "medium", "high", "urgent"]);
 const statusEnum = z.enum(["open", "in_progress", "resolved", "closed"]);
 
+// Content-enrichment P0 fields (migration 0008_content_enrichment).
+const severityEnum = z.enum(["low", "medium", "high", "critical"]);
+const issueCategoryEnum = z.enum([
+  "technical_defect",
+  "resource_unavailability",
+  "dependency_delay",
+  "budget_funding",
+  "scope_creep",
+  "stakeholder_conflict",
+  "operational_bottleneck",
+  "data_quality",
+  "third_party_vendor",
+  "environmental_external",
+]);
+
 export const createIssueSchema = z.object({
   title: z.string().min(1, "title is required").max(255),
   description: z.string().optional().nullable(),
@@ -12,6 +27,12 @@ export const createIssueSchema = z.object({
   status: statusEnum.optional().default("open"),
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
   due_date: z.string().datetime({ offset: true }).optional().nullable(),
+  // Content-enrichment P0 fields — all optional/nullable (additive, non-breaking).
+  severity: severityEnum.optional(),
+  issue_category: issueCategoryEnum.optional().nullable(),
+  impact: z.string().optional().nullable(),
+  resolution_eta: z.string().date().optional().nullable(),
+  resolved_at: z.string().date().optional().nullable(),
 });
 
 export const updateIssueSchema = z.object({
@@ -23,6 +44,12 @@ export const updateIssueSchema = z.object({
   status: statusEnum.optional(),
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
   due_date: z.string().datetime({ offset: true }).optional().nullable(),
+  // Content-enrichment P0 fields — all optional/nullable (additive, non-breaking).
+  severity: severityEnum.optional(),
+  issue_category: issueCategoryEnum.optional().nullable(),
+  impact: z.string().optional().nullable(),
+  resolution_eta: z.string().date().optional().nullable(),
+  resolved_at: z.string().date().optional().nullable(),
 });
 
 export type CreateIssueInput = z.infer<typeof createIssueSchema>;

@@ -1,19 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
+import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { NewRiskButton } from "@/components/registers/new-risk-form";
 
 type SeverityLevel = "low" | "medium" | "high" | "critical";
 type RiskStatus = "open" | "mitigating" | "closed" | "accepted";
-
-function severityTone(s: SeverityLevel) {
-  if (s === "critical") return "danger" as const;
-  if (s === "high") return "warning" as const;
-  if (s === "medium") return "info" as const;
-  return "neutral" as const;
-}
 
 function statusTone(s: RiskStatus) {
   if (s === "closed" || s === "accepted") return "success" as const;
@@ -87,9 +81,7 @@ export default async function RisksPage() {
                       {risk.project_id ? (projectMap[risk.project_id] ?? "—") : "—"}
                     </td>
                     <td className="px-5 py-3.5">
-                      <Badge tone={severityTone(risk.severity as SeverityLevel)}>
-                        {risk.severity}
-                      </Badge>
+                      <Severity level={risk.severity as SeverityLevel} />
                     </td>
                     <td className="px-5 py-3.5">
                       <Badge tone={statusTone(risk.status as RiskStatus)}>

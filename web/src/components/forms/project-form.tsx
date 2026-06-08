@@ -10,6 +10,13 @@ import { cn } from "@/lib/cn";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
+export type ProjectPhase =
+  | "initiation"
+  | "planning"
+  | "execution"
+  | "monitoring"
+  | "closing";
+
 export interface Project {
   id: string;
   code: string | null;
@@ -23,6 +30,18 @@ export interface Project {
   currency: string;
   is_locked: boolean;
   lock_reason: string | null;
+  // ── Content enrichment (0008): PMBOK charter + baseline pair + phase ──────
+  // Optional so callers that select only the base columns still satisfy the
+  // type; the form falls back to safe defaults when a field is absent.
+  business_case?: string | null;
+  objective?: string | null;
+  scope_summary?: string | null;
+  sponsor?: string | null;
+  project_manager?: string | null;
+  phase?: ProjectPhase | null;
+  health_commentary?: string | null;
+  baseline_start_date?: string | null;
+  baseline_target_date?: string | null;
 }
 
 // ── Shared field helpers ──────────────────────────────────────────────────────
@@ -111,6 +130,25 @@ export function ProjectForm({
   const [targetDate, setTargetDate] = useState(project?.target_date ?? "");
   const [currency, setCurrency] = useState(project?.currency ?? "MYR");
 
+  // ── Content enrichment (0008): PMBOK charter + baseline pair + phase ────────
+  const [phase, setPhase] = useState<ProjectPhase>(project?.phase ?? "planning");
+  const [sponsor, setSponsor] = useState(project?.sponsor ?? "");
+  const [projectManager, setProjectManager] = useState(
+    project?.project_manager ?? "",
+  );
+  const [objective, setObjective] = useState(project?.objective ?? "");
+  const [businessCase, setBusinessCase] = useState(project?.business_case ?? "");
+  const [scopeSummary, setScopeSummary] = useState(project?.scope_summary ?? "");
+  const [healthCommentary, setHealthCommentary] = useState(
+    project?.health_commentary ?? "",
+  );
+  const [baselineStartDate, setBaselineStartDate] = useState(
+    project?.baseline_start_date ?? "",
+  );
+  const [baselineTargetDate, setBaselineTargetDate] = useState(
+    project?.baseline_target_date ?? "",
+  );
+
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -136,6 +174,16 @@ export function ProjectForm({
       start_date: startDate || null,
       target_date: targetDate || null,
       currency,
+      // ── Content enrichment (0008) ──────────────────────────────────────────
+      phase,
+      sponsor: sponsor || null,
+      project_manager: projectManager || null,
+      objective: objective || null,
+      business_case: businessCase || null,
+      scope_summary: scopeSummary || null,
+      health_commentary: healthCommentary || null,
+      baseline_start_date: baselineStartDate || null,
+      baseline_target_date: baselineTargetDate || null,
     };
 
     try {
@@ -271,6 +319,113 @@ export function ProjectForm({
             className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.target_date} />
+        </div>
+
+        {/* Phase */}
+        <div>
+          <FieldLabel>Phase</FieldLabel>
+          <SelectInput
+            value={phase}
+            onChange={(e) => setPhase(e.target.value as ProjectPhase)}
+          >
+            <option value="initiation">Initiation</option>
+            <option value="planning">Planning</option>
+            <option value="execution">Execution</option>
+            <option value="monitoring">Monitoring</option>
+            <option value="closing">Closing</option>
+          </SelectInput>
+          <FieldError message={fieldErrors.phase} />
+        </div>
+
+        {/* Sponsor */}
+        <div>
+          <FieldLabel>Sponsor</FieldLabel>
+          <Input
+            value={sponsor}
+            onChange={(e) => setSponsor(e.target.value)}
+            placeholder="e.g. Jane Doe, CFO"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.sponsor} />
+        </div>
+
+        {/* Project Manager */}
+        <div>
+          <FieldLabel>Project Manager</FieldLabel>
+          <Input
+            value={projectManager}
+            onChange={(e) => setProjectManager(e.target.value)}
+            placeholder="e.g. Wei Jie Tan"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.project_manager} />
+        </div>
+
+        {/* Baseline Start Date */}
+        <div>
+          <FieldLabel>Baseline Start</FieldLabel>
+          <Input
+            type="date"
+            value={baselineStartDate}
+            onChange={(e) => setBaselineStartDate(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.baseline_start_date} />
+        </div>
+
+        {/* Baseline Target Date */}
+        <div>
+          <FieldLabel>Baseline Target</FieldLabel>
+          <Input
+            type="date"
+            value={baselineTargetDate}
+            onChange={(e) => setBaselineTargetDate(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.baseline_target_date} />
+        </div>
+      </div>
+
+      {/* Charter (PMBOK) — long-form narrative fields */}
+      <div className="space-y-3 border-t border-border-subtle pt-3">
+        <div>
+          <FieldLabel>Objective</FieldLabel>
+          <TextareaInput
+            value={objective}
+            onChange={(e) => setObjective(e.target.value)}
+            placeholder="Project purpose / objective"
+          />
+          <FieldError message={fieldErrors.objective} />
+        </div>
+
+        <div>
+          <FieldLabel>Business Case</FieldLabel>
+          <TextareaInput
+            value={businessCase}
+            onChange={(e) => setBusinessCase(e.target.value)}
+            placeholder="Business case / justification"
+          />
+          <FieldError message={fieldErrors.business_case} />
+        </div>
+
+        <div>
+          <FieldLabel>Scope Summary</FieldLabel>
+          <TextareaInput
+            value={scopeSummary}
+            onChange={(e) => setScopeSummary(e.target.value)}
+            placeholder="High-level scope"
+          />
+          <FieldError message={fieldErrors.scope_summary} />
+        </div>
+
+        <div>
+          <FieldLabel>Health Commentary</FieldLabel>
+          <TextareaInput
+            value={healthCommentary}
+            onChange={(e) => setHealthCommentary(e.target.value)}
+            placeholder='RAG narrative — one-line "why is it amber?"'
+          />
+          <FieldError message={fieldErrors.health_commentary} />
         </div>
       </div>
 

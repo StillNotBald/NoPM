@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
+import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -12,13 +13,6 @@ function typeTone(t: ClashType) {
   if (t === "resource") return "warning" as const;
   if (t === "dependency") return "danger" as const;
   return "info" as const; // schedule
-}
-
-function severityTone(s: ClashSeverity) {
-  if (s === "critical") return "danger" as const;
-  if (s === "high") return "warning" as const;
-  if (s === "medium") return "info" as const;
-  return "neutral" as const;
 }
 
 function statusTone(s: ClashStatus) {
@@ -117,9 +111,7 @@ export default async function ClashesPage() {
                         </Badge>
                       </td>
                       <td className="px-5 py-3.5">
-                        <Badge tone={severityTone(clash.severity as ClashSeverity)}>
-                          {clash.severity}
-                        </Badge>
+                        <Severity level={clash.severity as ClashSeverity} />
                       </td>
                       <td className="px-5 py-3.5 text-ink-secondary">
                         {aLabel && bLabel ? (

@@ -11,6 +11,32 @@ import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 
+export type IssueSeverity = "low" | "medium" | "high" | "critical";
+export type IssueCategory =
+  | "technical_defect"
+  | "resource_unavailability"
+  | "dependency_delay"
+  | "budget_funding"
+  | "scope_creep"
+  | "stakeholder_conflict"
+  | "operational_bottleneck"
+  | "data_quality"
+  | "third_party_vendor"
+  | "environmental_external";
+
+const ISSUE_CATEGORY_OPTIONS: { value: IssueCategory; label: string }[] = [
+  { value: "technical_defect", label: "Technical / System Defect" },
+  { value: "resource_unavailability", label: "Resource Unavailability" },
+  { value: "dependency_delay", label: "Dependency Delay" },
+  { value: "budget_funding", label: "Budget / Funding" },
+  { value: "scope_creep", label: "Scope Creep" },
+  { value: "stakeholder_conflict", label: "Stakeholder Conflict" },
+  { value: "operational_bottleneck", label: "Operational Bottleneck" },
+  { value: "data_quality", label: "Data Quality / Integrity" },
+  { value: "third_party_vendor", label: "Third-Party / Vendor" },
+  { value: "environmental_external", label: "Environmental / External" },
+];
+
 export interface Issue {
   id: string;
   project_id: string;
@@ -21,6 +47,13 @@ export interface Issue {
   status: "open" | "in_progress" | "resolved" | "closed";
   raised_at: string;
   due_date: string | null;
+  // Content-enrichment P0 fields (migration 0008_content_enrichment) — optional
+  // so narrower callers (e.g. list rows) still satisfy the prop type.
+  severity?: IssueSeverity | null;
+  issue_category?: IssueCategory | null;
+  impact?: string | null;
+  resolution_eta?: string | null;
+  resolved_at?: string | null;
 }
 
 // ── IssueForm ─────────────────────────────────────────────────────────────────
@@ -52,6 +85,24 @@ export function IssueForm({
   );
   const [dueDate, setDueDate] = useState(issue?.due_date?.slice(0, 10) ?? "");
 
+  // Content-enrichment P0 fields.
+  const [severity, setSeverity] = useState<IssueSeverity>(
+    issue?.severity ?? "medium"
+  );
+  const [issueCategory, setIssueCategory] = useState<IssueCategory | "">(
+    issue?.issue_category ?? ""
+  );
+  const [impact, setImpact] = useState(issue?.impact ?? "");
+  const [showImpact, setShowImpact] = useState(
+    !!(issue?.impact && issue.impact.trim().length > 0)
+  );
+  const [resolutionEta, setResolutionEta] = useState(
+    issue?.resolution_eta?.slice(0, 10) ?? ""
+  );
+  const [resolvedAt, setResolvedAt] = useState(
+    issue?.resolved_at?.slice(0, 10) ?? ""
+  );
+
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -76,6 +127,12 @@ export function IssueForm({
       resolution: resolution.trim(),
       status,
       due_date: dueDate || null,
+      // Content-enrichment P0 fields (optional/nullable).
+      severity,
+      issue_category: issueCategory || null,
+      impact: impact.trim() || null,
+      resolution_eta: resolutionEta || null,
+      resolved_at: resolvedAt || null,
     };
 
     try {
@@ -129,6 +186,21 @@ export function IssueForm({
           <FieldError message={fieldErrors.priority} />
         </div>
 
+        {/* Severity */}
+        <div>
+          <FieldLabel>Severity</FieldLabel>
+          <SelectInput
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value as IssueSeverity)}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </SelectInput>
+          <FieldError message={fieldErrors.severity} />
+        </div>
+
         {/* Status */}
         <div>
           <FieldLabel>Status</FieldLabel>
@@ -144,6 +216,25 @@ export function IssueForm({
           <FieldError message={fieldErrors.status} />
         </div>
 
+        {/* Category */}
+        <div>
+          <FieldLabel>Category</FieldLabel>
+          <SelectInput
+            value={issueCategory}
+            onChange={(e) =>
+              setIssueCategory(e.target.value as IssueCategory | "")
+            }
+          >
+            <option value="">Uncategorized</option>
+            {ISSUE_CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </SelectInput>
+          <FieldError message={fieldErrors.issue_category} />
+        </div>
+
         {/* Due date */}
         <div>
           <FieldLabel>Due Date</FieldLabel>
@@ -154,6 +245,30 @@ export function IssueForm({
             className="h-11 sm:h-10 text-base sm:text-sm"
           />
           <FieldError message={fieldErrors.due_date} />
+        </div>
+
+        {/* Resolution ETA */}
+        <div>
+          <FieldLabel>Resolution ETA</FieldLabel>
+          <Input
+            type="date"
+            value={resolutionEta}
+            onChange={(e) => setResolutionEta(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.resolution_eta} />
+        </div>
+
+        {/* Resolved date */}
+        <div>
+          <FieldLabel>Resolved On</FieldLabel>
+          <Input
+            type="date"
+            value={resolvedAt}
+            onChange={(e) => setResolvedAt(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.resolved_at} />
         </div>
       </div>
 
@@ -198,6 +313,28 @@ export function IssueForm({
           className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
         >
           + Add resolution
+        </button>
+      )}
+
+      {/* Impact — progressive disclosure */}
+      {showImpact ? (
+        <div>
+          <FieldLabel>Impact</FieldLabel>
+          <TextareaInput
+            value={impact}
+            onChange={(e) => setImpact(e.target.value)}
+            placeholder="Impact of this issue on schedule, cost, scope…"
+            rows={2}
+          />
+          <FieldError message={fieldErrors.impact} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowImpact(true)}
+          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+        >
+          + Add impact
         </button>
       )}
 

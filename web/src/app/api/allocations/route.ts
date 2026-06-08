@@ -12,7 +12,7 @@ const createAllocationSchema = z.object({
   member_id: z.string().uuid(),
   project_id: z.string().uuid().optional().nullable(),
   task_id: z.string().uuid().optional().nullable(),
-  allocation_pct: z.number().min(0).max(999).optional().nullable(),
+  allocation_pct: z.number().min(0).max(500).optional().nullable(),
   hours: z.number().nonnegative().optional().nullable(),
   window_start: z.string().datetime().optional().nullable(),
   window_end: z.string().datetime().optional().nullable(),

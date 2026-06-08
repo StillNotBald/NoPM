@@ -11,6 +11,28 @@ import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 
+export type RiskResponseStrategy = "avoid" | "transfer" | "mitigate" | "accept";
+
+export type RiskCategoryValue =
+  | "timeline_schedule"
+  | "dependencies_third_party"
+  | "operational_continuity"
+  | "technology_infrastructure"
+  | "financial_capex"
+  | "resource_management"
+  | "scope_management"
+  | "data_information"
+  | "compliance_regulatory"
+  | "change_stakeholder";
+
+export type RiskImpactArea =
+  | "schedule"
+  | "cost"
+  | "scope"
+  | "quality"
+  | "reputation"
+  | "compliance";
+
 export interface Risk {
   id: string;
   project_id: string;
@@ -23,7 +45,39 @@ export interface Risk {
   status: "open" | "mitigating" | "closed" | "accepted";
   raised_at: string;
   due_date: string | null;
+  // Content-enrichment (0008) — PMBOK risk-register fields.
+  // Optional on the type so consumers holding a pre-enrichment Risk shape still
+  // satisfy this prop; nullable because every backing column is nullable/defaulted.
+  probability_pct?: number | null;
+  impact_score?: number | null;
+  response_strategy?: RiskResponseStrategy;
+  risk_category?: RiskCategoryValue | null;
+  impact_area?: RiskImpactArea | null;
+  trigger?: string | null;
+  residual_risk?: string | null;
 }
+
+const RISK_CATEGORY_OPTIONS: { value: RiskCategoryValue; label: string }[] = [
+  { value: "timeline_schedule", label: "Timeline / Schedule" },
+  { value: "dependencies_third_party", label: "Dependencies / Third-party" },
+  { value: "operational_continuity", label: "Operational Continuity" },
+  { value: "technology_infrastructure", label: "Technology / Infrastructure" },
+  { value: "financial_capex", label: "Financial / CapEx" },
+  { value: "resource_management", label: "Resource Management" },
+  { value: "scope_management", label: "Scope Management" },
+  { value: "data_information", label: "Data / Information" },
+  { value: "compliance_regulatory", label: "Compliance / Regulatory" },
+  { value: "change_stakeholder", label: "Change / Stakeholder" },
+];
+
+const IMPACT_AREA_OPTIONS: { value: RiskImpactArea; label: string }[] = [
+  { value: "schedule", label: "Schedule" },
+  { value: "cost", label: "Cost" },
+  { value: "scope", label: "Scope" },
+  { value: "quality", label: "Quality" },
+  { value: "reputation", label: "Reputation" },
+  { value: "compliance", label: "Compliance" },
+];
 
 // ── RiskForm ──────────────────────────────────────────────────────────────────
 
@@ -58,6 +112,25 @@ export function RiskForm({
   );
   const [dueDate, setDueDate] = useState(risk?.due_date?.slice(0, 10) ?? "");
 
+  // Content-enrichment (0008) — PMBOK risk-register fields
+  const [responseStrategy, setResponseStrategy] = useState<RiskResponseStrategy>(
+    risk?.response_strategy ?? "mitigate"
+  );
+  const [riskCategory, setRiskCategory] = useState<RiskCategoryValue | "">(
+    risk?.risk_category ?? ""
+  );
+  const [impactArea, setImpactArea] = useState<RiskImpactArea | "">(
+    risk?.impact_area ?? ""
+  );
+  const [probabilityPct, setProbabilityPct] = useState(
+    risk?.probability_pct != null ? String(risk.probability_pct) : ""
+  );
+  const [impactScore, setImpactScore] = useState(
+    risk?.impact_score != null ? String(risk.impact_score) : ""
+  );
+  const [trigger, setTrigger] = useState(risk?.trigger ?? "");
+  const [residualRisk, setResidualRisk] = useState(risk?.residual_risk ?? "");
+
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -75,6 +148,10 @@ export function RiskForm({
     setFieldErrors({});
     setSaving(true);
 
+    const probabilityValue =
+      probabilityPct.trim() === "" ? null : Number(probabilityPct);
+    const impactValue = impactScore.trim() === "" ? null : Number(impactScore);
+
     const payload = {
       title: title.trim(),
       description: description.trim(),
@@ -84,6 +161,14 @@ export function RiskForm({
       mitigation: mitigation.trim(),
       status,
       due_date: dueDate || null,
+      // Content-enrichment (0008) — optional PMBOK fields
+      response_strategy: responseStrategy,
+      risk_category: riskCategory || null,
+      impact_area: impactArea || null,
+      probability_pct: probabilityValue,
+      impact_score: impactValue,
+      trigger: trigger.trim() || null,
+      residual_risk: residualRisk.trim() || null,
     };
 
     try {
@@ -190,6 +275,93 @@ export function RiskForm({
           />
           <FieldError message={fieldErrors.due_date} />
         </div>
+
+        {/* Response strategy */}
+        <div>
+          <FieldLabel>Response Strategy</FieldLabel>
+          <SelectInput
+            value={responseStrategy}
+            onChange={(e) =>
+              setResponseStrategy(e.target.value as RiskResponseStrategy)
+            }
+          >
+            <option value="avoid">Avoid</option>
+            <option value="transfer">Transfer</option>
+            <option value="mitigate">Mitigate</option>
+            <option value="accept">Accept</option>
+          </SelectInput>
+          <FieldError message={fieldErrors.response_strategy} />
+        </div>
+
+        {/* Risk category */}
+        <div>
+          <FieldLabel>Risk Category</FieldLabel>
+          <SelectInput
+            value={riskCategory}
+            onChange={(e) =>
+              setRiskCategory(e.target.value as RiskCategoryValue | "")
+            }
+          >
+            <option value="">— Select category —</option>
+            {RISK_CATEGORY_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </SelectInput>
+          <FieldError message={fieldErrors.risk_category} />
+        </div>
+
+        {/* Impact area */}
+        <div>
+          <FieldLabel>Impact Area</FieldLabel>
+          <SelectInput
+            value={impactArea}
+            onChange={(e) =>
+              setImpactArea(e.target.value as RiskImpactArea | "")
+            }
+          >
+            <option value="">— Select area —</option>
+            {IMPACT_AREA_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </SelectInput>
+          <FieldError message={fieldErrors.impact_area} />
+        </div>
+
+        {/* Probability (%) */}
+        <div>
+          <FieldLabel>Probability (%)</FieldLabel>
+          <Input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={probabilityPct}
+            onChange={(e) => setProbabilityPct(e.target.value)}
+            placeholder="0–100"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.probability_pct} />
+        </div>
+
+        {/* Impact score (1–5) */}
+        <div>
+          <FieldLabel>Impact Score (1–5)</FieldLabel>
+          <Input
+            type="number"
+            min={1}
+            max={5}
+            step={1}
+            value={impactScore}
+            onChange={(e) => setImpactScore(e.target.value)}
+            placeholder="1–5"
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.impact_score} />
+        </div>
       </div>
 
       {/* Description — progressive disclosure */}
@@ -235,6 +407,30 @@ export function RiskForm({
           + Add mitigation plan
         </button>
       )}
+
+      {/* Trigger — early-warning indicator */}
+      <div>
+        <FieldLabel>Trigger / Early Warning</FieldLabel>
+        <TextareaInput
+          value={trigger}
+          onChange={(e) => setTrigger(e.target.value)}
+          placeholder="What signals that this risk is materializing…"
+          rows={2}
+        />
+        <FieldError message={fieldErrors.trigger} />
+      </div>
+
+      {/* Residual risk — remaining after the chosen response */}
+      <div>
+        <FieldLabel>Residual Risk</FieldLabel>
+        <TextareaInput
+          value={residualRisk}
+          onChange={(e) => setResidualRisk(e.target.value)}
+          placeholder="Risk remaining after the response is applied…"
+          rows={2}
+        />
+        <FieldError message={fieldErrors.residual_risk} />
+      </div>
 
       {/* Actions */}
       <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">

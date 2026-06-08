@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import { FieldLabel, FieldError, SelectInput } from "@/components/forms/project-form";
+import {
+  FieldLabel,
+  FieldError,
+  SelectInput,
+  TextareaInput,
+} from "@/components/forms/project-form";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 export interface Milestone {
@@ -19,6 +24,13 @@ export interface Milestone {
   completion_pct: number;
   owner_id: string | null;
   sort_order: number;
+  // Content-enrichment P0 fields (additive — optional so existing callers
+  // that build a Milestone without them still typecheck).
+  description?: string | null;
+  deliverable?: string | null;
+  start_date?: string | null;
+  baseline_target_date?: string | null;
+  actual_date?: string | null;
 }
 
 // ── MilestoneForm ─────────────────────────────────────────────────────────────
@@ -40,6 +52,14 @@ export function MilestoneForm({
   const [completionPct, setCompletionPct] = useState(
     milestone?.completion_pct ?? 0,
   );
+  // Content-enrichment P0 fields
+  const [description, setDescription] = useState(milestone?.description ?? "");
+  const [deliverable, setDeliverable] = useState(milestone?.deliverable ?? "");
+  const [startDate, setStartDate] = useState(milestone?.start_date ?? "");
+  const [baselineTargetDate, setBaselineTargetDate] = useState(
+    milestone?.baseline_target_date ?? "",
+  );
+  const [actualDate, setActualDate] = useState(milestone?.actual_date ?? "");
 
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
@@ -63,6 +83,12 @@ export function MilestoneForm({
       status,
       target_date: targetDate || null,
       completion_pct: Number(completionPct),
+      // Content-enrichment P0 fields (optional/nullable)
+      description: description || null,
+      deliverable: deliverable || null,
+      start_date: startDate || null,
+      baseline_target_date: baselineTargetDate || null,
+      actual_date: actualDate || null,
     };
 
     try {
@@ -140,6 +166,61 @@ export function MilestoneForm({
           />
           <FieldError message={fieldErrors.completion_pct} />
         </div>
+
+        <div>
+          <FieldLabel>Start Date</FieldLabel>
+          <Input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.start_date} />
+        </div>
+
+        <div>
+          <FieldLabel>Baseline Target Date</FieldLabel>
+          <Input
+            type="date"
+            value={baselineTargetDate}
+            onChange={(e) => setBaselineTargetDate(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.baseline_target_date} />
+        </div>
+
+        <div>
+          <FieldLabel>Actual Date</FieldLabel>
+          <Input
+            type="date"
+            value={actualDate}
+            onChange={(e) => setActualDate(e.target.value)}
+            className="h-11 sm:h-10 text-base sm:text-sm"
+          />
+          <FieldError message={fieldErrors.actual_date} />
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <FieldLabel>Description</FieldLabel>
+        <TextareaInput
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Milestone narrative — what this milestone represents and why it matters."
+        />
+        <FieldError message={fieldErrors.description} />
+      </div>
+
+      {/* Deliverable */}
+      <div>
+        <FieldLabel>Deliverable</FieldLabel>
+        <TextareaInput
+          value={deliverable}
+          onChange={(e) => setDeliverable(e.target.value)}
+          placeholder="WBS deliverable / acceptance output produced at this milestone."
+        />
+        <FieldError message={fieldErrors.deliverable} />
       </div>
 
       {/* Actions */}

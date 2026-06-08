@@ -15,8 +15,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -55,28 +54,6 @@ const COLUMN_TITLES: Record<TaskStatusType, string> = {
   completed: "Done",
   canceled: "Canceled",
 };
-
-// ── Priority badge ─────────────────────────────────────────────────────────
-
-function priorityTone(
-  priority: PriorityLevel,
-): "neutral" | "info" | "warning" | "danger" | "accent" {
-  switch (priority) {
-    case "urgent": return "danger";
-    case "high": return "warning";
-    case "medium": return "info";
-    default: return "neutral";
-  }
-}
-
-function priorityLabel(priority: PriorityLevel): string {
-  switch (priority) {
-    case "urgent": return "Urgent";
-    case "high": return "High";
-    case "medium": return "Medium";
-    case "low": return "Low";
-  }
-}
 
 // ── Draggable task card ────────────────────────────────────────────────────
 
@@ -117,9 +94,7 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
     >
       <p className="font-medium text-ink leading-snug">{task.name}</p>
       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
-        <Badge tone={priorityTone(task.priority)}>
-          {priorityLabel(task.priority)}
-        </Badge>
+        <Severity level={task.priority} />
         {movedNote && (
           <span className="text-xs text-success font-medium">
             moved — audited ✓

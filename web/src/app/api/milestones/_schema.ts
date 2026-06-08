@@ -17,6 +17,12 @@ export const createMilestoneSchema = z.object({
   completion_pct: z.number().int().min(0).max(100).default(0),
   owner_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().min(0).default(0),
+  // Content-enrichment P0 fields (additive, all optional/nullable)
+  description: z.string().nullable().optional(),
+  deliverable: z.string().nullable().optional(),
+  start_date: z.string().nullable().optional(), // ISO date string
+  baseline_target_date: z.string().nullable().optional(), // ISO date string
+  actual_date: z.string().nullable().optional(), // ISO date string
 });
 
 export const updateMilestoneSchema = z.object({
@@ -26,6 +32,12 @@ export const updateMilestoneSchema = z.object({
   completion_pct: z.number().int().min(0).max(100).optional(),
   owner_id: z.string().uuid().nullable().optional(),
   sort_order: z.number().int().min(0).optional(),
+  // Content-enrichment P0 fields (additive, all optional/nullable)
+  description: z.string().nullable().optional(),
+  deliverable: z.string().nullable().optional(),
+  start_date: z.string().nullable().optional(), // ISO date string
+  baseline_target_date: z.string().nullable().optional(), // ISO date string
+  actual_date: z.string().nullable().optional(), // ISO date string
 });
 
 export type CreateMilestoneInput = z.infer<typeof createMilestoneSchema>;

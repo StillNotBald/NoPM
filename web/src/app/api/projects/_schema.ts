@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+// PMBOK process groups — backs the `phase` column (content-enrichment 0008).
+const projectPhase = z.enum([
+  "initiation",
+  "planning",
+  "execution",
+  "monitoring",
+  "closing",
+]);
+
 export const createProjectSchema = z.object({
   code: z.string().min(1).max(32),
   name: z.string().min(1).max(255),
@@ -14,6 +23,16 @@ export const createProjectSchema = z.object({
   target_date: z.string().optional(), // ISO date string
   currency: z.string().length(3).optional(),
   is_locked: z.boolean().optional(),
+  // ── Content enrichment (0008): PMBOK charter + baseline pair + phase ──────
+  business_case: z.string().nullish(),
+  objective: z.string().nullish(),
+  scope_summary: z.string().nullish(),
+  sponsor: z.string().nullish(),
+  project_manager: z.string().nullish(),
+  phase: projectPhase.optional(),
+  health_commentary: z.string().nullish(),
+  baseline_start_date: z.string().nullish(), // ISO date string
+  baseline_target_date: z.string().nullish(), // ISO date string
 });
 
 export const updateProjectSchema = z.object({
@@ -30,6 +49,16 @@ export const updateProjectSchema = z.object({
   target_date: z.string().optional(),
   currency: z.string().length(3).optional(),
   is_locked: z.boolean().optional(),
+  // ── Content enrichment (0008): PMBOK charter + baseline pair + phase ──────
+  business_case: z.string().nullish(),
+  objective: z.string().nullish(),
+  scope_summary: z.string().nullish(),
+  sponsor: z.string().nullish(),
+  project_manager: z.string().nullish(),
+  phase: projectPhase.optional(),
+  health_commentary: z.string().nullish(),
+  baseline_start_date: z.string().nullish(),
+  baseline_target_date: z.string().nullish(),
 });
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

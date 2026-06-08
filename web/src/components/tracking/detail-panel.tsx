@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Severity } from "@/components/ui/severity";
 import { useModal } from "@/components/ui/modal";
 import { useInspector } from "@/components/layout/app-shell";
 import { apiDelete } from "@/lib/api-client";
@@ -42,19 +43,6 @@ function taskStatusBadge(statusType: Task["status_type"]): {
     case "backlog":   return { tone: "neutral", label: "Backlog" };
     case "unstarted":
     default:          return { tone: "neutral", label: "To do" };
-  }
-}
-
-function priorityBadge(priority: Task["priority"]): {
-  tone: BadgeTone;
-  label: string;
-} {
-  switch (priority) {
-    case "urgent": return { tone: "danger",  label: "Urgent" };
-    case "high":   return { tone: "warning", label: "High" };
-    case "medium": return { tone: "info",    label: "Medium" };
-    case "low":
-    default:       return { tone: "neutral", label: "Low" };
   }
 }
 
@@ -120,7 +108,6 @@ export function TaskDetailPanel({
   const router = useRouter();
 
   const statusInfo = taskStatusBadge(task.status_type);
-  const prioInfo = priorityBadge(task.priority);
 
   const parentMilestone = milestones.find((m) => m.id === task.milestone_id);
 
@@ -144,9 +131,9 @@ export function TaskDetailPanel({
             {task.description}
           </p>
         )}
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
-          <Badge tone={prioInfo.tone}>{prioInfo.label}</Badge>
+          <Severity level={task.priority} />
         </div>
       </div>
 

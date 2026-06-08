@@ -24,6 +24,12 @@ export const TaskCreateSchema = z.object({
   due_date: z.string().nullable().optional(),
   completion_pct: z.number().int().min(0).max(100).optional().default(0),
   sort_order: z.number().int().optional(),
+  // ── content-enrichment (0008) — additive, all optional/nullable ──────────────
+  acceptance_criteria: z.string().nullable().optional(),
+  estimate_hours: z.number().min(0, "estimate_hours must be >= 0").nullable().optional(),
+  story_points: z.number().min(0, "story_points must be >= 0").nullable().optional(),
+  labels: z.array(z.string()).optional(),
+  blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
 });
 
 export const TaskUpdateSchema = z.object({
@@ -38,6 +44,12 @@ export const TaskUpdateSchema = z.object({
   completion_pct: z.number().int().min(0).max(100).optional(),
   sort_order: z.number().int().optional(),
   milestone_id: z.string().uuid("milestone_id must be a UUID").nullable().optional(),
+  // ── content-enrichment (0008) — additive, all optional/nullable ──────────────
+  acceptance_criteria: z.string().nullable().optional(),
+  estimate_hours: z.number().min(0, "estimate_hours must be >= 0").nullable().optional(),
+  story_points: z.number().min(0, "story_points must be >= 0").nullable().optional(),
+  labels: z.array(z.string()).optional(),
+  blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
 }).strict();
 
 export const TaskDeleteRequestSchema = z.object({
