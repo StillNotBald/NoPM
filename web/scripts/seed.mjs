@@ -446,6 +446,15 @@ for (const a of auditRows) {
   await db.from("audit_log").insert({ workspace_id: W, actor_type: "user", actor_id: owner, actor_label: "Jordan Hale", ...a });
 }
 
+// Projects flagged RAG 'complete' should read as finished. Project completion is
+// now a task rollup (migration 0021), so mark their tasks + milestones done and
+// the rollup trigger lands the project at 100%.
+const completeProjects = (await db.from("projects").select("id").eq("workspace_id", W).eq("rag_status", "complete")).data ?? [];
+for (const proj of completeProjects) {
+  await db.from("tasks").update({ status_type: "completed", completion_pct: 100 }).eq("project_id", proj.id).neq("status_type", "canceled");
+  await db.from("milestones").update({ status: "complete", completion_pct: 100 }).eq("project_id", proj.id);
+}
+
 // Task assignment is handled by scripts/seed-people-link.mjs (run after
 // seed-members.mjs): it links login profiles ↔ resource_members and assigns
 // tasks to members, since tasks.assignee_id -> resource_members(id) (migration 0019).

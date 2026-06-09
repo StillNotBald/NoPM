@@ -1,0 +1,38 @@
+name: CI
+
+# Enforces the discipline that already exists: type safety, the governance/EVM
+# unit suite, and the RTM (requirements ↔ code) integrity check — on every push
+# and PR. None of these need a database or secrets (the tests are pure functions;
+# rtm-verify only reads files), so CI is fully self-contained.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Unit + governance-invariant tests
+        run: npm test
+
+      - name: RTM integrity (requirements ↔ on-disk code paths)
+        run: npm run rtm:verify

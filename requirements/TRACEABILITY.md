@@ -20,7 +20,7 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-15 | Clash register | DONE | `web/src/app/api/clashes/route.ts`, `web/src/app/api/clashes/[id]/route.ts`, `web/src/app/(console)/clashes/page.tsx`, `web/src/lib/clash/detect.ts` | — |
 | R-16 | Resource + allocation | DONE | `web/src/app/api/resources/route.ts`, `web/src/app/api/resources/[id]/route.ts`, `web/src/app/api/allocations/route.ts`, `web/src/app/api/allocations/[id]/route.ts`, `web/src/app/(console)/resources/page.tsx` | — |
 | R-17 | Timesheets | DONE | `web/src/app/api/time-entries/route.ts`, `web/src/app/api/time-entries/[id]/route.ts` | — |
-| R-18 | Budget | DONE | `web/src/app/api/projects/[id]/budget/route.ts`, `web/src/app/api/projects/[id]/expenses/route.ts`, `web/src/app/api/expenses/[id]/route.ts`, `web/src/app/(console)/budget/page.tsx`, `web/src/lib/evm.ts` | — |
+| R-18 | Budget | DONE | `web/src/app/api/projects/[id]/budget/route.ts`, `web/src/app/api/projects/[id]/expenses/route.ts`, `web/src/app/api/expenses/[id]/route.ts`, `web/src/app/(console)/budget/page.tsx`, `web/src/lib/evm.ts`, `web/src/lib/evm.test.ts`, `web/supabase/migrations/20260608000021_completion_rollup.sql` | R-60 |
 | R-20 | API contract | DONE | `web/src/lib/api/handler.ts`, `web/src/lib/api/response.ts`, `web/src/lib/api/errors.ts` | — |
 | R-21 | OpenAPI spec | DONE | `web/src/app/api/openapi.json/route.ts` | — |
 | R-22 | /llms.txt | DONE | `web/src/app/llms.txt/route.ts` | — |
