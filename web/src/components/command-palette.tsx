@@ -21,10 +21,14 @@ import {
   KeyRound,
   Plus,
   Search,
+  FileText,
+  GitPullRequest,
+  Lightbulb,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
 import { ProjectForm } from "@/components/forms/project-form";
+import type { SearchResult } from "@/app/api/search/route";
 
 // ── Command definitions ───────────────────────────────────────────────────────
 
@@ -45,6 +49,33 @@ function matches(label: string, query: string): boolean {
   return l.includes(q);
 }
 
+// ── Record type icon ──────────────────────────────────────────────────────────
+function RecordIcon({ type }: { type: SearchResult["type"] }) {
+  const size = 16;
+  switch (type) {
+    case "project":      return <FolderKanban size={size} />;
+    case "task":         return <CheckSquare size={size} />;
+    case "risk":         return <AlertTriangle size={size} />;
+    case "issue":        return <CircleDot size={size} />;
+    case "clash":        return <Zap size={size} />;
+    case "document":     return <FileText size={size} />;
+    case "change_request": return <GitPullRequest size={size} />;
+    case "decision":     return <Lightbulb size={size} />;
+  }
+}
+
+// ── Record type label ─────────────────────────────────────────────────────────
+const RECORD_TYPE_LABEL: Record<SearchResult["type"], string> = {
+  project: "Project",
+  task: "Task",
+  risk: "Risk",
+  issue: "Issue",
+  clash: "Clash",
+  document: "Document",
+  change_request: "Change Request",
+  decision: "Decision",
+};
+
 // ── CommandPalette (internal panel) ──────────────────────────────────────────
 
 function CommandPalettePanel({ onClose }: { onClose: () => void }) {
@@ -52,6 +83,10 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
   const inspector = useInspector();
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [records, setRecords] = useState<SearchResult[]>([]);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
@@ -171,9 +206,48 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
 
   const filtered = allCommands.filter((c) => matches(c.label, query));
 
-  // Reset active index when filter changes
+  // Debounced record search — also resets active index on each query change
   useEffect(() => {
+    // Clear previous debounce
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    // Abort previous in-flight request
+    if (abortRef.current) abortRef.current.abort();
+
+    // Reset selection whenever the query changes
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActiveIdx(0);
+
+    if (!query.trim()) {
+      setRecords([]);
+      setRecordsLoading(false);
+      return;
+    }
+
+    setRecordsLoading(true);
+    debounceRef.current = setTimeout(() => {
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      fetch(`/api/search?q=${encodeURIComponent(query.trim())}`, {
+        signal: controller.signal,
+      })
+        .then((res) => res.json())
+        .then((json: { data?: SearchResult[] }) => {
+          setRecords(json.data ?? []);
+          setRecordsLoading(false);
+          setActiveIdx(0);
+        })
+        .catch((err: unknown) => {
+          if (err instanceof Error && err.name === "AbortError") return;
+          setRecords([]);
+          setRecordsLoading(false);
+        });
+    }, 200);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, [query]);
 
   // Autofocus on mount
@@ -181,22 +255,40 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
     inputRef.current?.focus();
   }, []);
 
-  // Scroll active item into view
+  // Scroll active item into view — query flat-indexed items via data-flat-idx
   useEffect(() => {
-    const item = listRef.current?.children[activeIdx] as HTMLElement | undefined;
-    item?.scrollIntoView({ block: "nearest" });
+    if (!listRef.current) return;
+    const el = listRef.current.querySelector<HTMLElement>(`[data-flat-idx="${activeIdx}"]`);
+    el?.scrollIntoView({ block: "nearest" });
   }, [activeIdx]);
+
+  // Flat ordered list for keyboard navigation: records section first when query
+  // is active, then static nav/create commands.
+  const totalItems = records.length + filtered.length;
+
+  function runItem(idx: number) {
+    if (idx < records.length) {
+      const rec = records[idx];
+      if (rec) {
+        onClose();
+        router.push(rec.href);
+      }
+    } else {
+      const cmd = filtered[idx - records.length];
+      cmd?.action();
+    }
+  }
 
   function handleKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIdx((i) => (i + 1) % Math.max(filtered.length, 1));
+      setActiveIdx((i) => (i + 1) % Math.max(totalItems, 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setActiveIdx((i) => (i - 1 + Math.max(filtered.length, 1)) % Math.max(filtered.length, 1));
+      setActiveIdx((i) => (i - 1 + Math.max(totalItems, 1)) % Math.max(totalItems, 1));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      filtered[activeIdx]?.action();
+      runItem(activeIdx);
     } else if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -227,39 +319,113 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* Results list */}
-      <ul ref={listRef} className="max-h-72 overflow-y-auto py-1.5">
-        {filtered.length === 0 ? (
+      <ul ref={listRef} className="max-h-80 overflow-y-auto py-1.5">
+        {/* ── Records section ───────────────────────────────────────────── */}
+        {query.trim() && (
+          <>
+            {recordsLoading && (
+              <li className="flex items-center gap-2 px-4 py-2">
+                <span className="h-3 w-3 animate-spin rounded-full border border-border-subtle border-t-accent" />
+                <span className="text-xs text-ink-muted">Searching records…</span>
+              </li>
+            )}
+            {!recordsLoading && records.length > 0 && (
+              <>
+                <li className="px-4 pb-1 pt-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
+                    Records
+                  </span>
+                </li>
+                {records.map((rec, idx) => (
+                  <li key={`rec-${rec.type}-${rec.id}`}>
+                    <button
+                      data-flat-idx={idx}
+                      onMouseEnter={() => setActiveIdx(idx)}
+                      onClick={() => runItem(idx)}
+                      className={cn(
+                        "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100",
+                        idx === activeIdx
+                          ? "bg-accent/10 text-ink"
+                          : "text-ink hover:bg-sunken",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "shrink-0",
+                          idx === activeIdx ? "text-accent" : "text-ink-secondary",
+                        )}
+                      >
+                        <RecordIcon type={rec.type} />
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block truncate text-sm font-medium">{rec.label}</span>
+                        {rec.sublabel && (
+                          <span className="block truncate font-mono text-[11px] text-ink-muted">
+                            {rec.sublabel}
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
+                        {RECORD_TYPE_LABEL[rec.type]}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </>
+            )}
+            {!recordsLoading && records.length === 0 && (
+              <li className="px-4 py-2 text-xs text-ink-muted">
+                No records match &ldquo;{query}&rdquo;
+              </li>
+            )}
+            {/* Divider between records and commands when both sections are visible */}
+            {filtered.length > 0 && (
+              <li className="px-4 pb-1 pt-2">
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-ink-muted">
+                  Commands
+                </span>
+              </li>
+            )}
+          </>
+        )}
+
+        {/* ── Commands section ──────────────────────────────────────────── */}
+        {filtered.length === 0 && !query.trim() ? (
           <li className="px-4 py-6 text-center text-sm text-ink-muted">
             No results for &ldquo;{query}&rdquo;
           </li>
         ) : (
-          filtered.map((cmd, idx) => (
-            <li key={cmd.id}>
-              <button
-                onMouseEnter={() => setActiveIdx(idx)}
-                onClick={cmd.action}
-                className={cn(
-                  "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100",
-                  idx === activeIdx
-                    ? "bg-accent/10 text-ink"
-                    : "text-ink hover:bg-sunken",
-                )}
-              >
-                <span
+          filtered.map((cmd, cmdIdx) => {
+            const flatIdx = records.length + cmdIdx;
+            return (
+              <li key={cmd.id}>
+                <button
+                  data-flat-idx={flatIdx}
+                  onMouseEnter={() => setActiveIdx(flatIdx)}
+                  onClick={cmd.action}
                   className={cn(
-                    "shrink-0",
-                    idx === activeIdx ? "text-accent" : "text-ink-secondary",
+                    "flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors duration-100",
+                    flatIdx === activeIdx
+                      ? "bg-accent/10 text-ink"
+                      : "text-ink hover:bg-sunken",
                   )}
                 >
-                  {cmd.icon}
-                </span>
-                <span className="flex-1 text-sm font-medium">{cmd.label}</span>
-                <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
-                  {cmd.hint}
-                </span>
-              </button>
-            </li>
-          ))
+                  <span
+                    className={cn(
+                      "shrink-0",
+                      flatIdx === activeIdx ? "text-accent" : "text-ink-secondary",
+                    )}
+                  >
+                    {cmd.icon}
+                  </span>
+                  <span className="flex-1 text-sm font-medium">{cmd.label}</span>
+                  <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-medium text-ink-muted">
+                    {cmd.hint}
+                  </span>
+                </button>
+              </li>
+            );
+          })
         )}
       </ul>
 

@@ -6,8 +6,10 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { createDecisionSchema } from "@/app/api/decisions/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ export function DecisionForm({
 }) {
   const inspector = useInspector();
   const router = useRouter();
+  const toast = useToast();
 
   const [projectId, setProjectId] = useState(
     decision?.project_id ?? projects[0]?.id ?? "",
@@ -83,6 +86,28 @@ export function DecisionForm({
     e.preventDefault();
     setTopError(null);
     setFieldErrors({});
+
+    // Client-side validation — reuse the server schema's safeParse for
+    // immediate inline errors before the network round-trip.
+    const clientResult = createDecisionSchema.safeParse({
+      title: title.trim(),
+      context: context.trim() || null,
+      options: options.trim() || null,
+      decision: decisionText.trim() || null,
+      rationale: rationale.trim() || null,
+      status,
+      decided_at: decidedAt || null,
+    });
+    if (!clientResult.success) {
+      const map: Record<string, string> = {};
+      for (const issue of clientResult.error.issues) {
+        const field = issue.path[0] as string;
+        if (!map[field]) map[field] = issue.message;
+      }
+      setFieldErrors(map);
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -98,13 +123,16 @@ export function DecisionForm({
     try {
       if (decision) {
         await apiPatch(`/api/decisions/${decision.id}`, payload);
+        toast.success("Decision updated");
       } else {
         await apiPost(`/api/projects/${projectId}/decisions`, payload);
+        toast.success("Decision recorded");
       }
       router.refresh();
       inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to save decision");
       setSaving(false);
     }
   }

@@ -1,9 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
+import { useInspector } from "@/components/layout/app-shell";
+import { ApprovalInlineAction, ChangeInlineAction } from "@/components/review/inline-action";
 import type { ReviewItem, ReviewKind } from "@/lib/review/gather";
 
 // ── Kind metadata ─────────────────────────────────────────────────────────────
@@ -50,7 +53,21 @@ const kindMeta: Record<
   },
 };
 
-// ── Kind badge shown on each row ──────────────────────────────────────────────
+// ── Filter tabs metadata ──────────────────────────────────────────────────────
+
+type FilterKind = "all" | ReviewKind;
+
+const FILTER_TABS: { key: FilterKind; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "approval", label: "Approvals" },
+  { key: "change", label: "Changes" },
+  { key: "risk", label: "Risks" },
+  { key: "clash", label: "Clashes" },
+  { key: "document", label: "Docs" },
+  { key: "rebaseline", label: "Rebaselines" },
+];
+
+// ── Kind badge tone ───────────────────────────────────────────────────────────
 
 function kindTone(kind: ReviewKind) {
   switch (kind) {
@@ -59,9 +76,9 @@ function kindTone(kind: ReviewKind) {
     case "rebaseline":
       return "warning" as const;
     case "change":
-      return "neutral" as const; // colour carried by the violet group chip
+      return "neutral" as const;
     case "risk":
-      return "neutral" as const; // colour comes from Severity dot; badge stays neutral
+      return "neutral" as const;
     case "clash":
       return "info" as const;
     case "document":
@@ -87,14 +104,11 @@ function AgeChip({ days }: { days: number }) {
   );
 }
 
-// ── Single row ────────────────────────────────────────────────────────────────
+// ── Row content (shared between link and button rows) ─────────────────────────
 
-function ReviewRow({ item }: { item: ReviewItem }) {
+function RowContent({ item }: { item: ReviewItem }) {
   return (
-    <Link
-      href={item.href}
-      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
-    >
+    <>
       {/* Kind badge */}
       <Badge tone={kindTone(item.kind)} className="shrink-0 capitalize">
         {item.kind}
@@ -124,8 +138,55 @@ function ReviewRow({ item }: { item: ReviewItem }) {
       <span className="shrink-0 rounded-md bg-accent px-2 py-1 font-mono text-[11px] font-medium text-accent-ink">
         {item.actionLabel}
       </span>
+    </>
+  );
+}
+
+// ── Row variants: inspector (approval/change) vs deep-link navigation ─────────
+
+const ROW_BASE =
+  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent";
+
+function InspectorRow({
+  item,
+  onOpen,
+}: {
+  item: ReviewItem;
+  onOpen: (item: ReviewItem) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={ROW_BASE + " w-full text-left"}
+      onClick={() => onOpen(item)}
+    >
+      <RowContent item={item} />
+    </button>
+  );
+}
+
+function LinkRow({ item }: { item: ReviewItem }) {
+  return (
+    <Link href={item.href} className={ROW_BASE}>
+      <RowContent item={item} />
     </Link>
   );
+}
+
+// ── Single row dispatcher ──────────────────────────────────────────────────────
+
+function ReviewRow({
+  item,
+  onOpen,
+}: {
+  item: ReviewItem;
+  onOpen: (item: ReviewItem) => void;
+}) {
+  // These kinds get an inline inspector; the rest deep-link.
+  if (item.kind === "approval" || item.kind === "change") {
+    return <InspectorRow item={item} onOpen={onOpen} />;
+  }
+  return <LinkRow item={item} />;
 }
 
 // ── Group section ─────────────────────────────────────────────────────────────
@@ -133,9 +194,11 @@ function ReviewRow({ item }: { item: ReviewItem }) {
 function GroupSection({
   kind,
   items,
+  onOpen,
 }: {
   kind: ReviewKind;
   items: ReviewItem[];
+  onOpen: (item: ReviewItem) => void;
 }) {
   const meta = kindMeta[kind];
   return (
@@ -149,10 +212,77 @@ function GroupSection({
       {/* Rows */}
       <div className="p-2 space-y-0.5">
         {items.map((item) => (
-          <ReviewRow key={item.id} item={item} />
+          <ReviewRow key={item.id} item={item} onOpen={onOpen} />
         ))}
       </div>
     </section>
+  );
+}
+
+// ── Filter tabs ───────────────────────────────────────────────────────────────
+
+function FilterTabs({
+  items,
+  active,
+  onChange,
+}: {
+  items: ReviewItem[];
+  active: FilterKind;
+  onChange: (k: FilterKind) => void;
+}) {
+  // Count per kind
+  const counts = new Map<FilterKind, number>([["all", items.length]]);
+  for (const item of items) {
+    counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
+  }
+
+  // Only show tabs that have items (always show "all")
+  const visibleTabs = FILTER_TABS.filter(
+    (t) => t.key === "all" || (counts.get(t.key) ?? 0) > 0,
+  );
+
+  if (visibleTabs.length <= 1) return null; // nothing to filter
+
+  return (
+    <div
+      role="tablist"
+      aria-label="Filter review queue by kind"
+      className="flex flex-wrap gap-1.5"
+    >
+      {visibleTabs.map((tab) => {
+        const count = counts.get(tab.key) ?? 0;
+        const isActive = active === tab.key;
+        return (
+          <button
+            key={tab.key}
+            role="tab"
+            aria-selected={isActive}
+            type="button"
+            onClick={() => onChange(tab.key)}
+            className={cn(
+              "flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-xs font-medium transition-colors",
+              isActive
+                ? "border-border-strong bg-canvas text-ink shadow-sm"
+                : "border-border-subtle bg-surface text-ink-secondary hover:bg-sunken hover:text-ink",
+            )}
+          >
+            <span>{tab.label}</span>
+            {count > 0 && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                  isActive
+                    ? "bg-accent text-accent-ink"
+                    : "bg-sunken text-ink-muted",
+                )}
+              >
+                {count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -169,10 +299,34 @@ const KIND_ORDER: ReviewKind[] = [
 ];
 
 export function QueueList({ items }: { items: ReviewItem[] }) {
+  const inspector = useInspector();
+  const [activeFilter, setActiveFilter] = useState<FilterKind>("all");
+
+  // Open inspector for actionable kinds
+  function handleOpen(item: ReviewItem) {
+    if (item.kind === "approval") {
+      inspector.open(
+        <ApprovalInlineAction item={item} />,
+        "Deletion Request",
+      );
+    } else if (item.kind === "change") {
+      inspector.open(
+        <ChangeInlineAction item={item} />,
+        "Change Request — Decide",
+      );
+    }
+  }
+
+  // Apply kind filter
+  const filtered =
+    activeFilter === "all"
+      ? items
+      : items.filter((i) => i.kind === activeFilter);
+
   // Group by kind, preserving sort order within each group (already sorted by gather)
   const byKind = new Map<ReviewKind, ReviewItem[]>();
   for (const kind of KIND_ORDER) byKind.set(kind, []);
-  for (const item of items) {
+  for (const item of filtered) {
     byKind.get(item.kind)!.push(item);
   }
 
@@ -216,13 +370,30 @@ export function QueueList({ items }: { items: ReviewItem[] }) {
 
   return (
     <div className="space-y-4">
-      {presentKinds.map((kind) => (
-        <GroupSection
-          key={kind}
-          kind={kind}
-          items={byKind.get(kind)!}
-        />
-      ))}
+      {/* Filter tabs — rendered above the groups */}
+      <FilterTabs
+        items={items}
+        active={activeFilter}
+        onChange={setActiveFilter}
+      />
+
+      {/* Filtered empty state */}
+      {filtered.length === 0 ? (
+        <div className="rounded-lg border border-border-subtle bg-surface px-5 py-10 text-center">
+          <p className="text-sm text-ink-muted">
+            No <span className="font-medium text-ink">{activeFilter}</span> items in the queue.
+          </p>
+        </div>
+      ) : (
+        presentKinds.map((kind) => (
+          <GroupSection
+            key={kind}
+            kind={kind}
+            items={byKind.get(kind)!}
+            onOpen={handleOpen}
+          />
+        ))
+      )}
     </div>
   );
 }

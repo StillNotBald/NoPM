@@ -432,11 +432,14 @@ if (taskForDeletion) {
 }
 
 // ── a few audit rows for a lively Trust Center ───────────────────────────
+// Reference a real risk id so the row links to its target (audit_log is
+// append-only — a null target_id can never be corrected after the fact).
+const firstRisk = (await db.from("risks").select("id").eq("workspace_id", W).order("reference_id").limit(1).maybeSingle()).data;
 const auditRows = [
   { action: "project.create", target_type: "project", target_id: projects[0].id },
   { action: "project.lock", target_type: "project", target_id: projects[0].id },
   { action: "task.update", target_type: "task", target_id: taskForDeletion?.id },
-  { action: "risk.create", target_type: "risk", target_id: null },
+  { action: "risk.create", target_type: "risk", target_id: firstRisk?.id ?? projects[0].id },
   { action: "task.delete_requested", target_type: "task", target_id: taskForDeletion?.id },
 ];
 for (const a of auditRows) {

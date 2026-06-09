@@ -6,8 +6,15 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 import { apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError } from "@/components/forms/project-form";
+import { z } from "zod";
+
+// ── Client-side validation schema ────────────────────────────────────────────
+const budgetClientSchema = z.object({
+  plannedAmount: z.string().min(1, "Planned amount is required"),
+});
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 // Mirrors the project_budget row. Enrichment fields (0008) are nullable so an
@@ -43,6 +50,7 @@ export function BudgetForm({
 }) {
   const inspector = useInspector();
   const router = useRouter();
+  const toast = useToast();
 
   const [plannedAmount, setPlannedAmount] = useState(
     budget?.planned_amount != null ? String(budget.planned_amount) : "",
@@ -78,6 +86,21 @@ export function BudgetForm({
     e.preventDefault();
     setTopError(null);
     setFieldErrors({});
+
+    // Client-side validation — immediate feedback before the network round-trip.
+    const clientResult = budgetClientSchema.safeParse({ plannedAmount });
+    if (!clientResult.success) {
+      const map: Record<string, string> = {};
+      for (const issue of clientResult.error.issues) {
+        const rawField = issue.path[0] as string;
+        // Map camelCase field name back to snake_case for fieldErrors display.
+        const field = rawField === "plannedAmount" ? "planned_amount" : rawField;
+        if (!map[field]) map[field] = issue.message;
+      }
+      setFieldErrors(map);
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -92,10 +115,12 @@ export function BudgetForm({
 
     try {
       await apiPatch(`/api/projects/${projectId}/budget`, payload);
+      toast.success("Budget updated");
       router.refresh();
       inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to save budget");
       setSaving(false);
     }
   }

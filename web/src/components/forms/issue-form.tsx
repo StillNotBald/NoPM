@@ -6,8 +6,15 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { z } from "zod";
+
+// ── Client-side validation schema ────────────────────────────────────────────
+const issueClientSchema = z.object({
+  title: z.string().min(1, "Issue title is required"),
+});
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 
@@ -67,6 +74,7 @@ export function IssueForm({
 }) {
   const inspector = useInspector();
   const router = useRouter();
+  const toast = useToast();
 
   const [title, setTitle] = useState(issue?.title ?? "");
   const [description, setDescription] = useState(issue?.description ?? "");
@@ -118,6 +126,19 @@ export function IssueForm({
     e.preventDefault();
     setTopError(null);
     setFieldErrors({});
+
+    // Client-side validation — immediate feedback before the network round-trip.
+    const clientResult = issueClientSchema.safeParse({ title });
+    if (!clientResult.success) {
+      const map: Record<string, string> = {};
+      for (const issue of clientResult.error.issues) {
+        const field = issue.path[0] as string;
+        if (!map[field]) map[field] = issue.message;
+      }
+      setFieldErrors(map);
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -138,13 +159,16 @@ export function IssueForm({
     try {
       if (issue) {
         await apiPatch(`/api/issues/${issue.id}`, payload);
+        toast.success("Issue updated");
       } else {
         await apiPost(`/api/projects/${projectId}/issues`, payload);
+        toast.success("Issue created");
       }
       router.refresh();
       inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to save issue");
       setSaving(false);
     }
   }

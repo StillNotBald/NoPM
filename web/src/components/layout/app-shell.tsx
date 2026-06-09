@@ -10,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
 import { RightPushPanel, PUSH_MARGIN, PUSH_MARGIN_NONE } from "@/components/ui/right-push-panel";
 import { AssistantPanel } from "@/components/assistant/panel";
+import { ToastProvider } from "@/components/ui/toast";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
 
@@ -41,6 +42,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isOpen = inspector !== null;
 
   return (
+    <ToastProvider>
     <InspectorCtx.Provider
       value={{
         open: (content, title) => {
@@ -144,5 +146,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       </div>
     </InspectorCtx.Provider>
+    </ToastProvider>
   );
 }

@@ -43,6 +43,20 @@ export interface ReviewItem {
   href: string;
   /** CTA label shown in the action column */
   actionLabel: string;
+
+  // ── Inline-action fields (kind === 'approval') ────────────────────────────
+  /** The type of resource being deleted (e.g. "task") */
+  targetType?: string;
+  /** The id of the resource being deleted */
+  targetId?: string;
+  /** Label of the person who raised the deletion request */
+  requestedByLabel?: string;
+  /** Requester's stated reason for deletion */
+  deletionReason?: string | null;
+
+  // ── Inline-action fields (kind === 'change') ──────────────────────────────
+  /** Current status of the change request */
+  crStatus?: string;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -101,7 +115,7 @@ export async function gatherReviewItems(
     // 1. Deletion requests pending approval
     db
       .from("deletion_requests")
-      .select("id, target_type, target_id, reason, created_at")
+      .select("id, target_type, target_id, reason, requested_by_label, created_at")
       .eq("status", "pending")
       .order("created_at", { ascending: true }),
 
@@ -145,7 +159,7 @@ export async function gatherReviewItems(
       try {
         return await db
           .from("change_requests")
-          .select("id, title, project_id, created_at")
+          .select("id, title, project_id, status, created_at")
           .eq("status", "under_review")
           .order("created_at", { ascending: true });
       } catch {
@@ -166,6 +180,11 @@ export async function gatherReviewItems(
         ageDays: ageDays(row.created_at),
         href: "/approvals",
         actionLabel: "Approve / reject",
+        // inline-action fields
+        targetType: row.target_type,
+        targetId: row.target_id,
+        requestedByLabel: row.requested_by_label ?? undefined,
+        deletionReason: row.reason ?? null,
       });
     }
   }
@@ -238,7 +257,7 @@ export async function gatherReviewItems(
 
   // ── Change requests (defensive) ──────────────────────────────────────────────
   if (changeRequestsResult.status === "fulfilled") {
-    for (const row of (changeRequestsResult.value as { data: Array<{ id: string; title: string; project_id: string | null; created_at: string }> | null }).data ?? []) {
+    for (const row of (changeRequestsResult.value as { data: Array<{ id: string; title: string; project_id: string | null; status: string; created_at: string }> | null }).data ?? []) {
       const projectName = row.project_id ? projectMap.get(row.project_id) : undefined;
       items.push({
         id: row.id,
@@ -248,6 +267,8 @@ export async function gatherReviewItems(
         ageDays: ageDays(row.created_at),
         href: `/change-control?cr=${row.id}`,
         actionLabel: "Decide",
+        // inline-action fields
+        crStatus: row.status,
       });
     }
   }

@@ -6,8 +6,15 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { z } from "zod";
+
+// ── Client-side validation schema ────────────────────────────────────────────
+const riskClientSchema = z.object({
+  title: z.string().min(1, "Risk title is required"),
+});
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 
@@ -90,6 +97,7 @@ export function RiskForm({
 }) {
   const inspector = useInspector();
   const router = useRouter();
+  const toast = useToast();
 
   const [title, setTitle] = useState(risk?.title ?? "");
   const [description, setDescription] = useState(risk?.description ?? "");
@@ -146,6 +154,19 @@ export function RiskForm({
     e.preventDefault();
     setTopError(null);
     setFieldErrors({});
+
+    // Client-side validation — immediate feedback before the network round-trip.
+    const clientResult = riskClientSchema.safeParse({ title });
+    if (!clientResult.success) {
+      const map: Record<string, string> = {};
+      for (const issue of clientResult.error.issues) {
+        const field = issue.path[0] as string;
+        if (!map[field]) map[field] = issue.message;
+      }
+      setFieldErrors(map);
+      return;
+    }
+
     setSaving(true);
 
     const probabilityValue =
@@ -174,13 +195,16 @@ export function RiskForm({
     try {
       if (risk) {
         await apiPatch(`/api/risks/${risk.id}`, payload);
+        toast.success("Risk updated");
       } else {
         await apiPost(`/api/projects/${projectId}/risks`, payload);
+        toast.success("Risk created");
       }
       router.refresh();
       inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to save risk");
       setSaving(false);
     }
   }

@@ -6,8 +6,10 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
@@ -59,6 +61,7 @@ export function ChangeForm({
 }) {
   const inspector = useInspector();
   const router = useRouter();
+  const toast = useToast();
 
   const [projectId, setProjectId] = useState(changeRequest?.project_id ?? projects[0]?.id ?? "");
   const [title, setTitle] = useState(changeRequest?.title ?? "");
@@ -100,6 +103,30 @@ export function ChangeForm({
     e.preventDefault();
     setTopError(null);
     setFieldErrors({});
+
+    // Client-side validation — reuse the server schema's safeParse for
+    // immediate inline errors before the network round-trip.
+    const clientResult = createChangeRequestSchema.safeParse({
+      title: title.trim(),
+      description: description.trim() || null,
+      category,
+      priority,
+      status,
+      impact_summary: impactSummary.trim() || null,
+      impact_schedule_days: impactScheduleDays !== "" ? Number(impactScheduleDays) : null,
+      impact_cost: impactCost !== "" ? Number(impactCost) : null,
+      target_date: targetDate || null,
+    });
+    if (!clientResult.success) {
+      const map: Record<string, string> = {};
+      for (const issue of clientResult.error.issues) {
+        const field = issue.path[0] as string;
+        if (!map[field]) map[field] = issue.message;
+      }
+      setFieldErrors(map);
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -117,13 +144,16 @@ export function ChangeForm({
     try {
       if (changeRequest) {
         await apiPatch(`/api/change-requests/${changeRequest.id}`, payload);
+        toast.success("Change request updated");
       } else {
         await apiPost(`/api/projects/${projectId}/change-requests`, payload);
+        toast.success("Change request raised");
       }
       router.refresh();
       inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to save change request");
       setSaving(false);
     }
   }

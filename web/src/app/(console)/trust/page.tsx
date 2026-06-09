@@ -13,7 +13,7 @@ interface AuditRow {
   actor_type: "user" | "token" | string;
   actor_label: string;
   target_type: string;
-  target_id: string;
+  target_id: string | null;
   created_at: string;
   meta?: Record<string, unknown> | null;
 }
@@ -70,7 +70,8 @@ function absoluteTime(iso: string): string {
   });
 }
 
-function shortId(id: string): string {
+function shortId(id: string | null): string {
+  if (!id) return "—";
   return id.length > 8 ? id.slice(0, 8) : id;
 }
 

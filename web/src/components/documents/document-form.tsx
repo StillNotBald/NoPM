@@ -6,6 +6,7 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import {
   FieldLabel,
@@ -13,6 +14,7 @@ import {
   SelectInput,
   TextareaInput,
 } from "@/components/forms/project-form";
+import { createDocumentSchema } from "@/app/api/documents/_schema";
 
 // ── Local Document type (decoupled from docs-data files) ──────────────────────
 
@@ -96,6 +98,7 @@ export function DocumentForm({
 }) {
   const inspector = useInspector();
   const router = useRouter();
+  const toast = useToast();
 
   const [title, setTitle] = useState(document?.title ?? "");
   const [docType, setDocType] = useState<DocType>(document?.doc_type ?? "other");
@@ -131,6 +134,29 @@ export function DocumentForm({
     e.preventDefault();
     setTopError(null);
     setFieldErrors({});
+
+    // Client-side validation — reuse the server schema's safeParse for
+    // immediate inline errors before the network round-trip.
+    const clientResult = createDocumentSchema.safeParse({
+      title: title.trim(),
+      doc_type: docType,
+      status,
+      folder: folder.trim() || "General",
+      project_id: projectId || null,
+      summary: summary.trim() || null,
+      body: body.trim() || null,
+      external_url: externalUrl.trim() || null,
+    });
+    if (!clientResult.success) {
+      const map: Record<string, string> = {};
+      for (const issue of clientResult.error.issues) {
+        const field = issue.path[0] as string;
+        if (!map[field]) map[field] = issue.message;
+      }
+      setFieldErrors(map);
+      return;
+    }
+
     setSaving(true);
 
     const payload = {
@@ -147,13 +173,16 @@ export function DocumentForm({
     try {
       if (document) {
         await apiPatch(`/api/documents/${document.id}`, payload);
+        toast.success("Document updated");
       } else {
         await apiPost("/api/documents", payload);
+        toast.success("Document added");
       }
       router.refresh();
       inspector.close();
     } catch (err) {
       applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to save document");
       setSaving(false);
     }
   }

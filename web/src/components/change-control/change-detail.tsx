@@ -92,12 +92,12 @@ function TextValue({ value }: { value: string | null | undefined }) {
 
 // ── DecisionPanel — four-eyes approve/reject/defer ────────────────────────────
 
-interface DecisionPanelProps {
+export interface DecisionPanelProps {
   crId: string;
   onDecided: () => void;
 }
 
-function DecisionPanel({ crId, onDecided }: DecisionPanelProps) {
+export function DecisionPanel({ crId, onDecided }: DecisionPanelProps) {
   const [decision, setDecision] = useState<"approve" | "reject" | "defer" | null>(null);
   const [rationale, setRationale] = useState("");
   const [saving, setSaving] = useState(false);
