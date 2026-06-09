@@ -105,12 +105,12 @@ export const POST = route(async ({ actor, params, request }) => {
       due_date: input.due_date ?? null,
       completion_pct: input.completion_pct,
       sort_order: input.sort_order ?? 0,
-      // ── content-enrichment (0008) — all optional/nullable ────────────────────
+      // ── content-enrichment (0008) ────────────────────────────────────────────
       acceptance_criteria: input.acceptance_criteria ?? null,
       estimate_hours: input.estimate_hours ?? null,
       story_points: input.story_points ?? null,
-      labels: input.labels ?? null,
-      checklist: input.checklist ?? null,
+      labels: input.labels ?? [], // NOT NULL default '{}' — never insert null
+      checklist: input.checklist ?? [], // NOT NULL default '[]' — never insert null
     })
     .select()
     .single();
