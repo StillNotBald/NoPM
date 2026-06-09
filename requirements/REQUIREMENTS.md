@@ -44,6 +44,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-41** Cross-project **My Tasks** — every task assigned to me across all projects, grouped by project, with overdue/due-soon flags + client filters. — **DONE**
 - **R-42** **Portfolio roadmap** — all projects' milestones on one swim-lane timeline (RAG-tinted bars + milestone markers + baseline-slip), reusing the Gantt primitives. — **DONE**
 - **R-43** Navigation IA — grouped sidebar (Overview/Delivery/Registers/Capacity/Governance) + project switcher with recents + route-derived breadcrumbs; customizable mobile bottom-nav retained. — **DONE**
+- **R-44** Unified person identity — task assignment, capacity/allocation, and cost are one `resource_member` (`tasks.assignee_id → resource_members`); logins bridge via `resource_members.profile_id`, so My Work/My Tasks resolve "my" tasks and the Resources view shows each person's open-task load beside capacity + cost. — **DONE** (migration 0019; My Work/My Tasks bridge; Resources open-tasks column)
 
 ## Reporting & front door
 - **R-40** Deck export PPTX/PDF/HTML (data-driven, server-side). — **DONE**

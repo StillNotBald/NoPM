@@ -14,15 +14,25 @@ export default async function MyTasksPage() {
 
   const userId = user.id;
 
-  // Fetch all open tasks assigned to this user, joined to their project
-  const { data: rows, error } = await db
-    .from("tasks")
-    .select(
-      "id, name, status, status_type, priority, due_date, project_id, projects(id, code, name, rag_status)",
-    )
-    .eq("assignee_id", userId)
-    .not("status_type", "in", '("completed","canceled")')
-    .order("due_date", { ascending: true, nullsFirst: false });
+  // Bridge login → resource_member(s): tasks are assigned to a resource_member,
+  // which links to a login via resource_members.profile_id.
+  const { data: myMembers } = await db
+    .from("resource_members")
+    .select("id")
+    .eq("profile_id", userId);
+  const myMemberIds = (myMembers ?? []).map((m) => m.id);
+
+  // Fetch all open tasks assigned to me (any of my resource_member ids), joined to their project
+  const { data: rows, error } = myMemberIds.length
+    ? await db
+        .from("tasks")
+        .select(
+          "id, name, status, status_type, priority, due_date, project_id, projects(id, code, name, rag_status)",
+        )
+        .in("assignee_id", myMemberIds)
+        .not("status_type", "in", '("completed","canceled")')
+        .order("due_date", { ascending: true, nullsFirst: false })
+    : { data: [], error: null };
 
   if (error) {
     return (

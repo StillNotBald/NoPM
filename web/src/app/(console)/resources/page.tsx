@@ -63,6 +63,20 @@ export default async function ResourcesPage() {
     }
   }
 
+  // Open tasks assigned to each member (assignee_id -> resource_members) — ties
+  // task assignment to the same person who carries capacity + cost.
+  const tasksByMember: Record<string, number> = {};
+  if (memberIds.length > 0) {
+    const { data: openTasks } = await db
+      .from("tasks")
+      .select("assignee_id")
+      .in("assignee_id", memberIds)
+      .not("status_type", "in", '("completed","canceled")');
+    for (const t of (openTasks ?? []) as { assignee_id: string | null }[]) {
+      if (t.assignee_id) tasksByMember[t.assignee_id] = (tasksByMember[t.assignee_id] ?? 0) + 1;
+    }
+  }
+
   const totalMembers = rows.length;
   const overAllocated = rows.filter(
     (m) => (allocationsByMember[m.id] ?? 0) > 100,
@@ -133,6 +147,9 @@ export default async function ResourcesPage() {
                     Capacity (h/wk)
                   </th>
                   <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                    Open Tasks
+                  </th>
+                  <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Allocated %
                   </th>
                   <th className="px-5 py-3" />
@@ -169,6 +186,15 @@ export default async function ResourcesPage() {
                         {member.capacity_hours_per_week != null
                           ? `${member.capacity_hours_per_week} h`
                           : <span className="text-ink-muted">—</span>}
+                      </td>
+
+                      {/* Open tasks assigned */}
+                      <td className="px-5 py-4 text-right tabular-nums">
+                        {(tasksByMember[member.id] ?? 0) > 0 ? (
+                          <span className="font-medium text-ink">{tasksByMember[member.id]}</span>
+                        ) : (
+                          <span className="text-ink-muted">0</span>
+                        )}
                       </td>
 
                       {/* Allocated % — bar + number */}

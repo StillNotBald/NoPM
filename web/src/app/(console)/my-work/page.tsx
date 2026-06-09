@@ -81,11 +81,12 @@ export default async function MyWorkPage() {
     approvalsResult,
     projectsResult,
   ] = await Promise.all([
-    // Tasks assigned to me — open (not completed/canceled), sorted by due date
+    // Tasks assigned to me — assignee is a resource_member; bridge via the
+    // linked member (nil-uuid sentinel when this login has no resource_member).
     db
       .from("tasks")
       .select("id, name, status, status_type, priority, due_date, project_id, reference_id")
-      .eq("assignee_id", userId)
+      .eq("assignee_id", resourceMember?.id ?? "00000000-0000-0000-0000-000000000000")
       .not("status_type", "in", '("completed","canceled")')
       .order("due_date", { ascending: true, nullsFirst: false }),
 
