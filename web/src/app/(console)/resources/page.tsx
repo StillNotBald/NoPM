@@ -4,6 +4,11 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
+import {
+  memberUtilisation,
+  workspaceSummary,
+  fmtHours,
+} from "@/lib/resource/utilisation";
 
 interface ResourceMember {
   id: string;
@@ -77,168 +82,257 @@ export default async function ResourcesPage() {
     }
   }
 
-  const totalMembers = rows.length;
-  const overAllocated = rows.filter(
-    (m) => (allocationsByMember[m.id] ?? 0) > 100,
-  ).length;
+  // Compute per-member utilisation and workspace summary
+  const memberStats = rows.map((m) =>
+    memberUtilisation(allocationsByMember[m.id] ?? 0, m.capacity_hours_per_week),
+  );
+
+  const wsSummary = workspaceSummary(
+    rows.map((m, i) => ({
+      capacityHoursPerWeek: m.capacity_hours_per_week,
+      totalAllocationPct: memberStats[i].allocatedPct,
+    })),
+  );
+
+  const overAllocated = wsSummary.membersOverCapacity;
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
       <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader
-        title="Resources"
-        action={overAllocated > 0 ? <Badge tone="danger">{overAllocated} over-allocated</Badge> : undefined}
-      />
+        <PageHeader
+          title="Resources"
+          action={
+            overAllocated > 0 ? (
+              <Badge tone="danger">{overAllocated} over-allocated</Badge>
+            ) : undefined
+          }
+        />
 
-      {/* Summary cards */}
-      {rows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
-          <Card>
-            <CardBody className="py-4">
-              <p className="text-xs text-ink-muted uppercase tracking-wide">Total Members</p>
-              <p className="mt-1 text-2xl font-semibold text-ink">{totalMembers}</p>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardBody className="py-4">
-              <p className="text-xs text-ink-muted uppercase tracking-wide">Available</p>
-              <p className="mt-1 text-2xl font-semibold text-success">
-                {rows.filter((m) => (allocationsByMember[m.id] ?? 0) <= 100).length}
-              </p>
-            </CardBody>
-          </Card>
-          <Card>
-            <CardBody className="py-4">
-              <p className="text-xs text-ink-muted uppercase tracking-wide">Over-allocated</p>
-              <p className={cn("mt-1 text-2xl font-semibold", overAllocated > 0 ? "text-danger" : "text-ink-muted")}>
-                {overAllocated}
-              </p>
-            </CardBody>
-          </Card>
-        </div>
-      )}
+        {/* Summary cards */}
+        {rows.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            {/* Total capacity */}
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs text-ink-muted uppercase tracking-wide">Capacity / wk</p>
+                <p className="mt-1 font-mono text-2xl font-semibold text-ink">
+                  {wsSummary.totalCapacityHours > 0
+                    ? `${fmtHours(wsSummary.totalCapacityHours)} h`
+                    : <span className="text-ink-muted">—</span>}
+                </p>
+              </CardBody>
+            </Card>
 
-      {/* Members table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Team Members</CardTitle>
-        </CardHeader>
-        {rows.length === 0 ? (
-          <CardBody>
-            <p className="text-sm text-ink-muted text-center py-6">
-              No resource members found. Add members to get started.
-            </p>
-          </CardBody>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle">
-                  <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Name
-                  </th>
-                  <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Role
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Cost Rate / hr
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Capacity (h/wk)
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Open Tasks
-                  </th>
-                  <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Allocated %
-                  </th>
-                  <th className="px-5 py-3" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {rows.map((member) => {
-                  const pct = allocationsByMember[member.id] ?? 0;
-                  const isOver = pct > 100;
-                  const barWidth = Math.min(pct, 100);
+            {/* Total allocated hours */}
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs text-ink-muted uppercase tracking-wide">Allocated / wk</p>
+                <p className="mt-1 font-mono text-2xl font-semibold text-ink">
+                  {wsSummary.totalCapacityHours > 0
+                    ? `${fmtHours(wsSummary.totalAllocatedHours)} h`
+                    : <span className="text-ink-muted">—</span>}
+                </p>
+              </CardBody>
+            </Card>
 
-                  return (
-                    <tr
-                      key={member.id}
-                      className="hover:bg-sunken transition-colors duration-100"
-                    >
-                      {/* Name */}
-                      <td className="px-5 py-4">
-                        <span className="font-medium text-ink">{member.name}</span>
-                      </td>
+            {/* Overall utilisation % */}
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs text-ink-muted uppercase tracking-wide">Utilisation</p>
+                <p
+                  className={cn(
+                    "mt-1 font-mono text-2xl font-semibold",
+                    wsSummary.overallUtilisationPct == null
+                      ? "text-ink-muted"
+                      : wsSummary.overallUtilisationPct > 100
+                      ? "text-danger"
+                      : wsSummary.overallUtilisationPct >= 80
+                      ? "text-warning"
+                      : "text-success",
+                  )}
+                >
+                  {wsSummary.overallUtilisationPct != null
+                    ? `${wsSummary.overallUtilisationPct.toFixed(0)}%`
+                    : "—"}
+                </p>
+              </CardBody>
+            </Card>
 
-                      {/* Role */}
-                      <td className="px-5 py-4 text-ink-secondary">
-                        {member.role_title ?? <span className="text-ink-muted">—</span>}
-                      </td>
-
-                      {/* Cost rate */}
-                      <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
-                        {fmt_currency(member.cost_rate, "USD")}
-                      </td>
-
-                      {/* Capacity */}
-                      <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
-                        {member.capacity_hours_per_week != null
-                          ? `${member.capacity_hours_per_week} h`
-                          : <span className="text-ink-muted">—</span>}
-                      </td>
-
-                      {/* Open tasks assigned */}
-                      <td className="px-5 py-4 text-right tabular-nums">
-                        {(tasksByMember[member.id] ?? 0) > 0 ? (
-                          <span className="font-medium text-ink">{tasksByMember[member.id]}</span>
-                        ) : (
-                          <span className="text-ink-muted">0</span>
-                        )}
-                      </td>
-
-                      {/* Allocated % — bar + number */}
-                      <td className="px-5 py-4 text-right">
-                        <div className="flex items-center justify-end gap-3">
-                          {/* Mini progress bar */}
-                          <div className="w-24 h-1.5 rounded-full bg-sunken overflow-hidden hidden sm:block">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all",
-                                isOver ? "bg-danger" : pct >= 80 ? "bg-warning" : "bg-accent",
-                              )}
-                              style={{ width: `${barWidth}%` }}
-                            />
-                          </div>
-                          <span
-                            className={cn(
-                              "tabular-nums font-medium",
-                              isOver
-                                ? "text-danger"
-                                : pct >= 80
-                                ? "text-warning"
-                                : "text-ink",
-                            )}
-                          >
-                            {pct.toFixed(0)}%
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* Over-allocated badge */}
-                      <td className="px-5 py-4">
-                        {isOver && (
-                          <Badge tone="danger">Over-allocated</Badge>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            {/* Over-capacity members */}
+            <Card>
+              <CardBody className="py-4">
+                <p className="text-xs text-ink-muted uppercase tracking-wide">Over capacity</p>
+                <p
+                  className={cn(
+                    "mt-1 font-mono text-2xl font-semibold",
+                    overAllocated > 0 ? "text-danger" : "text-ink-muted",
+                  )}
+                >
+                  {overAllocated}
+                </p>
+              </CardBody>
+            </Card>
           </div>
         )}
-      </Card>
+
+        {/* Members table */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Team Members</CardTitle>
+          </CardHeader>
+          {rows.length === 0 ? (
+            <CardBody>
+              <p className="text-sm text-ink-muted text-center py-6">
+                No resource members found. Add members to get started.
+              </p>
+            </CardBody>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead>
+                  <tr className="border-b border-border-subtle">
+                    <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Name
+                    </th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Role
+                    </th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Cost Rate / hr
+                    </th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Cap h/wk
+                    </th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Alloc h/wk
+                    </th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Free h/wk
+                    </th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Open Tasks
+                    </th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Utilisation
+                    </th>
+                    <th className="px-5 py-3" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border-subtle">
+                  {rows.map((member, idx) => {
+                    const stats = memberStats[idx];
+                    const { allocatedPct: pct, allocatedHours, freeHours, isOver } = stats;
+                    const barWidth = Math.min(pct, 100);
+                    const freeIsNegative = freeHours != null && freeHours < 0;
+
+                    return (
+                      <tr
+                        key={member.id}
+                        className="hover:bg-sunken transition-colors duration-100"
+                      >
+                        {/* Name */}
+                        <td className="px-5 py-4">
+                          <span className="font-medium text-ink">{member.name}</span>
+                        </td>
+
+                        {/* Role */}
+                        <td className="px-5 py-4 text-ink-secondary">
+                          {member.role_title ?? <span className="text-ink-muted">—</span>}
+                        </td>
+
+                        {/* Cost rate */}
+                        <td className="px-5 py-4 text-right font-mono tabular-nums text-ink-secondary">
+                          {fmt_currency(member.cost_rate, "USD")}
+                        </td>
+
+                        {/* Capacity h/wk */}
+                        <td className="px-5 py-4 text-right font-mono tabular-nums text-ink-secondary">
+                          {member.capacity_hours_per_week != null
+                            ? `${fmtHours(member.capacity_hours_per_week)} h`
+                            : <span className="text-ink-muted">—</span>}
+                        </td>
+
+                        {/* Allocated h/wk */}
+                        <td className="px-5 py-4 text-right font-mono tabular-nums">
+                          {allocatedHours != null ? (
+                            <span
+                              className={cn(
+                                "font-medium",
+                                isOver ? "text-danger" : "text-ink",
+                              )}
+                            >
+                              {fmtHours(allocatedHours)} h
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </td>
+
+                        {/* Free h/wk */}
+                        <td className="px-5 py-4 text-right font-mono tabular-nums">
+                          {freeHours != null ? (
+                            <span
+                              className={cn(
+                                "font-medium",
+                                freeIsNegative ? "text-danger" : freeHours === 0 ? "text-warning" : "text-success",
+                              )}
+                            >
+                              {freeIsNegative ? "" : "+"}{fmtHours(freeHours)} h
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </td>
+
+                        {/* Open tasks assigned */}
+                        <td className="px-5 py-4 text-right tabular-nums">
+                          {(tasksByMember[member.id] ?? 0) > 0 ? (
+                            <span className="font-medium text-ink">{tasksByMember[member.id]}</span>
+                          ) : (
+                            <span className="text-ink-muted">0</span>
+                          )}
+                        </td>
+
+                        {/* Utilisation — bar + % */}
+                        <td className="px-5 py-4 text-right">
+                          <div className="flex items-center justify-end gap-3">
+                            {/* Mini progress bar */}
+                            <div className="w-20 h-1.5 rounded-full bg-sunken overflow-hidden hidden sm:block">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  isOver ? "bg-danger" : pct >= 80 ? "bg-warning" : "bg-accent",
+                                )}
+                                style={{ width: `${barWidth}%` }}
+                              />
+                            </div>
+                            <span
+                              className={cn(
+                                "font-mono tabular-nums font-medium",
+                                isOver
+                                  ? "text-danger"
+                                  : pct >= 80
+                                  ? "text-warning"
+                                  : "text-ink",
+                              )}
+                            >
+                              {pct.toFixed(0)}%
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Over-allocated badge */}
+                        <td className="px-5 py-4">
+                          {isOver && <Badge tone="danger">Over-allocated</Badge>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </div>
     </div>
   );

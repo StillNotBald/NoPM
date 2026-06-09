@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
-import { Plus, AlertTriangle, CheckCircle2, Clock, XCircle } from "lucide-react";
+import { Plus, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
@@ -206,6 +206,64 @@ function StatCard({
   );
 }
 
+// ── Overview helpers ──────────────────────────────────────────────────────────
+
+/** Progress bar used inside the Overview section only. */
+function OverviewProgressBar({
+  pct,
+  tone = "accent",
+}: {
+  pct: number;
+  tone?: "accent" | "success" | "warning" | "danger" | "info";
+}) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const barClass =
+    tone === "success" ? "bg-success" :
+    tone === "warning" ? "bg-warning" :
+    tone === "danger"  ? "bg-danger"  :
+    tone === "info"    ? "bg-info"    :
+    "bg-accent";
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-sunken">
+      <div
+        className={cn("h-full rounded-full transition-all", barClass)}
+        style={{ width: `${clamped}%` }}
+      />
+    </div>
+  );
+}
+
+/** Mini stat chip — label + number in a tight bordered pill. */
+function MiniChip({
+  label,
+  count,
+  tone = "neutral",
+}: {
+  label: string;
+  count: number;
+  tone?: BadgeTone;
+}) {
+  const bg: Record<BadgeTone, string> = {
+    neutral: "bg-sunken text-ink-secondary",
+    accent:  "bg-accent/10 text-accent",
+    info:    "bg-info/10 text-info",
+    success: "bg-success/10 text-success",
+    warning: "bg-warning/10 text-warning",
+    danger:  "bg-danger/10 text-danger",
+  };
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1 text-xs font-medium",
+        bg[tone],
+      )}
+    >
+      <span className="font-mono tabular-nums font-semibold">{count}</span>
+      <span className="text-ink-muted font-normal">{label}</span>
+    </span>
+  );
+}
+
 // ── Overview tab ──────────────────────────────────────────────────────────────
 
 function OverviewTab({
@@ -214,14 +272,33 @@ function OverviewTab({
   tasks,
   risks,
   issues,
+  members,
 }: {
   project: Project;
   milestones: Milestone[];
   tasks: Task[];
   risks: Risk[];
   issues: Issue[];
+  members: Record<string, string>;
 }) {
-  const completedMilestones = milestones.filter((m) => m.status === "completed").length;
+  // ── Derived data ───────────────────────────────────────────────────────────
+
+  const pct = Math.round(project.completion_pct);
+
+  // Milestone status breakdown
+  const milestoneBreakdown = {
+    completed:   milestones.filter((m) => m.status === "completed").length,
+    on_track:    milestones.filter((m) => m.status === "on_track").length,
+    at_risk:     milestones.filter((m) => m.status === "at_risk").length,
+    delayed:     milestones.filter((m) => m.status === "delayed").length,
+    not_started: milestones.filter((m) => m.status === "not_started").length,
+  };
+  const milestoneCompletedPct =
+    milestones.length > 0
+      ? Math.round((milestoneBreakdown.completed / milestones.length) * 100)
+      : 0;
+
+  // Task status breakdown
   const tasksByStatus = {
     completed: tasks.filter((t) => t.status_type === "completed").length,
     inProgress: tasks.filter((t) => t.status_type === "started").length,
@@ -229,92 +306,284 @@ function OverviewTab({
     backlog:    tasks.filter((t) => t.status_type === "backlog").length,
     canceled:   tasks.filter((t) => t.status_type === "canceled").length,
   };
-  const openRisks   = risks.filter((r) => r.status === "open" || r.status === "mitigating").length;
-  const openIssues  = issues.filter((i) => i.status === "open" || i.status === "in_progress").length;
+
+  // Risk posture — open only (open + mitigating)
+  const openRisksAll = risks.filter((r) => r.status === "open" || r.status === "mitigating");
+  const riskBySeverity = {
+    critical: openRisksAll.filter((r) => r.severity === "critical").length,
+    high:     openRisksAll.filter((r) => r.severity === "high").length,
+    medium:   openRisksAll.filter((r) => r.severity === "medium").length,
+    low:      openRisksAll.filter((r) => r.severity === "low").length,
+  };
+  const openIssues = issues.filter(
+    (i) => i.status === "open" || i.status === "in_progress"
+  ).length;
+
+  // Schedule
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const targetDate = project.target_date ? new Date(project.target_date) : null;
+  let daysRemaining: number | null = null;
+  let isOverdue = false;
+  if (targetDate) {
+    targetDate.setHours(0, 0, 0, 0);
+    daysRemaining = Math.round(
+      (targetDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    isOverdue = daysRemaining < 0;
+  }
+  const overdueTasks = tasks.filter((t) => {
+    if (!t.due_date) return false;
+    if (t.status_type === "completed" || t.status_type === "canceled") return false;
+    const d = new Date(t.due_date);
+    d.setHours(0, 0, 0, 0);
+    return d < today;
+  }).length;
+
+  // Team — distinct assignees with task counts
+  const assigneeCounts = new Map<string, number>();
+  for (const t of tasks) {
+    if (!t.assignee_id) continue;
+    assigneeCounts.set(t.assignee_id, (assigneeCounts.get(t.assignee_id) ?? 0) + 1);
+  }
+  const teamRows = [...assigneeCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([id, count]) => ({
+      id,
+      name: members[id] ?? (id.length > 8 ? id.slice(0, 8) : id),
+      count,
+    }));
+
+  // Progress bar tone based on RAG
+  const progressTone =
+    project.rag_status === "red"     ? "danger"  :
+    project.rag_status === "amber"   ? "warning" :
+    project.rag_status === "complete" ? "success" :
+    "accent";
 
   return (
-    <div className="space-y-6">
-      {/* Top stats */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatCard
-          label="Completion"
-          value={`${Math.round(project.completion_pct)}%`}
-          tone="neutral"
-        />
-        <StatCard
-          label="Milestones"
-          value={milestones.length}
-          sub={`${completedMilestones} completed`}
-          tone="neutral"
-        />
-        <StatCard
-          label="Open risks"
-          value={openRisks}
-          tone="neutral"
-        />
-        <StatCard
-          label="Open issues"
-          value={openIssues}
-          tone="neutral"
-        />
+    <div className="space-y-4">
+
+      {/* ── Row 1: Progress ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+
+        {/* Completion */}
+        <Card className="p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              Completion
+            </p>
+            <Badge tone={ragTone(project.rag_status)}>
+              {ragLabel(project.rag_status)}
+            </Badge>
+          </div>
+          <div className="flex items-end gap-3">
+            <span className="font-mono text-4xl font-semibold tabular-nums text-ink leading-none">
+              {pct}%
+            </span>
+            {project.is_locked && (
+              <Badge tone="warning" className="mb-0.5 gap-1">
+                <AlertTriangle size={10} />
+                Locked
+              </Badge>
+            )}
+          </div>
+          <OverviewProgressBar pct={pct} tone={progressTone} />
+        </Card>
+
+        {/* Milestones */}
+        <Card className="p-5 flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              Milestones
+            </p>
+            <span className="font-mono text-xs text-ink-muted tabular-nums">
+              {milestones.length} total
+            </span>
+          </div>
+          {milestones.length === 0 ? (
+            <p className="text-xs text-ink-muted mt-1">No milestones yet.</p>
+          ) : (
+            <>
+              <OverviewProgressBar pct={milestoneCompletedPct} tone="success" />
+              <div className="flex flex-wrap gap-1.5 mt-0.5">
+                {milestoneBreakdown.completed > 0 && (
+                  <MiniChip label="completed" count={milestoneBreakdown.completed} tone="success" />
+                )}
+                {milestoneBreakdown.on_track > 0 && (
+                  <MiniChip label="on track" count={milestoneBreakdown.on_track} tone="accent" />
+                )}
+                {milestoneBreakdown.at_risk > 0 && (
+                  <MiniChip label="at risk" count={milestoneBreakdown.at_risk} tone="warning" />
+                )}
+                {milestoneBreakdown.delayed > 0 && (
+                  <MiniChip label="delayed" count={milestoneBreakdown.delayed} tone="danger" />
+                )}
+                {milestoneBreakdown.not_started > 0 && (
+                  <MiniChip label="not started" count={milestoneBreakdown.not_started} tone="neutral" />
+                )}
+              </div>
+            </>
+          )}
+        </Card>
+
+        {/* Tasks */}
+        <Card className="p-5 flex flex-col gap-3 sm:col-span-2 xl:col-span-1">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+              Tasks
+            </p>
+            <span className="font-mono text-xs text-ink-muted tabular-nums">
+              {tasks.length} total
+            </span>
+          </div>
+          {tasks.length === 0 ? (
+            <p className="text-xs text-ink-muted mt-1">No tasks yet.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {tasksByStatus.completed > 0 && (
+                <MiniChip label="done" count={tasksByStatus.completed} tone="success" />
+              )}
+              {tasksByStatus.inProgress > 0 && (
+                <MiniChip label="in progress" count={tasksByStatus.inProgress} tone="info" />
+              )}
+              {tasksByStatus.todo > 0 && (
+                <MiniChip label="to do" count={tasksByStatus.todo} tone="neutral" />
+              )}
+              {tasksByStatus.backlog > 0 && (
+                <MiniChip label="backlog" count={tasksByStatus.backlog} tone="neutral" />
+              )}
+              {tasksByStatus.canceled > 0 && (
+                <MiniChip label="canceled" count={tasksByStatus.canceled} tone="neutral" />
+              )}
+            </div>
+          )}
+        </Card>
       </div>
 
-      {/* Task breakdown */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Task breakdown</CardTitle>
-          <span className="text-xs text-ink-muted">{tasks.length} total</span>
-        </CardHeader>
-        <CardBody>
-          <div className="flex flex-wrap gap-3">
-            {[
-              { label: "Completed",   count: tasksByStatus.completed,  tone: "neutral" as BadgeTone, Icon: CheckCircle2 },
-              { label: "In progress", count: tasksByStatus.inProgress,  tone: "neutral" as BadgeTone, Icon: Clock       },
-              { label: "To do",       count: tasksByStatus.todo,        tone: "neutral" as BadgeTone, Icon: Clock       },
-              { label: "Backlog",     count: tasksByStatus.backlog,     tone: "neutral" as BadgeTone, Icon: Clock       },
-              { label: "Canceled",    count: tasksByStatus.canceled,    tone: "neutral" as BadgeTone, Icon: XCircle     },
-            ].map(({ label, count, tone, Icon }) => (
-              <div
-                key={label}
-                className="flex items-center gap-2 rounded-lg border border-border-subtle bg-sunken px-4 py-3 min-w-[120px]"
-              >
-                <Icon size={16} className={cn(
-                  tone === "success" ? "text-success" :
-                  tone === "accent"  ? "text-accent"  :
-                  "text-ink-muted"
-                )} />
-                <div>
-                  <p className="text-lg font-semibold tabular-nums text-ink">{count}</p>
-                  <p className="text-xs text-ink-muted">{label}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
+      {/* ── Row 2: Risk posture + Schedule ────────────────────────────────── */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
-      {/* RAG summary */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Project health</CardTitle>
-        </CardHeader>
-        <CardBody className="flex items-center gap-4">
-          <Badge tone={ragTone(project.rag_status)} className="text-sm px-3 py-1">
-            {ragLabel(project.rag_status)}
-          </Badge>
-          {project.is_locked && (
-            <Badge tone="warning" className="flex items-center gap-1">
-              <AlertTriangle size={12} />
-              Locked{project.lock_reason ? ` — ${project.lock_reason}` : ""}
-            </Badge>
+        {/* Risk posture */}
+        <Card className="p-5 flex flex-col gap-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+            Risk posture
+          </p>
+          {openRisksAll.length === 0 && openIssues === 0 ? (
+            <div className="flex items-center gap-2 mt-0.5">
+              <CheckCircle2 size={14} className="text-success" />
+              <span className="text-xs text-success font-medium">No open risks or issues</span>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-1.5 mt-0.5">
+              {riskBySeverity.critical > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger">
+                  <span className="font-mono tabular-nums font-semibold">{riskBySeverity.critical}</span>
+                  <span className="text-danger/80 font-normal">critical</span>
+                </span>
+              )}
+              {riskBySeverity.high > 0 && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-[#ea580c]/30 bg-[#ea580c]/10 px-2.5 py-1 text-xs font-medium text-[#ea580c]">
+                  <span className="font-mono tabular-nums font-semibold">{riskBySeverity.high}</span>
+                  <span className="opacity-80 font-normal">high</span>
+                </span>
+              )}
+              {riskBySeverity.medium > 0 && (
+                <MiniChip label="medium" count={riskBySeverity.medium} tone="warning" />
+              )}
+              {riskBySeverity.low > 0 && (
+                <MiniChip label="low" count={riskBySeverity.low} tone="neutral" />
+              )}
+              {openIssues > 0 && (
+                <MiniChip label="open issues" count={openIssues} tone="danger" />
+              )}
+            </div>
           )}
-          {project.target_date && (
-            <span className="text-sm text-ink-secondary">
-              Target: {fmtDate(project.target_date)}
+        </Card>
+
+        {/* Schedule */}
+        <Card className="p-5 flex flex-col gap-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+            Schedule
+          </p>
+          <div className="flex flex-col gap-2 mt-0.5">
+            {project.target_date ? (
+              <>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-ink-secondary">
+                    Target:
+                  </span>
+                  <span className="font-mono text-xs font-medium text-ink tabular-nums">
+                    {fmtDate(project.target_date)}
+                  </span>
+                  {daysRemaining !== null && (
+                    <Badge
+                      tone={isOverdue ? "danger" : daysRemaining <= 14 ? "warning" : "success"}
+                    >
+                      {isOverdue
+                        ? `${Math.abs(daysRemaining)}d overdue`
+                        : daysRemaining === 0
+                        ? "due today"
+                        : `${daysRemaining}d left`}
+                    </Badge>
+                  )}
+                </div>
+                {overdueTasks > 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <Clock size={12} className="text-danger shrink-0" />
+                    <span className="text-xs text-danger font-medium tabular-nums">
+                      {overdueTasks} overdue {overdueTasks === 1 ? "task" : "tasks"}
+                    </span>
+                  </div>
+                )}
+                {overdueTasks === 0 && (
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 size={12} className="text-success shrink-0" />
+                    <span className="text-xs text-success font-medium">
+                      No overdue tasks
+                    </span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <span className="text-xs text-ink-muted">No target date set.</span>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* ── Row 3: Team ───────────────────────────────────────────────────── */}
+      {teamRows.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Team on project</CardTitle>
+            <span className="text-xs text-ink-muted">
+              {teamRows.length} {teamRows.length === 1 ? "member" : "members"}
             </span>
-          )}
-        </CardBody>
-      </Card>
+          </CardHeader>
+          <CardBody className="p-0">
+            <div className="divide-y divide-border-subtle">
+              {teamRows.map(({ id, name, count }) => (
+                <div
+                  key={id}
+                  className="flex items-center justify-between px-5 py-3"
+                >
+                  <div className="flex items-center gap-2.5">
+                    {/* Avatar initials */}
+                    <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/15 font-mono text-[11px] font-semibold uppercase text-accent">
+                      {name.split(" ").map((n) => n[0]).slice(0, 2).join("")}
+                    </span>
+                    <span className="text-sm font-medium text-ink">{name}</span>
+                  </div>
+                  <span className="font-mono text-xs tabular-nums text-ink-muted">
+                    {count} {count === 1 ? "task" : "tasks"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardBody>
+        </Card>
+      )}
     </div>
   );
 }
@@ -633,6 +902,7 @@ export function ProjectTabs({
           tasks={tasks}
           risks={risks}
           issues={issues}
+          members={members}
         />
       )}
       {active === "activity" && (
