@@ -5,8 +5,8 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-ID | Title | Status | Code | Tests |
 |------|-------|--------|------|-------|
 | R-01 | Immutable audit log | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/src/lib/audit/write.ts` | R-60 |
-| R-02 | Scoped Bearer PAT | DONE | `web/src/lib/auth/tokens.ts`, `web/src/lib/auth/guard.ts`, `web/src/app/api/tokens/route.ts`, `web/src/app/api/tokens/[id]/route.ts` | R-60 |
-| R-03 | Maker-checker delete-task | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/src/app/api/deletion-requests/route.ts`, `web/src/app/api/deletion-requests/[id]/approve/route.ts`, `web/src/app/api/deletion-requests/[id]/reject/route.ts` | R-60 |
+| R-02 | Scoped Bearer PAT | DONE | `web/src/lib/auth/tokens.ts`, `web/src/lib/auth/guard.ts`, `web/src/lib/auth/scopes.ts`, `web/src/app/api/tokens/_schema.ts`, `web/src/app/api/tokens/route.ts`, `web/src/app/api/tokens/[id]/route.ts` | R-60 |
+| R-03 | Maker-checker delete-task | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/supabase/migrations/20260608000020_atomic_deletion_commit.sql`, `web/src/app/api/deletion-requests/route.ts`, `web/src/app/api/deletion-requests/[id]/approve/route.ts`, `web/src/app/api/deletion-requests/[id]/reject/route.ts` | R-60 |
 | R-04 | Control-Tower rebaseline | DONE | `web/supabase/migrations/20260608000006_governance.sql`, `web/src/app/api/projects/[id]/lock/route.ts`, `web/src/app/api/projects/[id]/unlock/route.ts`, `web/src/app/api/projects/[id]/rebaselines/route.ts`, `web/src/app/api/rebaselines/[id]/signoff/route.ts`, `web/src/app/api/rebaselines/[id]/apply/route.ts` | — |
 | R-05 | Dual auth + TOTP MFA | DONE | `web/src/app/api/auth/mfa/route.ts`, `web/src/app/api/auth/mfa/enroll/route.ts`, `web/src/app/api/auth/mfa/verify/route.ts`, `web/src/app/api/auth/mfa/disable/route.ts` | — |
 | R-06 | Workspace RLS isolation | DONE | `web/supabase/migrations/20260608000001_init.sql`, `web/supabase/migrations/20260608000002_identity.sql`, `web/supabase/migrations/20260608000003_projects.sql`, `web/supabase/migrations/20260608000004_resource_budget.sql`, `web/supabase/migrations/20260608000005_registers.sql` | R-60 |
@@ -44,6 +44,6 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-50 | Landing + case study | DONE | `web/src/app/page.tsx` | — |
 | R-51 | One-pager PDF + case study | DONE | `web/src/app/case-study/page.tsx`, `web/src/lib/reports/one-pager.ts`, `web/src/components/case-study/download-button.tsx` | — |
 | R-52 | Seed script | DONE | `web/scripts/seed.mjs`, `web/scripts/populate-wave-b.mjs` | — |
-| R-60 | Unit + invariant tests | DONE | `web/src/lib/auth/tokens.test.ts`, `web/src/lib/auth/guard.test.ts`, `web/src/lib/crypto.test.ts`, `web/src/lib/assistant/scopes.test.ts`, `web/src/lib/documents/storage.test.ts`, `web/vitest.config.ts` | 102/102 |
+| R-60 | Unit + invariant tests | DONE | `web/src/lib/auth/tokens.test.ts`, `web/src/lib/auth/guard.test.ts`, `web/src/lib/auth/scopes.test.ts`, `web/src/lib/auth/workspace-isolation.test.ts`, `web/src/lib/crypto.test.ts`, `web/src/lib/evm.test.ts`, `web/src/lib/assistant/scopes.test.ts`, `web/src/lib/documents/storage.test.ts`, `web/vitest.config.ts` | 119/119 |
 | R-61 | Playwright E2E (UAT) | TODO | — (stretch goal; deferred to post-v1) | — |
 | R-62 | Deploy live | DONE | `web/scripts/apply-migrations.mjs`, `web/scripts/migrate.mjs` | stillnotbald.com |

@@ -1,14 +1,17 @@
 import { z } from "zod";
+import { isValidScope } from "@/lib/auth/scopes";
 
 /**
- * Allowed scope strings follow the `resource:action` convention used across
- * NoPM.  We accept any non-empty string so new scopes can be introduced
- * without a schema change, but reject blank/whitespace entries.
+ * Scope strings follow the `resource:action` convention. A token may only be
+ * minted with scopes the system actually enforces (the central registry in
+ * @/lib/auth/scopes) — including `<resource>:*` / `*` wildcards — so a bogus
+ * scope is rejected at creation rather than silently granted and never matched.
  */
 const scopeString = z
   .string()
   .min(1, "Scope must not be empty")
-  .regex(/^\S+$/, "Scope must not contain whitespace");
+  .regex(/^\S+$/, "Scope must not contain whitespace")
+  .refine(isValidScope, { message: "Unknown or unsupported scope" });
 
 export const createTokenSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
