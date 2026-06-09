@@ -53,7 +53,7 @@ await db.from("profiles").upsert({
   id: userId,
   workspace_id: ws.id,
   email: ADMIN_EMAIL,
-  display_name: "Chu Ling",
+  display_name: "Jordan Hale",
   role: "admin",
 });
 console.log("admin user:", ADMIN_EMAIL, "/", ADMIN_PASSWORD);

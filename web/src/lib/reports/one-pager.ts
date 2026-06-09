@@ -258,7 +258,7 @@ export function generateOnePager(): void {
   doc.setFontSize(8.5);
   doc.setTextColor(...C_MUTED);
   doc.text(
-    "Built solo by Cheng Chu Ling — PMP Tech PMO — using an AI multi-agent workflow · stillnotbald.com",
+    "Built solo using an AI multi-agent workflow · stillnotbald.com",
     W / 2,
     y,
     { align: "center" },

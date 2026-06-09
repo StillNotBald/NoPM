@@ -100,7 +100,7 @@ created_at            actor_label     action        target
 
       <footer className="border-t border-border-subtle">
         <div className="mx-auto flex max-w-5xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
-          <span>Built by Cheng Chu Ling — PMP Tech PMO. Shipped solo with an AI multi-agent workflow.</span>
+          <span>Built solo with an AI multi-agent workflow.</span>
           <span className="font-mono text-xs">stillnotbald.com</span>
         </div>
       </footer>

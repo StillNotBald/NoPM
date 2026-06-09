@@ -443,7 +443,7 @@ const auditRows = [
   { action: "task.delete_requested", target_type: "task", target_id: taskForDeletion?.id },
 ];
 for (const a of auditRows) {
-  await db.from("audit_log").insert({ workspace_id: W, actor_type: "user", actor_id: owner, actor_label: "Chu Ling", ...a });
+  await db.from("audit_log").insert({ workspace_id: W, actor_type: "user", actor_id: owner, actor_label: "Jordan Hale", ...a });
 }
 
 // Task assignment is handled by scripts/seed-people-link.mjs (run after

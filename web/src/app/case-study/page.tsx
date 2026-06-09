@@ -2,7 +2,7 @@ import Link from "next/link";
 import { DownloadOnePagerButton } from "@/components/case-study/download-button";
 
 export const metadata = {
-  title: "Case Study — NoPM, by Cheng Chu Ling",
+  title: "Case Study — NoPM",
   description:
     "How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and 39 traced requirements shipped in eight waves.",
 };
@@ -382,9 +382,7 @@ created_at            actor_label     action        target
       <footer className="border-t border-border-subtle">
         <div className="mx-auto flex max-w-4xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
           <span>
-            Built by{" "}
-            <span className="text-ink">Cheng Chu Ling</span> — PMP Tech PMO.
-            Shipped solo with an AI multi-agent workflow.
+            Built solo with an AI multi-agent workflow.
           </span>
           <span className="font-mono text-xs">stillnotbald.com</span>
         </div>
