@@ -91,7 +91,7 @@ export const POST = route(async ({ actor, params, request }) => {
       mitigation: input.mitigation ?? null,
       owner_id: input.owner_id ?? null,
       status: input.status,
-      raised_at: input.raised_at ?? null,
+      raised_at: input.raised_at ?? new Date().toISOString().slice(0, 10), // NOT NULL date — default to today
       due_date: input.due_date ?? null,
     })
     .select()
