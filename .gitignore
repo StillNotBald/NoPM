@@ -15,3 +15,8 @@ web/test-results/
 .DS_Store
 Thumbs.db
 *.log
+
+# CLI-generated report artifacts
+cli/*.html
+cli/*.pdf
+cli/*.pptx
