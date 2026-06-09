@@ -8,6 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
+import { createClient } from "@/lib/supabase/client";
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "—";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -35,6 +42,7 @@ interface Identity {
 
 function ProfileSection() {
   const [identity, setIdentity] = useState<Identity | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [displayName, setDisplayName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -42,10 +50,12 @@ function ProfileSection() {
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
-    fetch("/api/me")
-      .then((r) => r.json())
-      .then((json) => {
-        if (json.data) {
+    Promise.all([
+      fetch("/api/me").then((r) => r.json()).catch(() => null),
+      createClient().auth.getUser().then(({ data }) => data.user?.email ?? null).catch(() => null),
+    ])
+      .then(([json, mail]) => {
+        if (json?.data) {
           const id: Identity = {
             label: json.data.label ?? "",
             role: json.data.role ?? null,
@@ -54,8 +64,8 @@ function ProfileSection() {
           setIdentity(id);
           setDisplayName(id.label);
         }
+        setEmail(mail);
       })
-      .catch(() => {})
       .finally(() => setProfileLoading(false));
   }, []);
 
@@ -97,6 +107,22 @@ function ProfileSection() {
           </div>
         ) : (
           <>
+            {/* Avatar + identity header */}
+            <div className="flex items-center gap-4">
+              <div className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-accent font-mono text-lg font-semibold text-accent-ink">
+                {initials(displayName || identity?.label || "")}
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold text-ink">
+                  {displayName || identity?.label || "—"}
+                </p>
+                <p className="truncate text-sm text-ink-muted">
+                  {email ?? "—"}
+                  {identity?.role ? <span className="capitalize"> · {identity.role}</span> : null}
+                </p>
+              </div>
+            </div>
+
             {/* Display name — editable */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
@@ -112,8 +138,16 @@ function ProfileSection() {
               />
             </div>
 
-            {/* Role — read-only */}
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {/* Read-only identity */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                  Email
+                </p>
+                <p className="truncate text-sm text-ink">
+                  {email ?? <span className="text-ink-muted">—</span>}
+                </p>
+              </div>
               <div className="space-y-1">
                 <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
                   Role

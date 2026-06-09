@@ -85,7 +85,7 @@ export default async function MyWorkPage() {
     // linked member (nil-uuid sentinel when this login has no resource_member).
     db
       .from("tasks")
-      .select("id, name, status, status_type, priority, due_date, project_id, reference_id")
+      .select("id, name, status, status_type, priority, due_date, project_id")
       .eq("assignee_id", resourceMember?.id ?? "00000000-0000-0000-0000-000000000000")
       .not("status_type", "in", '("completed","canceled")')
       .order("due_date", { ascending: true, nullsFirst: false }),

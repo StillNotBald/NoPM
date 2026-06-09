@@ -10,6 +10,7 @@ import { ProgramBarCard } from "@/components/dashboard/program-bar-card";
 import { HealthRollupCards } from "@/components/dashboard/health-rollup-cards";
 import { ExportBoardPack } from "@/components/dashboard/export-board-pack";
 import { EntityLink } from "@/components/ui/entity-link";
+import { DashboardProjectRow } from "@/components/dashboard/dashboard-project-row";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -172,12 +173,12 @@ export default async function DashboardPage() {
                     const openI = openIssuesByProject.get(project.id) ?? 0;
 
                     return (
-                      <tr
+                      <DashboardProjectRow
                         key={project.id}
-                        className={cn(
-                          "transition-colors duration-100 hover:bg-sunken",
-                          i !== projects.length - 1 && "border-b border-border-subtle",
-                        )}
+                        project={project}
+                        openR={openR}
+                        openI={openI}
+                        isLast={i === projects.length - 1}
                       >
                         {/* Code */}
                         <td className="px-5 py-3.5">
@@ -268,7 +269,7 @@ export default async function DashboardPage() {
                             <span className="text-ink-muted">—</span>
                           )}
                         </td>
-                      </tr>
+                      </DashboardProjectRow>
                     );
                   })}
                 </tbody>
