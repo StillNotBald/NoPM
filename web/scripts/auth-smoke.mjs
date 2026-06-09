@@ -36,9 +36,14 @@ const cookie = (val.length <= 3180
   : Array.from({ length: Math.ceil(val.length / 3180) }, (_, n) => [`${name}.${n}`, val.slice(n * 3180, n * 3180 + 3180)])
 ).map(([k, vv]) => `${k}=${vv}`).join("; ");
 
+// Resolve one real project id so we also walk the richest page (Charter / Board /
+// Gantt / Activity / Risks / Issues tabs all live on the project detail page).
+const proj = (await admin.from("projects").select("id").order("created_at").limit(1).maybeSingle()).data;
+
 const pages = [
-  "/dashboard", "/my-work", "/review", "/projects", "/documents",
-  "/change-control", "/decisions", "/risks", "/issues", "/clashes",
+  "/dashboard", "/my-work", "/review", "/projects",
+  ...(proj ? [`/projects/${proj.id}`] : []),
+  "/documents", "/change-control", "/decisions", "/risks", "/issues", "/clashes",
   "/budget", "/resources", "/approvals", "/trust", "/tokens", "/case-study",
 ];
 

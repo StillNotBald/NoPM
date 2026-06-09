@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/api-client";
 import { ActivityTable } from "@/components/tracking/activity-table";
 import { GanttChart, type TaskDependency } from "@/components/tracking/gantt";
+import { KanbanBoard } from "@/components/kanban/board";
 import { HistoryTimeline } from "@/components/tracking/history-timeline";
 import { RiskForm, type RiskResponseStrategy, type RiskCategoryValue, type RiskImpactArea } from "@/components/forms/risk-form";
 import { IssueForm, type IssueSeverity, type IssueCategory } from "@/components/forms/issue-form";
@@ -105,12 +106,13 @@ interface Issue {
   resolved_at?: string | null;
 }
 
-type Tab = "charter" | "overview" | "activity" | "gantt" | "risks" | "issues" | "history";
+type Tab = "charter" | "overview" | "activity" | "board" | "gantt" | "risks" | "issues" | "history";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "charter",   label: "Charter" },
   { id: "overview",  label: "Overview" },
   { id: "activity",  label: "Activity" },
+  { id: "board",     label: "Board" },
   { id: "gantt",     label: "Gantt" },
   { id: "risks",     label: "Risks" },
   { id: "issues",    label: "Issues" },
@@ -640,6 +642,15 @@ export function ProjectTabs({
           tasks={tasks}
           isLocked={project.is_locked}
           members={members}
+        />
+      )}
+      {active === "board" && (
+        <KanbanBoard
+          projectId={project.id}
+          isLocked={project.is_locked}
+          // ProjectTabs' Task lacks the board's index signature; the runtime
+          // shape (id/name/status_type/priority) matches, so cast to its prop type.
+          tasks={tasks as unknown as Parameters<typeof KanbanBoard>[0]["tasks"]}
         />
       )}
       {active === "gantt" && (
