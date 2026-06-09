@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Severity } from "@/components/ui/severity";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
+import { entityHref } from "@/lib/nav/entity-href";
 
 export type HotItem =
   | {
@@ -47,9 +48,9 @@ function kindLabel(kind: HotItem["kind"]) {
 }
 
 function hrefFor(item: HotItem) {
-  if (item.kind === "task") return `/projects/${item.project_id}`;
-  if (item.kind === "risk") return "/risks";
-  return "/issues";
+  if (item.kind === "task") return entityHref("task", { id: item.id, projectId: item.project_id });
+  if (item.kind === "risk") return entityHref("risk", { id: item.id });
+  return entityHref("issue", { id: item.id });
 }
 
 function formatDate(iso: string) {
@@ -79,7 +80,7 @@ export function HotStrip({ items }: { items: HotItem[] }) {
           className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
         >
           {/* Kind chip */}
-          <Badge tone={kindTone(item.kind)} className="shrink-0">
+          <Badge size="sm" tone={kindTone(item.kind)} className="shrink-0">
             {kindLabel(item.kind)}
           </Badge>
 
@@ -97,7 +98,7 @@ export function HotStrip({ items }: { items: HotItem[] }) {
 
           {/* Severity or overdue flag */}
           {item.kind === "task" && (
-            <span className={cn("shrink-0 rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] font-medium text-danger")}>
+            <span className={cn("shrink-0 whitespace-nowrap rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] font-medium text-danger")}>
               overdue · {formatDate(item.due_date)}
             </span>
           )}

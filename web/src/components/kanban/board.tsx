@@ -7,6 +7,7 @@ import {
   PointerSensor,
   useSensor,
   useSensors,
+  useDroppable,
   type DragEndEvent,
 } from "@dnd-kit/core";
 import {
@@ -116,6 +117,7 @@ interface ColumnProps {
 
 function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
   const ids = tasks.map((t) => t.id);
+  const { setNodeRef } = useDroppable({ id: "col:" + status });
 
   return (
     <div className="flex flex-col min-h-0">
@@ -129,6 +131,7 @@ function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
 
       {/* Drop zone */}
       <div
+        ref={setNodeRef}
         className={cn(
           "flex-1 rounded-lg border border-border-subtle px-2 py-2 min-h-24",
           "bg-canvas transition-colors",
@@ -180,13 +183,18 @@ export function KanbanBoard({ projectId, isLocked, tasks: initialTasks }: Kanban
       const { active, over } = event;
       if (!over || active.id === over.id) return;
 
-      // Determine target column: over.id may be a task id or a column id.
-      // We map the over.id back to a status by checking which column the
-      // target task belongs to — or treat over.id directly as a status key.
-      const targetTask = tasks.find((t) => t.id === over.id);
-      if (!targetTask) return;
+      // Resolve target status: over.id is either 'col:<status>' (column droppable)
+      // or a task id (sortable within / across columns).
+      const overId = String(over.id);
+      let newStatus: TaskStatusType;
+      if (overId.startsWith("col:")) {
+        newStatus = overId.slice(4) as TaskStatusType;
+      } else {
+        const targetTask = tasks.find((t) => t.id === overId);
+        if (!targetTask) return;
+        newStatus = targetTask.status_type;
+      }
 
-      const newStatus = targetTask.status_type;
       const draggedTask = tasks.find((t) => t.id === active.id);
       if (!draggedTask || draggedTask.status_type === newStatus) return;
 

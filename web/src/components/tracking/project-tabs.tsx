@@ -666,17 +666,17 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                     }
                   }}
                 >
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <td className="py-3 px-4 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
                       {r.reference_id && (
                         <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
                           {r.reference_id}
                         </span>
                       )}
-                      <p className="font-medium text-ink">{r.title}</p>
+                      <p className="font-medium text-ink truncate">{r.title}</p>
                     </div>
                     {r.category && (
-                      <p className="text-xs text-ink-muted mt-0.5">{r.category}</p>
+                      <p className="text-xs text-ink-muted mt-0.5 truncate">{r.category}</p>
                     )}
                   </td>
                   <td className="py-3 px-4">
@@ -686,9 +686,9 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                     <Severity level={r.likelihood} />
                   </td>
                   <td className="py-3 px-4">
-                    <Badge tone={riskStatusTone(r.status)} className="capitalize">{r.status}</Badge>
+                    <Badge size="sm" tone={riskStatusTone(r.status)} className="capitalize">{r.status}</Badge>
                   </td>
-                  <td className="py-3 px-4 text-xs text-ink-secondary">{fmtDate(r.due_date)}</td>
+                  <td className="py-3 px-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap">{fmtDate(r.due_date)}</td>
                 </tr>
               ))}
             </tbody>
@@ -776,25 +776,25 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                     }
                   }}
                 >
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <td className="py-3 px-4 min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
                       {iss.reference_id && (
                         <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
                           {iss.reference_id}
                         </span>
                       )}
-                      <p className="font-medium text-ink">{iss.title}</p>
+                      <p className="font-medium text-ink truncate">{iss.title}</p>
                     </div>
                   </td>
                   <td className="py-3 px-4">
                     <Severity level={iss.priority} />
                   </td>
                   <td className="py-3 px-4">
-                    <Badge tone={issueStatusTone(iss.status)} className="capitalize">
+                    <Badge size="sm" tone={issueStatusTone(iss.status)} className="capitalize">
                       {iss.status.replace("_", " ")}
                     </Badge>
                   </td>
-                  <td className="py-3 px-4 text-xs text-ink-secondary">{fmtDate(iss.due_date)}</td>
+                  <td className="py-3 px-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap">{fmtDate(iss.due_date)}</td>
                 </tr>
               ))}
             </tbody>

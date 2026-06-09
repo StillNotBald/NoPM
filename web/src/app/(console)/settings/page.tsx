@@ -8,7 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
-import { cn } from "@/lib/cn";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
 
 type MfaStep =
   | "idle"         // just loaded, not enrolled
@@ -23,6 +24,145 @@ interface EnrollPayload {
   secret: string;
   otpauth: string;
 }
+
+interface Identity {
+  label: string;
+  role: string | null;
+  workspaceId: string;
+}
+
+// ── Profile section ────────────────────────────────────────────────────────────
+
+function ProfileSection() {
+  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [displayName, setDisplayName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (json.data) {
+          const id: Identity = {
+            label: json.data.label ?? "",
+            role: json.data.role ?? null,
+            workspaceId: json.data.workspaceId ?? "",
+          };
+          setIdentity(id);
+          setDisplayName(id.label);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setProfileLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    if (!displayName.trim()) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(false);
+    try {
+      const res = await fetch("/api/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: displayName.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Could not save profile.");
+      setIdentity((prev) =>
+        prev ? { ...prev, label: json.data.label ?? displayName.trim() } : prev,
+      );
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Could not save profile.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Profile</CardTitle>
+      </CardHeader>
+      <CardBody className="space-y-5">
+        {profileLoading ? (
+          <div className="flex items-center gap-3 py-2">
+            <Spinner size="sm" />
+            <span className="text-sm text-ink-secondary">Loading profile…</span>
+          </div>
+        ) : (
+          <>
+            {/* Display name — editable */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                Display name
+              </label>
+              <Input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Your name"
+                disabled={saving}
+                className="h-10"
+              />
+            </div>
+
+            {/* Role — read-only */}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                  Role
+                </p>
+                <p className="text-sm capitalize text-ink">
+                  {identity?.role ?? <span className="text-ink-muted">—</span>}
+                </p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                  Workspace
+                </p>
+                <p className="truncate font-mono text-xs text-ink-muted">
+                  {identity?.workspaceId ?? "—"}
+                </p>
+              </div>
+            </div>
+
+            {saveError && (
+              <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{saveError}</p>
+            )}
+            {saveSuccess && (
+              <p className="rounded-md bg-success/15 px-3 py-2 text-sm text-success">
+                Profile saved.
+              </p>
+            )}
+
+            <Button
+              variant="primary"
+              size="md"
+              onClick={handleSave}
+              disabled={saving || !displayName.trim()}
+            >
+              {saving ? (
+                <>
+                  <Spinner size="sm" className="mr-2" /> Saving…
+                </>
+              ) : (
+                "Save changes"
+              )}
+            </Button>
+          </>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ── Settings page ──────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -123,201 +263,238 @@ export default function SettingsPage() {
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <div className="mx-auto max-w-xl space-y-8">
-      <PageHeader title="Security settings" />
+        <PageHeader title="Account settings" />
 
-      {/* MFA card */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Two-factor authentication (TOTP)</CardTitle>
-          {step === "enabled" && (
-            <Badge tone="success">Enabled</Badge>
-          )}
-        </CardHeader>
-        <CardBody className="space-y-5">
-          {loading ? (
-            <div className="flex items-center gap-3 py-2">
-              <Spinner size="sm" />
-              <span className="text-sm text-ink-secondary">Checking 2FA status…</span>
-            </div>
-          ) : loadError ? (
-            <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{loadError}</p>
-          ) : null}
+        {/* ── Profile ────────────────────────────────────────────────────────── */}
+        <ProfileSection />
 
-          {/* ── IDLE: not enrolled ── */}
-          {!loading && step === "idle" && (
-            <div className="space-y-4">
-              <p className="text-sm text-ink-secondary">
-                Two-factor authentication adds a second layer of security to your account. You will
-                need an authenticator app (e.g. Authy, 1Password, or Google Authenticator).
-              </p>
-              <Button variant="primary" size="md" onClick={handleEnroll}>
-                Enable 2FA
-              </Button>
-            </div>
-          )}
-
-          {/* ── ENROLLING: waiting ── */}
-          {step === "enrolling" && (
-            <div className="flex items-center gap-3 py-2">
-              <Spinner size="sm" />
-              <span className="text-sm text-ink-secondary">Setting up…</span>
-            </div>
-          )}
-
-          {/* ── VERIFY: show secret + code input ── */}
-          {(step === "verify" || step === "verifying") && enroll && (
-            <div className="space-y-5">
-              <p className="text-sm text-ink-secondary">
-                Add this to your authenticator app, then enter the 6-digit code it shows to confirm.
-              </p>
-
-              {/* Secret display */}
-              <div className="rounded-lg border border-border-subtle bg-sunken p-4 space-y-3">
-                <div>
-                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">
-                    Manual entry secret
-                  </p>
-                  <code className="block break-all font-mono text-sm text-ink bg-canvas rounded-md border border-border-subtle px-3 py-2">
-                    {enroll.secret}
-                  </code>
+        {/* ── Security ───────────────────────────────────────────────────────── */}
+        <div>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+            Security
+          </p>
+          <Card>
+            <CardHeader>
+              <CardTitle>Two-factor authentication (TOTP)</CardTitle>
+              {step === "enabled" && (
+                <Badge tone="success">Enabled</Badge>
+              )}
+            </CardHeader>
+            <CardBody className="space-y-5">
+              {loading ? (
+                <div className="flex items-center gap-3 py-2">
+                  <Spinner size="sm" />
+                  <span className="text-sm text-ink-secondary">Checking 2FA status…</span>
                 </div>
-                <div>
-                  <p className="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">
-                    OTPAuth URI (scan or paste into app)
+              ) : loadError ? (
+                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{loadError}</p>
+              ) : null}
+
+              {/* ── IDLE: not enrolled ── */}
+              {!loading && step === "idle" && (
+                <div className="space-y-4">
+                  <p className="text-sm text-ink-secondary">
+                    Two-factor authentication adds a second layer of security to your account. You will
+                    need an authenticator app (e.g. Authy, 1Password, or Google Authenticator).
                   </p>
-                  <code className="block break-all font-mono text-xs text-ink-secondary bg-canvas rounded-md border border-border-subtle px-3 py-2">
-                    {enroll.otpauth}
-                  </code>
+                  <Button variant="primary" size="md" onClick={handleEnroll}>
+                    Enable 2FA
+                  </Button>
                 </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
-                  Verification code
-                </label>
-                <Input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="\d{6}"
-                  maxLength={6}
-                  placeholder="000000"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  disabled={step === "verifying"}
-                  className="font-mono tracking-widest text-center h-11 sm:h-10 text-base sm:text-sm"
-                />
-              </div>
-
-              {codeError && (
-                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{codeError}</p>
               )}
 
-              <div className="flex items-center gap-3">
-                <Button
-                  variant="primary"
-                  size="md"
-                  onClick={handleVerify}
-                  disabled={step === "verifying" || code.length !== 6}
-                >
-                  {step === "verifying" ? (
-                    <>
-                      <Spinner size="sm" className="mr-2" /> Verifying…
-                    </>
-                  ) : (
-                    "Verify & activate"
+              {/* ── ENROLLING: waiting ── */}
+              {step === "enrolling" && (
+                <div className="flex items-center gap-3 py-2">
+                  <Spinner size="sm" />
+                  <span className="text-sm text-ink-secondary">Setting up…</span>
+                </div>
+              )}
+
+              {/* ── VERIFY: show secret + code input ── */}
+              {(step === "verify" || step === "verifying") && enroll && (
+                <div className="space-y-5">
+                  <p className="text-sm text-ink-secondary">
+                    Add this to your authenticator app, then enter the 6-digit code it shows to confirm.
+                  </p>
+
+                  {/* Secret display */}
+                  <div className="rounded-lg border border-border-subtle bg-sunken p-4 space-y-3">
+                    <div>
+                      <p className="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">
+                        Manual entry secret
+                      </p>
+                      <code className="block break-all font-mono text-sm text-ink bg-canvas rounded-md border border-border-subtle px-3 py-2">
+                        {enroll.secret}
+                      </code>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-ink-muted uppercase tracking-wide mb-1">
+                        OTPAuth URI (scan or paste into app)
+                      </p>
+                      <code className="block break-all font-mono text-xs text-ink-secondary bg-canvas rounded-md border border-border-subtle px-3 py-2">
+                        {enroll.otpauth}
+                      </code>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
+                      Verification code
+                    </label>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="\d{6}"
+                      maxLength={6}
+                      placeholder="000000"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                      disabled={step === "verifying"}
+                      className="font-mono tracking-widest text-center h-11 sm:h-10 text-base sm:text-sm"
+                    />
+                  </div>
+
+                  {codeError && (
+                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{codeError}</p>
                   )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="md"
-                  disabled={step === "verifying"}
-                  onClick={() => {
-                    setStep("idle");
-                    setEnroll(null);
-                    setCode("");
-                    setCodeError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
 
-          {/* ── BACKUP: one-time codes ── */}
-          {step === "backup" && (
-            <div className="space-y-5">
-              <div className="flex items-start gap-3 rounded-lg bg-success/15 border border-border-subtle px-4 py-3">
-                <span className="text-success text-base mt-0.5">✓</span>
-                <p className="text-sm text-ink">
-                  <span className="font-medium">2FA is now active.</span> Save these backup codes
-                  somewhere secure — they are shown once and can each be used once if you lose
-                  access to your authenticator.
-                </p>
-              </div>
-
-              <div className="rounded-lg border border-border-subtle bg-sunken p-4 space-y-3">
-                <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Backup codes — shown once
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {backupCodes.map((bc) => (
-                    <code
-                      key={bc}
-                      className="font-mono text-sm text-ink bg-canvas rounded border border-border-subtle px-2 py-1 text-center"
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="primary"
+                      size="md"
+                      onClick={handleVerify}
+                      disabled={step === "verifying" || code.length !== 6}
                     >
-                      {bc}
-                    </code>
-                  ))}
+                      {step === "verifying" ? (
+                        <>
+                          <Spinner size="sm" className="mr-2" /> Verifying…
+                        </>
+                      ) : (
+                        "Verify & activate"
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="md"
+                      disabled={step === "verifying"}
+                      onClick={() => {
+                        setStep("idle");
+                        setEnroll(null);
+                        setCode("");
+                        setCodeError(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
                 </div>
-                <Button variant="secondary" size="sm" onClick={handleCopyBackup}>
-                  {copiedBackup ? "Copied!" : "Copy all codes"}
-                </Button>
-              </div>
-
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-ink-secondary"
-                onClick={() => setStep("enabled")}
-              >
-                Done — I have saved my codes
-              </Button>
-            </div>
-          )}
-
-          {/* ── ENABLED ── */}
-          {step === "enabled" && !loading && (
-            <div className="space-y-4">
-              <p className="text-sm text-ink-secondary">
-                Your account is protected with two-factor authentication. Keep your authenticator
-                app accessible.
-              </p>
-
-              {codeError && (
-                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{codeError}</p>
               )}
 
-              <Button
-                variant="secondary"
-                size="md"
-                className="text-danger border-danger/30 hover:bg-danger/10"
-                onClick={handleDisable}
-              >
-                Disable 2FA
-              </Button>
-            </div>
-          )}
+              {/* ── BACKUP: one-time codes ── */}
+              {step === "backup" && (
+                <div className="space-y-5">
+                  <div className="flex items-start gap-3 rounded-lg bg-success/15 border border-border-subtle px-4 py-3">
+                    <span className="text-success text-base mt-0.5">✓</span>
+                    <p className="text-sm text-ink">
+                      <span className="font-medium">2FA is now active.</span> Save these backup codes
+                      somewhere secure — they are shown once and can each be used once if you lose
+                      access to your authenticator.
+                    </p>
+                  </div>
 
-          {/* ── DISABLING ── */}
-          {step === "disabling" && (
-            <div className="flex items-center gap-3 py-2">
-              <Spinner size="sm" />
-              <span className="text-sm text-ink-secondary">Disabling 2FA…</span>
-            </div>
-          )}
-        </CardBody>
-      </Card>
+                  <div className="rounded-lg border border-border-subtle bg-sunken p-4 space-y-3">
+                    <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+                      Backup codes — shown once
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {backupCodes.map((bc) => (
+                        <code
+                          key={bc}
+                          className="font-mono text-sm text-ink bg-canvas rounded border border-border-subtle px-2 py-1 text-center"
+                        >
+                          {bc}
+                        </code>
+                      ))}
+                    </div>
+                    <Button variant="secondary" size="sm" onClick={handleCopyBackup}>
+                      {copiedBackup ? "Copied!" : "Copy all codes"}
+                    </Button>
+                  </div>
+
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-ink-secondary"
+                    onClick={() => setStep("enabled")}
+                  >
+                    Done — I have saved my codes
+                  </Button>
+                </div>
+              )}
+
+              {/* ── ENABLED ── */}
+              {step === "enabled" && !loading && (
+                <div className="space-y-4">
+                  <p className="text-sm text-ink-secondary">
+                    Your account is protected with two-factor authentication. Keep your authenticator
+                    app accessible.
+                  </p>
+
+                  {codeError && (
+                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{codeError}</p>
+                  )}
+
+                  <Button
+                    variant="secondary"
+                    size="md"
+                    className="text-danger border-danger/30 hover:bg-danger/10"
+                    onClick={handleDisable}
+                  >
+                    Disable 2FA
+                  </Button>
+                </div>
+              )}
+
+              {/* ── DISABLING ── */}
+              {step === "disabling" && (
+                <div className="flex items-center gap-3 py-2">
+                  <Spinner size="sm" />
+                  <span className="text-sm text-ink-secondary">Disabling 2FA…</span>
+                </div>
+              )}
+            </CardBody>
+          </Card>
+        </div>
+
+        {/* ── About / Support ────────────────────────────────────────────────── */}
+        <div>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+            About
+          </p>
+          <Card>
+            <CardBody className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-ink-secondary">NoPM</span>
+                <span className="font-mono text-xs text-ink-muted">v1</span>
+              </div>
+              <div className="flex items-center gap-4">
+                <a
+                  href="/case-study"
+                  className="text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                >
+                  Case study
+                </a>
+                <a
+                  href="mailto:hello@stillnotbald.com"
+                  className="text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                >
+                  Contact support
+                </a>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
       </div>
     </div>
   );

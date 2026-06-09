@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { z } from "zod";
 
 // ── Client-side validation schema ────────────────────────────────────────────
@@ -174,7 +175,7 @@ export function IssueForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {topError && (
         <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
@@ -193,177 +194,187 @@ export function IssueForm({
         <FieldError message={fieldErrors.title} />
       </div>
 
-      {/* Compact properties grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
-        {/* Priority */}
-        <div>
-          <FieldLabel>Priority</FieldLabel>
-          <SelectInput
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as Issue["priority"])}
+      {/* Section: Classification */}
+      <FormSection title="Classification">
+        <FormGrid>
+          {/* Priority */}
+          <div>
+            <FieldLabel>Priority</FieldLabel>
+            <SelectInput
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as Issue["priority"])}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.priority} />
+          </div>
+
+          {/* Severity */}
+          <div>
+            <FieldLabel>Severity</FieldLabel>
+            <SelectInput
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as IssueSeverity)}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.severity} />
+          </div>
+
+          {/* Category */}
+          <div>
+            <FieldLabel>Category</FieldLabel>
+            <SelectInput
+              value={issueCategory}
+              onChange={(e) =>
+                setIssueCategory(e.target.value as IssueCategory | "")
+              }
+            >
+              <option value="">Uncategorized</option>
+              {ISSUE_CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </SelectInput>
+            <FieldError message={fieldErrors.issue_category} />
+          </div>
+        </FormGrid>
+      </FormSection>
+
+      {/* Section: Status & Dates */}
+      <FormSection title="Status & Dates">
+        <FormGrid>
+          {/* Status */}
+          <div>
+            <FieldLabel>Status</FieldLabel>
+            <SelectInput
+              value={status}
+              onChange={(e) => setStatus(e.target.value as Issue["status"])}
+            >
+              <option value="open">Open</option>
+              <option value="in_progress">In progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="closed">Closed</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.status} />
+          </div>
+
+          {/* Due date */}
+          <div>
+            <FieldLabel>Due Date</FieldLabel>
+            <Input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.due_date} />
+          </div>
+
+          {/* Resolution ETA */}
+          <div>
+            <FieldLabel>Resolution ETA</FieldLabel>
+            <Input
+              type="date"
+              value={resolutionEta}
+              onChange={(e) => setResolutionEta(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.resolution_eta} />
+          </div>
+
+          {/* Resolved date */}
+          <div>
+            <FieldLabel>Resolved On</FieldLabel>
+            <Input
+              type="date"
+              value={resolvedAt}
+              onChange={(e) => setResolvedAt(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.resolved_at} />
+          </div>
+        </FormGrid>
+      </FormSection>
+
+      {/* Section: Details */}
+      <FormSection title="Details">
+        {/* Description — progressive disclosure */}
+        {showDescription ? (
+          <div>
+            <FieldLabel>Description</FieldLabel>
+            <TextareaInput
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the issue…"
+              rows={2}
+            />
+            <FieldError message={fieldErrors.description} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowDescription(true)}
+            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="urgent">Urgent</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.priority} />
-        </div>
+            + Add description
+          </button>
+        )}
 
-        {/* Severity */}
-        <div>
-          <FieldLabel>Severity</FieldLabel>
-          <SelectInput
-            value={severity}
-            onChange={(e) => setSeverity(e.target.value as IssueSeverity)}
+        {/* Resolution — progressive disclosure */}
+        {showResolution ? (
+          <div>
+            <FieldLabel>Resolution / Action</FieldLabel>
+            <TextareaInput
+              value={resolution}
+              onChange={(e) => setResolution(e.target.value)}
+              placeholder="Steps to resolve this issue…"
+              rows={2}
+            />
+            <FieldError message={fieldErrors.resolution} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowResolution(true)}
+            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.severity} />
-        </div>
+            + Add resolution
+          </button>
+        )}
 
-        {/* Status */}
-        <div>
-          <FieldLabel>Status</FieldLabel>
-          <SelectInput
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Issue["status"])}
+        {/* Impact — progressive disclosure */}
+        {showImpact ? (
+          <div>
+            <FieldLabel>Impact</FieldLabel>
+            <TextareaInput
+              value={impact}
+              onChange={(e) => setImpact(e.target.value)}
+              placeholder="Impact of this issue on schedule, cost, scope…"
+              rows={2}
+            />
+            <FieldError message={fieldErrors.impact} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowImpact(true)}
+            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
           >
-            <option value="open">Open</option>
-            <option value="in_progress">In progress</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.status} />
-        </div>
-
-        {/* Category */}
-        <div>
-          <FieldLabel>Category</FieldLabel>
-          <SelectInput
-            value={issueCategory}
-            onChange={(e) =>
-              setIssueCategory(e.target.value as IssueCategory | "")
-            }
-          >
-            <option value="">Uncategorized</option>
-            {ISSUE_CATEGORY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectInput>
-          <FieldError message={fieldErrors.issue_category} />
-        </div>
-
-        {/* Due date */}
-        <div>
-          <FieldLabel>Due Date</FieldLabel>
-          <Input
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.due_date} />
-        </div>
-
-        {/* Resolution ETA */}
-        <div>
-          <FieldLabel>Resolution ETA</FieldLabel>
-          <Input
-            type="date"
-            value={resolutionEta}
-            onChange={(e) => setResolutionEta(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.resolution_eta} />
-        </div>
-
-        {/* Resolved date */}
-        <div>
-          <FieldLabel>Resolved On</FieldLabel>
-          <Input
-            type="date"
-            value={resolvedAt}
-            onChange={(e) => setResolvedAt(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.resolved_at} />
-        </div>
-      </div>
-
-      {/* Description — progressive disclosure */}
-      {showDescription ? (
-        <div>
-          <FieldLabel>Description</FieldLabel>
-          <TextareaInput
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the issue…"
-            rows={2}
-          />
-          <FieldError message={fieldErrors.description} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowDescription(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add description
-        </button>
-      )}
-
-      {/* Resolution — progressive disclosure */}
-      {showResolution ? (
-        <div>
-          <FieldLabel>Resolution / Action</FieldLabel>
-          <TextareaInput
-            value={resolution}
-            onChange={(e) => setResolution(e.target.value)}
-            placeholder="Steps to resolve this issue…"
-            rows={2}
-          />
-          <FieldError message={fieldErrors.resolution} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowResolution(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add resolution
-        </button>
-      )}
-
-      {/* Impact — progressive disclosure */}
-      {showImpact ? (
-        <div>
-          <FieldLabel>Impact</FieldLabel>
-          <TextareaInput
-            value={impact}
-            onChange={(e) => setImpact(e.target.value)}
-            placeholder="Impact of this issue on schedule, cost, scope…"
-            rows={2}
-          />
-          <FieldError message={fieldErrors.impact} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowImpact(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add impact
-        </button>
-      )}
+            + Add impact
+          </button>
+        )}
+      </FormSection>
 
       {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
+      <FormActions>
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
@@ -379,7 +390,7 @@ export function IssueForm({
             "Add Issue"
           )}
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

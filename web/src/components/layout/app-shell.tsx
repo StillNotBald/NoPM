@@ -6,6 +6,7 @@ import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
 import { Breadcrumbs } from "./breadcrumbs";
 import { ThemeToggle } from "./theme-toggle";
+import { AccountMenu } from "./account-menu";
 import { NotificationBell } from "@/components/notifications/bell";
 import { cn } from "@/lib/cn";
 import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
@@ -113,6 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NotificationBell />
             <ThemeToggle />
             <CmdKTrigger onClick={openCmd} />
+            <AccountMenu />
           </header>
 
           {/* wayfinding breadcrumbs — slim bar between header and content */}

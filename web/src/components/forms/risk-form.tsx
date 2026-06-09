@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { z } from "zod";
 
 // ── Client-side validation schema ────────────────────────────────────────────
@@ -210,7 +211,7 @@ export function RiskForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {topError && (
         <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
@@ -229,235 +230,250 @@ export function RiskForm({
         <FieldError message={fieldErrors.title} />
       </div>
 
-      {/* Compact properties grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
-        {/* Severity */}
-        <div>
-          <FieldLabel>Severity</FieldLabel>
-          <SelectInput
-            value={severity}
-            onChange={(e) => setSeverity(e.target.value as Risk["severity"])}
+      {/* Section: Classification */}
+      <FormSection title="Classification">
+        <FormGrid>
+          {/* Severity */}
+          <div>
+            <FieldLabel>Severity</FieldLabel>
+            <SelectInput
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as Risk["severity"])}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.severity} />
+          </div>
+
+          {/* Likelihood */}
+          <div>
+            <FieldLabel>Likelihood</FieldLabel>
+            <SelectInput
+              value={likelihood}
+              onChange={(e) => setLikelihood(e.target.value as Risk["likelihood"])}
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.likelihood} />
+          </div>
+
+          {/* Risk category */}
+          <div>
+            <FieldLabel>Risk Category</FieldLabel>
+            <SelectInput
+              value={riskCategory}
+              onChange={(e) =>
+                setRiskCategory(e.target.value as RiskCategoryValue | "")
+              }
+            >
+              <option value="">— Select category —</option>
+              {RISK_CATEGORY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </SelectInput>
+            <FieldError message={fieldErrors.risk_category} />
+          </div>
+
+          {/* Category (free-text) */}
+          <div>
+            <FieldLabel>Category (free text)</FieldLabel>
+            <Input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              placeholder="Technical, Resource…"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.category} />
+          </div>
+        </FormGrid>
+      </FormSection>
+
+      {/* Section: Assessment */}
+      <FormSection title="Assessment">
+        <FormGrid>
+          {/* Probability (%) */}
+          <div>
+            <FieldLabel>Probability (%)</FieldLabel>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={probabilityPct}
+              onChange={(e) => setProbabilityPct(e.target.value)}
+              placeholder="0–100"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.probability_pct} />
+          </div>
+
+          {/* Impact score (1–5) */}
+          <div>
+            <FieldLabel>Impact Score (1–5)</FieldLabel>
+            <Input
+              type="number"
+              min={1}
+              max={5}
+              step={1}
+              value={impactScore}
+              onChange={(e) => setImpactScore(e.target.value)}
+              placeholder="1–5"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.impact_score} />
+          </div>
+
+          {/* Impact area */}
+          <div>
+            <FieldLabel>Impact Area</FieldLabel>
+            <SelectInput
+              value={impactArea}
+              onChange={(e) =>
+                setImpactArea(e.target.value as RiskImpactArea | "")
+              }
+            >
+              <option value="">— Select area —</option>
+              {IMPACT_AREA_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </SelectInput>
+            <FieldError message={fieldErrors.impact_area} />
+          </div>
+        </FormGrid>
+      </FormSection>
+
+      {/* Section: Response */}
+      <FormSection title="Response">
+        <FormGrid>
+          {/* Response strategy */}
+          <div>
+            <FieldLabel>Response Strategy</FieldLabel>
+            <SelectInput
+              value={responseStrategy}
+              onChange={(e) =>
+                setResponseStrategy(e.target.value as RiskResponseStrategy)
+              }
+            >
+              <option value="avoid">Avoid</option>
+              <option value="transfer">Transfer</option>
+              <option value="mitigate">Mitigate</option>
+              <option value="accept">Accept</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.response_strategy} />
+          </div>
+
+          {/* Status */}
+          <div>
+            <FieldLabel>Status</FieldLabel>
+            <SelectInput
+              value={status}
+              onChange={(e) => setStatus(e.target.value as Risk["status"])}
+            >
+              <option value="open">Open</option>
+              <option value="mitigating">Mitigating</option>
+              <option value="accepted">Accepted</option>
+              <option value="closed">Closed</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.status} />
+          </div>
+
+          {/* Due date */}
+          <div>
+            <FieldLabel>Due Date</FieldLabel>
+            <Input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.due_date} />
+          </div>
+        </FormGrid>
+
+        {/* Mitigation — progressive disclosure */}
+        {showMitigation ? (
+          <div>
+            <FieldLabel>Mitigation Plan</FieldLabel>
+            <TextareaInput
+              value={mitigation}
+              onChange={(e) => setMitigation(e.target.value)}
+              placeholder="Steps to mitigate this risk…"
+              rows={2}
+            />
+            <FieldError message={fieldErrors.mitigation} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowMitigation(true)}
+            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.severity} />
-        </div>
+            + Add mitigation plan
+          </button>
+        )}
+      </FormSection>
 
-        {/* Likelihood */}
-        <div>
-          <FieldLabel>Likelihood</FieldLabel>
-          <SelectInput
-            value={likelihood}
-            onChange={(e) => setLikelihood(e.target.value as Risk["likelihood"])}
+      {/* Section: Details */}
+      <FormSection title="Details">
+        {/* Description — progressive disclosure */}
+        {showDescription ? (
+          <div>
+            <FieldLabel>Description</FieldLabel>
+            <TextareaInput
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the risk…"
+              rows={2}
+            />
+            <FieldError message={fieldErrors.description} />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowDescription(true)}
+            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
           >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.likelihood} />
-        </div>
+            + Add description
+          </button>
+        )}
 
-        {/* Status */}
+        {/* Trigger — early-warning indicator */}
         <div>
-          <FieldLabel>Status</FieldLabel>
-          <SelectInput
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Risk["status"])}
-          >
-            <option value="open">Open</option>
-            <option value="mitigating">Mitigating</option>
-            <option value="accepted">Accepted</option>
-            <option value="closed">Closed</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.status} />
-        </div>
-
-        {/* Category */}
-        <div>
-          <FieldLabel>Category</FieldLabel>
-          <Input
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            placeholder="Technical, Resource…"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.category} />
-        </div>
-
-        {/* Due date */}
-        <div>
-          <FieldLabel>Due Date</FieldLabel>
-          <Input
-            type="date"
-            value={dueDate}
-            onChange={(e) => setDueDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.due_date} />
-        </div>
-
-        {/* Response strategy */}
-        <div>
-          <FieldLabel>Response Strategy</FieldLabel>
-          <SelectInput
-            value={responseStrategy}
-            onChange={(e) =>
-              setResponseStrategy(e.target.value as RiskResponseStrategy)
-            }
-          >
-            <option value="avoid">Avoid</option>
-            <option value="transfer">Transfer</option>
-            <option value="mitigate">Mitigate</option>
-            <option value="accept">Accept</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.response_strategy} />
-        </div>
-
-        {/* Risk category */}
-        <div>
-          <FieldLabel>Risk Category</FieldLabel>
-          <SelectInput
-            value={riskCategory}
-            onChange={(e) =>
-              setRiskCategory(e.target.value as RiskCategoryValue | "")
-            }
-          >
-            <option value="">— Select category —</option>
-            {RISK_CATEGORY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectInput>
-          <FieldError message={fieldErrors.risk_category} />
-        </div>
-
-        {/* Impact area */}
-        <div>
-          <FieldLabel>Impact Area</FieldLabel>
-          <SelectInput
-            value={impactArea}
-            onChange={(e) =>
-              setImpactArea(e.target.value as RiskImpactArea | "")
-            }
-          >
-            <option value="">— Select area —</option>
-            {IMPACT_AREA_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </SelectInput>
-          <FieldError message={fieldErrors.impact_area} />
-        </div>
-
-        {/* Probability (%) */}
-        <div>
-          <FieldLabel>Probability (%)</FieldLabel>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            step={1}
-            value={probabilityPct}
-            onChange={(e) => setProbabilityPct(e.target.value)}
-            placeholder="0–100"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.probability_pct} />
-        </div>
-
-        {/* Impact score (1–5) */}
-        <div>
-          <FieldLabel>Impact Score (1–5)</FieldLabel>
-          <Input
-            type="number"
-            min={1}
-            max={5}
-            step={1}
-            value={impactScore}
-            onChange={(e) => setImpactScore(e.target.value)}
-            placeholder="1–5"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.impact_score} />
-        </div>
-      </div>
-
-      {/* Description — progressive disclosure */}
-      {showDescription ? (
-        <div>
-          <FieldLabel>Description</FieldLabel>
+          <FieldLabel>Trigger / Early Warning</FieldLabel>
           <TextareaInput
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the risk…"
+            value={trigger}
+            onChange={(e) => setTrigger(e.target.value)}
+            placeholder="What signals that this risk is materializing…"
             rows={2}
           />
-          <FieldError message={fieldErrors.description} />
+          <FieldError message={fieldErrors.trigger} />
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowDescription(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add description
-        </button>
-      )}
 
-      {/* Mitigation — progressive disclosure */}
-      {showMitigation ? (
+        {/* Residual risk — remaining after the chosen response */}
         <div>
-          <FieldLabel>Mitigation Plan</FieldLabel>
+          <FieldLabel>Residual Risk</FieldLabel>
           <TextareaInput
-            value={mitigation}
-            onChange={(e) => setMitigation(e.target.value)}
-            placeholder="Steps to mitigate this risk…"
+            value={residualRisk}
+            onChange={(e) => setResidualRisk(e.target.value)}
+            placeholder="Risk remaining after the response is applied…"
             rows={2}
           />
-          <FieldError message={fieldErrors.mitigation} />
+          <FieldError message={fieldErrors.residual_risk} />
         </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowMitigation(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add mitigation plan
-        </button>
-      )}
-
-      {/* Trigger — early-warning indicator */}
-      <div>
-        <FieldLabel>Trigger / Early Warning</FieldLabel>
-        <TextareaInput
-          value={trigger}
-          onChange={(e) => setTrigger(e.target.value)}
-          placeholder="What signals that this risk is materializing…"
-          rows={2}
-        />
-        <FieldError message={fieldErrors.trigger} />
-      </div>
-
-      {/* Residual risk — remaining after the chosen response */}
-      <div>
-        <FieldLabel>Residual Risk</FieldLabel>
-        <TextareaInput
-          value={residualRisk}
-          onChange={(e) => setResidualRisk(e.target.value)}
-          placeholder="Risk remaining after the response is applied…"
-          rows={2}
-        />
-        <FieldError message={fieldErrors.residual_risk} />
-      </div>
+      </FormSection>
 
       {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
+      <FormActions>
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
@@ -473,7 +489,7 @@ export function RiskForm({
             "Add Risk"
           )}
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

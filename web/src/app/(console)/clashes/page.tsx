@@ -1,13 +1,30 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { EntityLink } from "@/components/ui/entity-link";
+import { ClashFocusOpener } from "@/app/(console)/clashes/_clash-focus-opener";
 
 type ClashType = "schedule" | "resource" | "dependency";
 type ClashSeverity = "low" | "medium" | "high" | "critical";
 type ClashStatus = "open" | "investigating" | "resolved";
+
+export type ClashRow = {
+  id: string;
+  reference_id: string | null;
+  title: string;
+  type: string;
+  severity: string;
+  status: string;
+  description: string | null;
+  over_allocation_pct: number | null;
+  recommended_action: string | null;
+  project_a_id: string | null;
+  project_b_id: string | null;
+};
 
 function typeTone(t: ClashType) {
   if (t === "resource") return "warning" as const;
@@ -45,46 +62,47 @@ export default async function ClashesPage() {
   ]);
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
-
-  function projectLabel(id: string | null) {
-    if (!id) return null;
-    return projectMap[id] ?? id.slice(0, 8) + "…";
-  }
+  const clashList = (clashes ?? []) as ClashRow[];
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
       <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader title="Clash Register" />
 
+      {/* Deep-link auto-open: ?clash=<id> opens the matching row detail */}
+      <Suspense fallback={null}>
+        <ClashFocusOpener clashes={clashList} projectMap={projectMap} />
+      </Suspense>
+
       {/* Legend */}
       <div className="flex items-center gap-2 text-xs text-ink-muted">
-        <Badge tone="neutral" className="text-xs">auto</Badge>
+        <Badge tone="neutral" size="sm">auto</Badge>
         <span>= system-detected resource over-allocation</span>
       </div>
 
       {/* Table */}
       <Card>
-        {clashes && clashes.length > 0 ? (
+        {clashList.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
+            <table className="w-full min-w-[700px] text-sm">
               <thead>
                 <tr className="border-b border-border-subtle">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
                     Ref
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Title
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
                     Type
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
                     Severity
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Projects
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
                     Status
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -93,17 +111,16 @@ export default async function ClashesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
-                {clashes.map((clash) => {
+                {clashList.map((clash) => {
                   const isAuto = clash.type === "resource";
-                  const aLabel = projectLabel(clash.project_a_id);
-                  const bLabel = projectLabel(clash.project_b_id);
 
                   return (
                     <tr
                       key={clash.id}
+                      id={`clash-${clash.id}`}
                       className="hover:bg-sunken transition-colors duration-100"
                     >
-                      <td className="px-5 py-3.5">
+                      <td className="px-5 py-3.5 whitespace-nowrap">
                         {clash.reference_id ? (
                           <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
                             {clash.reference_id}
@@ -112,45 +129,50 @@ export default async function ClashesPage() {
                           <span className="text-ink-muted">—</span>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
-                        <span className="font-medium text-ink">{clash.title}</span>
+                      <td className="px-5 py-3.5 min-w-0 max-w-[200px]">
+                        <span className="block truncate font-medium text-ink">{clash.title}</span>
                         {isAuto && (
-                          <Badge tone="neutral" className="ml-2 text-xs">
+                          <Badge tone="neutral" size="sm" className="mt-0.5">
                             auto
                           </Badge>
                         )}
                       </td>
-                      <td className="px-5 py-3.5">
-                        <Badge tone={typeTone(clash.type as ClashType)}>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <Badge size="sm" tone={typeTone(clash.type as ClashType)}>
                           {typeLabel(clash.type as ClashType)}
                         </Badge>
                       </td>
-                      <td className="px-5 py-3.5">
+                      <td className="px-5 py-3.5 whitespace-nowrap">
                         <Severity level={clash.severity as ClashSeverity} />
                       </td>
-                      <td className="px-5 py-3.5 text-ink-secondary">
-                        {aLabel && bLabel ? (
-                          <span>
-                            {aLabel}
-                            <span className="mx-1 text-ink-muted">/</span>
-                            {bLabel}
-                          </span>
-                        ) : aLabel ? (
-                          aLabel
-                        ) : bLabel ? (
-                          bLabel
-                        ) : (
-                          "—"
-                        )}
+                      <td className="px-5 py-3.5 min-w-0 max-w-[200px]">
+                        <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
+                          {clash.project_a_id ? (
+                            <EntityLink kind="project" id={clash.project_a_id} muted>
+                              {projectMap[clash.project_a_id] ?? clash.project_a_id.slice(0, 8) + "…"}
+                            </EntityLink>
+                          ) : null}
+                          {clash.project_a_id && clash.project_b_id && (
+                            <span className="text-ink-muted">/</span>
+                          )}
+                          {clash.project_b_id ? (
+                            <EntityLink kind="project" id={clash.project_b_id} muted>
+                              {projectMap[clash.project_b_id] ?? clash.project_b_id.slice(0, 8) + "…"}
+                            </EntityLink>
+                          ) : null}
+                          {!clash.project_a_id && !clash.project_b_id && (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                        </span>
                       </td>
-                      <td className="px-5 py-3.5">
-                        <Badge tone={statusTone(clash.status as ClashStatus)}>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        <Badge size="sm" tone={statusTone(clash.status as ClashStatus)}>
                           {statusLabel(clash.status as ClashStatus)}
                         </Badge>
                       </td>
                       <td className="px-5 py-3.5 max-w-xs">
                         {clash.over_allocation_pct != null && (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mb-1">
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mb-1 whitespace-nowrap tabular-nums">
                             +{Number(clash.over_allocation_pct).toFixed(0)}% over
                           </span>
                         )}

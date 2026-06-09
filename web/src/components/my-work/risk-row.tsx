@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
+import { EntityLink } from "@/components/ui/entity-link";
 
 export interface MyRisk {
   id: string;
@@ -33,21 +33,22 @@ function formatDate(iso: string | null) {
 
 export function RiskRow({ risk }: { risk: MyRisk }) {
   return (
-    <Link
-      href={`/risks`}
-      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
-    >
+    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken">
       {/* Reference chip */}
       {risk.reference_id && (
-        <span className="shrink-0 rounded bg-sunken border border-border-subtle px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+        <span className="shrink-0 rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
           {risk.reference_id}
         </span>
       )}
 
-      {/* Title */}
-      <span className="min-w-0 flex-1 truncate font-medium text-ink">
+      {/* Title — deep-links into the risks register with focus param */}
+      <EntityLink
+        kind="risk"
+        id={risk.id}
+        className="min-w-0 flex-1 font-medium"
+      >
         {risk.title}
-      </span>
+      </EntityLink>
 
       {/* Project chip */}
       {risk.project_name && (
@@ -60,16 +61,16 @@ export function RiskRow({ risk }: { risk: MyRisk }) {
       <Severity level={risk.severity} className="shrink-0" />
 
       {/* Status */}
-      <Badge tone={statusTone(risk.status)} className="shrink-0">
+      <Badge size="sm" tone={statusTone(risk.status)} className="shrink-0">
         {risk.status}
       </Badge>
 
       {/* Due date */}
       {risk.due_date && (
-        <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">
+        <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted">
           {formatDate(risk.due_date)}
         </span>
       )}
-    </Link>
+    </div>
   );
 }

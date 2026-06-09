@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { z } from "zod";
+import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 export type ProjectPhase =
@@ -243,7 +244,7 @@ export function ProjectForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {topError && (
         <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
@@ -262,155 +263,170 @@ export function ProjectForm({
         <FieldError message={fieldErrors.name} />
       </div>
 
-      {/* Compact properties grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
-        {/* Code */}
-        <div>
-          <FieldLabel>Code</FieldLabel>
-          <Input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            placeholder="PROJ-001"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.code} />
-        </div>
+      {/* Section: Identity */}
+      <FormSection title="Identity">
+        <FormGrid>
+          {/* Code */}
+          <div>
+            <FieldLabel>Code</FieldLabel>
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="PROJ-001"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.code} />
+          </div>
 
-        {/* Program */}
-        <div>
-          <FieldLabel>Program</FieldLabel>
-          <Input
-            value={program}
-            onChange={(e) => setProgram(e.target.value)}
-            placeholder="e.g. Digital Transformation"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.program} />
-        </div>
+          {/* Program */}
+          <div>
+            <FieldLabel>Program</FieldLabel>
+            <Input
+              value={program}
+              onChange={(e) => setProgram(e.target.value)}
+              placeholder="e.g. Digital Transformation"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.program} />
+          </div>
 
-        {/* RAG Status */}
-        <div>
-          <FieldLabel>RAG Status</FieldLabel>
-          <SelectInput
-            value={ragStatus}
-            onChange={(e) => setRagStatus(e.target.value as Project["rag_status"])}
-          >
-            <option value="not_started">Not Started</option>
-            <option value="green">Green</option>
-            <option value="amber">Amber</option>
-            <option value="red">Red</option>
-            <option value="complete">Complete</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.rag_status} />
-        </div>
+          {/* Phase */}
+          <div>
+            <FieldLabel>Phase</FieldLabel>
+            <SelectInput
+              value={phase}
+              onChange={(e) => setPhase(e.target.value as ProjectPhase)}
+            >
+              <option value="initiation">Initiation</option>
+              <option value="planning">Planning</option>
+              <option value="execution">Execution</option>
+              <option value="monitoring">Monitoring</option>
+              <option value="closing">Closing</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.phase} />
+          </div>
 
-        {/* Currency */}
-        <div>
-          <FieldLabel>Currency</FieldLabel>
-          <SelectInput
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value)}
-          >
-            <option value="USD">USD</option>
-            <option value="SGD">SGD</option>
-            <option value="EUR">EUR</option>
-            <option value="GBP">GBP</option>
-            <option value="AUD">AUD</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.currency} />
-        </div>
+          {/* Currency */}
+          <div>
+            <FieldLabel>Currency</FieldLabel>
+            <SelectInput
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+            >
+              <option value="USD">USD</option>
+              <option value="SGD">SGD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="AUD">AUD</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.currency} />
+          </div>
+        </FormGrid>
+      </FormSection>
 
-        {/* Start Date */}
-        <div>
-          <FieldLabel>Start Date</FieldLabel>
-          <Input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.start_date} />
-        </div>
+      {/* Section: Status & Schedule */}
+      <FormSection title="Status & Schedule">
+        <FormGrid>
+          {/* RAG Status */}
+          <div>
+            <FieldLabel>RAG Status</FieldLabel>
+            <SelectInput
+              value={ragStatus}
+              onChange={(e) => setRagStatus(e.target.value as Project["rag_status"])}
+            >
+              <option value="not_started">Not Started</option>
+              <option value="green">Green</option>
+              <option value="amber">Amber</option>
+              <option value="red">Red</option>
+              <option value="complete">Complete</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.rag_status} />
+          </div>
 
-        {/* Target Date */}
-        <div>
-          <FieldLabel>Target Date</FieldLabel>
-          <Input
-            type="date"
-            value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.target_date} />
-        </div>
+          {/* Placeholder to keep grid aligned */}
+          <div />
 
-        {/* Phase */}
-        <div>
-          <FieldLabel>Phase</FieldLabel>
-          <SelectInput
-            value={phase}
-            onChange={(e) => setPhase(e.target.value as ProjectPhase)}
-          >
-            <option value="initiation">Initiation</option>
-            <option value="planning">Planning</option>
-            <option value="execution">Execution</option>
-            <option value="monitoring">Monitoring</option>
-            <option value="closing">Closing</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.phase} />
-        </div>
+          {/* Start Date */}
+          <div>
+            <FieldLabel>Start Date</FieldLabel>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.start_date} />
+          </div>
 
-        {/* Sponsor */}
-        <div>
-          <FieldLabel>Sponsor</FieldLabel>
-          <Input
-            value={sponsor}
-            onChange={(e) => setSponsor(e.target.value)}
-            placeholder="e.g. Jane Doe, CFO"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.sponsor} />
-        </div>
+          {/* Target Date */}
+          <div>
+            <FieldLabel>Target Date</FieldLabel>
+            <Input
+              type="date"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.target_date} />
+          </div>
 
-        {/* Project Manager */}
-        <div>
-          <FieldLabel>Project Manager</FieldLabel>
-          <Input
-            value={projectManager}
-            onChange={(e) => setProjectManager(e.target.value)}
-            placeholder="e.g. Wei Jie Tan"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.project_manager} />
-        </div>
+          {/* Baseline Start Date */}
+          <div>
+            <FieldLabel>Baseline Start</FieldLabel>
+            <Input
+              type="date"
+              value={baselineStartDate}
+              onChange={(e) => setBaselineStartDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.baseline_start_date} />
+          </div>
 
-        {/* Baseline Start Date */}
-        <div>
-          <FieldLabel>Baseline Start</FieldLabel>
-          <Input
-            type="date"
-            value={baselineStartDate}
-            onChange={(e) => setBaselineStartDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.baseline_start_date} />
-        </div>
+          {/* Baseline Target Date */}
+          <div>
+            <FieldLabel>Baseline Target</FieldLabel>
+            <Input
+              type="date"
+              value={baselineTargetDate}
+              onChange={(e) => setBaselineTargetDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.baseline_target_date} />
+          </div>
+        </FormGrid>
+      </FormSection>
 
-        {/* Baseline Target Date */}
-        <div>
-          <FieldLabel>Baseline Target</FieldLabel>
-          <Input
-            type="date"
-            value={baselineTargetDate}
-            onChange={(e) => setBaselineTargetDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.baseline_target_date} />
-        </div>
-      </div>
+      {/* Section: Ownership */}
+      <FormSection title="Ownership">
+        <FormGrid>
+          {/* Sponsor */}
+          <div>
+            <FieldLabel>Sponsor</FieldLabel>
+            <Input
+              value={sponsor}
+              onChange={(e) => setSponsor(e.target.value)}
+              placeholder="e.g. Jane Doe, CFO"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.sponsor} />
+          </div>
 
-      {/* Charter (PMBOK) — long-form narrative fields */}
-      <div className="space-y-3 border-t border-border-subtle pt-3">
+          {/* Project Manager */}
+          <div>
+            <FieldLabel>Project Manager</FieldLabel>
+            <Input
+              value={projectManager}
+              onChange={(e) => setProjectManager(e.target.value)}
+              placeholder="e.g. Wei Jie Tan"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.project_manager} />
+          </div>
+        </FormGrid>
+      </FormSection>
+
+      {/* Section: Charter — long-form narrative fields */}
+      <FormSection title="Charter">
         <div>
           <FieldLabel>Objective</FieldLabel>
           <TextareaInput
@@ -450,10 +466,10 @@ export function ProjectForm({
           />
           <FieldError message={fieldErrors.health_commentary} />
         </div>
-      </div>
+      </FormSection>
 
       {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
+      <FormActions>
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
@@ -469,7 +485,7 @@ export function ProjectForm({
             "Save Changes"
           )}
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -6,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { NewIssueButton } from "@/components/registers/new-issue-form";
 import { IssueRowButton } from "@/components/registers/issue-detail";
+import { EntityLink } from "@/components/ui/entity-link";
+import { IssueFocusOpener } from "@/components/registers/issue-focus-opener";
 
 type PriorityLevel = "low" | "medium" | "high" | "urgent";
 type IssueStatus = "open" | "in_progress" | "resolved" | "closed";
@@ -54,6 +57,14 @@ export default async function IssuesPage() {
         action={<NewIssueButton projects={projects ?? []} />}
       />
 
+      {/* Deep-link auto-opener — opens inspector for ?issue=<id> */}
+      <Suspense>
+        <IssueFocusOpener
+          issues={issues ?? []}
+          projectMap={projectMap}
+        />
+      </Suspense>
+
       {/* Table */}
       <Card>
         {issues && issues.length > 0 ? (
@@ -64,10 +75,10 @@ export default async function IssuesPage() {
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Ref
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide max-w-[240px]">
                     Title
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide max-w-[160px]">
                     Project
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -82,34 +93,42 @@ export default async function IssuesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
-                {issues.map((issue) => (
+                {(issues ?? []).map((issue) => (
                   <IssueRowButton
                     key={issue.id}
                     issue={issue}
                     projectName={issue.project_id ? (projectMap[issue.project_id] ?? undefined) : undefined}
                   >
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3 whitespace-nowrap">
                       {issue.reference_id ? (
-                        <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+                        <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted whitespace-nowrap">
                           {issue.reference_id}
                         </span>
                       ) : (
                         <span className="text-ink-muted">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 font-medium text-ink">{issue.title}</td>
-                    <td className="px-5 py-3.5 text-ink-secondary">
-                      {issue.project_id ? (projectMap[issue.project_id] ?? "—") : "—"}
+                    <td className="px-5 py-3 font-medium text-ink min-w-0 max-w-[240px]">
+                      <span className="block truncate">{issue.title}</span>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3 min-w-0 max-w-[160px]">
+                      {issue.project_id ? (
+                        <EntityLink kind="project" id={issue.project_id} muted>
+                          {projectMap[issue.project_id] ?? "—"}
+                        </EntityLink>
+                      ) : (
+                        <span className="text-ink-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 whitespace-nowrap">
                       <Severity level={issue.priority as PriorityLevel} />
                     </td>
-                    <td className="px-5 py-3.5">
-                      <Badge tone={statusTone(issue.status as IssueStatus)}>
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      <Badge size="sm" tone={statusTone(issue.status as IssueStatus)}>
                         {statusLabel(issue.status as IssueStatus)}
                       </Badge>
                     </td>
-                    <td className="px-5 py-3.5 text-ink-secondary tabular-nums">
+                    <td className="px-5 py-3 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
                       {formatDate(issue.due_date)}
                     </td>
                   </IssueRowButton>
@@ -120,7 +139,7 @@ export default async function IssuesPage() {
         ) : (
           <div className="px-5 py-16 text-center">
             <p className="text-sm text-ink-muted">No issues logged yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use “New Issue” to log the first one.</p>
+            <p className="mt-1 text-xs text-ink-muted">Use "New Issue" to log the first one.</p>
           </div>
         )}
       </Card>

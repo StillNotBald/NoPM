@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
+import { EntityLink } from "@/components/ui/entity-link";
 
 export interface MyIssue {
   id: string;
@@ -38,21 +38,22 @@ function formatDate(iso: string | null) {
 
 export function IssueRow({ issue }: { issue: MyIssue }) {
   return (
-    <Link
-      href={`/issues`}
-      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
-    >
+    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken">
       {/* Reference chip */}
       {issue.reference_id && (
-        <span className="shrink-0 rounded bg-sunken border border-border-subtle px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+        <span className="shrink-0 rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
           {issue.reference_id}
         </span>
       )}
 
-      {/* Title */}
-      <span className="min-w-0 flex-1 truncate font-medium text-ink">
+      {/* Title — deep-links into the issues register with focus param */}
+      <EntityLink
+        kind="issue"
+        id={issue.id}
+        className="min-w-0 flex-1 font-medium"
+      >
         {issue.title}
-      </span>
+      </EntityLink>
 
       {/* Project chip */}
       {issue.project_name && (
@@ -65,16 +66,16 @@ export function IssueRow({ issue }: { issue: MyIssue }) {
       <Severity level={issue.priority} className="shrink-0" />
 
       {/* Status */}
-      <Badge tone={statusTone(issue.status)} className="shrink-0">
+      <Badge size="sm" tone={statusTone(issue.status)} className="shrink-0">
         {statusLabel(issue.status)}
       </Badge>
 
       {/* Due date */}
       {issue.due_date && (
-        <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">
+        <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted">
           {formatDate(issue.due_date)}
         </span>
       )}
-    </Link>
+    </div>
   );
 }

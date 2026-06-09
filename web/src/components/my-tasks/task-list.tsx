@@ -6,6 +6,7 @@ import { CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
+import { EntityLink } from "@/components/ui/entity-link";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -74,10 +75,7 @@ function TaskRow({ task }: { task: ProjectTask }) {
   const soon = !overdue && isDueSoon(task.due_date);
 
   return (
-    <Link
-      href={`/projects/${task.project_id}`}
-      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
-    >
+    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken">
       {/* urgency dot */}
       <span
         aria-hidden
@@ -87,8 +85,15 @@ function TaskRow({ task }: { task: ProjectTask }) {
         )}
       />
 
-      {/* name */}
-      <span className="min-w-0 flex-1 truncate font-medium text-ink">{task.name}</span>
+      {/* name — deep-links to the task inspector in the project */}
+      <EntityLink
+        kind="task"
+        id={task.id}
+        projectId={task.project_id}
+        className="min-w-0 flex-1 font-medium"
+      >
+        {task.name}
+      </EntityLink>
 
       {/* priority */}
       {task.priority && (
@@ -96,7 +101,7 @@ function TaskRow({ task }: { task: ProjectTask }) {
       )}
 
       {/* status pill */}
-      <Badge tone={statusTone(task.status_type)} className="shrink-0 capitalize">
+      <Badge size="sm" tone={statusTone(task.status_type)} className="shrink-0 capitalize">
         {task.status}
       </Badge>
 
@@ -104,7 +109,7 @@ function TaskRow({ task }: { task: ProjectTask }) {
       {task.due_date && (
         <span
           className={cn(
-            "shrink-0 font-mono text-xs tabular-nums",
+            "shrink-0 whitespace-nowrap font-mono text-xs tabular-nums",
             overdue ? "font-medium text-danger" : soon ? "text-warning" : "text-ink-muted",
           )}
         >
@@ -121,7 +126,7 @@ function TaskRow({ task }: { task: ProjectTask }) {
           )}
         </span>
       )}
-    </Link>
+    </div>
   );
 }
 
@@ -241,13 +246,14 @@ export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
               {group.project_code && (
                 <span className="font-mono text-xs text-ink-muted">{group.project_code}</span>
               )}
-              <Link
-                href={`/projects/${group.project_id}`}
-                className="min-w-0 flex-1 truncate text-sm font-medium text-ink transition-colors hover:text-accent"
+              <EntityLink
+                kind="project"
+                id={group.project_id}
+                className="min-w-0 flex-1 truncate text-sm font-medium"
               >
                 {group.project_name}
-              </Link>
-              <span className="shrink-0 rounded-full bg-sunken px-2 py-0.5 font-mono text-xs text-ink-muted">
+              </EntityLink>
+              <span className="shrink-0 rounded-full bg-sunken px-2 py-0.5 font-mono text-xs tabular-nums text-ink-muted">
                 {group.tasks.length}
               </span>
             </div>

@@ -23,6 +23,18 @@ export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingEle
   return <h3 className={cn("text-sm font-medium text-ink", className)} {...props} />;
 }
 
-export function CardBody({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("p-5", className)} {...props} />;
+type CardBodyPad = "default" | "compact" | "none";
+
+const padClass: Record<CardBodyPad, string> = {
+  default: "p-5",
+  compact: "p-2",
+  none: "p-0",
+};
+
+export function CardBody({
+  className,
+  pad = "default",
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { pad?: CardBodyPad }) {
+  return <div className={cn(padClass[pad], className)} {...props} />;
 }

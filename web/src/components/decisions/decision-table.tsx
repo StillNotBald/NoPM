@@ -1,6 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
+import { EntityLink } from "@/components/ui/entity-link";
 import { DecisionRowButton } from "@/components/decisions/decision-detail";
 import type { Decision } from "@/components/decisions/decision-form";
 import type { Tone } from "@/lib/status";
@@ -58,7 +59,7 @@ export function DecisionTable({ rows, projectMap, refMap, projects }: DecisionTa
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[700px] text-sm">
+      <table className="w-full min-w-[760px] text-sm">
         <thead>
           <tr className="border-b border-border-subtle">
             <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -66,6 +67,9 @@ export function DecisionTable({ rows, projectMap, refMap, projects }: DecisionTa
             </th>
             <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
               Title
+            </th>
+            <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+              Project
             </th>
             <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
               Decision
@@ -76,7 +80,7 @@ export function DecisionTable({ rows, projectMap, refMap, projects }: DecisionTa
             <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
               Decided By
             </th>
-            <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+            <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
               Date
             </th>
           </tr>
@@ -90,7 +94,7 @@ export function DecisionTable({ rows, projectMap, refMap, projects }: DecisionTa
               supersededByRef={d.supersedes ? (refMap[d.supersedes] ?? null) : null}
               projects={projects}
             >
-              <td className="px-5 py-3.5">
+              <td className="px-5 py-3.5 whitespace-nowrap">
                 {d.reference_id ? (
                   <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
                     {d.reference_id}
@@ -99,19 +103,28 @@ export function DecisionTable({ rows, projectMap, refMap, projects }: DecisionTa
                   <span className="text-ink-muted">—</span>
                 )}
               </td>
-              <td className="px-5 py-3.5 font-medium text-ink max-w-[200px] truncate">
-                {d.title}
+              <td className="px-5 py-3.5 min-w-0 max-w-[180px]">
+                <span className="block truncate font-medium text-ink">{d.title}</span>
               </td>
-              <td className="px-5 py-3.5 text-ink-secondary max-w-[200px] truncate">
-                {d.decision ?? "—"}
+              <td className="px-5 py-3.5 min-w-0 max-w-[140px]">
+                {d.project_id ? (
+                  <EntityLink kind="project" id={d.project_id} muted>
+                    <span className="truncate">{projectMap[d.project_id] ?? d.project_id.slice(0, 8) + "…"}</span>
+                  </EntityLink>
+                ) : (
+                  <span className="text-ink-muted">—</span>
+                )}
               </td>
-              <td className="px-5 py-3.5">
-                <Badge tone={statusTone(d.status)}>{statusLabel(d.status)}</Badge>
+              <td className="px-5 py-3.5 min-w-0 max-w-[180px]">
+                <span className="block truncate text-ink-secondary">{d.decision ?? "—"}</span>
               </td>
-              <td className="px-5 py-3.5 text-ink-secondary">
+              <td className="px-5 py-3.5 whitespace-nowrap">
+                <Badge size="sm" tone={statusTone(d.status)}>{statusLabel(d.status)}</Badge>
+              </td>
+              <td className="px-5 py-3.5 text-ink-secondary whitespace-nowrap">
                 {d.decided_by_label ?? "—"}
               </td>
-              <td className="px-5 py-3.5 text-ink-secondary tabular-nums">
+              <td className="px-5 py-3.5 text-ink-secondary tabular-nums whitespace-nowrap">
                 {formatDate(d.decided_at)}
               </td>
             </DecisionRowButton>

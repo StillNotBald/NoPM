@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { createDecisionSchema } from "@/app/api/decisions/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -138,180 +139,188 @@ export function DecisionForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {topError}
-        </div>
-      )}
-
-      {/* Title — prominent */}
-      <div>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Decision title"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.title} />
-      </div>
-
-      {/* Compact properties grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
-        {/* Project — only shown when creating */}
-        {!decision && (
-          <div className="sm:col-span-2">
-            <FieldLabel>Project</FieldLabel>
-            <SelectInput
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </SelectInput>
-            <FieldError message={fieldErrors.project_id} />
-          </div>
-        )}
-
-        {/* Status */}
-        <div>
-          <FieldLabel>Status</FieldLabel>
-          <SelectInput
-            value={status}
-            onChange={(e) => setStatus(e.target.value as DecisionStatus)}
-          >
-            <option value="proposed">Proposed</option>
-            <option value="accepted">Accepted</option>
-            <option value="superseded">Superseded</option>
-            <option value="rejected">Rejected</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.status} />
-        </div>
-
-        {/* Decided Date */}
-        <div>
-          <FieldLabel>Decision Date</FieldLabel>
-          <Input
-            type="date"
-            value={decidedAt}
-            onChange={(e) => setDecidedAt(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.decided_at} />
-        </div>
-      </div>
-
-      {/* Decision text — required */}
-      <div>
-        <FieldLabel>The Decision</FieldLabel>
-        <TextareaInput
-          value={decisionText}
-          onChange={(e) => setDecisionText(e.target.value)}
-          placeholder="State the chosen course of action…"
-          rows={2}
-        />
-        <FieldError message={fieldErrors.decision} />
-      </div>
-
-      {/* Context — progressive disclosure */}
-      {showContext ? (
-        <div>
-          <FieldLabel>Context</FieldLabel>
-          <TextareaInput
-            value={context}
-            onChange={(e) => setContext(e.target.value)}
-            placeholder="Background and situational context…"
-            rows={2}
-          />
-          <FieldError message={fieldErrors.context} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowContext(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add context
-        </button>
-      )}
-
-      {/* Options — progressive disclosure */}
-      {showOptions ? (
-        <div>
-          <FieldLabel>Options Considered</FieldLabel>
-          <TextareaInput
-            value={options}
-            onChange={(e) => setOptions(e.target.value)}
-            placeholder="List the alternatives that were evaluated…"
-            rows={3}
-          />
-          <FieldError message={fieldErrors.options} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowOptions(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add options considered
-        </button>
-      )}
-
-      {/* Rationale — progressive disclosure */}
-      {showRationale ? (
-        <div>
-          <FieldLabel>Rationale</FieldLabel>
-          <TextareaInput
-            value={rationale}
-            onChange={(e) => setRationale(e.target.value)}
-            placeholder="Why this option was chosen over the alternatives…"
-            rows={2}
-          />
-          <FieldError message={fieldErrors.rationale} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowRationale(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add rationale
-        </button>
-      )}
-
-      {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={inspector.close}
-          disabled={saving}
-          className="w-full sm:w-auto h-11 sm:h-10"
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={saving || !title.trim()}
-          className="w-full sm:w-auto h-11 sm:h-10"
-        >
-          {saving ? (
-            <>
-              <Spinner size="sm" className="mr-2" />
-              Saving…
-            </>
-          ) : decision ? (
-            "Save Changes"
-          ) : (
-            "Add Decision"
+    <FormShell
+      main={
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {topError && (
+            <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
+              {topError}
+            </div>
           )}
-        </Button>
-      </div>
-    </form>
+
+          {/* Title — prominent */}
+          <div>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Decision title"
+              required
+              className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
+            />
+            <FieldError message={fieldErrors.title} />
+          </div>
+
+          {/* Properties section */}
+          <FormSection title="Properties">
+            <FormGrid>
+              {/* Project — only shown when creating */}
+              {!decision && (
+                <div className="col-span-2">
+                  <FieldLabel>Project</FieldLabel>
+                  <SelectInput
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  <FieldError message={fieldErrors.project_id} />
+                </div>
+              )}
+
+              {/* Status */}
+              <div>
+                <FieldLabel>Status</FieldLabel>
+                <SelectInput
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as DecisionStatus)}
+                >
+                  <option value="proposed">Proposed</option>
+                  <option value="accepted">Accepted</option>
+                  <option value="superseded">Superseded</option>
+                  <option value="rejected">Rejected</option>
+                </SelectInput>
+                <FieldError message={fieldErrors.status} />
+              </div>
+
+              {/* Decided Date */}
+              <div>
+                <FieldLabel>Decision Date</FieldLabel>
+                <Input
+                  type="date"
+                  value={decidedAt}
+                  onChange={(e) => setDecidedAt(e.target.value)}
+                  className="h-11 sm:h-10 text-base sm:text-sm"
+                />
+                <FieldError message={fieldErrors.decided_at} />
+              </div>
+            </FormGrid>
+          </FormSection>
+
+          {/* Content section */}
+          <FormSection title="Content">
+            {/* Decision text — required */}
+            <div>
+              <FieldLabel>The Decision</FieldLabel>
+              <TextareaInput
+                value={decisionText}
+                onChange={(e) => setDecisionText(e.target.value)}
+                placeholder="State the chosen course of action…"
+                rows={2}
+              />
+              <FieldError message={fieldErrors.decision} />
+            </div>
+
+            {/* Context — progressive disclosure */}
+            {showContext ? (
+              <div>
+                <FieldLabel>Context</FieldLabel>
+                <TextareaInput
+                  value={context}
+                  onChange={(e) => setContext(e.target.value)}
+                  placeholder="Background and situational context…"
+                  rows={2}
+                />
+                <FieldError message={fieldErrors.context} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowContext(true)}
+                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+              >
+                + Add context
+              </button>
+            )}
+
+            {/* Options — progressive disclosure */}
+            {showOptions ? (
+              <div>
+                <FieldLabel>Options Considered</FieldLabel>
+                <TextareaInput
+                  value={options}
+                  onChange={(e) => setOptions(e.target.value)}
+                  placeholder="List the alternatives that were evaluated…"
+                  rows={3}
+                />
+                <FieldError message={fieldErrors.options} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowOptions(true)}
+                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+              >
+                + Add options considered
+              </button>
+            )}
+
+            {/* Rationale — progressive disclosure */}
+            {showRationale ? (
+              <div>
+                <FieldLabel>Rationale</FieldLabel>
+                <TextareaInput
+                  value={rationale}
+                  onChange={(e) => setRationale(e.target.value)}
+                  placeholder="Why this option was chosen over the alternatives…"
+                  rows={2}
+                />
+                <FieldError message={fieldErrors.rationale} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowRationale(true)}
+                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+              >
+                + Add rationale
+              </button>
+            )}
+          </FormSection>
+
+          <FormActions>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={inspector.close}
+              disabled={saving}
+              className="w-full sm:w-auto h-11 sm:h-10"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || !title.trim()}
+              className="w-full sm:w-auto h-11 sm:h-10"
+            >
+              {saving ? (
+                <>
+                  <Spinner size="sm" className="mr-2" />
+                  Saving…
+                </>
+              ) : decision ? (
+                "Save Changes"
+              ) : (
+                "Add Decision"
+              )}
+            </Button>
+          </FormActions>
+        </form>
+      }
+    />
   );
 }

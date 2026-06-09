@@ -46,6 +46,11 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-43** Navigation IA — grouped sidebar (Overview/Delivery/Registers/Capacity/Governance) + project switcher with recents + route-derived breadcrumbs; customizable mobile bottom-nav retained. — **DONE**
 - **R-44** Unified person identity — task assignment, capacity/allocation, and cost are one `resource_member` (`tasks.assignee_id → resource_members`); logins bridge via `resource_members.profile_id`, so My Work/My Tasks resolve "my" tasks and the Resources view shows each person's open-task load beside capacity + cost. — **DONE** (migration 0019; My Work/My Tasks bridge; Resources open-tasks column)
 
+- **R-45** Smart entity navigation — every entity reference (project/risk/issue/task/clash/decision/CR/doc name) is a deep-link; register pages auto-open the inspector from a focus query param (`?risk=…`, `?dec=…`, `?cr=…`, `?clash=…`); global search routes straight to the record. — **DONE**
+- **R-46** Account & identity menu — top-right avatar menu (profile, settings, keyboard shortcuts, support, sign-out); editable display-name profile (`PATCH /api/me`, audited); settings restructured (Profile / Security / About). — **DONE**
+- **R-47** Team membership UI — create a resource member and allocate people to projects from the console (Add member / Allocate), closing the gap where only the API/CLI could add people. — **DONE**
+- **R-48** Structured form layout — `FormShell`/`FormSection`/`FormGrid` group flat field stacks into Jira-style sections across the risk/issue/decision/change/project/milestone/task forms. — **DONE**
+
 ## Reporting & front door
 - **R-40** Deck export PPTX/PDF/HTML (data-driven, server-side). — **DONE**
 - **R-50** Public landing + case study (wedges, hero, try-demo). — **DONE**

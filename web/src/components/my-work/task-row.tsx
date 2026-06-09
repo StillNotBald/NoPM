@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
+import { EntityLink } from "@/components/ui/entity-link";
 
 export interface MyTask {
   id: string;
@@ -36,10 +36,7 @@ function formatDate(iso: string | null) {
 
 export function TaskRow({ task }: { task: MyTask }) {
   return (
-    <Link
-      href={`/projects/${task.project_id}`}
-      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
-    >
+    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken">
       {/* Overdue dot */}
       <span
         className={cn(
@@ -49,10 +46,15 @@ export function TaskRow({ task }: { task: MyTask }) {
         aria-hidden
       />
 
-      {/* Name */}
-      <span className="min-w-0 flex-1 truncate font-medium text-ink">
+      {/* Name — deep-links to the task in the project */}
+      <EntityLink
+        kind="task"
+        id={task.id}
+        projectId={task.project_id}
+        className="min-w-0 flex-1 font-medium"
+      >
         {task.name}
-      </span>
+      </EntityLink>
 
       {/* Project chip */}
       {task.project_name && (
@@ -65,7 +67,7 @@ export function TaskRow({ task }: { task: MyTask }) {
       <Severity level={task.priority} className="shrink-0" />
 
       {/* Status */}
-      <Badge tone={statusTone(task.status_type)} className="shrink-0">
+      <Badge size="sm" tone={statusTone(task.status_type)} className="shrink-0">
         {task.status}
       </Badge>
 
@@ -73,7 +75,7 @@ export function TaskRow({ task }: { task: MyTask }) {
       {task.due_date && (
         <span
           className={cn(
-            "shrink-0 font-mono text-xs tabular-nums",
+            "shrink-0 whitespace-nowrap font-mono text-xs tabular-nums",
             task.isOverdue ? "font-medium text-danger" : "text-ink-muted",
           )}
         >
@@ -85,6 +87,6 @@ export function TaskRow({ task }: { task: MyTask }) {
           )}
         </span>
       )}
-    </Link>
+    </div>
   );
 }

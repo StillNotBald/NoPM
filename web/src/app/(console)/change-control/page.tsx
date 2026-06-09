@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ChangeTable } from "@/components/change-control/change-table";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
+import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
 import type { ChangeRequest } from "@/components/change-control/change-form";
 
 export default async function ChangeControlPage() {
@@ -38,6 +40,15 @@ export default async function ChangeControlPage() {
           title="Change Control"
           action={<NewChangeButton projects={projects ?? []} />}
         />
+
+        {/* Deep-link auto-open: ?cr=<id> opens the matching change request in the inspector */}
+        <Suspense fallback={null}>
+          <ChangeFocusOpener
+            changeRequests={changeRequestRows}
+            projectMap={projectMap}
+            projects={projects ?? []}
+          />
+        </Suspense>
 
         {/* Review queue callout */}
         {reviewCount > 0 && (

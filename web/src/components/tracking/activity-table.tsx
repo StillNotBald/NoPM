@@ -299,8 +299,8 @@ function MilestoneRow({
       </td>
 
       {/* Expand / name */}
-      <td className={cn("pr-3", rowPy)} colSpan={2}>
-        <div className="flex items-center gap-1.5">
+      <td className={cn("pr-3 min-w-0", rowPy)} colSpan={2}>
+        <div className="flex items-center gap-1.5 min-w-0">
           <button
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
             className="shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink"
@@ -309,12 +309,12 @@ function MilestoneRow({
             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
           <Diamond size={13} className="shrink-0 text-accent" />
-          <span className="font-medium text-sm text-ink">{milestone.name}</span>
+          <span className="font-medium text-sm text-ink truncate">{milestone.name}</span>
         </div>
       </td>
 
       {/* Dates */}
-      <td className={cn("hidden md:table-cell pr-4 text-xs text-ink-secondary", rowPy)}>
+      <td className={cn("hidden md:table-cell pr-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap", rowPy)}>
         {fmtDate(milestone.target_date)}
       </td>
 
@@ -323,11 +323,11 @@ function MilestoneRow({
 
       {/* Status */}
       <td className={cn("pr-4", rowPy)}>
-        <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
+        <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
       </td>
 
       {/* Progress */}
-      <td className={cn("pr-4", rowPy)}>
+      <td className={cn("pr-4 whitespace-nowrap", rowPy)}>
         <ProgressBar pct={milestone.completion_pct} />
       </td>
 
@@ -434,18 +434,18 @@ function TaskRow({
           <div className="relative mt-[10px] h-px w-2.5 bg-border-subtle" />
         </div>
       </td>
-      <td className={cn("pr-3", rowPy)}>
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-ink">{task.name}</span>
+      <td className={cn("pr-3 min-w-0", rowPy)}>
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm text-ink truncate">{task.name}</span>
             {task.checklist && task.checklist.length > 0 && (
-              <span className="inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-muted">
+              <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-muted">
                 {task.checklist.filter((i) => i.done).length}/{task.checklist.length}
               </span>
             )}
           </div>
           {task.assignee_id && (
-            <span className="text-xs text-ink-muted">
+            <span className="text-xs text-ink-muted truncate">
               {resolveMemberName(task.assignee_id, members)}
             </span>
           )}
@@ -464,11 +464,11 @@ function TaskRow({
 
       {/* Status */}
       <td className={cn("pr-4", rowPy)}>
-        <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
+        <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
       </td>
 
       {/* Progress */}
-      <td className={cn("pr-4", rowPy)}>
+      <td className={cn("pr-4 whitespace-nowrap", rowPy)}>
         <ProgressBar pct={task.completion_pct} />
       </td>
 
@@ -758,7 +758,7 @@ export function ActivityTable({
             <span className="font-medium text-sm text-ink-secondary">
               Standalone
             </span>
-            <Badge tone="neutral">{standaloneTasks.length}</Badge>
+            <Badge size="sm" tone="neutral">{standaloneTasks.length}</Badge>
           </div>
         </td>
         <td colSpan={5} />

@@ -2,6 +2,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ok } from "@/lib/api/response";
+import { entityHref } from "@/lib/nav/entity-href";
 
 export const runtime = "nodejs";
 
@@ -135,7 +136,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.name as string,
       sublabel: row.code ? `${row.code} · ${row.status ?? ""}` : (row.status as string | undefined) ?? undefined,
-      href: `/projects/${row.id}`,
+      href: entityHref("project", { id: row.id as string }),
     });
   }
 
@@ -146,7 +147,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.name as string,
       sublabel: (row.status_type as string | undefined) ?? undefined,
-      href: `/projects/${row.project_id}`,
+      href: entityHref("task", { id: row.id as string, projectId: row.project_id as string }),
     });
   }
 
@@ -157,7 +158,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.title as string,
       sublabel: (row.status as string | undefined) ?? undefined,
-      href: `/risks`,
+      href: entityHref("risk", { id: row.id as string }),
     });
   }
 
@@ -168,7 +169,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.title as string,
       sublabel: (row.status as string | undefined) ?? undefined,
-      href: `/issues`,
+      href: entityHref("issue", { id: row.id as string }),
     });
   }
 
@@ -179,7 +180,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.title as string,
       sublabel: (row.reference_id as string | undefined) ?? (row.status as string | undefined) ?? undefined,
-      href: `/clashes`,
+      href: entityHref("clash", { id: row.id as string }),
       reference_id: (row.reference_id as string | undefined) ?? undefined,
     });
   }
@@ -191,7 +192,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.title as string,
       sublabel: [row.reference_id, row.doc_type].filter(Boolean).join(" · ") || undefined,
-      href: `/documents?doc=${row.id}`,
+      href: entityHref("document", { id: row.id as string }),
       reference_id: (row.reference_id as string | undefined) ?? undefined,
     });
   }
@@ -203,7 +204,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.title as string,
       sublabel: [row.reference_id, row.status].filter(Boolean).join(" · ") || undefined,
-      href: `/change-control?cr=${row.id}`,
+      href: entityHref("change_request", { id: row.id as string }),
       reference_id: (row.reference_id as string | undefined) ?? undefined,
     });
   }
@@ -215,7 +216,7 @@ export const GET = route(async ({ actor, request }) => {
       id: row.id as string,
       label: row.title as string,
       sublabel: [row.reference_id, row.status].filter(Boolean).join(" · ") || undefined,
-      href: `/decisions?dec=${row.id}`,
+      href: entityHref("decision", { id: row.id as string }),
       reference_id: (row.reference_id as string | undefined) ?? undefined,
     });
   }

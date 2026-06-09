@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DecisionTable } from "@/components/decisions/decision-table";
 import { NewDecisionButton } from "@/components/decisions/new-decision-button";
+import { DecisionFocusOpener } from "@/app/(console)/decisions/_decision-focus-opener";
 import type { Decision } from "@/components/decisions/decision-form";
 
 export default async function DecisionsPage() {
@@ -39,6 +41,16 @@ export default async function DecisionsPage() {
           title="Decision Log"
           action={<NewDecisionButton projects={projects ?? []} />}
         />
+
+        {/* Deep-link auto-open: ?dec=<id> opens the matching decision in the inspector */}
+        <Suspense fallback={null}>
+          <DecisionFocusOpener
+            decisions={decisionList}
+            projectMap={projectMap}
+            refMap={refMap}
+            projects={projects ?? []}
+          />
+        </Suspense>
 
         <Card>
           <DecisionTable

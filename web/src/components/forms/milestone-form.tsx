@@ -14,6 +14,7 @@ import {
   SelectInput,
   TextareaInput,
 } from "@/components/forms/project-form";
+import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { z } from "zod";
 
 // ── Client-side validation schema ────────────────────────────────────────────
@@ -130,7 +131,7 @@ export function MilestoneForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-5">
       {topError && (
         <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
           {topError}
@@ -149,106 +150,109 @@ export function MilestoneForm({
         <FieldError message={fieldErrors.name} />
       </div>
 
-      {/* Compact 2-col grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
-        <div>
-          <FieldLabel>Status</FieldLabel>
-          <SelectInput
-            value={status}
-            onChange={(e) => setStatus(e.target.value as Milestone["status"])}
-          >
-            <option value="not_started">Not Started</option>
-            <option value="on_track">On Track</option>
-            <option value="at_risk">At Risk</option>
-            <option value="delayed">Delayed</option>
-            <option value="completed">Completed</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.status} />
-        </div>
+      {/* Section: Status & Schedule */}
+      <FormSection title="Status & Schedule">
+        <FormGrid>
+          <div>
+            <FieldLabel>Status</FieldLabel>
+            <SelectInput
+              value={status}
+              onChange={(e) => setStatus(e.target.value as Milestone["status"])}
+            >
+              <option value="not_started">Not Started</option>
+              <option value="on_track">On Track</option>
+              <option value="at_risk">At Risk</option>
+              <option value="delayed">Delayed</option>
+              <option value="completed">Completed</option>
+            </SelectInput>
+            <FieldError message={fieldErrors.status} />
+          </div>
 
+          <div>
+            <FieldLabel>Completion %</FieldLabel>
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              value={completionPct}
+              onChange={(e) => setCompletionPct(Number(e.target.value))}
+              placeholder="0"
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.completion_pct} />
+          </div>
+
+          <div>
+            <FieldLabel>Start Date</FieldLabel>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.start_date} />
+          </div>
+
+          <div>
+            <FieldLabel>Target Date</FieldLabel>
+            <Input
+              type="date"
+              value={targetDate}
+              onChange={(e) => setTargetDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.target_date} />
+          </div>
+
+          <div>
+            <FieldLabel>Baseline Target Date</FieldLabel>
+            <Input
+              type="date"
+              value={baselineTargetDate}
+              onChange={(e) => setBaselineTargetDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.baseline_target_date} />
+          </div>
+
+          <div>
+            <FieldLabel>Actual Date</FieldLabel>
+            <Input
+              type="date"
+              value={actualDate}
+              onChange={(e) => setActualDate(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
+            <FieldError message={fieldErrors.actual_date} />
+          </div>
+        </FormGrid>
+      </FormSection>
+
+      {/* Section: Definition */}
+      <FormSection title="Definition">
         <div>
-          <FieldLabel>Target Date</FieldLabel>
-          <Input
-            type="date"
-            value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
+          <FieldLabel>Description</FieldLabel>
+          <TextareaInput
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Milestone narrative — what this milestone represents and why it matters."
           />
-          <FieldError message={fieldErrors.target_date} />
+          <FieldError message={fieldErrors.description} />
         </div>
 
         <div>
-          <FieldLabel>Completion %</FieldLabel>
-          <Input
-            type="number"
-            min={0}
-            max={100}
-            value={completionPct}
-            onChange={(e) => setCompletionPct(Number(e.target.value))}
-            placeholder="0"
-            className="h-11 sm:h-10 text-base sm:text-sm"
+          <FieldLabel>Deliverable</FieldLabel>
+          <TextareaInput
+            value={deliverable}
+            onChange={(e) => setDeliverable(e.target.value)}
+            placeholder="WBS deliverable / acceptance output produced at this milestone."
           />
-          <FieldError message={fieldErrors.completion_pct} />
+          <FieldError message={fieldErrors.deliverable} />
         </div>
-
-        <div>
-          <FieldLabel>Start Date</FieldLabel>
-          <Input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.start_date} />
-        </div>
-
-        <div>
-          <FieldLabel>Baseline Target Date</FieldLabel>
-          <Input
-            type="date"
-            value={baselineTargetDate}
-            onChange={(e) => setBaselineTargetDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.baseline_target_date} />
-        </div>
-
-        <div>
-          <FieldLabel>Actual Date</FieldLabel>
-          <Input
-            type="date"
-            value={actualDate}
-            onChange={(e) => setActualDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.actual_date} />
-        </div>
-      </div>
-
-      {/* Description */}
-      <div>
-        <FieldLabel>Description</FieldLabel>
-        <TextareaInput
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="Milestone narrative — what this milestone represents and why it matters."
-        />
-        <FieldError message={fieldErrors.description} />
-      </div>
-
-      {/* Deliverable */}
-      <div>
-        <FieldLabel>Deliverable</FieldLabel>
-        <TextareaInput
-          value={deliverable}
-          onChange={(e) => setDeliverable(e.target.value)}
-          placeholder="WBS deliverable / acceptance output produced at this milestone."
-        />
-        <FieldError message={fieldErrors.deliverable} />
-      </div>
+      </FormSection>
 
       {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
+      <FormActions>
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
@@ -264,7 +268,7 @@ export function MilestoneForm({
             "Add Milestone"
           )}
         </Button>
-      </div>
+      </FormActions>
     </form>
   );
 }

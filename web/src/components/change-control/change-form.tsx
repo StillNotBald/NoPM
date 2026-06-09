@@ -9,6 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -159,207 +160,219 @@ export function ChangeForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {topError}
-        </div>
-      )}
-
-      {/* Title — prominent */}
-      <div>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Change request title"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.title} />
-      </div>
-
-      {/* Compact properties grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
-        {/* Project — only shown when creating */}
-        {!changeRequest && (
-          <div className="sm:col-span-2">
-            <FieldLabel>Project</FieldLabel>
-            <SelectInput
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </SelectInput>
-            <FieldError message={fieldErrors.project_id} />
-          </div>
-        )}
-
-        {/* Category */}
-        <div>
-          <FieldLabel>Category</FieldLabel>
-          <SelectInput
-            value={category}
-            onChange={(e) => setCategory(e.target.value as CRCategory)}
-          >
-            <option value="scope">Scope</option>
-            <option value="schedule">Schedule</option>
-            <option value="cost">Cost</option>
-            <option value="quality">Quality</option>
-            <option value="resource">Resource</option>
-            <option value="other">Other</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.category} />
-        </div>
-
-        {/* Priority */}
-        <div>
-          <FieldLabel>Priority</FieldLabel>
-          <SelectInput
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as CRPriority)}
-          >
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.priority} />
-        </div>
-
-        {/* Status */}
-        <div>
-          <FieldLabel>Status</FieldLabel>
-          <SelectInput
-            value={status}
-            onChange={(e) => setStatus(e.target.value as CRStatus)}
-          >
-            <option value="raised">Raised</option>
-            <option value="under_review">Under Review</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="deferred">Deferred</option>
-            <option value="implemented">Implemented</option>
-          </SelectInput>
-          <FieldError message={fieldErrors.status} />
-        </div>
-
-        {/* Target Date */}
-        <div>
-          <FieldLabel>Target Date</FieldLabel>
-          <Input
-            type="date"
-            value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.target_date} />
-        </div>
-
-        {/* Impact — schedule days */}
-        <div>
-          <FieldLabel>Schedule Impact (days)</FieldLabel>
-          <Input
-            type="number"
-            value={impactScheduleDays}
-            onChange={(e) => setImpactScheduleDays(e.target.value)}
-            placeholder="e.g. +14 or -3"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.impact_schedule_days} />
-        </div>
-
-        {/* Impact — cost */}
-        <div>
-          <FieldLabel>Cost Impact</FieldLabel>
-          <Input
-            type="number"
-            step="0.01"
-            value={impactCost}
-            onChange={(e) => setImpactCost(e.target.value)}
-            placeholder="e.g. 5000 or -1200"
-            className="h-11 sm:h-10 text-base sm:text-sm"
-          />
-          <FieldError message={fieldErrors.impact_cost} />
-        </div>
-      </div>
-
-      {/* Impact Summary — progressive disclosure */}
-      {showImpact ? (
-        <div>
-          <FieldLabel>Impact Summary</FieldLabel>
-          <TextareaInput
-            value={impactSummary}
-            onChange={(e) => setImpactSummary(e.target.value)}
-            placeholder="Describe the impact of this change on scope, schedule, cost, quality…"
-            rows={2}
-          />
-          <FieldError message={fieldErrors.impact_summary} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowImpact(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add impact summary
-        </button>
-      )}
-
-      {/* Description — progressive disclosure */}
-      {showDescription ? (
-        <div>
-          <FieldLabel>Description</FieldLabel>
-          <TextareaInput
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Describe the change being requested…"
-            rows={3}
-          />
-          <FieldError message={fieldErrors.description} />
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowDescription(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
-        >
-          + Add description
-        </button>
-      )}
-
-      {/* Actions */}
-      <div className="flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={inspector.close}
-          disabled={saving}
-          className="w-full sm:w-auto h-11 sm:h-10"
-        >
-          Cancel
-        </Button>
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={saving || !title.trim()}
-          className="w-full sm:w-auto h-11 sm:h-10"
-        >
-          {saving ? (
-            <>
-              <Spinner size="sm" className="mr-2" />
-              Saving…
-            </>
-          ) : changeRequest ? (
-            "Save Changes"
-          ) : (
-            "Raise Change Request"
+    <FormShell
+      main={
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {topError && (
+            <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
+              {topError}
+            </div>
           )}
-        </Button>
-      </div>
-    </form>
+
+          {/* Title — prominent */}
+          <div>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Change request title"
+              required
+              className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
+            />
+            <FieldError message={fieldErrors.title} />
+          </div>
+
+          {/* Core properties */}
+          <FormSection title="Properties">
+            <FormGrid>
+              {/* Project — only shown when creating */}
+              {!changeRequest && (
+                <div className="col-span-2">
+                  <FieldLabel>Project</FieldLabel>
+                  <SelectInput
+                    value={projectId}
+                    onChange={(e) => setProjectId(e.target.value)}
+                  >
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  <FieldError message={fieldErrors.project_id} />
+                </div>
+              )}
+
+              {/* Category */}
+              <div>
+                <FieldLabel>Category</FieldLabel>
+                <SelectInput
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value as CRCategory)}
+                >
+                  <option value="scope">Scope</option>
+                  <option value="schedule">Schedule</option>
+                  <option value="cost">Cost</option>
+                  <option value="quality">Quality</option>
+                  <option value="resource">Resource</option>
+                  <option value="other">Other</option>
+                </SelectInput>
+                <FieldError message={fieldErrors.category} />
+              </div>
+
+              {/* Priority */}
+              <div>
+                <FieldLabel>Priority</FieldLabel>
+                <SelectInput
+                  value={priority}
+                  onChange={(e) => setPriority(e.target.value as CRPriority)}
+                >
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="critical">Critical</option>
+                </SelectInput>
+                <FieldError message={fieldErrors.priority} />
+              </div>
+
+              {/* Status */}
+              <div>
+                <FieldLabel>Status</FieldLabel>
+                <SelectInput
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as CRStatus)}
+                >
+                  <option value="raised">Raised</option>
+                  <option value="under_review">Under Review</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="deferred">Deferred</option>
+                  <option value="implemented">Implemented</option>
+                </SelectInput>
+                <FieldError message={fieldErrors.status} />
+              </div>
+
+              {/* Target Date */}
+              <div>
+                <FieldLabel>Target Date</FieldLabel>
+                <Input
+                  type="date"
+                  value={targetDate}
+                  onChange={(e) => setTargetDate(e.target.value)}
+                  className="h-11 sm:h-10 text-base sm:text-sm"
+                />
+                <FieldError message={fieldErrors.target_date} />
+              </div>
+            </FormGrid>
+          </FormSection>
+
+          {/* Impact section */}
+          <FormSection title="Impact">
+            <FormGrid>
+              {/* Impact — schedule days */}
+              <div>
+                <FieldLabel>Schedule Impact (days)</FieldLabel>
+                <Input
+                  type="number"
+                  value={impactScheduleDays}
+                  onChange={(e) => setImpactScheduleDays(e.target.value)}
+                  placeholder="e.g. +14 or -3"
+                  className="h-11 sm:h-10 text-base sm:text-sm"
+                />
+                <FieldError message={fieldErrors.impact_schedule_days} />
+              </div>
+
+              {/* Impact — cost */}
+              <div>
+                <FieldLabel>Cost Impact</FieldLabel>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={impactCost}
+                  onChange={(e) => setImpactCost(e.target.value)}
+                  placeholder="e.g. 5000 or -1200"
+                  className="h-11 sm:h-10 text-base sm:text-sm"
+                />
+                <FieldError message={fieldErrors.impact_cost} />
+              </div>
+            </FormGrid>
+
+            {/* Impact Summary — progressive disclosure */}
+            {showImpact ? (
+              <div>
+                <FieldLabel>Impact Summary</FieldLabel>
+                <TextareaInput
+                  value={impactSummary}
+                  onChange={(e) => setImpactSummary(e.target.value)}
+                  placeholder="Describe the impact of this change on scope, schedule, cost, quality…"
+                  rows={2}
+                />
+                <FieldError message={fieldErrors.impact_summary} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowImpact(true)}
+                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+              >
+                + Add impact summary
+              </button>
+            )}
+          </FormSection>
+
+          {/* Description — progressive disclosure */}
+          <FormSection title="Details">
+            {showDescription ? (
+              <div>
+                <FieldLabel>Description</FieldLabel>
+                <TextareaInput
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Describe the change being requested…"
+                  rows={3}
+                />
+                <FieldError message={fieldErrors.description} />
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowDescription(true)}
+                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+              >
+                + Add description
+              </button>
+            )}
+          </FormSection>
+
+          <FormActions>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={inspector.close}
+              disabled={saving}
+              className="w-full sm:w-auto h-11 sm:h-10"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving || !title.trim()}
+              className="w-full sm:w-auto h-11 sm:h-10"
+            >
+              {saving ? (
+                <>
+                  <Spinner size="sm" className="mr-2" />
+                  Saving…
+                </>
+              ) : changeRequest ? (
+                "Save Changes"
+              ) : (
+                "Raise Change Request"
+              )}
+            </Button>
+          </FormActions>
+        </form>
+      }
+    />
   );
 }

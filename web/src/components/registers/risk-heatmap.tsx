@@ -96,8 +96,8 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
   const impactAxis = ["5", "4", "3", "2", "1"]; // top→bottom: high impact first
 
   return (
-    <div className="overflow-x-auto">
-      <div className="flex min-w-[520px] items-stretch gap-3">
+    <div className="flex justify-center">
+      <div className="flex items-stretch gap-3 max-w-[460px] w-full">
         {/* Y axis label */}
         <div className="flex items-center">
           <span className="rotate-180 text-[10px] font-medium uppercase tracking-wide text-ink-muted [writing-mode:vertical-rl]">
@@ -105,14 +105,14 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
           </span>
         </div>
 
-        <div className="flex-1">
+        <div className="flex-1 min-w-0">
           {/* Grid: 5 impact rows (high→low) × 5 probability cols (low→high) */}
           <div className="grid grid-cols-[auto_repeat(5,minmax(0,1fr))] gap-1">
             {impactAxis.map((impactLabel, rowIdx) => {
               const impact = 5 - rowIdx; // 5,4,3,2,1
               return (
                 <div key={impact} className="contents">
-                  <div className="flex w-6 items-center justify-center text-[11px] font-medium text-ink-muted tabular-nums">
+                  <div className="flex w-5 items-center justify-center text-[11px] font-medium text-ink-muted tabular-nums">
                     {impactLabel}
                   </div>
                   {Array.from({ length: 5 }, (_, colIdx) => {
@@ -124,9 +124,9 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
                         key={probBand}
                         title={`${BAND_LABEL[band]} exposure · ${count} risk${count === 1 ? "" : "s"}`}
                         className={cn(
-                          "flex aspect-square items-center justify-center rounded-md text-sm font-semibold tabular-nums transition-colors",
+                          "flex aspect-square items-center justify-center rounded text-xs font-semibold tabular-nums transition-colors min-h-[56px] max-h-[72px]",
                           BAND_FILL[band],
-                          count === 0 && "opacity-50",
+                          count === 0 && "opacity-40",
                         )}
                       >
                         {count > 0 ? count : ""}
@@ -142,7 +142,7 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
             {probAxis.map((label) => (
               <div
                 key={label}
-                className="pt-1.5 text-center text-[10px] font-medium text-ink-muted tabular-nums"
+                className="pt-1 text-center text-[9px] font-medium text-ink-muted tabular-nums leading-tight"
               >
                 {label}
               </div>
@@ -155,14 +155,14 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
         </div>
 
         {/* Legend */}
-        <div className="flex flex-col justify-center gap-2 pl-1">
+        <div className="flex flex-col justify-center gap-2 pl-2">
           {(Object.keys(BAND_LABEL) as ExposureBand[]).map((band) => (
-            <span key={band} className="flex items-center gap-1.5 text-xs text-ink-secondary">
-              <span className={cn("h-2.5 w-2.5 rounded-sm", BAND_DOT[band])} aria-hidden="true" />
+            <span key={band} className="flex items-center gap-1.5 text-xs text-ink-secondary whitespace-nowrap">
+              <span className={cn("h-2.5 w-2.5 shrink-0 rounded-sm", BAND_DOT[band])} aria-hidden="true" />
               {BAND_LABEL[band]}
             </span>
           ))}
-          <span className="mt-1 text-[10px] text-ink-muted">
+          <span className="mt-1 text-[10px] text-ink-muted whitespace-nowrap">
             {scored} scored
           </span>
         </div>

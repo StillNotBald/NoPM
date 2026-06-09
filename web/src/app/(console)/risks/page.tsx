@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -12,6 +13,8 @@ import {
   type ExposureBand,
 } from "@/components/registers/risk-heatmap";
 import { RiskRowButton } from "@/components/registers/risk-detail";
+import { EntityLink } from "@/components/ui/entity-link";
+import { RiskFocusOpener } from "@/components/registers/risk-focus-opener";
 
 type SeverityLevel = "low" | "medium" | "high" | "critical";
 type RiskStatus = "open" | "mitigating" | "closed" | "accepted";
@@ -98,6 +101,15 @@ export default async function RisksPage() {
         action={<NewRiskButton projects={projects ?? []} />}
       />
 
+      {/* Deep-link auto-opener — opens inspector for ?risk=<id> */}
+      <Suspense>
+        <RiskFocusOpener
+          risks={risks ?? []}
+          projectMap={projectMap}
+          ownerMap={Object.fromEntries(ownerMap)}
+        />
+      </Suspense>
+
       {/* Exposure heatmap — 5×5 probability × impact matrix */}
       {risks && risks.length > 0 && (
         <Card>
@@ -106,7 +118,7 @@ export default async function RisksPage() {
               Exposure heatmap
             </h2>
           </div>
-          <div className="px-5 py-5">
+          <div className="px-5 py-4">
             <RiskHeatmap risks={risks} />
           </div>
         </Card>
@@ -122,10 +134,10 @@ export default async function RisksPage() {
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
                     Ref
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide max-w-[240px]">
                     Title
                   </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
+                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide max-w-[160px]">
                     Project
                   </th>
                   <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
@@ -149,7 +161,7 @@ export default async function RisksPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border-subtle">
-                {risks.map((risk) => {
+                {(risks ?? []).map((risk) => {
                   const score = riskScore(risk.probability_pct, risk.impact_score);
                   const band = exposureBand(score);
                   return (
@@ -159,23 +171,31 @@ export default async function RisksPage() {
                     projectName={risk.project_id ? (projectMap[risk.project_id] ?? undefined) : undefined}
                     ownerName={ownerName(risk.owner_id)}
                   >
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3 whitespace-nowrap">
                       {risk.reference_id ? (
-                        <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+                        <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted whitespace-nowrap">
                           {risk.reference_id}
                         </span>
                       ) : (
                         <span className="text-ink-muted">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 font-medium text-ink">{risk.title}</td>
-                    <td className="px-5 py-3.5 text-ink-secondary">
-                      {risk.project_id ? (projectMap[risk.project_id] ?? "—") : "—"}
+                    <td className="px-5 py-3 font-medium text-ink min-w-0 max-w-[240px]">
+                      <span className="block truncate">{risk.title}</span>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3 min-w-0 max-w-[160px]">
+                      {risk.project_id ? (
+                        <EntityLink kind="project" id={risk.project_id} muted>
+                          {projectMap[risk.project_id] ?? "—"}
+                        </EntityLink>
+                      ) : (
+                        <span className="text-ink-muted">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3 whitespace-nowrap">
                       <Severity level={risk.severity as SeverityLevel} />
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3 whitespace-nowrap">
                       {score != null && band ? (
                         <span className="inline-flex items-center gap-2">
                           <Severity level={BAND_TO_SEVERITY[band]} />
@@ -187,9 +207,9 @@ export default async function RisksPage() {
                         <span className="text-ink-muted">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3 whitespace-nowrap">
                       {risk.response_strategy ? (
-                        <Badge tone={strategyTone(risk.response_strategy as ResponseStrategy)}>
+                        <Badge size="sm" tone={strategyTone(risk.response_strategy as ResponseStrategy)}>
                           {STRATEGY_LABEL[risk.response_strategy as ResponseStrategy] ??
                             risk.response_strategy}
                         </Badge>
@@ -197,15 +217,15 @@ export default async function RisksPage() {
                         <span className="text-ink-muted">—</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5">
-                      <Badge tone={statusTone(risk.status as RiskStatus)}>
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      <Badge size="sm" tone={statusTone(risk.status as RiskStatus)}>
                         {risk.status}
                       </Badge>
                     </td>
-                    <td className="px-5 py-3.5 text-ink-secondary">
+                    <td className="px-5 py-3 text-ink-secondary whitespace-nowrap text-xs">
                       {ownerName(risk.owner_id)}
                     </td>
-                    <td className="px-5 py-3.5 text-ink-secondary tabular-nums">
+                    <td className="px-5 py-3 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
                       {formatDate(risk.due_date)}
                     </td>
                   </RiskRowButton>
@@ -217,7 +237,7 @@ export default async function RisksPage() {
         ) : (
           <div className="px-5 py-16 text-center">
             <p className="text-sm text-ink-muted">No risks recorded yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use “New Risk” to log the first one.</p>
+            <p className="mt-1 text-xs text-ink-muted">Use "New Risk" to log the first one.</p>
           </div>
         )}
       </Card>

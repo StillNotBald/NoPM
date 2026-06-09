@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import { NewProjectButton } from "@/components/forms/new-project-button";
 import { PageHeader } from "@/components/ui/page-header";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
+import { EntityLink } from "@/components/ui/entity-link";
 
 export default async function ProjectsPage() {
   const db = await createClient();
@@ -39,9 +39,9 @@ export default async function ProjectsPage() {
               <tr className="border-b border-border-subtle bg-sunken/50">
                 <th className="px-4 py-3 text-left font-medium text-ink-secondary w-24">Code</th>
                 <th className="px-4 py-3 text-left font-medium text-ink-secondary">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-32">Program</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-28">RAG</th>
-                <th className="px-4 py-3 text-right font-medium text-ink-secondary w-28">Completion</th>
+                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-44">Program</th>
+                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-24">RAG</th>
+                <th className="px-4 py-3 text-right font-medium text-ink-secondary w-32">Completion</th>
                 <th className="px-4 py-3 text-left font-medium text-ink-secondary w-32">Target date</th>
                 <th className="px-4 py-3 text-left font-medium text-ink-secondary w-20">Status</th>
               </tr>
@@ -56,40 +56,39 @@ export default async function ProjectsPage() {
                   )}
                 >
                   <td className="px-4 py-3">
-                    <span className="font-mono text-xs text-ink-muted">
+                    <span className="font-mono text-xs text-ink-muted whitespace-nowrap">
                       {project.code ?? "—"}
                     </span>
                   </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/projects/${project.id}`}
-                      className="font-medium text-ink hover:text-accent transition-colors"
-                    >
+                  <td className="px-4 py-3 min-w-0">
+                    <EntityLink kind="project" id={project.id} className="font-medium">
                       {project.name}
-                    </Link>
+                    </EntityLink>
                   </td>
-                  <td className="px-4 py-3 text-ink-secondary">
-                    {project.program ?? <span className="text-ink-muted">—</span>}
+                  <td className="px-4 py-3 min-w-0 max-w-[11rem]">
+                    <span className="block truncate text-ink-secondary text-sm">
+                      {project.program ?? <span className="text-ink-muted">—</span>}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
-                    <Badge tone={ragTone(project.rag_status as RagStatus)}>
+                    <Badge size="sm" tone={ragTone(project.rag_status as RagStatus)}>
                       {ragLabel(project.rag_status as RagStatus)}
                     </Badge>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center justify-end gap-2">
-                      <div className="w-20 h-1.5 rounded-full bg-sunken overflow-hidden">
+                      <div className="w-16 h-1.5 rounded-full bg-sunken overflow-hidden">
                         <div
                           className="h-full rounded-full bg-accent"
                           style={{ width: `${project.completion_pct ?? 0}%` }}
                         />
                       </div>
-                      <span className="text-xs text-ink-secondary tabular-nums w-8 text-right">
+                      <span className="text-xs text-ink-secondary tabular-nums whitespace-nowrap w-8 text-right">
                         {Math.round(project.completion_pct ?? 0)}%
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-ink-secondary">
+                  <td className="px-4 py-3 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
                     {project.target_date
                       ? new Date(project.target_date).toLocaleDateString("en-GB", {
                           day: "numeric",
@@ -100,7 +99,7 @@ export default async function ProjectsPage() {
                   </td>
                   <td className="px-4 py-3">
                     {project.is_locked ? (
-                      <Badge tone="warning">Locked</Badge>
+                      <Badge size="sm" tone="warning">Locked</Badge>
                     ) : (
                       <span className="text-xs text-ink-muted">Active</span>
                     )}

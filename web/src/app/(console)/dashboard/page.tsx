@@ -9,6 +9,7 @@ import { RagDonutCard } from "@/components/dashboard/rag-donut-card";
 import { ProgramBarCard } from "@/components/dashboard/program-bar-card";
 import { HealthRollupCards } from "@/components/dashboard/health-rollup-cards";
 import { ExportBoardPack } from "@/components/dashboard/export-board-pack";
+import { EntityLink } from "@/components/ui/entity-link";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -186,13 +187,15 @@ export default async function DashboardPage() {
                         </td>
 
                         {/* Name */}
-                        <td className="px-5 py-3.5">
-                          <span className="font-medium text-ink">{project.name}</span>
+                        <td className="min-w-0 max-w-[260px] px-5 py-3.5">
+                          <EntityLink kind="project" id={project.id} className="font-medium">
+                            {project.name}
+                          </EntityLink>
                         </td>
 
                         {/* RAG Badge */}
                         <td className="px-5 py-3.5">
-                          <Badge tone={ragTone(project.rag_status)}>
+                          <Badge size="sm" tone={ragTone(project.rag_status)}>
                             {ragLabel(project.rag_status)}
                           </Badge>
                         </td>
@@ -235,14 +238,14 @@ export default async function DashboardPage() {
                         </td>
 
                         {/* Program */}
-                        <td className="px-5 py-3.5 text-ink-secondary">
+                        <td className="min-w-0 max-w-[140px] truncate px-5 py-3.5 text-ink-secondary">
                           {project.program ?? (
                             <span className="text-ink-muted">—</span>
                           )}
                         </td>
 
                         {/* Target date */}
-                        <td className="px-5 py-3.5">
+                        <td className="whitespace-nowrap px-5 py-3.5">
                           {project.target_date ? (
                             <span
                               className={cn(

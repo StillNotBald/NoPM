@@ -3,12 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { EntityLink } from "@/components/ui/entity-link";
 import { cn } from "@/lib/cn";
 import {
   memberUtilisation,
   workspaceSummary,
   fmtHours,
 } from "@/lib/resource/utilisation";
+import { ResourceActions } from "./resource-actions";
 
 interface ResourceMember {
   id: string;
@@ -102,9 +104,15 @@ export default async function ResourcesPage() {
         <PageHeader
           title="Resources"
           action={
-            overAllocated > 0 ? (
-              <Badge tone="danger">{overAllocated} over-allocated</Badge>
-            ) : undefined
+            <div className="flex items-center gap-2">
+              {overAllocated > 0 && (
+                <Badge tone="danger" size="sm">
+                  {overAllocated} over-allocated
+                </Badge>
+              )}
+              {/* Client island — buttons open inspector forms */}
+              <ResourceActions />
+            </div>
           }
         />
 
@@ -115,7 +123,7 @@ export default async function ResourcesPage() {
             <Card>
               <CardBody className="py-4">
                 <p className="text-xs text-ink-muted uppercase tracking-wide">Capacity / wk</p>
-                <p className="mt-1 font-mono text-2xl font-semibold text-ink">
+                <p className="mt-1 font-mono text-2xl font-semibold text-ink tabular-nums">
                   {wsSummary.totalCapacityHours > 0
                     ? `${fmtHours(wsSummary.totalCapacityHours)} h`
                     : <span className="text-ink-muted">—</span>}
@@ -127,7 +135,7 @@ export default async function ResourcesPage() {
             <Card>
               <CardBody className="py-4">
                 <p className="text-xs text-ink-muted uppercase tracking-wide">Allocated / wk</p>
-                <p className="mt-1 font-mono text-2xl font-semibold text-ink">
+                <p className="mt-1 font-mono text-2xl font-semibold text-ink tabular-nums">
                   {wsSummary.totalCapacityHours > 0
                     ? `${fmtHours(wsSummary.totalAllocatedHours)} h`
                     : <span className="text-ink-muted">—</span>}
@@ -141,7 +149,7 @@ export default async function ResourcesPage() {
                 <p className="text-xs text-ink-muted uppercase tracking-wide">Utilisation</p>
                 <p
                   className={cn(
-                    "mt-1 font-mono text-2xl font-semibold",
+                    "mt-1 font-mono text-2xl font-semibold tabular-nums",
                     wsSummary.overallUtilisationPct == null
                       ? "text-ink-muted"
                       : wsSummary.overallUtilisationPct > 100
@@ -164,7 +172,7 @@ export default async function ResourcesPage() {
                 <p className="text-xs text-ink-muted uppercase tracking-wide">Over capacity</p>
                 <p
                   className={cn(
-                    "mt-1 font-mono text-2xl font-semibold",
+                    "mt-1 font-mono text-2xl font-semibold tabular-nums",
                     overAllocated > 0 ? "text-danger" : "text-ink-muted",
                   )}
                 >
@@ -182,9 +190,13 @@ export default async function ResourcesPage() {
           </CardHeader>
           {rows.length === 0 ? (
             <CardBody>
-              <p className="text-sm text-ink-muted text-center py-6">
-                No resource members found. Add members to get started.
-              </p>
+              <div className="flex flex-col items-center gap-3 py-8 text-center">
+                <p className="text-sm text-ink-muted">
+                  No team members yet. Add your first member to track capacity and cost.
+                </p>
+                {/* Working "Add member" button in the empty state */}
+                <ResourceActions variant="empty-state" />
+              </div>
             </CardBody>
           ) : (
             <div className="overflow-x-auto">
@@ -231,13 +243,19 @@ export default async function ResourcesPage() {
                         className="hover:bg-sunken transition-colors duration-100"
                       >
                         {/* Name */}
-                        <td className="px-5 py-4">
-                          <span className="font-medium text-ink">{member.name}</span>
+                        <td className="px-5 py-4 max-w-[180px]">
+                          <span className="font-medium text-ink truncate block">
+                            {member.name}
+                          </span>
                         </td>
 
                         {/* Role */}
-                        <td className="px-5 py-4 text-ink-secondary">
-                          {member.role_title ?? <span className="text-ink-muted">—</span>}
+                        <td className="px-5 py-4 text-ink-secondary max-w-[140px]">
+                          {member.role_title ? (
+                            <span className="truncate block">{member.role_title}</span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
                         </td>
 
                         {/* Cost rate */}
@@ -323,7 +341,7 @@ export default async function ResourcesPage() {
 
                         {/* Over-allocated badge */}
                         <td className="px-5 py-4">
-                          {isOver && <Badge tone="danger">Over-allocated</Badge>}
+                          {isOver && <Badge tone="danger" size="sm">Over-allocated</Badge>}
                         </td>
                       </tr>
                     );
