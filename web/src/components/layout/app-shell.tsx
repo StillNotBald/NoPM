@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useCallback, useRef, type ReactNod
 import { PanelLeftClose, PanelLeft, Sparkles } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
+import { Breadcrumbs } from "./breadcrumbs";
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationBell } from "@/components/notifications/bell";
 import { cn } from "@/lib/cn";
@@ -113,6 +114,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ThemeToggle />
             <CmdKTrigger onClick={openCmd} />
           </header>
+
+          {/* wayfinding breadcrumbs — slim bar between header and content */}
+          <Breadcrumbs />
 
           {/* content — grouped grey bg so white cards lift off it (iOS layering);
               pad bottom on mobile so the bottom nav never covers it */}

@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
@@ -86,16 +85,8 @@ export default async function ProjectDetailPage({
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 mx-auto max-w-6xl space-y-8">
       {/* Header */}
       <div>
-        {/* Breadcrumb */}
-        <nav className="mb-4 flex items-center gap-2 text-xs text-ink-muted">
-          <Link href="/projects" className="hover:text-ink transition-colors">
-            Projects
-          </Link>
-          <span>/</span>
-          <span className="text-ink-secondary">{safeProject.name}</span>
-        </nav>
-
-        {/* Title row: stacks on mobile, side-by-side on sm+ */}
+        {/* Title row: stacks on mobile, side-by-side on sm+
+            (wayfinding handled by the shell-level Breadcrumbs bar) */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3 min-w-0">
             {safeProject.code && (

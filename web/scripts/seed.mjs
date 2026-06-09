@@ -446,4 +446,17 @@ for (const a of auditRows) {
   await db.from("audit_log").insert({ workspace_id: W, actor_type: "user", actor_id: owner, actor_label: "Chu Ling", ...a });
 }
 
+// ── assign open tasks to human profiles so "My Tasks" renders populated ───
+// (tasks.assignee_id -> profiles(id); round-robin across whoever exists, ~5/6).
+const profileIds = ((await db.from("profiles").select("id").eq("workspace_id", W)).data ?? []).map((p) => p.id);
+const openTasks = (await db.from("tasks").select("id").eq("workspace_id", W)
+  .not("status_type", "in", '("completed","canceled")').order("created_at")).data ?? [];
+let assigned = 0;
+for (let i = 0; i < openTasks.length; i++) {
+  if (i % 6 === 5 || !profileIds.length) continue;
+  await db.from("tasks").update({ assignee_id: profileIds[i % profileIds.length] }).eq("id", openTasks[i].id);
+  assigned++;
+}
+console.log("task assignments:", assigned, "across", profileIds.length, "profile(s)");
+
 console.log("\n✓ Seed complete — demo workspace is rich and ready.");

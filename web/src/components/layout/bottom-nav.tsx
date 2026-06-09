@@ -29,6 +29,8 @@ import {
   Wallet,
   ShieldCheck,
   KeyRound,
+  ListTodo,
+  Map,
   LayoutGrid,
   Plus,
   X,
@@ -41,7 +43,9 @@ type Item = { href: string; label: string; icon: LucideIcon };
 // Every destination available to the shortcut bar.
 const ALL_ITEMS: Item[] = [
   { href: "/dashboard", label: "Home", icon: LayoutDashboard },
+  { href: "/my-tasks", label: "My Tasks", icon: ListTodo },
   { href: "/projects", label: "Projects", icon: FolderKanban },
+  { href: "/portfolio", label: "Portfolio", icon: Map },
   { href: "/risks", label: "Risks", icon: AlertTriangle },
   { href: "/issues", label: "Issues", icon: CircleAlert },
   { href: "/clashes", label: "Clashes", icon: Zap },

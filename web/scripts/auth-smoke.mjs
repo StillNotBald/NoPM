@@ -41,7 +41,7 @@ const cookie = (val.length <= 3180
 const proj = (await admin.from("projects").select("id").order("created_at").limit(1).maybeSingle()).data;
 
 const pages = [
-  "/dashboard", "/my-work", "/review", "/projects",
+  "/dashboard", "/my-work", "/my-tasks", "/portfolio", "/review", "/projects",
   ...(proj ? [`/projects/${proj.id}`] : []),
   "/documents", "/change-control", "/decisions", "/risks", "/issues", "/clashes",
   "/budget", "/resources", "/approvals", "/trust", "/tokens", "/case-study",

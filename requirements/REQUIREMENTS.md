@@ -41,6 +41,9 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-37** Notification center (in-app bell + My Work hub, fed from governed events). — **DONE** (publish.ts fail-soft notify + resolvers; /api/notifications GET/PATCH/read-all; header bell + unread badge; My Work hub; demo-mode email previews still DEFERRED — resend absent)
 - **R-38** Review Queue — one hub aggregating every pending decision (approvals, rebaseline sign-offs, in-review documents, high/critical risks, open clashes); ends the PM "long email trail". — **DONE** (gather.ts fans out 5 governed sources → priority-sorted queue; /review page; deep-links to each action)
 - **R-39** Documents register + real file storage — governed document control (folder/version/approval/owner/provenance) with files in a private Supabase Storage bucket via signed upload/download URLs; inline PDF/image preview; all access workspace-checked + audited. — **DONE** (documents table + RLS; /api/documents CRUD; signed upload/attach/download/remove; folder-tree viewer; 19 seeded docs each with a real PDF)
+- **R-41** Cross-project **My Tasks** — every task assigned to me across all projects, grouped by project, with overdue/due-soon flags + client filters. — **DONE**
+- **R-42** **Portfolio roadmap** — all projects' milestones on one swim-lane timeline (RAG-tinted bars + milestone markers + baseline-slip), reusing the Gantt primitives. — **DONE**
+- **R-43** Navigation IA — grouped sidebar (Overview/Delivery/Registers/Capacity/Governance) + project switcher with recents + route-derived breadcrumbs; customizable mobile bottom-nav retained. — **DONE**
 
 ## Reporting & front door
 - **R-40** Deck export PPTX/PDF/HTML (data-driven, server-side). — **DONE**
