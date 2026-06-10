@@ -5,9 +5,24 @@ import { Bell } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
+import { createClient } from "@/lib/supabase/client";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
+/** Shape as stored in Postgres (read_at = null means unread). */
+interface DbNotification {
+  id: string;
+  title: string;
+  body: string | null;
+  read_at: string | null;
+  created_at: string;
+  payload?: { href?: string } | null;
+  recipient_id: string;
+  workspace_id: string;
+  type: string;
+}
+
+/** Derived view used by the UI. */
 interface Notification {
   id: string;
   title: string;
@@ -17,9 +32,23 @@ interface Notification {
   payload?: { href?: string };
 }
 
-interface NotificationsResponse {
-  notifications: Notification[];
-  unread_count: number;
+/** Shape of the list API response (after apiGet unwraps { data }). */
+interface NotificationsListResponse {
+  data: DbNotification[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+function dbToUi(n: DbNotification): Notification {
+  return {
+    id: n.id,
+    title: n.title,
+    body: n.body ?? "",
+    read: n.read_at !== null,
+    created_at: n.created_at,
+    payload: n.payload ?? undefined,
+  };
 }
 
 // ── Relative time helper ───────────────────────────────────────────────────────
@@ -46,8 +75,9 @@ export function NotificationBell() {
   // ── Fetch unread count only (lightweight) ─────────────────────────────────
   const fetchCount = useCallback(async () => {
     try {
-      const data = await apiGet<NotificationsResponse>("/api/notifications?limit=0");
-      setUnreadCount(data.unread_count ?? 0);
+      // unread=1 returns only unread rows; we use total as the unread count
+      const data = await apiGet<NotificationsListResponse>("/api/notifications?unread=1&limit=1");
+      setUnreadCount(data.total ?? 0);
     } catch {
       // silently ignore — bell is non-critical UI
     }
@@ -57,9 +87,10 @@ export function NotificationBell() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiGet<NotificationsResponse>("/api/notifications?limit=30");
-      setNotifications(data.notifications ?? []);
-      setUnreadCount(data.unread_count ?? 0);
+      const data = await apiGet<NotificationsListResponse>("/api/notifications?limit=30");
+      const items = (data.data ?? []).map(dbToUi);
+      setNotifications(items);
+      setUnreadCount(items.filter((n) => !n.read).length);
     } catch {
       // silently ignore
     } finally {
@@ -79,6 +110,83 @@ export function NotificationBell() {
   useEffect(() => {
     if (open) fetchAll();
   }, [open, fetchAll]);
+
+  // ── Supabase Realtime subscription ────────────────────────────────────────
+  useEffect(() => {
+    const supabase = createClient();
+    let channelRef: ReturnType<typeof supabase.channel> | null = null;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return; // unauthenticated — realtime not available
+
+      const channel = supabase
+        .channel("notifications-bell")
+        .on(
+          "postgres_changes",
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "notifications",
+            filter: `recipient_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const newRow = payload.new as DbNotification;
+            const newItem = dbToUi(newRow);
+
+            // Dedupe: skip if already in state (e.g. from a concurrent fetchAll)
+            setNotifications((prev) => {
+              if (prev.some((n) => n.id === newItem.id)) return prev;
+              return [newItem, ...prev];
+            });
+
+            // Always bump the badge for new unread items
+            if (!newItem.read) {
+              setUnreadCount((c) => c + 1);
+            }
+          },
+        )
+        .on(
+          "postgres_changes",
+          {
+            event: "UPDATE",
+            schema: "public",
+            table: "notifications",
+            filter: `recipient_id=eq.${user.id}`,
+          },
+          (payload) => {
+            const updatedRow = payload.new as DbNotification;
+            const wasRead = updatedRow.read_at !== null;
+
+            setNotifications((prev) =>
+              prev.map((n) =>
+                n.id === updatedRow.id ? { ...n, read: wasRead } : n,
+              ),
+            );
+
+            // Reconcile unread badge from local state after this update
+            setNotifications((prev) => {
+              const count = prev.filter((n) => !n.read).length;
+              setUnreadCount(count);
+              return prev;
+            });
+          },
+        )
+        .subscribe((status) => {
+          // Fail-soft: subscription errors don't break the existing fetch path
+          if (status === "CHANNEL_ERROR") {
+            // existing fetch-on-focus path remains active; nothing to do
+          }
+        });
+
+      channelRef = channel;
+    });
+
+    return () => {
+      if (channelRef) {
+        channelRef.unsubscribe();
+      }
+    };
+  }, []); // mount/unmount only
 
   // Close on click outside (desktop popover)
   useEffect(() => {

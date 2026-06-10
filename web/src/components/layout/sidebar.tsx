@@ -20,6 +20,7 @@ import {
   ClipboardCheck,
   ShieldCheck,
   KeyRound,
+  Mail,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -73,6 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
       { href: "/trust", label: "Trust Center", icon: ShieldCheck },
       { href: "/tokens", label: "Tokens", icon: KeyRound },
+      { href: "/email-previews", label: "Email previews", icon: Mail },
     ],
   },
 ];
