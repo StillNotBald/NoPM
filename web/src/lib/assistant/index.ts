@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/crypto";
 import type { Actor } from "@/lib/auth/guard";
-import { chat, type Provider, type ProviderMessage } from "./providers/index";
+import { chat, chatStream, type Provider, type ProviderMessage } from "./providers/index";
 import { TOOLS } from "./tools";
 import { mintEphemeralToken, revokeEphemeralToken } from "./token";
 
@@ -292,6 +292,178 @@ export async function runAssistant(opts: {
       usedDemoKey,
     };
   } finally {
+    if (ephemeral) {
+      await revokeEphemeralToken(ephemeral.id);
+    }
+  }
+}
+
+/**
+ * Streaming variant — runs the full agentic loop (non-streamed tool rounds),
+ * then streams only the final assistant text reply via the returned AsyncIterable.
+ *
+ * Governance is identical: same ephemeral token, same scopes, same audit trail.
+ * The caller receives:
+ *   - actions:     the Action[] gathered during tool rounds (emit as "actions" event)
+ *   - textChunks:  AsyncIterable<string> — stream to the client as "token" events
+ *   - usedDemoKey: boolean
+ */
+export async function runAssistantStream(opts: {
+  actor: Actor;
+  message: string;
+  history: { role: "user" | "assistant"; content: string }[];
+  origin: string;
+}): Promise<{
+  actions: Action[];
+  usedDemoKey: boolean;
+  textChunks: AsyncIterable<string>;
+}> {
+  const { actor, message, history, origin } = opts;
+
+  const { provider, apiKey, model, usedDemoKey } = await resolveProvider(actor);
+
+  const toolDefs = TOOLS.map((t) => t.definition);
+
+  const providerMessages: ProviderMessage[] = [
+    ...history.map((h) => ({ role: h.role, content: h.content })),
+    { role: "user" as const, content: message },
+  ];
+
+  const actions: Action[] = [];
+  let ephemeral: { raw: string; id: string } | null = null;
+
+  // We need to run the full agentic loop (tool rounds) before we can stream.
+  // After the loop we either have a final text already (no more tool calls) or
+  // we need one more non-tool call to get the text. In either case we then
+  // stream that final completion.
+
+  try {
+    ephemeral = await mintEphemeralToken(actor);
+
+    const MAX_STEPS = 6;
+    let finalMessages: ProviderMessage[] | null = null; // messages to pass into the final stream call
+    let immediateText: string | null = null;            // if loop already produced text with no tools
+
+    for (let step = 0; step < MAX_STEPS; step++) {
+      const result = await chat({
+        provider,
+        apiKey,
+        model,
+        system: SYSTEM_PROMPT,
+        messages: providerMessages,
+        tools: toolDefs,
+      });
+
+      if (result.toolCalls.length === 0) {
+        // The model responded with plain text — stream it as-is
+        immediateText = result.text;
+        finalMessages = null;
+        break;
+      }
+
+      // Execute tool calls (identical to runAssistant)
+      const toolResults: ProviderMessage[] = [];
+
+      for (const tc of result.toolCalls) {
+        const spec = TOOLS.find((t) => t.definition.name === tc.name);
+        if (!spec) {
+          const errorContent = JSON.stringify({ error: `Unknown tool: ${tc.name}` });
+          toolResults.push({ role: "tool", content: errorContent, tool_call_id: tc.id });
+          actions.push({ tool: tc.name, args: tc.args, ok: false, summary: `Unknown tool: ${tc.name}` });
+          continue;
+        }
+
+        const { path, method, body } = spec.toRequest(tc.args);
+        const url = `${origin}${path}`;
+
+        let responseData: unknown = null;
+        let ok = false;
+        let status = 0;
+
+        try {
+          const fetchOpts: RequestInit = {
+            method,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${ephemeral.raw}`,
+            },
+          };
+          if (body !== undefined && method !== "GET") {
+            fetchOpts.body = JSON.stringify(body);
+          }
+          const res = await fetch(url, fetchOpts);
+          status = res.status;
+          const text = await res.text();
+          try { responseData = JSON.parse(text); } catch { responseData = { raw: text }; }
+          ok = status >= 200 && status < 300;
+        } catch (fetchErr) {
+          responseData = { error: String(fetchErr) };
+          ok = false;
+        }
+
+        const summary = summarize(tc.name, tc.args, responseData, ok);
+        const href = ok ? buildHref(tc.name, tc.args, responseData) : undefined;
+        const auditId = (responseData as Record<string, unknown>)?.auditId as string | undefined;
+        actions.push({ tool: tc.name, args: tc.args, ok, summary, href, auditId });
+
+        toolResults.push({ role: "tool", content: JSON.stringify(responseData), tool_call_id: tc.id });
+      }
+
+      providerMessages.push({
+        role: "assistant",
+        content: result.text ?? null,
+        tool_calls: result.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: { name: tc.name, arguments: JSON.stringify(tc.args) },
+        })),
+      });
+      providerMessages.push(...toolResults);
+    }
+
+    if (finalMessages === null && immediateText === null) {
+      // Max steps reached — request a summary without tools
+      finalMessages = [
+        ...providerMessages,
+        { role: "user" as const, content: "Please summarize what you have done so far." },
+      ];
+    }
+
+    // Build the streaming AsyncIterable for the final text
+    const capturedEphemeral = ephemeral;
+
+    async function* generateChunks(): AsyncIterable<string> {
+      try {
+        if (immediateText !== null) {
+          // Already have the full text from the loop (no tool calls on last turn)
+          yield immediateText;
+        } else {
+          // Stream from provider
+          const stream = chatStream({
+            provider,
+            apiKey,
+            model,
+            system: SYSTEM_PROMPT,
+            messages: finalMessages!,
+          });
+          for await (const chunk of stream) {
+            yield chunk;
+          }
+        }
+      } finally {
+        // Revoke ephemeral token after streaming finishes (or on error)
+        if (capturedEphemeral) {
+          await revokeEphemeralToken(capturedEphemeral.id);
+        }
+      }
+    }
+
+    // Transfer ownership — outer finally must NOT revoke (the generator does it)
+    ephemeral = null;
+
+    return { actions, usedDemoKey, textChunks: generateChunks() };
+  } finally {
+    // Only runs if we error before returning (ephemeral still set)
     if (ephemeral) {
       await revokeEphemeralToken(ephemeral.id);
     }

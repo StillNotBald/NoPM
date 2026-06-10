@@ -980,6 +980,30 @@ const spec = {
         },
       },
     },
+    "/assistant/conversations": {
+      get: {
+        tags: ["assistant"],
+        summary: "List the caller's assistant conversations",
+        description: "Session-user only. scope: assistant:read. Returns the signed-in user's conversations, newest first.",
+        operationId: "listAssistantConversations",
+        responses: {
+          "200": { description: "Conversation list", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+        },
+      },
+    },
+    "/assistant/conversations/{id}": {
+      get: {
+        tags: ["assistant"],
+        summary: "Get an assistant conversation with its messages",
+        description: "Session-user only. scope: assistant:read. Ownership-checked (404 if not the caller's).",
+        operationId: "getAssistantConversation",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "{ conversation, messages }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/documents": {
       get: {
         tags: ["documents"],

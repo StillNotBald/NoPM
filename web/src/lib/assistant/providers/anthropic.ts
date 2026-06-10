@@ -7,6 +7,125 @@ import type { ToolDefinition, ProviderMessage, ToolCall, ChatResult } from "./op
 
 export type { ToolDefinition, ProviderMessage, ToolCall, ChatResult };
 
+/**
+ * Stream the final text reply from Anthropic via SSE.
+ * Only call this when you know there will be NO tool calls (tools omitted / []).
+ */
+export async function* chatStream(opts: {
+  apiKey: string;
+  model: string;
+  system: string;
+  messages: ProviderMessage[];
+}): AsyncIterable<string> {
+  const { apiKey, model, system, messages } = opts;
+
+  // Re-use the same message-conversion logic from chat() below
+  type AnthropicMessage = {
+    role: "user" | "assistant";
+    content: string | AnthropicContentBlock[];
+  };
+  type AnthropicContentBlock =
+    | { type: "text"; text: string }
+    | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
+    | { type: "tool_result"; tool_use_id: string; content: string };
+
+  const anthropicMessages: AnthropicMessage[] = [];
+  for (const msg of messages) {
+    if (msg.role === "tool") {
+      const last = anthropicMessages[anthropicMessages.length - 1];
+      const block: AnthropicContentBlock = {
+        type: "tool_result",
+        tool_use_id: msg.tool_call_id ?? "",
+        content: msg.content ?? "",
+      };
+      if (last && last.role === "user" && Array.isArray(last.content)) {
+        last.content.push(block);
+      } else {
+        anthropicMessages.push({ role: "user", content: [block] });
+      }
+    } else if (msg.role === "assistant" && msg.tool_calls && msg.tool_calls.length > 0) {
+      const blocks: AnthropicContentBlock[] = [];
+      if (msg.content) blocks.push({ type: "text", text: msg.content });
+      for (const tc of msg.tool_calls) {
+        blocks.push({
+          type: "tool_use",
+          id: tc.id,
+          name: tc.function.name,
+          input: (() => {
+            try { return JSON.parse(tc.function.arguments) as Record<string, unknown>; }
+            catch { return {}; }
+          })(),
+        });
+      }
+      anthropicMessages.push({ role: "assistant", content: blocks });
+    } else {
+      anthropicMessages.push({
+        role: msg.role as "user" | "assistant",
+        content: msg.content ?? "",
+      });
+    }
+  }
+
+  const body: Record<string, unknown> = {
+    model,
+    system,
+    messages: anthropicMessages,
+    max_tokens: 2048,
+    stream: true,
+  };
+
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic API error ${res.status}: ${err}`);
+  }
+
+  if (!res.body) throw new Error("Anthropic streaming response has no body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        try {
+          const parsed = JSON.parse(data) as {
+            type: string;
+            delta?: { type: string; text?: string };
+          };
+          if (parsed.type === "content_block_delta" && parsed.delta?.type === "text_delta" && parsed.delta.text) {
+            yield parsed.delta.text;
+          }
+        } catch {
+          // malformed SSE line — skip
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function chat(opts: {
   apiKey: string;
   model: string;

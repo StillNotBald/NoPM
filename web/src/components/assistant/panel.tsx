@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Sparkles, X, ArrowUp, ExternalLink, Maximize2, Minimize2 } from "lucide-react";
+import { Sparkles, X, ArrowUp, ExternalLink, Maximize2, Minimize2, Plus, ChevronLeft, MessageSquare } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
@@ -24,12 +24,28 @@ interface ChatMessage {
   content: string;
   actions?: Action[];
   usedDemoKey?: boolean;
+  streaming?: boolean; // true while tokens are still arriving
 }
 
 interface ChatResponse {
   reply: string;
   actions: Action[];
   usedDemoKey: boolean;
+  conversation_id: string;
+}
+
+// ── NDJSON stream event types ─────────────────────────────────────────────────
+type StreamEvent =
+  | { type: "actions"; actions: Action[] }
+  | { type: "token"; text: string }
+  | { type: "done"; conversation_id: string; usedDemoKey: boolean }
+  | { type: "error"; message: string };
+
+interface ConversationSummary {
+  id: string;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -92,7 +108,15 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
             : "bg-sunken text-ink rounded-bl-sm",
         )}
       >
-        <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        {msg.content ? (
+          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+        ) : null}
+        {/* Streaming cursor — shown while tokens are still arriving */}
+        {msg.streaming && (
+          <span className="inline-flex items-center gap-1 font-mono text-xs text-ink-muted">
+            <Spinner size="sm" />
+          </span>
+        )}
       </div>
 
       {/* Action chips */}
@@ -125,12 +149,95 @@ function WelcomeState() {
   );
 }
 
+// ── Conversation list ────────────────────────────────────────────────────────
+
+function ConversationList({
+  conversations,
+  loading,
+  onSelect,
+  onNewChat,
+}: {
+  conversations: ConversationSummary[];
+  loading: boolean;
+  onSelect: (id: string) => void;
+  onNewChat: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-between px-4 py-2">
+        <p className="font-mono text-xs font-semibold text-ink-secondary uppercase tracking-wide">
+          Conversations
+        </p>
+        <button
+          type="button"
+          onClick={onNewChat}
+          className="flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs text-ink-secondary hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          aria-label="New chat"
+        >
+          <Plus className="h-3 w-3" />
+          New chat
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Spinner size="sm" />
+          </div>
+        ) : conversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+            <MessageSquare className="h-6 w-6 text-ink-muted" />
+            <p className="font-mono text-xs text-ink-muted">No conversations yet</p>
+            <button
+              type="button"
+              onClick={onNewChat}
+              className="mt-1 rounded-md bg-accent px-3 py-1.5 font-mono text-xs text-accent-ink hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              Start a chat
+            </button>
+          </div>
+        ) : (
+          <ul className="flex flex-col gap-0.5">
+            {conversations.map((conv) => (
+              <li key={conv.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(conv.id)}
+                  className="w-full rounded-lg px-3 py-2.5 text-left hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                >
+                  <p className="truncate font-mono text-xs font-medium text-ink">
+                    {conv.title ?? "Untitled chat"}
+                  </p>
+                  <p className="mt-0.5 font-mono text-[10px] text-ink-muted">
+                    {new Date(conv.updated_at).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Panel ─────────────────────────────────────────────────────────────────────
 
 export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProps) {
   const [status, setStatus] = useState<CredentialStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [expanded, setExpanded] = useState(false);
+
+  // Conversation state
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [loadingConversations, setLoadingConversations] = useState(false);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  // null = list view, string = chat view for that conversation, "new" = new chat
+  const [view, setView] = useState<"list" | "chat">("list");
 
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -151,7 +258,6 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       const s = await apiGet<CredentialStatus>("/api/assistant/credentials");
       setStatus(s);
     } catch {
-      // silently ignore; treat as not connected
       setStatus({ connected: false, demoAvailable: false });
     } finally {
       setLoadingStatus(false);
@@ -163,6 +269,61 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       fetchStatus();
     }
   }, [open, fetchStatus]);
+
+  // ── Fetch conversations when connected ────────────────────────────────────
+
+  const fetchConversations = useCallback(async () => {
+    setLoadingConversations(true);
+    try {
+      const data = await apiGet<ConversationSummary[]>("/api/assistant/conversations");
+      setConversations(data ?? []);
+    } catch {
+      // silently ignore; empty list
+      setConversations([]);
+    } finally {
+      setLoadingConversations(false);
+    }
+  }, []);
+
+  const isConnected = status?.connected === true;
+
+  useEffect(() => {
+    if (open && isConnected) {
+      fetchConversations();
+    }
+  }, [open, isConnected, fetchConversations]);
+
+  // Reset to list view when panel opens
+  useEffect(() => {
+    if (open && isConnected) {
+      // Stay in current view — only reset if panel was closed
+    }
+  }, [open, isConnected]);
+
+  // ── Load conversation messages ────────────────────────────────────────────
+
+  const loadConversation = useCallback(async (id: string) => {
+    try {
+      const data = await apiGet<{
+        conversation: ConversationSummary;
+        messages: Array<{ id: string; role: "user" | "assistant"; content: string; actions?: Action[] | null; created_at: string }>;
+      }>(`/api/assistant/conversations/${id}`);
+
+      const msgs: ChatMessage[] = (data.messages ?? []).map((m) => ({
+        role: m.role,
+        content: m.content,
+        actions: m.actions ?? undefined,
+      }));
+      setHistory(msgs);
+      setActiveConversationId(id);
+      setView("chat");
+    } catch {
+      // Fallback: start fresh if load fails
+      setHistory([]);
+      setActiveConversationId(null);
+      setView("chat");
+    }
+  }, []);
 
   // ── Focus management ──────────────────────────────────────────────────────
 
@@ -196,7 +357,24 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     }
   }, [history]);
 
-  // ── Send message ──────────────────────────────────────────────────────────
+  // ── New chat ──────────────────────────────────────────────────────────────
+
+  function startNewChat() {
+    setHistory([]);
+    setActiveConversationId(null);
+    setInput("");
+    setSendError(null);
+    setView("chat");
+  }
+
+  // ── Back to list ──────────────────────────────────────────────────────────
+
+  function backToList() {
+    setView("list");
+    fetchConversations();
+  }
+
+  // ── Send message (streaming, with JSON fallback) ─────────────────────────
 
   async function send() {
     const text = input.trim();
@@ -208,28 +386,144 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     setSending(true);
     setSendError(null);
 
-    try {
-      const apiHistory = history.map((m) => ({ role: m.role, content: m.content }));
-      const res = await apiPost<ChatResponse>("/api/assistant/chat", {
-        message: text,
-        history: apiHistory,
-      });
+    const apiHistory = history.map((m) => ({ role: m.role, content: m.content }));
+    const requestBody: Record<string, unknown> = {
+      message: text,
+      history: apiHistory,
+      stream: true,
+    };
+    if (activeConversationId) {
+      requestBody.conversation_id = activeConversationId;
+    }
 
-      const assistantMsg: ChatMessage = {
-        role: "assistant",
-        content: res.reply,
-        actions: res.actions,
-        usedDemoKey: res.usedDemoKey,
-      };
-      setHistory((h) => [...h, assistantMsg]);
-    } catch (e: unknown) {
-      setSendError(e instanceof Error ? e.message : "Failed to send message.");
-      // Remove the optimistic user message on failure
-      setHistory((h) => h.slice(0, -1));
-      setInput(text);
+    try {
+      // ── Attempt streaming ────────────────────────────────────────────────
+      await sendStreaming(requestBody);
+    } catch {
+      // ── Fallback: plain JSON (transparent to user) ───────────────────────
+      try {
+        const fallbackBody = { ...requestBody, stream: false };
+        await sendJson(fallbackBody);
+      } catch (e: unknown) {
+        setSendError(e instanceof Error ? e.message : "Failed to send message.");
+        // Remove the optimistic user message on failure
+        setHistory((h) => h.slice(0, -1));
+        setInput(text);
+      }
     } finally {
       setSending(false);
     }
+  }
+
+  async function sendStreaming(requestBody: Record<string, unknown>) {
+    const res = await fetch("/api/assistant/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    // Placeholder message that we'll update progressively.
+    // We read history.length at call-time (the user message was already appended
+    // by send(), so the placeholder is at history.length after that append).
+    // React state batching means we use a ref-free positional index.
+    let placeholderIdx = -1;
+    setHistory((h) => {
+      placeholderIdx = h.length;
+      return [...h, { role: "assistant" as const, content: "", streaming: true }];
+    });
+
+    let accText = "";
+    let pendingActions: Action[] | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event: StreamEvent;
+          try {
+            event = JSON.parse(trimmed) as StreamEvent;
+          } catch {
+            continue; // skip malformed lines
+          }
+
+          if (event.type === "error") {
+            throw new Error(event.message);
+          } else if (event.type === "actions") {
+            pendingActions = event.actions;
+            // Update the placeholder with actions so chips appear before text finishes
+            setHistory((h) =>
+              h.map((m, i) =>
+                i === placeholderIdx ? { ...m, actions: event.actions } : m,
+              ),
+            );
+          } else if (event.type === "token") {
+            accText += event.text;
+            setHistory((h) =>
+              h.map((m, i) =>
+                i === placeholderIdx ? { ...m, content: accText } : m,
+              ),
+            );
+          } else if (event.type === "done") {
+            // Finalize the message
+            if (event.conversation_id && event.conversation_id !== activeConversationId) {
+              setActiveConversationId(event.conversation_id);
+            }
+            setHistory((h) =>
+              h.map((m, i) =>
+                i === placeholderIdx
+                  ? {
+                      ...m,
+                      content: accText || "Done.",
+                      actions: pendingActions ?? m.actions,
+                      usedDemoKey: event.usedDemoKey,
+                      streaming: false,
+                    }
+                  : m,
+              ),
+            );
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // Ensure streaming flag is cleared
+    setHistory((h) =>
+      h.map((m, i) => (i === placeholderIdx ? { ...m, streaming: false } : m)),
+    );
+  }
+
+  async function sendJson(requestBody: Record<string, unknown>) {
+    const res = await apiPost<ChatResponse>("/api/assistant/chat", requestBody);
+
+    if (res.conversation_id && res.conversation_id !== activeConversationId) {
+      setActiveConversationId(res.conversation_id);
+    }
+
+    const assistantMsg: ChatMessage = {
+      role: "assistant",
+      content: res.reply,
+      actions: res.actions,
+      usedDemoKey: res.usedDemoKey,
+    };
+    setHistory((h) => [...h, assistantMsg]);
   }
 
   // ── Disconnect ────────────────────────────────────────────────────────────
@@ -240,6 +534,9 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       await apiDelete("/api/assistant/credentials");
       setStatus({ connected: false, demoAvailable: status?.demoAvailable ?? false });
       setHistory([]);
+      setActiveConversationId(null);
+      setConversations([]);
+      setView("list");
     } catch {
       // best-effort
     } finally {
@@ -260,13 +557,12 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
 
   // ── Render ────────────────────────────────────────────────────────────────
 
-  // Width logic: expanded = full-viewport on lg, w-full on mobile; collapsed = 28rem lg
   const sizeClasses = expanded
     ? "left-0 w-auto"
     : "w-full lg:left-auto lg:w-[28rem]";
 
-  const isConnected = status?.connected === true;
   const isDemoMode = isConnected && status?.provider === "demo";
+  const inChatView = isConnected && view === "chat";
 
   return (
     <>
@@ -294,12 +590,37 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-4">
-          <Sparkles className="h-4 w-4 text-accent" />
+          {/* Back button — only in chat view when connected */}
+          {inChatView && (
+            <button
+              type="button"
+              onClick={backToList}
+              aria-label="Back to conversations"
+              className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+          )}
+
+          {!inChatView && <Sparkles className="h-4 w-4 text-accent" />}
+
           <span className="flex-1 truncate font-mono text-sm font-semibold text-ink">
-            AI Assistant
+            {inChatView ? "Chat" : "AI Assistant"}
           </span>
 
           <div className="flex shrink-0 items-center gap-1">
+            {/* New chat button — in chat view */}
+            {inChatView && (
+              <button
+                type="button"
+                onClick={startNewChat}
+                aria-label="New chat"
+                className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            )}
+
             {/* Expand/collapse — desktop only */}
             <button
               type="button"
@@ -346,6 +667,14 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                 onUseDemo={useDemo}
               />
             </div>
+          ) : view === "list" ? (
+            /* Conversation list view */
+            <ConversationList
+              conversations={conversations}
+              loading={loadingConversations}
+              onSelect={(id) => loadConversation(id)}
+              onNewChat={startNewChat}
+            />
           ) : (
             /* Chat view */
             <>
@@ -358,7 +687,8 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                     {history.map((msg, i) => (
                       <MessageBubble key={i} msg={msg} />
                     ))}
-                    {sending && (
+                    {/* "thinking…" only while no streaming bubble is visible yet */}
+                    {sending && !history.some((m) => m.streaming) && (
                       <div className="flex items-center gap-2">
                         <div className="rounded-xl bg-sunken px-3 py-2">
                           <span className="flex items-center gap-1.5 font-mono text-xs text-ink-muted">

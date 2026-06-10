@@ -28,6 +28,79 @@ export type ChatResult = {
   finishReason: string;
 };
 
+/**
+ * Stream the final text reply from OpenAI via SSE.
+ * Yields text chunks as they arrive.
+ * Only call this when you know there will be NO tool calls (tools: []).
+ */
+export async function* chatStream(opts: {
+  apiKey: string;
+  model: string;
+  system: string;
+  messages: ProviderMessage[];
+}): AsyncIterable<string> {
+  const { apiKey, model, system, messages } = opts;
+
+  const body: Record<string, unknown> = {
+    model,
+    stream: true,
+    messages: [
+      { role: "system", content: system },
+      ...messages,
+    ],
+    max_tokens: 2048,
+  };
+
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`OpenAI API error ${res.status}: ${err}`);
+  }
+
+  if (!res.body) throw new Error("OpenAI streaming response has no body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+        try {
+          const parsed = JSON.parse(data) as {
+            choices: Array<{ delta: { content?: string | null } }>;
+          };
+          const chunk = parsed.choices?.[0]?.delta?.content;
+          if (chunk) yield chunk;
+        } catch {
+          // malformed SSE line — skip
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function chat(opts: {
   apiKey: string;
   model: string;
