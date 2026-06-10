@@ -19,6 +19,7 @@ export const SCOPES = [
   "budget:read", "budget:write",
   "document:read", "document:write",
   "change:read", "change:write",
+  "rebaseline:approve",
   "decision:read", "decision:write",
   "notification:read",
   "audit:read",

@@ -47,7 +47,15 @@ export const GET = route(async ({ actor, request }) => {
     return ok<SearchResult[]>([]);
   }
 
-  const pattern = `%${q}%`;
+  // Sanitize before building the LIKE pattern: strip PostgREST `.or()` separators
+  // / grouping chars and LIKE wildcards so a crafted `q` cannot inject extra
+  // filter terms (in-workspace column/error oracle). See SECURITY-REVIEW-2026-06-10.
+  const safe = q.replace(/[,()%_*\\"]/g, "").trim();
+  if (!safe) {
+    return ok<SearchResult[]>([]);
+  }
+
+  const pattern = `%${safe}%`;
   const db = createAdminClient();
   const ws = actor.workspaceId;
 

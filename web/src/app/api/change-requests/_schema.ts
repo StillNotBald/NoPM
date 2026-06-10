@@ -17,12 +17,15 @@ export const createChangeRequestSchema = z.object({
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
 });
 
+// NOTE: `status` is intentionally NOT updatable here — all status transitions
+// (approve / reject / defer / implement) must go through the audited four-eyes
+// /decision endpoint, so the governance trail + requester notification fire and
+// the decider≠requester check is enforced. See SECURITY-REVIEW-2026-06-10.
 export const updateChangeRequestSchema = z.object({
   title: z.string().min(1).max(255).optional(),
   description: z.string().optional().nullable(),
   category: categoryEnum.optional(),
   priority: priorityEnum.optional(),
-  status: statusEnum.optional(),
   impact_summary: z.string().optional().nullable(),
   impact_schedule_days: z.number().int().optional().nullable(),
   impact_cost: z.number().optional().nullable(),

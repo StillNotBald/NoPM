@@ -4,6 +4,7 @@ import { route } from "@/lib/api/handler";
 import { AuthError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { verifyMfaSchema } from "../_schema";
 
@@ -39,7 +40,10 @@ export const POST = route(async ({ actor, request }) => {
     throw new NotFoundError("No pending MFA enrollment found. Call /enroll first.");
   }
 
-  const valid = authenticator.verify({ token: parsed.data.code, secret: mfa.totp_secret });
+  // Secret is AES-GCM encrypted (3 dot-separated segments). Fall back to the raw
+  // value for any legacy plaintext enrollment created before encryption-at-rest.
+  const secret = mfa.totp_secret.split(".").length === 3 ? decrypt(mfa.totp_secret) : mfa.totp_secret;
+  const valid = authenticator.verify({ token: parsed.data.code, secret });
   if (!valid) {
     throw new RuleError("Invalid code");
   }

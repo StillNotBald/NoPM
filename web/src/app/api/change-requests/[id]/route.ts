@@ -59,7 +59,6 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.description !== undefined) updates.description = input.description;
   if (input.category !== undefined) updates.category = input.category;
   if (input.priority !== undefined) updates.priority = input.priority;
-  if (input.status !== undefined) updates.status = input.status;
   if (input.impact_summary !== undefined) updates.impact_summary = input.impact_summary;
   if (input.impact_schedule_days !== undefined) updates.impact_schedule_days = input.impact_schedule_days;
   if (input.impact_cost !== undefined) updates.impact_cost = input.impact_cost;

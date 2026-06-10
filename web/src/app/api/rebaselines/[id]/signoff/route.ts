@@ -3,14 +3,14 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { signoffSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
 
 // POST /api/rebaselines/[id]/signoff — cast or update a signoff vote (project:write)
 export const POST = route(async ({ actor, params, request }) => {
-  requireScope(actor, "project:write");
+  requireScope(actor, "rebaseline:approve");
 
   const db = createAdminClient();
 
@@ -24,6 +24,12 @@ export const POST = route(async ({ actor, params, request }) => {
 
   if (fetchError) throw fetchError;
   if (!rebaseline) throw new NotFoundError("Rebaseline not found");
+
+  // Four-eyes: the requester may not sign off their own rebaseline (R-04).
+  // (A DB trigger is the backstop; token actors are blocked by the scope.)
+  if (actor.type === "user" && rebaseline.requested_by && actor.id === rebaseline.requested_by) {
+    throw new RuleError("Four-eyes: you cannot sign off a rebaseline you requested.");
+  }
 
   const body = await safeJson(request);
   const parsed = signoffSchema.safeParse(body);

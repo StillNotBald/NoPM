@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 
 // POST /api/rebaselines/[id]/apply — apply an approved rebaseline (project:write)
 export const POST = route(async ({ actor, params }) => {
-  requireScope(actor, "project:write");
+  requireScope(actor, "rebaseline:approve");
 
   const db = createAdminClient();
 
@@ -23,6 +23,11 @@ export const POST = route(async ({ actor, params }) => {
 
   if (fetchError) throw fetchError;
   if (!rebaseline) throw new NotFoundError("Rebaseline not found");
+
+  // Four-eyes: the requester may not apply a rebaseline they raised (R-04).
+  if (actor.type === "user" && rebaseline.requested_by && actor.id === rebaseline.requested_by) {
+    throw new RuleError("Four-eyes: you cannot apply a rebaseline you requested.");
+  }
 
   // Only approved rebaselines may be applied
   if (rebaseline.status !== "approved") {

@@ -40,4 +40,16 @@ describe("scope registry", () => {
     const registry = new Set<string>(SCOPES);
     for (const s of TOOL_SCOPES) expect(registry.has(s)).toBe(true);
   });
+
+  it("the assistant can request but never approve (no approve/admin scopes)", () => {
+    const tool = new Set<string>(TOOL_SCOPES);
+    // four-eyes: the AI can request a delete and raise a rebaseline, but cannot
+    // approve a delete or sign off / apply a rebaseline.
+    expect(tool.has("task:delete:request")).toBe(true);
+    expect(tool.has("task:delete:approve")).toBe(false);
+    expect(tool.has("rebaseline:approve")).toBe(false);
+    // and no wildcard could smuggle an approve in
+    expect(tool.has("*")).toBe(false);
+    for (const s of TOOL_SCOPES) expect(s.endsWith(":*")).toBe(false);
+  });
 });

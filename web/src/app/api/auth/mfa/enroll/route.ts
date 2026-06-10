@@ -3,6 +3,7 @@ import { route } from "@/lib/api/handler";
 import { AuthError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { encrypt } from "@/lib/crypto";
 import { ok } from "@/lib/api/response";
 
 export const runtime = "nodejs";
@@ -20,7 +21,8 @@ export const POST = route(async ({ actor }) => {
   const { error } = await db.from("user_mfa").upsert(
     {
       user_id: actor.id,
-      totp_secret: secret,
+      // Encrypted at rest (AES-256-GCM) — never store the live TOTP seed plaintext.
+      totp_secret: encrypt(secret),
       enabled: false,
       // clear any stale backup codes and confirmed_at from a previous enrollment
       backup_codes: null,
