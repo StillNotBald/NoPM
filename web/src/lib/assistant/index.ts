@@ -29,22 +29,28 @@ export type AssistantResult = {
   usedDemoKey: boolean;
 };
 
-/** Per-user best-effort demo rate limit (in-memory, resets on server restart). */
-const demoUsage = new Map<string, { count: number; windowStart: number }>();
 const DEMO_LIMIT = 20;
-const DEMO_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const DEMO_WINDOW_SECS = 60 * 60; // 1 hour
 
-function checkDemoRateLimit(userId: string): void {
-  const now = Date.now();
-  const entry = demoUsage.get(userId);
-  if (!entry || now - entry.windowStart > DEMO_WINDOW_MS) {
-    demoUsage.set(userId, { count: 1, windowStart: now });
-    return;
-  }
-  if (entry.count >= DEMO_LIMIT) {
+/**
+ * Durable per-user demo-key rate limit. Backed by a service-role-only table +
+ * row-locked SQL function, so the owner-key cap holds across serverless
+ * instances and cold starts (an in-memory Map did not). Fail-open on a transient
+ * DB error — this is best-effort cost protection, not an auth control.
+ */
+async function checkDemoRateLimit(
+  db: ReturnType<typeof createAdminClient>,
+  userId: string,
+): Promise<void> {
+  const { data, error } = await db.rpc("nopm_demo_rate_check", {
+    p_user: userId,
+    p_limit: DEMO_LIMIT,
+    p_window_secs: DEMO_WINDOW_SECS,
+  });
+  if (error) return; // fail-open
+  if (data === false) {
     throw new Error("Demo key rate limit exceeded. Please add your own API key in Settings.");
   }
-  entry.count++;
 }
 
 /** Resolve the LLM provider+key+model for this user. */
@@ -83,7 +89,7 @@ async function resolveProvider(actor: Actor): Promise<{
     );
   }
 
-  checkDemoRateLimit(actor.id);
+  await checkDemoRateLimit(db, actor.id);
 
   return { provider: demoProvider, apiKey: demoKey, model: demoModel, usedDemoKey: true };
 }

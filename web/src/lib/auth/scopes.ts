@@ -4,8 +4,10 @@
  * with scopes the system actually understands — a bogus scope is rejected at
  * creation rather than silently granted (and never matched).
  *
- * hasScope() (auth/tokens.ts) also honours wildcards: "<resource>:*" and "*".
- * isValidScope() accepts those wildcard forms for known resources too.
+ * hasScope() (auth/tokens.ts) still honours legacy wildcards ("<resource>:*" and
+ * the global "*") for already-minted tokens, but isValidScope() — used at MINT
+ * time — accepts only concrete scopes and per-resource "<resource>:*" wildcards.
+ * The bare global "*" can no longer be minted (defense-in-depth).
  */
 export const SCOPES = [
   "project:read", "project:write",
@@ -42,7 +44,6 @@ const WILDCARD = /^([a-z]+):\*$/;
  * known resource, or the global `*`. Used to validate PAT scopes at mint time.
  */
 export function isValidScope(scope: string): boolean {
-  if (scope === "*") return true;
   if (SCOPE_SET.has(scope)) return true;
   const m = scope.match(WILDCARD);
   return !!m && SCOPE_RESOURCES.has(m[1]);

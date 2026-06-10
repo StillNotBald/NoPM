@@ -70,7 +70,7 @@ await db.from("api_tokens").insert([
   },
   {
     workspace_id: ws.id, name: "checker (agent)", token_hash: checker.hash, prefix: TOKEN_PREFIX, created_by: userId,
-    scopes: ["project:read", "task:read", "task:delete:approve", "audit:read"],
+    scopes: ["project:read", "task:read", "task:delete:approve", "rebaseline:approve", "audit:read"],
   },
 ]);
 

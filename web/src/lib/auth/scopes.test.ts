@@ -11,8 +11,8 @@ describe("scope registry", () => {
     for (const s of SCOPES) expect(isValidScope(s)).toBe(true);
   });
 
-  it("accepts the global and per-resource wildcards", () => {
-    expect(isValidScope("*")).toBe(true);
+  it("accepts per-resource wildcards but not the bare global wildcard", () => {
+    expect(isValidScope("*")).toBe(false); // bare global "*" is no longer mintable
     expect(isValidScope("task:*")).toBe(true);
     expect(isValidScope("project:*")).toBe(true);
     expect(isValidScope("document:*")).toBe(true);
