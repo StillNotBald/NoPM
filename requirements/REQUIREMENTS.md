@@ -25,10 +25,15 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 
 ## Agent-operable surface
 - **R-20** API = data layer; `{data}`/`{error}` contract; correct status codes. — **DONE** (42 route.ts; `route()` wrapper; response/error helpers)
-- **R-21** OpenAPI spec at `GET /api/openapi.json`. — **DONE**
+- **R-21** OpenAPI spec at `GET /api/openapi.json` — documents **every** route, guarded by a coverage **drift test** that fails CI on any undocumented route. — **DONE**
 - **R-22** `/llms.txt` endpoint index for agent discovery. — **DONE**
 - **R-23** `nopm` CLI (auth/projects/tasks/audit/report). — **DONE** (cli/nopm.mjs)
 - **R-24** BYOK governed AI assistant — the user's own LLM (OpenAI/Anthropic/Google) operates NoPM through the REST API under an ephemeral scoped token; API keys AES-256-GCM encrypted at rest (never returned/logged); creates are audited as a token actor and deletes bounce to maker-checker. — **DONE** (crypto + assistant_credentials deny-all RLS + providers/tools/token/loop + chat/credentials routes + panel/setup UI)
+
+- **R-25** Native MCP server — NoPM exposed as MCP tools (stdio, `@modelcontextprotocol/sdk`) so any MCP client drives the governed REST API via a scoped PAT; scopes + audit + maker-checker enforced server-side. — **DONE** (`web/mcp/server.mjs`; verified end-to-end: tools/list + live `list_projects`)
+- **R-26** Assistant streaming + conversation persistence — additive SSE streaming of the final reply (the JSON path is byte-for-byte preserved) + saved conversations/messages (deny-all RLS, API-owned); assistant tools cross-checked against OpenAPI + least-privilege (no approve/admin/token/`*` scopes). — **DONE**
+- **R-27** Realtime notification bell + email demo-previews — live bell via Supabase Realtime; rendered email previews (Resend stays demo-mode — never sent). — **DONE**
+- **R-28** Mainline portfolio timeline — one governed `GET /api/timeline` assembling the cross-project graph (lanes/nodes/edges/critical-path) + a real task-dependency DAG seed. — **PARTIAL** (feed + dependency data shipped; the Subway/Journal/Network switcher UI deferred)
 
 ## Console (prior-console-app look)
 - **R-30** RAG portfolio dashboard (health cards, project table, filter pills). — **DONE**
@@ -58,6 +63,6 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-52** Seed script — demo workspace, users, projects, an over-allocation clash, budget variance, audit history, one pending approval. — **DONE**
 
 ## Quality & release
-- **R-60** vitest unit + governance-invariant tests — token hashing/scopes; requireScope token+user/viewer; four-eyes self-approval; BYOK crypto (round-trip/tamper/wrong-key); assistant token scopes (can request but never approve a delete); document storage path-safety; **scope registry validation; EVM math (both SPI modes + divide-by-zero); admin-client workspace-isolation guard**. — **DONE** (119/119 green; `npm test`)
+- **R-60** vitest unit + governance-invariant tests — token hashing/scopes; requireScope token+user/viewer; four-eyes self-approval; BYOK crypto (round-trip/tamper/wrong-key); assistant token scopes (can request but never approve a delete); document storage path-safety; **scope registry validation; EVM math (both SPI modes + divide-by-zero); admin-client workspace-isolation guard; OpenAPI route-coverage drift; assistant tools↔OpenAPI least-privilege guard**. — **DONE** (267/267 green; `npm test`)
 - **R-61** Playwright E2E = AI-orchestrated UAT (agent drives suite vs checklist). — **TODO** (stretch goal)
 - **R-62** Deploy to Vercel + Cloudflare DNS (stillnotbald.com); seed live. — **DONE** (live on stillnotbald.com; migrations + seed applied; `apply-migrations.mjs` + `migrate.mjs`)

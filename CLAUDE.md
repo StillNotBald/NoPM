@@ -31,11 +31,14 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - `docs/adr/NNNN-*.md` for architectural/irreversible decisions.
 
 ## Do NOT build (ask first)
-Native MCP server (strong Phase-1.5), real email send (Resend is demo-mode), dry-run gates, OAuth/PKCE, multi-tenant beyond workspace_id+RLS, custom-field engine, automations, extra view types, comments/notifications-threads, any bundled LLM.
+real email **send** (Resend stays demo-mode — previews only), dry-run gates, OAuth/PKCE, multi-tenant beyond workspace_id+RLS, custom-field engine, automations, comments/notification-threads, any bundled LLM. (Extra view types are also ask-first — the **Mainline** timeline UI is greenlit but parked.)
 
 ## Sanctioned (already greenlit, in scope)
 - **BYOK governed assistant** (R-24, ADR 0004) — an in-app assistant where the user pastes their **own** OpenAI/Anthropic/Google **API key** (AES-256-GCM at rest) and that model drives NoPM's REST API via an **ephemeral scoped token** (audited as a token actor; deletes → maker-checker). NoPM still ships **no model and no key** — the "no bundled LLM" rule holds. Optional owner-funded demo key (`NOPM_DEMO_LLM_*`) is rate-limited and server-only.
-- **Notification center** (R-37) — in-app bell + My Work hub fed from governed events. Email previews still deferred (Resend demo-mode).
+- **Notification center** (R-37) — in-app bell + My Work hub fed from governed events. Now **realtime** (Supabase Realtime live bell, R-27) + **email demo-previews** (R-27) — rendered, never sent (Resend stays demo-mode).
+- **Native MCP server** (R-25, ADR 0007) — NoPM exposed as MCP tools (stdio) so any MCP client drives the REST API via a scoped PAT; governance enforced server-side. NoPM still bundles no LLM — this is a thin agent surface, like the aws/supabase MCP servers. (`web/mcp/`.)
+- **Assistant streaming + persistence** (R-26) — additive SSE streaming (JSON path preserved) + saved conversations; assistant tools cross-checked vs OpenAPI + least-privilege (never gains an approve/admin scope).
+- **Mainline timeline feed** (R-28) — governed `GET /api/timeline` portfolio graph + real task-dependency DAG. The 3-lens switcher **UI is parked** (design-approved); the feed/data are live.
 
 ## Hard rule
 Before adding anything not in v1 scope: **STOP and ask.**
