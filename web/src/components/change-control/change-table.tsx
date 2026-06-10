@@ -2,7 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { EntityLink } from "@/components/ui/entity-link";
-import { ChangeRowButton, type ChangeDetailProps } from "@/components/change-control/change-detail";
+import { ChangeRowButton } from "@/components/change-control/change-detail";
 import type { ChangeRequest } from "@/components/change-control/change-form";
 import type { Tone } from "@/lib/status";
 

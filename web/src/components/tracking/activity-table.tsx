@@ -568,7 +568,7 @@ export function ActivityTable({
     modal.open(
       <div className="flex flex-col gap-5">
         <p className="text-sm text-ink leading-relaxed">
-          Delete milestone <span className="font-semibold">"{name}"</span>?
+          Delete milestone <span className="font-semibold">&ldquo;{name}&rdquo;</span>?
           All tasks within it will be unlinked. This cannot be undone.
         </p>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -605,7 +605,7 @@ export function ActivityTable({
     modal.open(
       <div className="flex flex-col gap-5">
         <p className="text-sm text-ink leading-relaxed">
-          Delete task <span className="font-semibold">"{name}"</span>?
+          Delete task <span className="font-semibold">&ldquo;{name}&rdquo;</span>?
           This cannot be undone.
         </p>
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">

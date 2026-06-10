@@ -161,7 +161,8 @@ function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
 
 // ── Board ──────────────────────────────────────────────────────────────────
 
-export function KanbanBoard({ projectId, isLocked, tasks: initialTasks }: KanbanBoardProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function KanbanBoard({ projectId: _projectId, isLocked, tasks: initialTasks }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   // Tracks task IDs that recently moved (show inline confirmation)
   const [recentlyMoved, setRecentlyMoved] = useState<Set<string>>(new Set());
@@ -236,9 +237,6 @@ export function KanbanBoard({ projectId, isLocked, tasks: initialTasks }: Kanban
     },
     [tasks],
   );
-
-  // All task ids for DndContext collision detection
-  const allIds = tasks.map((t) => t.id);
 
   return (
     <div className="space-y-3">

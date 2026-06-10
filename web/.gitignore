@@ -41,3 +41,6 @@ yarn-error.log*
 next-env.d.ts
 
 .vercel
+
+# throwaway diagnostic probes (read .env.local at runtime — not for repo)
+scripts/probe-*.mjs

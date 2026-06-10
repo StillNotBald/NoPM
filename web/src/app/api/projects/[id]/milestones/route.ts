@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ok, okList, created, validationError, safeJson } from "@/lib/api/response";
+import { okList, created, validationError, safeJson } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { createMilestoneSchema } from "@/app/api/milestones/_schema";

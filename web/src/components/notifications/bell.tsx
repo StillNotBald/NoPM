@@ -100,6 +100,7 @@ export function NotificationBell() {
 
   // On mount + window focus: refresh count
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchCount();
     const onFocus = () => fetchCount();
     window.addEventListener("focus", onFocus);
@@ -108,6 +109,7 @@ export function NotificationBell() {
 
   // Fetch full list when popover opens
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) fetchAll();
   }, [open, fetchAll]);
 

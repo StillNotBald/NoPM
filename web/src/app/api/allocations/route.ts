@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
-import { ok, okList, created, safeJson, validationError } from "@/lib/api/response";
+import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createAdminClient } from "@/lib/supabase/admin";

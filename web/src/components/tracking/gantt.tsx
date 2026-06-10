@@ -90,9 +90,7 @@ function addDays(base: Date, n: number): Date {
   return d;
 }
 
-function isoDate(d: Date): string {
-  return d.toISOString().split("T")[0];
-}
+// isoDate removed (unused)
 
 function fmtShort(d: string | null): string {
   if (!d) return "—";
@@ -890,7 +888,7 @@ export function GanttChart({
                         const msTasks = tasks
                           .filter((t) => t.milestone_id === ms.id)
                           .sort((a, b) => a.sort_order - b.sort_order);
-                        for (const _t of msTasks) {
+                        for (let i = 0; i < msTasks.length; i++) {
                           if (idx === rowIdx) return y + ROW_H_TASK / 2;
                           y += ROW_H_TASK;
                           idx++;
@@ -899,7 +897,7 @@ export function GanttChart({
                       const standalone = tasks
                         .filter((t) => !t.milestone_id)
                         .sort((a, b) => a.sort_order - b.sort_order);
-                      for (const _t of standalone) {
+                      for (let i = 0; i < standalone.length; i++) {
                         if (idx === rowIdx) return y + ROW_H_TASK / 2;
                         y += ROW_H_TASK;
                         idx++;

@@ -2,7 +2,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { ok, okList, created, safeJson, validationError } from "@/lib/api/response";
+import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 

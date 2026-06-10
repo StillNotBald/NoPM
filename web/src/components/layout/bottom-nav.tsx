@@ -112,6 +112,7 @@ export function BottomNav() {
       if (raw) {
         const parsed = JSON.parse(raw) as string[];
         const valid = parsed.filter(byHref).slice(0, MAX_SHORTCUTS);
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (valid.length) setShortcuts(valid);
       }
     } catch {

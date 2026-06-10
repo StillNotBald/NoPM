@@ -28,13 +28,6 @@ const TONE: Record<string, string> = {
   not_started: MUTED,
 };
 
-const SEV_COLOR: Record<string, string> = {
-  critical: RED,
-  high:     AMBER,
-  medium:   MUTED,
-  low:      GREEN,
-  urgent:   RED,
-};
 
 const fmt = (n: number | null | undefined, decimals = 0): string =>
   n == null ? "—" : n.toLocaleString("en", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });

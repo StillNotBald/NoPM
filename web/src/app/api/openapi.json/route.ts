@@ -865,6 +865,20 @@ const spec = {
         },
       },
     },
+    "/auth/demo-login": {
+      post: {
+        tags: ["auth"],
+        summary: "One-click demo login (R-53)",
+        description:
+          "No auth required. Signs in with the pre-seeded demo account (credentials in server-only env vars DEMO_EMAIL / DEMO_PASSWORD) and redirects to /dashboard. Returns 503 if the demo account is not configured, 302 to /login?error=demo_unavailable on auth failure.",
+        security: [],
+        operationId: "demoLogin",
+        responses: {
+          "302": { description: "Redirect to /dashboard (session cookies set)" },
+          "503": { description: "Demo account not configured on this deployment" },
+        },
+      },
+    },
     "/timeline": {
       get: {
         tags: ["system"],

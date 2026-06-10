@@ -189,7 +189,7 @@ for (const proj of projects) {
   // Track the last task of the previous milestone for cross-milestone edges
   let prevMilestoneLast = null;
 
-  for (const { milestoneName, orderedTasks } of milestoneChain) {
+  for (const { orderedTasks } of milestoneChain) {
     // Cross-milestone edge: last of previous → first of this milestone
     if (prevMilestoneLast) {
       const firstTask = orderedTasks[0];

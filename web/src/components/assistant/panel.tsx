@@ -266,6 +266,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchStatus();
     }
   }, [open, fetchStatus]);
@@ -289,6 +290,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
 
   useEffect(() => {
     if (open && isConnected) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchConversations();
     }
   }, [open, isConnected, fetchConversations]);

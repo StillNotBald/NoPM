@@ -61,6 +61,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-50** Public landing + case study (wedges, hero, try-demo). — **DONE**
 - **R-51** One-page case-study PDF (employer-facing) + public `/case-study` page. — **DONE** (client jsPDF one-pager: thesis, wedges, build summary, proof metrics, live URL)
 - **R-52** Seed script — demo workspace, users, projects, an over-allocation clash, budget variance, audit history, one pending approval. — **DONE**
+- **R-53** Frictionless demo entry — a "Try the live demo" button on the public landing page signs a cold visitor into the seeded demo account in ≤2 clicks / <30 seconds with no signup, via a server-side `POST /api/auth/demo-login` endpoint (credentials in server-only env vars `DEMO_EMAIL` / `DEMO_PASSWORD`; no keys exposed client-side; session audited normally; demo workspace is writable — reseed with `npm run seed` to reset). — **DONE**
 
 ## Quality & release
 - **R-60** vitest unit + governance-invariant tests — token hashing/scopes; requireScope token+user/viewer; four-eyes self-approval; BYOK crypto (round-trip/tamper/wrong-key); assistant token scopes (can request but never approve a delete); document storage path-safety; **scope registry validation; EVM math (both SPI modes + divide-by-zero); admin-client workspace-isolation guard; OpenAPI route-coverage drift; assistant tools↔OpenAPI least-privilege guard**. — **DONE** (267/267 green; `npm test`)

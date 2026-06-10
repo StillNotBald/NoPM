@@ -176,36 +176,6 @@ function fmtDate(d: string | null): string {
   });
 }
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  sub,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  tone?: BadgeTone;
-}) {
-  const toneClass: Record<BadgeTone, string> = {
-    neutral: "text-ink",
-    accent:  "text-accent",
-    info:    "text-info",
-    success: "text-success",
-    warning: "text-warning",
-    danger:  "text-danger",
-  };
-  return (
-    <Card className="p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">{label}</p>
-      <p className={cn("mt-2 text-3xl font-semibold tabular-nums", toneClass[tone])}>{value}</p>
-      {sub && <p className="mt-1 text-xs text-ink-muted">{sub}</p>}
-    </Card>
-  );
-}
-
 // ── Overview helpers ──────────────────────────────────────────────────────────
 
 /** Progress bar used inside the Overview section only. */

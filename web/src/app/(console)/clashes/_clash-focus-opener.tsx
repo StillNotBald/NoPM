@@ -14,7 +14,8 @@ interface Props {
  * Clashes have no inspector detail panel, so we just surface the row.
  * Renders null — purely a side-effect component.
  */
-export function ClashFocusOpener({ clashes, projectMap }: Props) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function ClashFocusOpener({ clashes: _clashes, projectMap: _projectMap }: Props) {
   const { focusId, clear } = useFocusParam("clash");
 
   useEffect(() => {

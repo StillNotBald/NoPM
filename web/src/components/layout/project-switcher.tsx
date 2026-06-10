@@ -21,12 +21,14 @@ export function ProjectSwitcher({ collapsed = false }: { collapsed?: boolean }) 
 
   // Load recents from localStorage on mount (client only)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRecents(getRecentProjects());
   }, []);
 
   // Fetch projects from API when the panel opens
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     apiGet<ApiProject[]>("/api/projects")
       .then((data) => setProjects(data ?? []))

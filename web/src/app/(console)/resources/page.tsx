@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
-import { EntityLink } from "@/components/ui/entity-link";
+
 import { cn } from "@/lib/cn";
 import {
   memberUtilisation,
@@ -56,7 +56,7 @@ export default async function ResourcesPage() {
 
   // Fetch all allocations for these members in one query
   const memberIds = rows.map((m) => m.id);
-  let allocationsByMember: Record<string, number> = {};
+  const allocationsByMember: Record<string, number> = {};
 
   if (memberIds.length > 0) {
     const { data: allocations } = await db

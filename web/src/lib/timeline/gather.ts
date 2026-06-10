@@ -5,7 +5,7 @@
 // bound to the actor's workspace (session client = RLS; admin client = explicit
 // .eq("workspace_id") below).
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { entityHref, type EntityKind } from "@/lib/nav/entity-href";
+import { entityHref } from "@/lib/nav/entity-href";
 
 export type TLKind = "milestone" | "task" | "risk" | "issue" | "decision" | "doc" | "steerco";
 

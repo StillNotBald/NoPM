@@ -139,7 +139,7 @@ export default async function IssuesPage() {
         ) : (
           <div className="px-5 py-16 text-center">
             <p className="text-sm text-ink-muted">No issues logged yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use "New Issue" to log the first one.</p>
+            <p className="mt-1 text-xs text-ink-muted">Use &ldquo;New Issue&rdquo; to log the first one.</p>
           </div>
         )}
       </Card>

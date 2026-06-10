@@ -1,5 +1,5 @@
 import { route } from "@/lib/api/handler";
-import { requireScope, type Actor } from "@/lib/auth/guard";
+import { requireScope } from "@/lib/auth/guard";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";

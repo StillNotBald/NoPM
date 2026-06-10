@@ -84,6 +84,7 @@ export default function TokensPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTokens();
   }, [loadTokens]);
 
@@ -136,7 +137,7 @@ export default function TokensPage() {
       if (!res.ok) throw new Error(json.error ?? "Failed to revoke token");
       await loadTokens();
       router.refresh();
-    } catch (e) {
+    } catch {
       // surface inline — for now, just reload
       await loadTokens();
     } finally {

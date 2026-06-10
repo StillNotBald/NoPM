@@ -31,18 +31,19 @@ export function DonutChart({ segments, size = 120, thickness = 18, children }: D
   const circumference = 2 * Math.PI * r;
 
   // Build arc paths from segment values
-  let cumulativePct = 0;
-  const arcs = segments
-    .filter((seg) => seg.value > 0)
-    .map((seg) => {
+  const positiveSegs = segments.filter((seg) => seg.value > 0);
+  const gap = total > 0 && positiveSegs.length > 1 ? 1.5 : 0;
+  const arcs = positiveSegs.reduce<{ seg: Segment; offset: number; dash: number }[]>(
+    (acc, seg) => {
       const pct = total > 0 ? seg.value / total : 0;
+      const cumulativePct = acc.reduce((s, a) => s + (total > 0 ? a.seg.value / total : 0), 0);
       const offset = circumference * (1 - cumulativePct);
       const dash = circumference * pct;
-      // small gap between segments
-      const gap = total > 0 && segments.filter((s) => s.value > 0).length > 1 ? 1.5 : 0;
-      cumulativePct += pct;
-      return { seg, offset, dash: dash - gap };
-    });
+      acc.push({ seg, offset, dash: dash - gap });
+      return acc;
+    },
+    [],
+  );
 
   if (total === 0) {
     // Empty state: grey ring

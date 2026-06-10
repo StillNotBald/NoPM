@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import type { PortfolioReport, ProjectReport, TopRisk, TopIssue, MilestoneRow, EvmTableRow } from "./gather";
+import type { PortfolioReport, ProjectReport } from "./gather";
 import type { EvmResult } from "@/lib/evm";
 
 // ─── palette (RGB tuples) ─────────────────────────────────────────────────────

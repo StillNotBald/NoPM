@@ -1,5 +1,23 @@
 import Link from "next/link";
 
+/**
+ * Demo entry button — renders as a plain HTML form so it works without JS
+ * and avoids any client bundle. POST /api/auth/demo-login sets the session
+ * cookies server-side and redirects to /dashboard.
+ */
+function DemoLoginButton() {
+  return (
+    <form method="POST" action="/api/auth/demo-login">
+      <button
+        type="submit"
+        className="rounded-md bg-accent px-5 py-2.5 font-medium text-white hover:bg-accent-hover"
+      >
+        Try the live demo →
+      </button>
+    </form>
+  );
+}
+
 export const metadata = {
   title: "NoPM — project governance your AI agent can operate",
   description:
@@ -49,8 +67,9 @@ export default function Landing() {
           layer — not bolted onto the UI.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
-          <Link href="/login" className="rounded-md bg-accent px-5 py-2.5 font-medium text-white hover:bg-accent-hover">
-            Open the live console →
+          <DemoLoginButton />
+          <Link href="/login" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
+            Sign in →
           </Link>
           <a href="/llms.txt" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
             Read the agent API

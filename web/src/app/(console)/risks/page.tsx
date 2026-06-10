@@ -237,7 +237,7 @@ export default async function RisksPage() {
         ) : (
           <div className="px-5 py-16 text-center">
             <p className="text-sm text-ink-muted">No risks recorded yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use "New Risk" to log the first one.</p>
+            <p className="mt-1 text-xs text-ink-muted">Use &ldquo;New Risk&rdquo; to log the first one.</p>
           </div>
         )}
       </Card>

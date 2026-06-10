@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ApprovalActions } from "@/components/approvals/actions";
 import { PageHeader } from "@/components/ui/page-header";
-import { cn } from "@/lib/cn";
+
 
 export const metadata = { title: "Approvals — NoPM" };
 
