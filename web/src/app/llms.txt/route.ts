@@ -123,6 +123,15 @@ GET    /api/openapi.json                   — scope:none — OpenAPI 3.1 spec f
 
 ---
 
+## MCP server
+
+NoPM ships a native Model Context Protocol (MCP) server at web/mcp/server.mjs.
+It exposes the governed tool set above over STDIO so any MCP client (Claude Desktop, Cursor, etc.)
+can drive NoPM as an agent. Capabilities are bounded by the PAT scopes; all writes are audited;
+task deletion goes through maker-checker. See web/mcp/README.md for setup instructions.
+
+---
+
 ## Maker-checker note (expanded)
 
 Task deletion is intentionally two-step to provide change-control traceability:
