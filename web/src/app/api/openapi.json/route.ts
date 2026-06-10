@@ -77,18 +77,6 @@ const spec = {
         },
       },
     },
-    "/me": {
-      get: {
-        tags: ["auth"],
-        summary: "Resolve the current actor",
-        description: "scope: any valid auth (user session or token)",
-        operationId: "getMe",
-        responses: {
-          "200": { description: "Actor identity", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "401": { description: "Unauthorized", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-        },
-      },
-    },
     "/tokens": {
       get: {
         tags: ["tokens"],
@@ -865,7 +853,600 @@ const spec = {
         },
       },
     },
+    "/auth/signout": {
+      post: {
+        tags: ["auth"],
+        summary: "Sign out the current session",
+        description: "No auth required. Clears the server-side Supabase cookie session. Always succeeds.",
+        security: [],
+        operationId: "signOut",
+        responses: {
+          "200": { description: "Signed out", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+        },
+      },
+    },
+    "/timeline": {
+      get: {
+        tags: ["system"],
+        summary: "Portfolio timeline graph",
+        description: "scope: project:read. Returns the full governed timeline graph for the workspace (projects, milestones, tasks, risks, issues).",
+        operationId: "getTimeline",
+        responses: {
+          "200": { description: "Timeline graph", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Forbidden", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/search": {
+      get: {
+        tags: ["system"],
+        summary: "Full-workspace record search",
+        description: "scope: project:read. Case-insensitive search across projects, tasks, risks, issues, clashes, documents, change_requests, and decisions. ?q=<query> (min 1 char). Returns up to 30 results.",
+        operationId: "search",
+        parameters: [
+          { name: "q", in: "query", required: true, schema: { type: "string", minLength: 1 }, description: "Search query" },
+        ],
+        responses: {
+          "200": { description: "Search results (SearchResult[])", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Forbidden", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/notifications": {
+      get: {
+        tags: ["notifications"],
+        summary: "List notifications for the current user",
+        description: "scope: notification:read. Optional ?unread=1 to filter unread only.",
+        operationId: "listNotifications",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "unread", in: "query", schema: { type: "string", enum: ["1"] }, description: "Pass 1 to return only unread notifications" },
+        ],
+        responses: {
+          "200": { description: "Paginated notification list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "403": { description: "Forbidden", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/notifications/{id}": {
+      patch: {
+        tags: ["notifications"],
+        summary: "Mark a notification as read",
+        description: "scope: notification:read. Idempotent — no-op if already read.",
+        operationId: "markNotificationRead",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Notification (read)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/notifications/read-all": {
+      post: {
+        tags: ["notifications"],
+        summary: "Mark all unread notifications as read",
+        description: "scope: notification:read. Idempotent.",
+        operationId: "markAllNotificationsRead",
+        responses: {
+          "200": { description: "{ updated: number }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+        },
+      },
+    },
+    "/assistant/credentials": {
+      get: {
+        tags: ["assistant"],
+        summary: "Get AI assistant credential status",
+        description: "scope: assistant:read. Session-user only. Never returns the key. Returns connected status, provider, model, and demoAvailable flag.",
+        operationId: "getAssistantCredentials",
+        responses: {
+          "200": { description: "Credential status", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      put: {
+        tags: ["assistant"],
+        summary: "Store or replace an AI assistant credential",
+        description: "scope: assistant:write. Session-user only. API key is encrypted at rest and never returned.",
+        operationId: "putAssistantCredentials",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["provider", "apiKey", "model"], properties: { provider: { type: "string" }, apiKey: { type: "string" }, model: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "Credential stored", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["assistant"],
+        summary: "Remove the stored AI assistant credential",
+        description: "scope: assistant:write. Session-user only.",
+        operationId: "deleteAssistantCredentials",
+        responses: {
+          "204": { description: "Deleted" },
+          "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/assistant/chat": {
+      post: {
+        tags: ["assistant"],
+        summary: "Send a message to the AI assistant",
+        description: "Session-user only. Runs the agentic assistant loop and returns the reply plus any actions taken.",
+        operationId: "assistantChat",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["message"], properties: { message: { type: "string" }, history: { type: "array", items: { type: "object", required: ["role", "content"], properties: { role: { type: "string", enum: ["user", "assistant"] }, content: { type: "string" } } } } } } } } },
+        responses: {
+          "200": { description: "{ reply, actions, usedDemoKey }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/documents": {
+      get: {
+        tags: ["documents"],
+        summary: "List documents",
+        description: "scope: document:read. Optional filters: ?project_id, ?folder, ?status, ?doc_type.",
+        operationId: "listDocuments",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "folder", in: "query", schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string" } },
+          { name: "doc_type", in: "query", schema: { type: "string" } },
+        ],
+        responses: {
+          "200": { description: "Paginated document list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["documents"],
+        summary: "Create a document",
+        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id.",
+        operationId: "createDocument",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "doc_type"], properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
+        responses: {
+          "201": { description: "Document created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/documents/{id}": {
+      get: {
+        tags: ["documents"],
+        summary: "Get a document",
+        description: "scope: document:read",
+        operationId: "getDocument",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Document", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["documents"],
+        summary: "Update a document",
+        description: "scope: document:write. Bumps version when body changes.",
+        operationId: "updateDocument",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
+        responses: {
+          "200": { description: "Updated document", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["documents"],
+        summary: "Delete a document",
+        description: "scope: document:write",
+        operationId: "deleteDocument",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/documents/{id}/file": {
+      get: {
+        tags: ["documents"],
+        summary: "Download document file (redirect to signed URL)",
+        description: "scope: document:read. Returns a 302 redirect to a short-lived Supabase Storage signed URL.",
+        operationId: "getDocumentFile",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "302": { description: "Redirect to signed download URL" },
+          "404": { description: "Not found or no file attached", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["documents"],
+        summary: "Record file metadata after a direct-upload",
+        description: "scope: document:write. Call after the browser uploads bytes to the signed upload URL. Body: { path, file_name, mime_type, file_size }.",
+        operationId: "attachDocumentFile",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["path", "file_name", "mime_type", "file_size"], properties: { path: { type: "string" }, file_name: { type: "string" }, mime_type: { type: "string" }, file_size: { type: "integer" } } } } } },
+        responses: {
+          "200": { description: "Document with file metadata", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation / path error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["documents"],
+        summary: "Remove the attached file from a document",
+        description: "scope: document:write. Deletes the storage object and clears the metadata columns.",
+        operationId: "removeDocumentFile",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "File removed" },
+          "404": { description: "Not found or no file attached", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/documents/{id}/file/sign": {
+      post: {
+        tags: ["documents"],
+        summary: "Mint a signed upload URL for a document file",
+        description: "scope: document:write. Returns a short-lived Supabase Storage signed upload URL. Max file size 25 MiB.",
+        operationId: "signDocumentFileUpload",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["file_name", "mime_type", "file_size"], properties: { file_name: { type: "string" }, mime_type: { type: "string" }, file_size: { type: "integer", description: "Bytes, max 26214400 (25 MiB)" } } } } } },
+        responses: {
+          "200": { description: "{ signedUrl, token, path }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error or file too large", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/change-requests": {
+      get: {
+        tags: ["change-requests"],
+        summary: "List change requests for a project",
+        description: "scope: change:read",
+        operationId: "listProjectChangeRequests",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated change request list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["change-requests"],
+        summary: "Raise a change request under a project",
+        description: "scope: change:write. Auto-assigns a CR-NNN reference_id.",
+        operationId: "createChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "category", "priority", "status"], properties: { title: { type: "string" }, description: { type: "string" }, category: { type: "string" }, priority: { type: "string", enum: ["low", "medium", "high", "critical"] }, status: { type: "string" }, impact_summary: { type: "string" }, impact_schedule_days: { type: "integer" }, impact_cost: { type: "number" }, target_date: { type: "string", format: "date" }, raised_at: { type: "string", format: "date-time" } } } } } },
+        responses: {
+          "201": { description: "Change request created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/change-requests/{id}": {
+      get: {
+        tags: ["change-requests"],
+        summary: "Get a change request",
+        description: "scope: change:read",
+        operationId: "getChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Change request", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["change-requests"],
+        summary: "Update a change request",
+        description: "scope: change:write",
+        operationId: "updateChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, category: { type: "string" }, priority: { type: "string" }, impact_summary: { type: "string" }, impact_schedule_days: { type: "integer" }, impact_cost: { type: "number" }, target_date: { type: "string", format: "date" }, raised_at: { type: "string", format: "date-time" } } } } } },
+        responses: {
+          "200": { description: "Updated change request", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["change-requests"],
+        summary: "Delete a change request",
+        description: "scope: change:write",
+        operationId: "deleteChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/change-requests/{id}/decision": {
+      post: {
+        tags: ["change-requests"],
+        summary: "Record an approve / reject / defer decision (four-eyes)",
+        description: "scope: change:write. The deciding actor must differ from the requester (four-eyes). Status must be raised or under_review.",
+        operationId: "decideChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["decision"], properties: { decision: { type: "string", enum: ["approve", "reject", "defer"] }, rationale: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "Decision recorded", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Self-approval rejected", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Already decided", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/decisions": {
+      get: {
+        tags: ["decisions"],
+        summary: "List decisions for a project",
+        description: "scope: decision:read",
+        operationId: "listProjectDecisions",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated decision list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["decisions"],
+        summary: "Log a decision under a project",
+        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id.",
+        operationId: "createDecision",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" } } } } } },
+        responses: {
+          "201": { description: "Decision created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/decisions/{id}": {
+      get: {
+        tags: ["decisions"],
+        summary: "Get a decision",
+        description: "scope: decision:read",
+        operationId: "getDecision",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Decision", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["decisions"],
+        summary: "Update a decision",
+        description: "scope: decision:write",
+        operationId: "updateDecision",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" } } } } } },
+        responses: {
+          "200": { description: "Updated decision", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["decisions"],
+        summary: "Delete a decision",
+        description: "scope: decision:write",
+        operationId: "deleteDecision",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/lock": {
+      post: {
+        tags: ["projects"],
+        summary: "Lock a project timeline",
+        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined.",
+        operationId: "lockProject",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "Locked project", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/unlock": {
+      post: {
+        tags: ["projects"],
+        summary: "Unlock a project timeline",
+        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason.",
+        operationId: "unlockProject",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Unlocked project", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/rebaselines": {
+      get: {
+        tags: ["rebaselines"],
+        summary: "List rebaselines for a project",
+        description: "scope: project:read",
+        operationId: "listProjectRebaselines",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated rebaseline list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["rebaselines"],
+        summary: "Create a rebaseline request",
+        description: "scope: project:write. If the project is locked, status is pending_approval; otherwise draft.",
+        operationId: "createRebaseline",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string" }, before: { type: "object" }, after: { type: "object" } } } } } },
+        responses: {
+          "201": { description: "Rebaseline created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/rebaselines/{id}/signoff": {
+      post: {
+        tags: ["rebaselines"],
+        summary: "Cast a signoff vote on a rebaseline (four-eyes)",
+        description: "scope: rebaseline:approve. The requester may not sign off their own rebaseline.",
+        operationId: "signoffRebaseline",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["vote"], properties: { vote: { type: "string", enum: ["go", "no_go", "pending"] }, comment: { type: "string" } } } } } },
+        responses: {
+          "200": { description: "Signoff recorded; rebaseline status may update", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Self-signoff rejected", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/rebaselines/{id}/apply": {
+      post: {
+        tags: ["rebaselines"],
+        summary: "Apply an approved rebaseline (four-eyes)",
+        description: "scope: rebaseline:approve. Only approved rebaselines may be applied. The requester may not apply their own rebaseline. Overwrites baseline dates for all milestones and tasks in the project.",
+        operationId: "applyRebaseline",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Rebaseline applied", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Self-apply rejected or wrong status", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/tasks/{id}/dependencies": {
+      get: {
+        tags: ["tasks"],
+        summary: "List dependencies for a task",
+        description: "scope: task:read. Returns all predecessor and successor edges for the task.",
+        operationId: "listTaskDependencies",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Dependency edges", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["tasks"],
+        summary: "Add a task dependency",
+        description: "scope: task:write. Guards against self-dependency, duplicates, and circular references.",
+        operationId: "createTaskDependency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["predecessor_id"], properties: { predecessor_id: { type: "string", format: "uuid" }, type: { type: "string", enum: ["FS", "SS", "FF", "SF"], default: "FS" }, lag_days: { type: "integer", default: 0 } } } } } },
+        responses: {
+          "201": { description: "Dependency created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Rule violation (self-dep, duplicate, circular)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["tasks"],
+        summary: "Remove a task dependency",
+        description: "scope: task:write. Body: { predecessor_id }.",
+        operationId: "deleteTaskDependency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["predecessor_id"], properties: { predecessor_id: { type: "string", format: "uuid" } } } } } },
+        responses: {
+          "204": { description: "Dependency removed" },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/reports/deck": {
+      get: {
+        tags: ["reports"],
+        summary: "Generate portfolio deck report",
+        description: "scope: audit:read. ?format=html|pptx|pdf (default html). Optional ?sections=cover,rag,evm.",
+        operationId: "getDeckReport",
+        parameters: [
+          { name: "format", in: "query", schema: { type: "string", enum: ["html", "pptx", "pdf"], default: "html" } },
+          { name: "sections", in: "query", schema: { type: "string" }, description: "Comma-separated section keys" },
+        ],
+        responses: {
+          "200": { description: "Report file (binary or HTML)" },
+          "422": { description: "Invalid format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["reports"],
+        summary: "Generate portfolio deck report (POST variant)",
+        description: "scope: audit:read. Same as GET but accepts a JSON body { format?, sections? } for structured agent use.",
+        operationId: "postDeckReport",
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { format: { type: "string", enum: ["html", "pptx", "pdf"] }, sections: { type: "array", items: { type: "string" } } } } } } },
+        responses: {
+          "200": { description: "Report file (binary or HTML)" },
+          "422": { description: "Invalid format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/reports/project/{id}": {
+      get: {
+        tags: ["reports"],
+        summary: "Generate per-project status report",
+        description: "scope: audit:read. ?format=html|pptx|pdf (default html). Optional ?sections=cover,rag,evm,risks,issues,milestones.",
+        operationId: "getProjectReport",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "format", in: "query", schema: { type: "string", enum: ["html", "pptx", "pdf"], default: "html" } },
+          { name: "sections", in: "query", schema: { type: "string" }, description: "Comma-separated section keys" },
+        ],
+        responses: {
+          "200": { description: "Report file (binary or HTML)" },
+          "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invalid format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["reports"],
+        summary: "Generate per-project status report (POST variant)",
+        description: "scope: audit:read. Same as GET but accepts a JSON body { format?, sections? } for structured agent use.",
+        operationId: "postProjectReport",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { format: { type: "string", enum: ["html", "pptx", "pdf"] }, sections: { type: "array", items: { type: "string" } } } } } } },
+        responses: {
+          "200": { description: "Report file (binary or HTML)" },
+          "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invalid format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/me": {
+      get: {
+        tags: ["auth"],
+        summary: "Resolve the current actor",
+        description: "scope: any valid auth (user session or token)",
+        operationId: "getMe",
+        responses: {
+          "200": { description: "Actor identity", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "401": { description: "Unauthorized", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["auth"],
+        summary: "Update the current user's display name",
+        description: "scope: user session only. Validates non-empty display_name, updates profile, writes audit row.",
+        operationId: "patchMe",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["display_name"], properties: { display_name: { type: "string", minLength: 1 } } } } } },
+        responses: {
+          "200": { description: "Updated actor identity", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
   },
 };
 
 export const GET = route(async () => Response.json(spec), { auth: false });
+
+// Exported for the openapi-coverage drift test only.
+// Do NOT import this in production application code.
+export const specForTesting = spec;
