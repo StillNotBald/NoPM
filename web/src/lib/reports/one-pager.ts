@@ -58,9 +58,9 @@ const BUILD_MODULES = [
 ];
 
 const METRICS: [string, string][] = [
-  ["39", "traced requirements (R-IDs) in RTM"],
-  ["100+", "governance-focused tests (vitest)"],
-  ["33", "documented REST endpoints + OpenAPI"],
+  ["52", "traced requirements (R-IDs) in RTM"],
+  ["268", "governance-focused tests (vitest)"],
+  ["61", "documented REST endpoints + OpenAPI"],
   ["1", "immutable audit row per mutation — no exceptions"],
   ["0", "bundled LLM — governance ships without any model key"],
 ];

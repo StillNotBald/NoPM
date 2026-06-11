@@ -98,7 +98,7 @@ created_at            actor_label     action        target
           </pre>
         </div>
         <p className="mt-3 text-center text-xs text-ink-muted">
-          The same surface a human uses — 33 documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
+          The same surface a human uses — 61 documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
         </p>
       </section>
 

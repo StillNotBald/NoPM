@@ -4,7 +4,7 @@ import { DownloadOnePagerButton } from "@/components/case-study/download-button"
 export const metadata = {
   title: "Case Study — NoPM",
   description:
-    "How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and 39 traced requirements shipped in eight waves.",
+    "How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and 52 traced requirements shipped in eight waves.",
 };
 
 // ─── shared primitives ────────────────────────────────────────────────────────
@@ -137,7 +137,7 @@ export default function CaseStudyPage() {
         </p>
         <blockquote className="mt-6 border-l-2 border-accent pl-4">
           <p className="text-sm leading-relaxed text-ink-secondary italic">
-            &ldquo;The same surface a human uses — 33 documented endpoints, OpenAPI,
+            &ldquo;The same surface a human uses — 61 documented endpoints, OpenAPI,
             an <code className="font-mono">llms.txt</code> index, and scoped
             Bearer tokens — is the surface an AI agent uses. No special mode,
             no privileged bypass.&rdquo;
@@ -263,9 +263,9 @@ created_at            actor_label     action        target
           Numbers that show the governance isn&apos;t hand-waving.
         </h2>
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <Metric value="39" label="traced requirements (R-IDs) in RTM" />
-          <Metric value="100+" label="governance-focused tests (vitest)" />
-          <Metric value="33" label="documented REST endpoints + OpenAPI" />
+          <Metric value="52" label="traced requirements (R-IDs) in RTM" />
+          <Metric value="268" label="governance-focused tests (vitest)" />
+          <Metric value="61" label="documented REST endpoints + OpenAPI" />
           <Metric value="1" label="immutable audit row per mutation — no exceptions" />
           <Metric value="0" label="bundled LLM — governance ships without any model key" />
         </div>
@@ -311,7 +311,7 @@ created_at            actor_label     action        target
               </li>
               <li>
                 <span className="font-mono text-xs text-ink">vitest</span>{" "}
-                — 100+ tests, governance-first coverage
+                — 268 tests, governance-first coverage
               </li>
             </ul>
           </div>
