@@ -1,9 +1,14 @@
-name: Nightly demo reseed
+name: Demo reseed (manual)
 
-# Resets the live demo workspace to a clean, rich seeded state on a schedule
-# so the public "Try the live demo" flow (R-53) never accumulates stale or
-# visitor-mutated data. Runs at low-traffic hours: 19:00 UTC = 03:00
-# Asia/Singapore.
+# Resets the live demo workspace to a clean, rich seeded state so the public
+# "Try the live demo" flow (R-53) never shows stale or visitor-mutated data.
+#
+# MANUAL-ONLY by owner decision (2026-07-12): the demo is not yet shared
+# broadly, so the nightly cron is off. Trigger from the GitHub Actions tab
+# ("Run workflow") or `gh workflow run reseed.yml`, or run `npm run seed:all`
+# locally. To re-enable nightly resets, restore under `on:`:
+#   schedule:
+#     - cron: "0 19 * * *"   # 19:00 UTC = 03:00 Asia/Singapore, low traffic
 #
 # Required GitHub Actions secrets (Settings → Secrets and variables →
 # Actions) — this workflow fails until both are set on the repo:
@@ -18,8 +23,6 @@ name: Nightly demo reseed
 # inside the ephemeral runner (never committed, never printed).
 
 on:
-  schedule:
-    - cron: "0 19 * * *"
   workflow_dispatch: {}
 
 jobs:

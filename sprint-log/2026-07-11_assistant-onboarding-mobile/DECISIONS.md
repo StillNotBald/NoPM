@@ -14,7 +14,9 @@ All locked with the owner in the ASK round (or directly in chat where noted).
    list, no cross-visit persistence. BYOK users unchanged. No migration.
 4. **Demo reset = nightly GitHub Action** (ASK) running new `npm run seed:all` (8 scripts,
    documented order, includes purging demo-user assistant conversations). Manual command also
-   available.
+   available. **AMENDED by owner 2026-07-12: nightly cron switched OFF** (demo not shared
+   broadly yet) — the workflow stays as manual-dispatch only; re-enable by restoring the
+   `schedule:` block in `.github/workflows/reseed.yml`.
 5. **Mobile search entry = header search icon** (ASK), visible < sm, opens palette full-screen.
 6. **"Anonymous visitor" = session-based** via existing R-53 one-click demo login (recommended,
    unopposed). `requireAuth` stays untouched; no sessionless public endpoint.
