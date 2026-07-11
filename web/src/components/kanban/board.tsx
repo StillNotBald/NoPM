@@ -5,6 +5,7 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  KeyboardSensor,
   useSensor,
   useSensors,
   useDroppable,
@@ -13,6 +14,7 @@ import {
 import {
   SortableContext,
   useSortable,
+  sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -87,6 +89,10 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
       className={cn(
         "rounded-md border border-border-subtle bg-surface px-3 py-2.5 text-sm",
         "transition-shadow",
+        // touch-action: none on the draggable node so dnd-kit's PointerSensor
+        // can claim touch gestures without the page hijacking them as a scroll
+        // (same precedent as the sortable shortcut tiles in bottom-nav.tsx).
+        !isLocked && "touch-none",
         isDragging
           ? "opacity-50 shadow-md z-50"
           : "hover:shadow-sm",
@@ -120,7 +126,11 @@ function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
   const { setNodeRef } = useDroppable({ id: "col:" + status });
 
   return (
-    <div className="flex flex-col min-h-0">
+    // Mobile/tablet (below lg): fixed-min-width flex item so the board's
+    // overflow-x-auto actually has something to scroll (1fr grid tracks never
+    // overflow). lg and up: min-w reset so the parent's grid-cols-5 tracks
+    // size exactly as before — pixel-identical to the pre-fix desktop layout.
+    <div className="flex min-w-[16rem] shrink-0 snap-start flex-col min-h-0 lg:min-w-0">
       {/* Column header */}
       <div className="mb-2 flex items-center gap-2">
         <span className="text-xs font-semibold text-ink-secondary uppercase tracking-wide">
@@ -170,6 +180,9 @@ export function KanbanBoard({ projectId: _projectId, isLocked, tasks: initialTas
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
     }),
   );
 
@@ -253,7 +266,13 @@ export function KanbanBoard({ projectId: _projectId, isLocked, tasks: initialTas
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
-        <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-2">
+        {/*
+          Below lg: horizontal-scroll strip (flex row, columns get a real
+          min-width from KanbanColumn so overflow-x-auto has something to
+          overflow). At lg and above: switch back to the original fluid
+          grid-cols-5 — unchanged from before this fix.
+        */}
+        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-proximity lg:grid lg:grid-cols-5">
           {COLUMN_ORDER.map((status) => (
             <KanbanColumn
               key={status}

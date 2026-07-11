@@ -8,7 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { useInspector } from "@/components/layout/app-shell";
 import { useModal } from "@/components/ui/modal";
-import { apiDelete } from "@/lib/api-client";
+import { useToast } from "@/components/ui/toast";
+import { apiDelete, apiPatch, type ApiError } from "@/lib/api-client";
+import { SelectInput } from "@/components/forms/project-form";
 import { cn } from "@/lib/cn";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
@@ -17,6 +19,17 @@ import type { Milestone, Task } from "@/components/tracking/activity-table";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type BadgeTone = "neutral" | "accent" | "info" | "success" | "warning" | "danger";
+
+// Tone → text color for the status <select> (keeps the at-a-glance semantic
+// color the old read-only Badge gave, on an element that stays interactive).
+const statusToneText: Record<BadgeTone, string> = {
+  neutral: "text-ink-secondary",
+  accent: "text-accent",
+  info: "text-info",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+};
 
 // ─── Badge helpers (mirrored from activity-table for self-containment) ────────
 
@@ -119,22 +132,60 @@ export function TaskDetailPanel({
   milestones,
   tasks = [],
   members,
+  isLocked = false,
 }: {
   task: Task;
   milestones: Milestone[];
   /** Sibling tasks — forwarded to TaskForm for the Blocked-by picker. */
   tasks?: Task[];
   members?: Record<string, string>;
+  /** Timeline lock — must disable the status select exactly like it disables
+   *  the Kanban drag (governed lock → rebaseline flow). */
+  isLocked?: boolean;
 }) {
   const inspector = useInspector();
   const modal = useModal();
   const router = useRouter();
+  const toast = useToast();
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const statusInfo = taskStatusBadge(task.status_type);
+  // Optimistic override for the status select below — lets a keyboard/screen-
+  // reader user change status without dragging the Kanban card (WCAG 2.1.1
+  // non-drag path). Reset whenever a different task is shown in this panel
+  // (render-phase "adjusting state on prop change" — no effect needed).
+  const [optimisticStatus, setOptimisticStatus] = useState<Task["status_type"] | null>(null);
+  const [statusSaving, setStatusSaving] = useState(false);
+  const [statusResetKey, setStatusResetKey] = useState(task.id);
+  if (task.id !== statusResetKey) {
+    setStatusResetKey(task.id);
+    setOptimisticStatus(null);
+  }
+
+  const currentStatusType = optimisticStatus ?? task.status_type;
+  const statusInfo = taskStatusBadge(currentStatusType);
 
   const parentMilestone = milestones.find((m) => m.id === task.milestone_id);
+
+  async function handleStatusChange(newStatus: Task["status_type"]) {
+    if (newStatus === currentStatusType || statusSaving) return;
+    const prevStatus = currentStatusType;
+    setOptimisticStatus(newStatus);
+    setStatusSaving(true);
+    try {
+      // Same endpoint + payload shape as KanbanBoard.handleDragEnd's status
+      // mutation (PATCH /api/tasks/:id { status_type }) — routed through the
+      // api-client helper; the mutation is audited server-side already.
+      await apiPatch(`/api/tasks/${task.id}`, { status_type: newStatus });
+      toast.success("Status updated — audited ✓");
+      router.refresh();
+    } catch (err) {
+      setOptimisticStatus(prevStatus);
+      toast.error((err as ApiError).message ?? "Failed to update status. Please try again.");
+    } finally {
+      setStatusSaving(false);
+    }
+  }
 
   function handleDelete() {
     setDeleteError(null);
@@ -199,7 +250,33 @@ export function TaskDetailPanel({
           </p>
         )}
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
+          {/*
+            Non-drag status path (WCAG 2.1.1) — the Kanban board's drag
+            gesture has no keyboard/screen-reader equivalent for changing a
+            task's status; this select gives every user the same mutation
+            without needing to drag a card.
+          */}
+          <div className="w-40">
+            <label htmlFor={`task-status-${task.id}`} className="sr-only">
+              Task status
+            </label>
+            <SelectInput
+              id={`task-status-${task.id}`}
+              value={currentStatusType}
+              disabled={statusSaving || isLocked}
+              title={isLocked ? "Timeline locked — rebaseline to change status" : undefined}
+              onChange={(e) =>
+                handleStatusChange(e.target.value as Task["status_type"])
+              }
+              className={cn("text-xs font-mono font-medium", statusToneText[statusInfo.tone])}
+            >
+              <option value="backlog">Backlog</option>
+              <option value="unstarted">To do</option>
+              <option value="started">In progress</option>
+              <option value="completed">Completed</option>
+              <option value="canceled">Canceled</option>
+            </SelectInput>
+          </div>
           <Severity level={task.priority} />
         </div>
       </div>

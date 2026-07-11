@@ -550,6 +550,7 @@ export function ActivityTable({
         milestones={sortedMilestones}
         tasks={tasks}
         members={members}
+        isLocked={isLocked}
       />,
       task.name
     );
