@@ -30,6 +30,17 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - `sprint-log/<date>_<intent>/` from `_template/` — `SPRINT_SUMMARY.md` always (the receipt), `PLAN.md`/`DECISIONS.md` when warranted.
 - `docs/adr/NNNN-*.md` for architectural/irreversible decisions.
 
+## Agent profile
+
+- test: `cd web && npm run test` (vitest)
+- typecheck: `cd web && npx tsc --noEmit`
+- gate: `npm run rtm:verify` (RTM consistency; run from `web/` — a copy also exists at `scripts/rtm-verify.mjs`)
+- rtm: `requirements/REQUIREMENTS.md` + `requirements/TRACEABILITY.md` (same-commit rule)
+- sprintLog: `sprint-log/<date>_<intent>/` from `_template/` (SPRINT_SUMMARY.md always)
+- uiTemplates: prior-console-app "Claude Design Language" tokens (cream `#FAF9F5` + coral `#D97757`), shadcn-style primitives
+- sanitization: no real client/stakeholder names in tracked .md; portfolio-public repo
+- memoryStore: `~/.claude/projects/<redacted>/memory/`
+
 ## Do NOT build (ask first)
 real email **send** (Resend stays demo-mode — previews only), dry-run gates, OAuth/PKCE, multi-tenant beyond workspace_id+RLS, custom-field engine, automations, comments/notification-threads, any bundled LLM. (Extra view types are also ask-first — the **Mainline** timeline UI is greenlit but parked.)
 
