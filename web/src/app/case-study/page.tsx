@@ -72,7 +72,7 @@ export default function CaseStudyPage() {
           </Link>
         </div>
         <nav className="flex items-center gap-4 text-sm text-ink-secondary">
-          <Link href="/" className="hover:text-ink">Home</Link>
+          <Link href="/" className="hidden sm:inline hover:text-ink">Home</Link>
           <Link href="/login" className="hover:text-ink">Sign in</Link>
           <DemoLoginButton className="px-3 py-1.5 text-sm" label="Try the demo →" />
         </nav>
@@ -81,7 +81,7 @@ export default function CaseStudyPage() {
       {/* ── hero ── */}
       <section className="mx-auto max-w-4xl px-6 pb-10 pt-12">
         <SectionLabel>Portfolio case study</SectionLabel>
-        <h1 className="mt-3 max-w-3xl font-serif text-4xl leading-[1.1] text-ink">
+        <h1 className="mt-3 max-w-3xl font-serif text-3xl sm:text-4xl leading-[1.1] text-ink">
           I build the systems that make unclear requirements impossible.
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">

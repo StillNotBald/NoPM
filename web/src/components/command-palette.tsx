@@ -24,6 +24,7 @@ import {
   FileText,
   GitPullRequest,
   Lightbulb,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
@@ -296,7 +297,7 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="flex flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* Search input */}
       <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2">
         <Search size={15} className="shrink-0 text-ink-muted" />
@@ -316,10 +317,19 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
             Clear
           </button>
         )}
+        {/* Close — only shown below sm, where the dialog is full-screen and the
+            backdrop is fully covered (no "click outside" escape hatch there). */}
+        <button
+          onClick={onClose}
+          aria-label="Close command palette"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-secondary hover:bg-sunken sm:hidden"
+        >
+          <X size={18} />
+        </button>
       </div>
 
       {/* Results list */}
-      <ul ref={listRef} className="max-h-80 overflow-y-auto py-1.5">
+      <ul ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1.5 sm:max-h-80 sm:flex-none">
         {/* ── Records section ───────────────────────────────────────────── */}
         {query.trim() && (
           <>
@@ -478,21 +488,24 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]">
+    <div className="fixed inset-0 z-[60] flex items-stretch justify-center sm:items-start sm:pt-[15vh]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/20 backdrop-blur-sm"
         onClick={close}
       />
 
-      {/* Panel */}
+      {/* Panel — full-screen sheet below sm (w-full h-full inset-0, safe-area
+          padding); sm+ keeps today's centered dialog pixel-identical. */}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
         className={cn(
-          "relative z-10 w-full max-w-lg overflow-hidden",
-          "rounded-xl border border-border-subtle bg-surface shadow-lg",
+          "relative z-10 flex h-full w-full flex-col overflow-hidden",
+          "rounded-none border-0 bg-surface shadow-lg",
+          "pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]",
+          "sm:h-auto sm:max-w-lg sm:rounded-xl sm:border sm:border-border-subtle sm:pt-0 sm:pb-0",
           "animate-in fade-in slide-in-from-top-2 duration-200",
         )}
       >
@@ -518,6 +531,27 @@ export function CmdKTrigger({ onClick }: { onClick: () => void }) {
       <span className="text-accent">❯</span>
       <span>run command</span>
       <span className="ml-1 rounded border border-border-strong px-1 text-[10px] text-ink-muted">⌘K</span>
+    </button>
+  );
+}
+
+// ── CmdK trigger — compact icon-only variant for phones (below sm) ────────────
+// The pill above (CmdKTrigger) is `hidden … sm:flex`, so cross-entity search is
+// otherwise unreachable below sm. This is its exact complement: `sm:hidden`.
+
+export function CmdKTriggerMobile({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="Search (⌘K)"
+      className={cn(
+        "grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-secondary",
+        "transition-colors duration-150 hover:bg-sunken",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+        "sm:hidden",
+      )}
+    >
+      <Search size={18} />
     </button>
   );
 }

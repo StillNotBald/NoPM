@@ -96,8 +96,16 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
   const impactAxis = ["5", "4", "3", "2", "1"]; // top→bottom: high impact first
 
   return (
-    <div className="flex justify-center">
-      <div className="flex items-stretch gap-3 max-w-[460px] w-full">
+    // Sibling register table's proven pattern (src/app/(console)/risks/page.tsx):
+    // overflow-x-auto wraps content that carries its own min-width, so it
+    // scrolls horizontally on narrow viewports instead of squishing its cells
+    // (or, worst case, forcing the page wide). `mx-auto` replaces the old
+    // `flex justify-center` parent so a scrolled/overflowing row starts at
+    // its left edge (scroll position 0) rather than the "centered flex item
+    // overflow" clipping quirk. Desktop (room for the full 460px) is
+    // pixel-identical: mx-auto centers exactly like justify-center did.
+    <div className="overflow-x-auto">
+      <div className="mx-auto flex items-stretch gap-3 max-w-[460px] w-full min-w-[420px]">
         {/* Y axis label */}
         <div className="flex items-center">
           <span className="rotate-180 text-[10px] font-medium uppercase tracking-wide text-ink-muted [writing-mode:vertical-rl]">

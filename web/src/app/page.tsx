@@ -28,8 +28,8 @@ export default function Landing() {
         </div>
         <nav className="flex items-center gap-5 text-sm text-ink-secondary">
           <Link href="/case-study" className="hover:text-ink">Case study</Link>
-          <a href="/llms.txt" className="hover:text-ink">Agent API</a>
-          <a href="/api/openapi.json" className="hover:text-ink">OpenAPI</a>
+          <a href="/llms.txt" className="hidden sm:inline-flex hover:text-ink">Agent API</a>
+          <a href="/api/openapi.json" className="hidden sm:inline-flex hover:text-ink">OpenAPI</a>
           <Link href="/login" className="rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:bg-accent-hover">
             Open console
           </Link>
@@ -40,7 +40,7 @@ export default function Landing() {
         <p className="text-sm font-medium uppercase tracking-widest text-accent">
           AI-native · governance-grade · lite
         </p>
-        <h1 className="mt-4 max-w-3xl font-serif text-5xl leading-[1.1] text-ink">
+        <h1 className="mt-4 max-w-3xl font-serif text-4xl sm:text-5xl leading-[1.1] text-ink">
           Project governance your AI agent can actually operate.
         </h1>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">

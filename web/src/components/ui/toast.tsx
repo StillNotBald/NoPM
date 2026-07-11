@@ -170,8 +170,13 @@ function Toaster({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id: str
     <div
       aria-label="Notifications"
       className={cn(
-        // bottom-right on desktop, bottom-center on mobile
-        "pointer-events-none fixed bottom-4 right-4 z-[9999]",
+        // bottom-right on desktop, bottom-center on mobile.
+        // Below lg the bottom tab bar (BottomNav) + iOS home-indicator safe
+        // area sit under bottom-4 — offset by the same ~5rem clearance
+        // app-shell.tsx reserves for it (<main> pb-20) plus the safe-area
+        // inset, matching the pattern in bottom-nav.tsx / right-push-panel.tsx.
+        // lg+ is pixel-identical to before (bottom-4, no bottom nav).
+        "pointer-events-none fixed bottom-[calc(5rem_+_env(safe-area-inset-bottom))] right-4 z-[9999] lg:bottom-4",
         "flex flex-col-reverse items-end gap-2",
         // mobile: center + full-width toasts
         "max-sm:right-0 max-sm:left-0 max-sm:items-center max-sm:px-4",

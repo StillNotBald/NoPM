@@ -9,7 +9,7 @@ import { ThemeToggle } from "./theme-toggle";
 import { AccountMenu } from "./account-menu";
 import { NotificationBell } from "@/components/notifications/bell";
 import { cn } from "@/lib/cn";
-import { CommandPalette, CmdKTrigger } from "@/components/command-palette";
+import { CommandPalette, CmdKTrigger, CmdKTriggerMobile } from "@/components/command-palette";
 import { RightPushPanel, PUSH_MARGIN, PUSH_MARGIN_NONE } from "@/components/ui/right-push-panel";
 import { AssistantPanel } from "@/components/assistant/panel";
 import { ToastProvider } from "@/components/ui/toast";
@@ -84,10 +84,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="inline-block h-4 w-[3px] animate-pulse rounded-[1px] bg-accent" />
               <span className="font-mono font-semibold tracking-tight text-ink">nopm</span>
             </div>
-            {/* collapse toggle — desktop only */}
+            {/* collapse toggle — desktop only (44px tap area below lg is a no-op
+                today since the button is display:none there; kept consistent
+                with the rest of the header chrome for when that changes) */}
             <button
               onClick={() => setCollapsed((v) => !v)}
-              className="hidden h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid"
+              className="hidden h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid lg:h-10 lg:w-10"
               aria-label="Collapse sidebar"
             >
               {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
@@ -104,7 +106,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               aria-label="Open AI assistant"
               aria-pressed={assistantOpen}
               className={cn(
-                "relative grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken",
+                "relative grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken",
+                "lg:h-10 lg:w-10",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
                 assistantOpen && "bg-sunken text-accent",
               )}
@@ -113,6 +116,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </button>
             <NotificationBell />
             <ThemeToggle />
+            {/* search entry — icon-only below sm, the existing "run command" pill sm+ */}
+            <CmdKTriggerMobile onClick={openCmd} />
             <CmdKTrigger onClick={openCmd} />
             <AccountMenu />
           </header>
