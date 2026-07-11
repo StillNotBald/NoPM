@@ -36,3 +36,20 @@ jobs:
 
       - name: RTM integrity (requirements ↔ on-disk code paths)
         run: npm run rtm:verify
+
+  secrets-scan:
+    # Full-history secret scan (added 2026-07-11, boundary audit). NoPM's
+    # history was verified clean the same day; this keeps it that way.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
