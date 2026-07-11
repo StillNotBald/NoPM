@@ -20,3 +20,7 @@ Thumbs.db
 cli/*.html
 cli/*.pdf
 cli/*.pptx
+
+# Pitch material + rendered reels stay out of the repo (190MB media; pitch plan convention)
+nopm-pitch-assets/
+nopm-reels/
