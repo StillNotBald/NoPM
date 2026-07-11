@@ -9,10 +9,28 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
+const TITLE = "NoPM — agent-operable project governance";
+const DESCRIPTION =
+  "A lite, API-first project management tool your AI agent can drive. Immutable audit, scoped tokens, maker-checker — governance built into the data layer.";
+const SITE_URL = "https://stillnotbald.com";
+
 export const metadata: Metadata = {
-  title: "NoPM — agent-operable project governance",
-  description:
-    "A lite, API-first project management tool your AI agent can drive. Immutable audit, scoped tokens, maker-checker — governance built into the data layer.",
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: SITE_URL,
+    siteName: "NoPM",
+    type: "website",
+    // No image field: no NoPM-branded asset exists in public/ yet (only
+    // Next.js boilerplate svgs) — skip rather than inventing one.
+  },
+  twitter: {
+    card: "summary",
+    title: TITLE,
+    description: DESCRIPTION,
+  },
 };
 
 export default async function RootLayout({
