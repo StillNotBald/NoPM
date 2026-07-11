@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DownloadOnePagerButton } from "@/components/case-study/download-button";
+import { DemoLoginButton } from "@/components/demo-login-button";
 
 export const metadata = {
   title: "Case Study — NoPM",
@@ -72,9 +73,8 @@ export default function CaseStudyPage() {
         </div>
         <nav className="flex items-center gap-4 text-sm text-ink-secondary">
           <Link href="/" className="hover:text-ink">Home</Link>
-          <Link href="/login" className="rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:bg-accent-hover">
-            Open console
-          </Link>
+          <Link href="/login" className="hover:text-ink">Sign in</Link>
+          <DemoLoginButton className="px-3 py-1.5 text-sm" label="Try the demo →" />
         </nav>
       </header>
 
@@ -92,11 +92,12 @@ export default function CaseStudyPage() {
           Shipped solo in eight waves using an AI multi-agent workflow.
         </p>
         <div className="mt-6 flex flex-wrap items-center gap-3">
+          <DemoLoginButton className="px-4 py-2 text-sm" label="Open the live demo →" />
           <Link
             href="/login"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover"
+            className="text-sm font-medium text-ink-secondary hover:text-ink"
           >
-            Open the live console →
+            Sign in →
           </Link>
           <DownloadOnePagerButton />
           <a
@@ -356,11 +357,12 @@ created_at            actor_label     action        target
           open.
         </p>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <DemoLoginButton className="px-5 py-2.5 text-sm" label="Open the live demo →" />
           <Link
             href="/login"
-            className="rounded-md bg-accent px-5 py-2.5 text-sm font-medium text-white hover:bg-accent-hover"
+            className="rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken"
           >
-            Open the live console →
+            Sign in →
           </Link>
           <a
             href="/api/openapi.json"

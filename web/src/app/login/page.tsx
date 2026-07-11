@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DemoLoginButton } from "@/components/demo-login-button";
 import { cn } from "@/lib/cn";
 
 export default function LoginPage() {
@@ -43,10 +45,28 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Wordmark */}
         <div className="mb-8 text-center">
-          <span className="text-2xl font-semibold tracking-tight text-ink">
+          <Link href="/" className="text-2xl font-semibold tracking-tight text-ink">
             No<span className="text-accent">PM</span>
-          </span>
+          </Link>
           <p className="mt-1 text-sm text-ink-muted">Project intelligence for operators</p>
+        </div>
+
+        <Card className="mb-4">
+          <CardBody className="p-6 text-center">
+            <p className="text-sm font-medium text-ink">One-click demo — no password needed</p>
+            <p className="mt-1 text-xs text-ink-muted">
+              Sign in instantly as the pre-seeded demo user.
+            </p>
+            <div className="mt-4 flex justify-center">
+              <DemoLoginButton className="w-full px-5 py-2.5" label="Try the live demo →" />
+            </div>
+          </CardBody>
+        </Card>
+
+        <div className="mb-4 flex items-center gap-3 text-xs text-ink-muted">
+          <span className="h-px flex-1 bg-border-subtle" />
+          or sign in manually
+          <span className="h-px flex-1 bg-border-subtle" />
         </div>
 
         <Card>

@@ -1,22 +1,5 @@
 import Link from "next/link";
-
-/**
- * Demo entry button — renders as a plain HTML form so it works without JS
- * and avoids any client bundle. POST /api/auth/demo-login sets the session
- * cookies server-side and redirects to /dashboard.
- */
-function DemoLoginButton() {
-  return (
-    <form method="POST" action="/api/auth/demo-login">
-      <button
-        type="submit"
-        className="rounded-md bg-accent px-5 py-2.5 font-medium text-white hover:bg-accent-hover"
-      >
-        Try the live demo →
-      </button>
-    </form>
-  );
-}
+import { DemoLoginButton } from "@/components/demo-login-button";
 
 export const metadata = {
   title: "NoPM — project governance your AI agent can operate",
