@@ -2,6 +2,10 @@
  * GET /api/assistant/conversations
  * Session-user only. Returns the caller's conversations, newest first.
  * Requires scope: assistant:read (always granted to session users).
+ *
+ * Demo actors (the shared demo login) always get an empty list — demo
+ * visitors get a fresh chat every visit, never a saved-conversation list.
+ * BYOK/non-demo users are completely unchanged.
  */
 
 export const runtime = "nodejs";
@@ -11,6 +15,7 @@ import { ScopeError } from "@/lib/api/errors";
 import { ok } from "@/lib/api/response";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isDemoActor } from "@/lib/auth/demo";
 
 export const GET = route(async ({ actor }) => {
   if (actor.type !== "user") {
@@ -18,6 +23,10 @@ export const GET = route(async ({ actor }) => {
   }
 
   requireScope(actor, "assistant:read");
+
+  if (await isDemoActor(actor)) {
+    return ok([]);
+  }
 
   const db = createAdminClient();
 

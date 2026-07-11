@@ -32,13 +32,30 @@ export type AssistantResult = {
 const DEMO_LIMIT = 20;
 const DEMO_WINDOW_SECS = 60 * 60; // 1 hour
 
+/** Hard cap on how many messages of forwarded history are sent to the provider. */
+export const MAX_HISTORY_MESSAGES = 24;
+
+/** Hard cap on how many tool calls the assistant may EXECUTE within one turn. */
+export const MAX_TOOL_CALLS_PER_TURN = 8;
+
+const TOOL_CAP_NOTE =
+  "I've reached the limit of tool actions I can take in a single turn " +
+  `(${MAX_TOOL_CALLS_PER_TURN}). Here's what I completed — ask me to continue if you'd like more.`;
+
+/** Keep only the last N history messages before forwarding to the provider. */
+export function boundHistory<T>(history: T[]): T[] {
+  return history.length > MAX_HISTORY_MESSAGES ? history.slice(-MAX_HISTORY_MESSAGES) : history;
+}
+
 /**
  * Durable per-user demo-key rate limit. Backed by a service-role-only table +
  * row-locked SQL function, so the owner-key cap holds across serverless
  * instances and cold starts (an in-memory Map did not). Fail-open on a transient
- * DB error — this is best-effort cost protection, not an auth control.
+ * DB error — this is best-effort cost protection, not an auth control. Exported
+ * so the chat route can pass it (bound to the caller's actor) into the
+ * fallback's injected `rateCheck`.
  */
-async function checkDemoRateLimit(
+export async function checkDemoRateLimit(
   db: ReturnType<typeof createAdminClient>,
   userId: string,
 ): Promise<void> {
@@ -47,7 +64,16 @@ async function checkDemoRateLimit(
     p_limit: DEMO_LIMIT,
     p_window_secs: DEMO_WINDOW_SECS,
   });
-  if (error) return; // fail-open
+  if (error) {
+    // Fail-open (best-effort cost protection, not an auth control) — but
+    // make the failure LOUD in server logs so a cap that's silently not
+    // enforcing shows up as a cost anomaly, not a mystery.
+    console.error(
+      "[nopm][assistant] demo rate-limit RPC failed — FAILING OPEN (cap not enforced this call)",
+      { userId, rpc: "nopm_demo_rate_check", error: error.message, at: new Date().toISOString() },
+    );
+    return;
+  }
   if (data === false) {
     throw new Error("Demo key rate limit exceeded. Please add your own API key in Settings.");
   }
@@ -161,14 +187,15 @@ export async function runAssistant(opts: {
 
   const toolDefs = TOOLS.map((t) => t.definition);
 
-  // Build message history for provider
+  // Build message history for provider (bounded — never forward unbounded history)
   const providerMessages: ProviderMessage[] = [
-    ...history.map((h) => ({ role: h.role, content: h.content })),
+    ...boundHistory(history).map((h) => ({ role: h.role, content: h.content })),
     { role: "user" as const, content: message },
   ];
 
   const actions: Action[] = [];
   let ephemeral: { raw: string; id: string } | null = null;
+  let toolCallsExecuted = 0;
 
   try {
     ephemeral = await mintEphemeralToken(actor);
@@ -197,8 +224,15 @@ export async function runAssistant(opts: {
 
       // Execute tool calls
       const toolResults: ProviderMessage[] = [];
+      let hitToolCap = false;
 
       for (const tc of result.toolCalls) {
+        if (toolCallsExecuted >= MAX_TOOL_CALLS_PER_TURN) {
+          hitToolCap = true;
+          break;
+        }
+        toolCallsExecuted++;
+
         const spec = TOOLS.find((t) => t.definition.name === tc.name);
         if (!spec) {
           const errorContent = JSON.stringify({ error: `Unknown tool: ${tc.name}` });
@@ -256,6 +290,14 @@ export async function runAssistant(opts: {
           content: JSON.stringify(responseData),
           tool_call_id: tc.id,
         });
+      }
+
+      if (hitToolCap) {
+        // Per-turn tool-call cap reached mid-batch — stop immediately with a
+        // polite note rather than silently truncating the batch and
+        // continuing the loop with an inconsistent tool_calls/tool_results
+        // pairing.
+        return { reply: TOOL_CAP_NOTE, actions, usedDemoKey };
       }
 
       // Append assistant turn with tool_calls (needed for Anthropic/OpenAI history)
@@ -324,13 +366,15 @@ export async function runAssistantStream(opts: {
 
   const toolDefs = TOOLS.map((t) => t.definition);
 
+  // Bounded — never forward unbounded history to the provider.
   const providerMessages: ProviderMessage[] = [
-    ...history.map((h) => ({ role: h.role, content: h.content })),
+    ...boundHistory(history).map((h) => ({ role: h.role, content: h.content })),
     { role: "user" as const, content: message },
   ];
 
   const actions: Action[] = [];
   let ephemeral: { raw: string; id: string } | null = null;
+  let toolCallsExecuted = 0;
 
   // We need to run the full agentic loop (tool rounds) before we can stream.
   // After the loop we either have a final text already (no more tool calls) or
@@ -363,8 +407,15 @@ export async function runAssistantStream(opts: {
 
       // Execute tool calls (identical to runAssistant)
       const toolResults: ProviderMessage[] = [];
+      let hitToolCap = false;
 
       for (const tc of result.toolCalls) {
+        if (toolCallsExecuted >= MAX_TOOL_CALLS_PER_TURN) {
+          hitToolCap = true;
+          break;
+        }
+        toolCallsExecuted++;
+
         const spec = TOOLS.find((t) => t.definition.name === tc.name);
         if (!spec) {
           const errorContent = JSON.stringify({ error: `Unknown tool: ${tc.name}` });
@@ -407,6 +458,15 @@ export async function runAssistantStream(opts: {
         actions.push({ tool: tc.name, args: tc.args, ok, summary, href, auditId });
 
         toolResults.push({ role: "tool", content: JSON.stringify(responseData), tool_call_id: tc.id });
+      }
+
+      if (hitToolCap) {
+        // Per-turn tool-call cap reached mid-batch — stop immediately and
+        // stream the polite note as the final reply, same resolution path
+        // as "the model returned no more tool calls".
+        immediateText = TOOL_CAP_NOTE;
+        finalMessages = null;
+        break;
       }
 
       providerMessages.push({

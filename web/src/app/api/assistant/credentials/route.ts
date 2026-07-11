@@ -4,6 +4,7 @@ import { ScopeError, ApiError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, noContent, safeJson } from "@/lib/api/response";
 import { encrypt } from "@/lib/crypto";
+import { isDemoActor } from "@/lib/auth/demo";
 
 export const runtime = "nodejs";
 
@@ -12,7 +13,7 @@ export const runtime = "nodejs";
  * Returns connection status for the current session user.
  * NEVER returns the encrypted or plaintext API key.
  *
- * Response: { data: { connected: boolean, provider?: string, model?: string, demoAvailable: boolean } }
+ * Response: { data: { connected: boolean, provider?: string, model?: string, demoAvailable: boolean, demoSession: boolean } }
  */
 export const GET = route(async ({ actor }) => {
   // Session-user only — reject token actors before any other check.
@@ -22,6 +23,7 @@ export const GET = route(async ({ actor }) => {
   requireScope(actor, "assistant:read"); // blocks viewers on write paths; read is allowed
 
   const demoAvailable = Boolean(process.env.NOPM_DEMO_LLM_KEY);
+  const demoSession = await isDemoActor(actor);
   const db = createAdminClient();
 
   const { data, error } = await db
@@ -34,7 +36,7 @@ export const GET = route(async ({ actor }) => {
   if (error) throw new Error(error.message);
 
   if (!data) {
-    return ok({ connected: false, demoAvailable });
+    return ok({ connected: false, demoAvailable, demoSession });
   }
 
   return ok({
@@ -42,6 +44,7 @@ export const GET = route(async ({ actor }) => {
     provider: data.provider as string,
     model: data.model as string,
     demoAvailable,
+    demoSession,
   });
 });
 

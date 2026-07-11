@@ -3,6 +3,10 @@
  * Session-user only. Returns messages for the given conversation.
  * Verifies conversation.user_id === actor.id (else 404).
  * Requires scope: assistant:read.
+ *
+ * Demo actors (the shared demo login) always get 404 — demo visitors never
+ * have a persisted conversation to look up (fresh chat every visit).
+ * BYOK/non-demo users are completely unchanged.
  */
 
 export const runtime = "nodejs";
@@ -12,6 +16,7 @@ import { ScopeError, NotFoundError } from "@/lib/api/errors";
 import { ok } from "@/lib/api/response";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isDemoActor } from "@/lib/auth/demo";
 
 export const GET = route(async ({ actor, params }) => {
   if (actor.type !== "user") {
@@ -19,6 +24,10 @@ export const GET = route(async ({ actor, params }) => {
   }
 
   requireScope(actor, "assistant:read");
+
+  if (await isDemoActor(actor)) {
+    throw new NotFoundError("Conversation not found");
+  }
 
   const { id } = params;
 
