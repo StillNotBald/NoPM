@@ -34,6 +34,23 @@ for (const t of ["deletion_requests", "notifications", "clashes", "resource_memb
 }
 console.log("cleared");
 
+// ── purge assistant chat data for the demo workspace ────────────────────────
+// assistant_messages has no workspace_id column (only conversation_id, FK to
+// assistant_conversations with ON DELETE CASCADE — see migration 0025), so we
+// resolve the workspace's conversation ids first, then delete messages, then
+// conversations. This closes the demo-visitor privacy bug: without it, every
+// visitor's chat history from prior demo sessions stays visible to the next
+// visitor sharing the same seeded login.
+const demoConversations = (
+  await db.from("assistant_conversations").select("id").eq("workspace_id", W)
+).data ?? [];
+if (demoConversations.length > 0) {
+  const conversationIds = demoConversations.map((c) => c.id);
+  await db.from("assistant_messages").delete().in("conversation_id", conversationIds);
+}
+await db.from("assistant_conversations").delete().eq("workspace_id", W);
+console.log(`assistant chat data cleared (${demoConversations.length} conversation(s))`);
+
 // ── projects (with PMBOK charter block + baseline pair + phase) ─────────────
 const P = [
   {
@@ -422,14 +439,14 @@ for (const [i, proj] of projects.entries()) {
 }
 console.log("budgets done");
 
-// ── one pending deletion request (for the approvals queue) ───────────────
-if (taskForDeletion) {
-  await ins("deletion_requests", {
-    workspace_id: W, target_type: "task", target_id: taskForDeletion.id, reason: "Superseded by revised cutover plan",
-    status: "pending", requested_by_type: "token", requested_by_id: owner, requested_by_label: "maker (agent)",
-    before: taskForDeletion,
-  });
-}
+// Note: the pending deletion request (approvals queue) is NOT seeded here.
+// Inserting it in this script with requested_by_id = owner would make the
+// demo admin (the only profile that exists at this point in the pipeline)
+// both requester AND approver — tripping the SELF_APPROVAL guard in
+// nopm_commit_task_deletion (migration 0020) the moment they try the
+// flagship maker-checker flow. See scripts/seed-approvals.mjs, which runs
+// AFTER seed-members.mjs so a real non-admin profile exists to be the
+// requester.
 
 // ── a few audit rows for a lively Trust Center ───────────────────────────
 // Reference a real risk id so the row links to its target (audit_log is
@@ -460,4 +477,5 @@ for (const proj of completeProjects) {
 // tasks to members, since tasks.assignee_id -> resource_members(id) (migration 0019).
 
 console.log("\n✓ Seed complete — demo workspace is rich and ready.");
-console.log("  next: seed-members.mjs · seed-change-control.mjs · seed-people-link.mjs · seed-documents.mjs · seed-document-files.mjs · seed-baselines.mjs");
+console.log("  next: seed-members.mjs · seed-approvals.mjs · seed-change-control.mjs · seed-people-link.mjs · seed-documents.mjs · seed-document-files.mjs · seed-baselines.mjs · seed-mainline-deps.mjs");
+console.log("  (or just: npm run seed:all)");

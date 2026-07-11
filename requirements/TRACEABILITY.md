@@ -47,7 +47,7 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-40 | Deck export | DONE | `web/src/app/api/reports/deck/route.ts`, `web/src/app/api/reports/project/[id]/route.ts`, `web/src/lib/reports/html.ts`, `web/src/lib/reports/pptx.ts`, `web/src/lib/reports/pdf.ts`, `web/src/lib/reports/gather.ts` | — |
 | R-50 | Landing + case study | DONE | `web/src/app/page.tsx` | — |
 | R-51 | One-pager PDF + case study | DONE | `web/src/app/case-study/page.tsx`, `web/src/lib/reports/one-pager.ts`, `web/src/components/case-study/download-button.tsx` | — |
-| R-52 | Seed script | DONE | `web/scripts/seed.mjs`, `web/scripts/populate-wave-b.mjs` | — |
+| R-52 | Seed script | DONE | `web/scripts/seed.mjs`, `web/scripts/seed-approvals.mjs`, `web/scripts/populate-wave-b.mjs` | — |
 | R-53 | Frictionless demo entry | DONE | `web/src/app/api/auth/demo-login/route.ts`, `web/src/app/page.tsx` | — |
 | R-25 | Native MCP server | DONE | `web/mcp/server.mjs`, `web/mcp/README.md`, `web/scripts/mcp-smoke.mjs` | tools/list + live list_projects |
 | R-26 | Assistant streaming + persistence | DONE | `web/src/lib/assistant/index.ts`, `web/src/lib/assistant/providers/openai.ts`, `web/src/lib/assistant/providers/anthropic.ts`, `web/src/lib/assistant/providers/google.ts`, `web/src/app/api/assistant/chat/route.ts`, `web/src/app/api/assistant/conversations/route.ts`, `web/src/app/api/assistant/conversations/[id]/route.ts`, `web/supabase/migrations/20260610000025_assistant_conversations.sql`, `web/src/components/assistant/panel.tsx`, `web/src/lib/assistant/tools-openapi.test.ts` | — |
