@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
+import { useRequireSession } from "@/lib/auth/use-require-session";
 
 const ALL_SCOPES = [
   "project:*",
@@ -51,6 +52,7 @@ function formatRelative(iso: string | null): string {
 
 export default function TokensPage() {
   const router = useRouter();
+  const sessionStatus = useRequireSession();
 
   // --- list state ---
   const [tokens, setTokens] = useState<ApiToken[]>([]);
@@ -151,6 +153,12 @@ export default function TokensPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  // Client-safe auth guard — tokens has no server component wrapping it, so
+  // it previously showed a broken empty state to unauthenticated visitors.
+  // Render nothing until the session check resolves; useRequireSession
+  // handles the redirect.
+  if (sessionStatus !== "authenticated") return null;
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">

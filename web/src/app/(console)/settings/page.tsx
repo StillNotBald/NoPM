@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
 import { createClient } from "@/lib/supabase/client";
+import { useRequireSession } from "@/lib/auth/use-require-session";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -200,6 +201,7 @@ function ProfileSection() {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const sessionStatus = useRequireSession();
 
   // --- global loading ---
   const [loading, setLoading] = useState(true);
@@ -294,6 +296,12 @@ export default function SettingsPage() {
     setCopiedBackup(true);
     setTimeout(() => setCopiedBackup(false), 2000);
   };
+
+  // Client-safe auth guard — settings is a Client Component (it hosts MFA
+  // enrollment) so it can't use the server-component
+  // `if (!user) redirect("/login")` pattern. Render nothing until the
+  // session check resolves; useRequireSession handles the redirect.
+  if (sessionStatus !== "authenticated") return null;
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
