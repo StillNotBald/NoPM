@@ -58,6 +58,7 @@ export async function* chatStream(opts: {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(45000),
   });
 
   if (!res.ok) {
@@ -138,6 +139,7 @@ export async function chat(opts: {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(45000),
   });
 
   if (!res.ok) {

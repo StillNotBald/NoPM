@@ -8,9 +8,10 @@ export type { ToolDefinition, ProviderMessage, ToolCall, ChatResult } from "./op
 import * as openai from "./openai";
 import * as anthropic from "./anthropic";
 import * as google from "./google";
+import * as openrouter from "./openrouter";
 import type { ToolDefinition, ProviderMessage, ChatResult } from "./openai";
 
-export type Provider = "openai" | "anthropic" | "google";
+export type Provider = "openai" | "anthropic" | "google" | "openrouter";
 
 export async function chat(opts: {
   provider: Provider;
@@ -28,6 +29,8 @@ export async function chat(opts: {
       return anthropic.chat(rest);
     case "google":
       return google.chat(rest);
+    case "openrouter":
+      return openrouter.chat(rest);
     default:
       throw new Error(`Unknown provider: ${provider as string}`);
   }
@@ -53,6 +56,8 @@ export function chatStream(opts: {
       return anthropic.chatStream(rest);
     case "google":
       return google.chatStream(rest);
+    case "openrouter":
+      return openrouter.chatStream(rest);
     default:
       throw new Error(`Unknown provider: ${provider as string}`);
   }
