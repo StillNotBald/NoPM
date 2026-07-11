@@ -1,0 +1,59 @@
+name: Nightly demo reseed
+
+# Resets the live demo workspace to a clean, rich seeded state on a schedule
+# so the public "Try the live demo" flow (R-53) never accumulates stale or
+# visitor-mutated data. Runs at low-traffic hours: 19:00 UTC = 03:00
+# Asia/Singapore.
+#
+# Required GitHub Actions secrets (Settings → Secrets and variables →
+# Actions) — this workflow fails until both are set on the repo:
+#   NEXT_PUBLIC_SUPABASE_URL   — the Supabase project URL
+#   SUPABASE_SERVICE_ROLE_KEY  — server-only service-role key (bypasses RLS;
+#                                 never log it, never echo it to workflow output)
+#
+# web/scripts/seed.mjs (and every script in the `seed:all` chain) reads its
+# Supabase credentials from web/.env.local via readFileSync — they do NOT
+# read process.env directly. So this workflow writes the two secrets into a
+# fresh web/.env.local before running seed:all. That file only ever exists
+# inside the ephemeral runner (never committed, never printed).
+
+on:
+  schedule:
+    - cron: "0 19 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  reseed:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Write Supabase credentials to .env.local
+        # seed.mjs and every downstream seed-*.mjs script parse
+        # web/.env.local with readFileSync (not process.env) — see the note
+        # at the top of this file. printf avoids any risk of secret values
+        # being interpreted as shell/echo flags.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          printf 'NEXT_PUBLIC_SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' \
+            "$NEXT_PUBLIC_SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.local
+
+      - name: Reseed demo workspace
+        run: npm run seed:all
+
+      - name: Success summary
+        run: echo "Demo workspace reseeded successfully at $(date -u +'%Y-%m-%dT%H:%M:%SZ')."
