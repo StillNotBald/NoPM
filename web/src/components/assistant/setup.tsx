@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -28,6 +29,10 @@ export interface CredentialStatus {
   provider?: string;
   model?: string;
   demoAvailable: boolean;
+  // True when the current session is the shared, publicly-reachable
+  // one-click demo login (see src/lib/auth/demo.ts) — not a real signed-up
+  // user. Always present on the credentials GET response.
+  demoSession: boolean;
 }
 
 type Provider = "openai" | "anthropic" | "google";
@@ -73,9 +78,16 @@ interface AssistantSetupProps {
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
+//
+// Gate flow:
+//   - demoAvailable:  "choose" (demo primary / BYOK secondary) → "pick" → "key"
+//   - !demoAvailable: "pick" → "key"                            (unchanged legacy path)
+//
+// The "Try the demo model" tap is always one step, first glance, no key —
+// BYOK lives one tap deeper as the deliberately secondary path.
 
 export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: AssistantSetupProps) {
-  const [step, setStep] = useState<"pick" | "key">("pick");
+  const [step, setStep] = useState<"choose" | "pick" | "key">(demoAvailable ? "choose" : "pick");
   const [provider, setProvider] = useState<Provider>("openai");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState(PROVIDERS[0].models[0]);
@@ -113,6 +125,12 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
     }
   }
 
+  const heading = step === "choose" ? "Get started" : "Connect your own model";
+  const subtext =
+    step === "choose"
+      ? "Try the assistant instantly with the demo model — or bring your own API key. Every action it takes is scoped and audited."
+      : "Bring your own API key. The key is encrypted at rest and never logged. The assistant operates as a scoped token — every action it takes is audited.";
+
   return (
     <div className="flex flex-col gap-6 p-4">
       {/* Heading */}
@@ -120,15 +138,71 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
         <p className="font-mono text-xs font-semibold uppercase tracking-wider text-ink-muted">
           AI Assistant
         </p>
-        <h2 className="mt-1 text-base font-semibold text-ink">Connect your model</h2>
-        <p className="mt-1 text-xs text-ink-secondary">
-          Bring your own API key. The key is encrypted at rest and never logged.
-          The assistant operates as a scoped token — every action it takes is audited.
-        </p>
+        <h2 className="mt-1 text-base font-semibold text-ink">{heading}</h2>
+        <p className="mt-1 text-xs text-ink-secondary">{subtext}</p>
       </div>
 
+      {/* ── Step: choose — demo (primary, one tap) vs BYOK (secondary) ────── */}
+      {step === "choose" && (
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={onUseDemo}
+            className={cn(
+              "flex min-h-[44px] items-center gap-3 rounded-lg border-2 border-accent/30 bg-accent/5 px-4 py-3 text-left transition-colors",
+              "hover:border-accent/60 hover:bg-accent/10",
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+            )}
+          >
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent/15">
+              <Sparkles className="h-4 w-4 text-accent" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-accent">Try the demo model</span>
+              <span className="block font-mono text-[10px] text-ink-muted">
+                One tap · no key needed · grounded in live workspace data
+              </span>
+            </span>
+            <span className="shrink-0 font-mono text-[10px] text-ink-muted">rate-limited</span>
+          </button>
+
+          <div className="flex items-center gap-2">
+            <span className="h-px flex-1 bg-border-subtle" />
+            <span className="font-mono text-[10px] text-ink-muted">or</span>
+            <span className="h-px flex-1 bg-border-subtle" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setStep("pick")}
+            className={cn(
+              "flex min-h-[44px] flex-col items-start justify-center gap-0.5 rounded-md border border-dashed border-border-subtle bg-canvas px-3 py-2.5 text-left transition-colors",
+              "hover:border-border-strong hover:bg-sunken",
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+            )}
+          >
+            <span className="text-sm font-medium text-ink">Connect your own model</span>
+            <span className="font-mono text-[10px] text-ink-muted">
+              Use your own OpenAI, Anthropic, or Gemini API key
+            </span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Step: pick — provider list (BYOK) ──────────────────────────────── */}
       {step === "pick" && (
         <div className="flex flex-col gap-2">
+          {demoAvailable && (
+            <button
+              onClick={() => setStep("choose")}
+              className="mb-1 flex items-center gap-1 font-mono text-xs text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+              Back
+            </button>
+          )}
           <p className="font-mono text-xs text-ink-muted">Choose a provider</p>
           {PROVIDERS.map((p) => (
             <button
@@ -144,28 +218,6 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
               <span className="font-mono text-xs text-ink-muted">{p.models.length} models</span>
             </button>
           ))}
-
-          {demoAvailable && (
-            <>
-              <div className="my-1 flex items-center gap-2">
-                <span className="h-px flex-1 bg-border-subtle" />
-                <span className="font-mono text-[10px] text-ink-muted">or</span>
-                <span className="h-px flex-1 bg-border-subtle" />
-              </div>
-              <button
-                onClick={onUseDemo}
-                className={cn(
-                  "flex items-center gap-2 rounded-md border border-dashed border-border-subtle bg-canvas px-3 py-2.5 text-left text-sm transition-colors",
-                  "hover:border-accent/40 hover:bg-sunken",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-                )}
-              >
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
-                <span className="font-medium text-accent">Try the demo model</span>
-                <span className="ml-auto font-mono text-[10px] text-ink-muted">rate-limited</span>
-              </button>
-            </>
-          )}
         </div>
       )}
 

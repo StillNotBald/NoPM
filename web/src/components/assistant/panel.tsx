@@ -24,21 +24,29 @@ interface ChatMessage {
   content: string;
   actions?: Action[];
   usedDemoKey?: boolean;
+  usedFallback?: boolean;
   streaming?: boolean; // true while tokens are still arriving
+  // Sanitized mid-stream failure (LOCKED #6): render an inline retry
+  // affordance instead of clearing the transcript or splicing fallback text
+  // onto whatever content already streamed.
+  error?: boolean;
 }
 
 interface ChatResponse {
   reply: string;
   actions: Action[];
   usedDemoKey: boolean;
-  conversation_id: string;
+  usedFallback?: boolean;
+  // Demo sessions always get conversation_id: null (fresh chat every visit,
+  // no persistence).
+  conversation_id: string | null;
 }
 
 // ── NDJSON stream event types ─────────────────────────────────────────────────
 type StreamEvent =
   | { type: "actions"; actions: Action[] }
   | { type: "token"; text: string }
-  | { type: "done"; conversation_id: string; usedDemoKey: boolean }
+  | { type: "done"; conversation_id: string | null; usedDemoKey: boolean; usedFallback?: boolean }
   | { type: "error"; message: string };
 
 interface ConversationSummary {
@@ -95,7 +103,7 @@ function ActionChip({ action }: { action: Action }) {
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => void }) {
   const isUser = msg.role === "user";
 
   return (
@@ -118,6 +126,25 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           </span>
         )}
       </div>
+
+      {/* Inline error bubble — mid-stream {type:'error'}. The user's message
+          stays in the transcript above; retry re-sends it in place. */}
+      {msg.error && (
+        <div className="flex max-w-[85%] flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
+          <span className="font-mono text-xs text-danger">
+            Something went wrong. Your message wasn&apos;t lost.
+          </span>
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="ml-auto flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-danger/40 px-3 font-mono text-xs font-semibold text-danger transition-colors hover:bg-danger/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/40"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Action chips */}
       {msg.actions && msg.actions.length > 0 && (
@@ -258,7 +285,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       const s = await apiGet<CredentialStatus>("/api/assistant/credentials");
       setStatus(s);
     } catch {
-      setStatus({ connected: false, demoAvailable: false });
+      setStatus({ connected: false, demoAvailable: false, demoSession: false });
     } finally {
       setLoadingStatus(false);
     }
@@ -286,14 +313,19 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     }
   }, []);
 
-  const isConnected = status?.connected === true;
+  // Demo-login visitors (one-click "try the live demo") are always
+  // connected-in-demo-mode: they never see the setup gate and never get a
+  // saved-conversation list (LOCKED: fresh chat every visit, no migration).
+  const isDemoSession = status?.demoSession === true;
+  const isConnected = status?.connected === true || isDemoSession;
 
   useEffect(() => {
-    if (open && isConnected) {
+    // Demo sessions never have a conversation list to fetch.
+    if (open && isConnected && !isDemoSession) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchConversations();
     }
-  }, [open, isConnected, fetchConversations]);
+  }, [open, isConnected, isDemoSession, fetchConversations]);
 
   // Reset to list view when panel opens
   useEffect(() => {
@@ -382,13 +414,49 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     const text = input.trim();
     if (!text || sending) return;
 
-    const userMsg: ChatMessage = { role: "user", content: text };
-    setHistory((h) => [...h, userMsg]);
+    const contextHistory = history; // prior turns only — this turn's message travels separately
+    setHistory((h) => [...h, { role: "user", content: text }]);
     setInput("");
+
+    await dispatchSend(text, contextHistory, {
+      onTotalFailure: () => {
+        // Pure transport failure (streaming AND the JSON fallback both
+        // failed) — pre-existing UX: drop the optimistic bubble and hand
+        // the text back to the input so the user can edit/resend.
+        setHistory((h) => h.slice(0, -1));
+        setInput(text);
+      },
+    });
+  }
+
+  // Re-sends the user message that preceded an inline error bubble
+  // (mid-stream {type:'error'}, LOCKED #6) at `assistantIdx`. The user's
+  // message stays in the transcript throughout — never cleared, and the
+  // input box (whatever the user may be typing next) is never touched.
+  async function retryMessage(assistantIdx: number) {
+    if (sending) return;
+    // Defensive: retry truncates everything after assistantIdx, so only
+    // proceed if it's still the last turn (mirrors the UI guard on the
+    // Retry button itself — never discard newer messages).
+    if (assistantIdx !== history.length - 1) return;
+    const userIdx = assistantIdx - 1;
+    const userMsg = history[userIdx];
+    if (!userMsg || userMsg.role !== "user") return;
+
+    const contextHistory = history.slice(0, userIdx);
+    setHistory((h) => h.slice(0, assistantIdx)); // drop the errored bubble only
+    await dispatchSend(userMsg.content, contextHistory);
+  }
+
+  async function dispatchSend(
+    text: string,
+    contextHistory: ChatMessage[],
+    opts: { onTotalFailure?: () => void } = {},
+  ) {
     setSending(true);
     setSendError(null);
 
-    const apiHistory = history.map((m) => ({ role: m.role, content: m.content }));
+    const apiHistory = contextHistory.map((m) => ({ role: m.role, content: m.content }));
     const requestBody: Record<string, unknown> = {
       message: text,
       history: apiHistory,
@@ -402,15 +470,15 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       // ── Attempt streaming ────────────────────────────────────────────────
       await sendStreaming(requestBody);
     } catch {
-      // ── Fallback: plain JSON (transparent to user) ───────────────────────
+      // Transport-level failure only — a sanitized {type:'error'} NDJSON
+      // event is handled inline inside sendStreaming and never reaches this
+      // catch (LOCKED #6: never splice fallback text onto a partial reply).
       try {
         const fallbackBody = { ...requestBody, stream: false };
         await sendJson(fallbackBody);
       } catch (e: unknown) {
         setSendError(e instanceof Error ? e.message : "Failed to send message.");
-        // Remove the optimistic user message on failure
-        setHistory((h) => h.slice(0, -1));
-        setInput(text);
+        opts.onTotalFailure?.();
       }
     } finally {
       setSending(false);
@@ -465,7 +533,26 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
           }
 
           if (event.type === "error") {
-            throw new Error(event.message);
+            // Sanitized mid-stream (or pre-flush) failure. Do NOT throw —
+            // throwing would fall through to the JSON fallback in
+            // dispatchSend and risk splicing a second reply onto whatever
+            // partial text already streamed (LOCKED #6). Finalize the
+            // placeholder as an inline error bubble with a retry
+            // affordance instead; the user's message stays put.
+            setHistory((h) =>
+              h.map((m, i) =>
+                i === placeholderIdx
+                  ? {
+                      ...m,
+                      content: accText,
+                      actions: pendingActions ?? m.actions,
+                      streaming: false,
+                      error: true,
+                    }
+                  : m,
+              ),
+            );
+            return;
           } else if (event.type === "actions") {
             pendingActions = event.actions;
             // Update the placeholder with actions so chips appear before text finishes
@@ -494,6 +581,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                       content: accText || "Done.",
                       actions: pendingActions ?? m.actions,
                       usedDemoKey: event.usedDemoKey,
+                      usedFallback: event.usedFallback,
                       streaming: false,
                     }
                   : m,
@@ -524,6 +612,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       content: res.reply,
       actions: res.actions,
       usedDemoKey: res.usedDemoKey,
+      usedFallback: res.usedFallback,
     };
     setHistory((h) => [...h, assistantMsg]);
   }
@@ -534,7 +623,11 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     setDisconnecting(true);
     try {
       await apiDelete("/api/assistant/credentials");
-      setStatus({ connected: false, demoAvailable: status?.demoAvailable ?? false });
+      setStatus({
+        connected: false,
+        demoAvailable: status?.demoAvailable ?? false,
+        demoSession: status?.demoSession ?? false,
+      });
       setHistory([]);
       setActiveConversationId(null);
       setConversations([]);
@@ -552,6 +645,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     setStatus((prev) => ({
       connected: true,
       demoAvailable: prev?.demoAvailable ?? true,
+      demoSession: prev?.demoSession ?? false,
       provider: "demo",
       model: "demo",
     }));
@@ -563,8 +657,16 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     ? "left-0 w-auto"
     : "w-full lg:left-auto lg:w-[28rem]";
 
-  const isDemoMode = isConnected && status?.provider === "demo";
-  const inChatView = isConnected && view === "chat";
+  const isDemoMode = isConnected && (status?.provider === "demo" || isDemoSession);
+  // Demo-session visitors always land straight in the chat view — no
+  // saved-conversation list exists for them (fresh chat every visit).
+  const inChatView = isConnected && (isDemoSession || view === "chat");
+
+  // Transparency badge (change #2): reflects the MOST RECENT assistant
+  // reply — adapts from "demo model" to "grounded fallback" when the last
+  // reply actually used the deterministic read-only fallback.
+  const lastAssistantMessage = [...history].reverse().find((m) => m.role === "assistant");
+  const lastUsedFallback = lastAssistantMessage?.usedFallback === true;
 
   return (
     <>
@@ -592,8 +694,10 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       >
         {/* ── Header ──────────────────────────────────────────────────────── */}
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle px-4">
-          {/* Back button — only in chat view when connected */}
-          {inChatView && (
+          {/* Back button — only in chat view when connected. Hidden for demo
+              sessions: there is no conversation list to go back to (fresh
+              chat every visit, no "previous conversations" affordance). */}
+          {inChatView && !isDemoSession && (
             <button
               type="button"
               onClick={backToList}
@@ -669,8 +773,9 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                 onUseDemo={useDemo}
               />
             </div>
-          ) : view === "list" ? (
-            /* Conversation list view */
+          ) : !isDemoSession && view === "list" ? (
+            /* Conversation list view — never shown for demo sessions (fresh
+               chat every visit, no saved-conversation list). */
             <ConversationList
               conversations={conversations}
               loading={loadingConversations}
@@ -687,7 +792,16 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                 ) : (
                   <div className="flex flex-col gap-3">
                     {history.map((msg, i) => (
-                      <MessageBubble key={i} msg={msg} />
+                      <MessageBubble
+                        key={i}
+                        msg={msg}
+                        // Retry truncates everything after the errored bubble
+                        // (it re-runs that turn in place), so it's only wired
+                        // up while the error is still the LAST turn — if the
+                        // user has since sent a newer message, retrying the
+                        // older error must not be able to discard it.
+                        onRetry={msg.error && i === history.length - 1 ? () => retryMessage(i) : undefined}
+                      />
                     ))}
                     {/* "thinking…" only while no streaming bubble is visible yet */}
                     {sending && !history.some((m) => m.streaming) && (
@@ -763,11 +877,18 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
         {isConnected && !loadingStatus && (
           <div className="flex shrink-0 items-center justify-between border-t border-border-subtle bg-sunken px-4 py-2">
             <div className="flex items-center gap-2 min-w-0">
-              {isDemoMode ? (
+              {lastUsedFallback ? (
                 <>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
                   <span className="font-mono text-[10px] text-ink-muted truncate">
-                    demo key · rate-limited
+                    Grounded fallback — read-only live workspace data
+                  </span>
+                </>
+              ) : isDemoMode ? (
+                <>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
+                  <span className="font-mono text-[10px] text-ink-muted truncate">
+                    Demo model — grounded in live workspace data
                   </span>
                 </>
               ) : (
@@ -779,13 +900,18 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                 </>
               )}
             </div>
-            <button
-              onClick={disconnect}
-              disabled={disconnecting}
-              className="ml-2 shrink-0 font-mono text-[10px] text-ink-muted hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
-            >
-              {disconnecting ? "…" : "disconnect"}
-            </button>
+            {/* Disconnect is meaningless for demo sessions — there is no
+                stored credential to disconnect from, and the gate can't be
+                un-skipped for the shared demo login. */}
+            {!isDemoSession && (
+              <button
+                onClick={disconnect}
+                disabled={disconnecting}
+                className="ml-2 shrink-0 font-mono text-[10px] text-ink-muted hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              >
+                {disconnecting ? "…" : "disconnect"}
+              </button>
+            )}
           </div>
         )}
       </div>
