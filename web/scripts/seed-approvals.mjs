@@ -30,17 +30,22 @@ const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_
 const W = (await db.from("workspaces").select("id").eq("slug", "demo").single()).data.id;
 console.log("workspace:", W);
 
-// Resolve a non-admin profile to be the requester (four-eyes: the admin who
-// approves this live in the demo must NOT be the same id as requested_by_id).
+// Resolve the requester (four-eyes: whoever approves live in the demo must
+// NOT be the same id as requested_by_id). The approver can be EITHER the
+// admin login or the one-click demo account (DEMO_EMAIL, promoted to
+// manager by seed-members.mjs) — so the requester must be a named seeded
+// member who is neither an admin nor the demo login itself. A loose
+// "first non-admin" lookup here could pick the demo account by row order,
+// which would resurrect the SELF_APPROVAL 403 for one-click visitors.
 const profiles = (
-  await db.from("profiles").select("id, display_name, role").eq("workspace_id", W).limit(5)
+  await db.from("profiles").select("id, display_name, role, email").eq("workspace_id", W).limit(10)
 ).data ?? [];
-if (profiles.length < 2) {
-  throw new Error("Need at least 2 profiles in the demo workspace for a non-admin requester (run seed-members.mjs first)");
-}
-const requester = profiles.find((p) => p.role !== "admin");
+const demoEmail = env.DEMO_EMAIL ?? "";
+const requester =
+  profiles.find((p) => p.email === "priya.nair@stillnotbald.com") ??
+  profiles.find((p) => p.role !== "admin" && p.role !== "viewer" && p.email !== demoEmail);
 if (!requester) {
-  throw new Error("No non-admin profile found in the demo workspace (run seed-members.mjs first)");
+  throw new Error("No eligible requester profile (non-admin, non-viewer, not the demo login) — run seed-members.mjs first");
 }
 
 // Pick the same real seeded task seed.mjs used to reserve for deletion:

@@ -18,6 +18,19 @@ export type EphemeralToken = {
 };
 
 /**
+ * Scopes the ephemeral token may carry, derived from the session user's
+ * role. Viewers are read-only everywhere else in NoPM (requireScope blocks
+ * any non-read action for them) — the assistant must not become a side door
+ * that lets a viewer's chat turn perform writes through a token actor.
+ */
+export function scopesForActor(actor: Actor): string[] {
+  if (actor.role === "viewer") {
+    return TOOL_SCOPES.filter((s) => s.endsWith(":read"));
+  }
+  return [...TOOL_SCOPES];
+}
+
+/**
  * Mint a real api_tokens row scoped to the assistant tool set.
  * Caller MUST call revokeEphemeralToken(id) in a finally block.
  */
@@ -33,7 +46,7 @@ export async function mintEphemeralToken(actor: Actor): Promise<EphemeralToken> 
       name: `AI Assistant · ${actor.label}`,
       token_hash: hash,
       prefix,
-      scopes: [...TOOL_SCOPES],
+      scopes: scopesForActor(actor),
       created_by: actor.id,
       expires_at: expiresAt,
     })
