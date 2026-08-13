@@ -80,6 +80,12 @@ Content scrub (this commit; the git-history purge follows as a separate confirme
 - **`web/README.md`**: was untouched create-next-app boilerplate; now a real app guide (run/verify/layout/invariants/MCP).
 - **CONTRIBUTING.md + SECURITY.md** added (the same-commit discipline as contributor rules; security model as a probe map; the image-size exception documented).
 
+History purge (executed after the content scrub, owner-confirmed):
+- Mirror backup at `../NoPM-backup-2026-08-13.git`, then `git filter-repo`: `docs/research/`, `scripts/wf-*.js`, and the mainline prototypes deleted from ALL history; confidential tokens, private codenames, personal email, and the Supabase ref replaced in every blob AND commit message.
+- A second pass was required: the old leak gate stored names as regex literals (`\bthe client\b`), whose literal `b` defeats a word-boundary replacement — caught by per-token `git log -S` verification, fixed with literal-string replacements.
+- Final sweep: 16/16 tokens at zero hits across full history (blobs + messages). Repo shrank to 2.27 MiB.
+- Force-push to origin pending owner action: `ALLOW_DESTRUCTIVE=1 git push --force origin main`.
+
 ## R-IDs touched
 - R-64 → DONE (new)
 - R-25 → code column updated (tools.mjs)
