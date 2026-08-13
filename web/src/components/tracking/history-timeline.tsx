@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { apiGet } from "@/lib/api-client";
+import { TerminalCard } from "@/components/ui/terminal-card";
 
 // ─── Data shape ────────────────────────────────────────────────────────────────
 // Mirrors the immutable `audit_log` row surfaced by GET /api/audit.
@@ -111,15 +112,7 @@ export function HistoryTimeline({
         <span className="text-xs text-ink-muted">Immutable audit trail</span>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-border-subtle bg-[#1a1a1a]">
-        {/* Terminal chrome */}
-        <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" aria-hidden />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" aria-hidden />
-          <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" aria-hidden />
-          <span className="ml-2 font-mono text-xs text-white/40">audit_log</span>
-        </div>
-
+      <TerminalCard title="audit_log">
         {/* Body */}
         <div className="max-h-[28rem] overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed">
           {error && (
@@ -163,7 +156,7 @@ export function HistoryTimeline({
             </ol>
           )}
         </div>
-      </div>
+      </TerminalCard>
     </section>
   );
 }

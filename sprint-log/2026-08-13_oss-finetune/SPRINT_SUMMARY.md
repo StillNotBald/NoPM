@@ -39,6 +39,22 @@ Shipped:
 - `cli/test/cli.test.mjs` — 15 node:test contract tests (parseFlags/die/out units + stubbed-ctx URL/body assertions + "dies BEFORE any API call" guards + all-modules help contract). `npm test` wired.
 - README rewritten (install, --curl, tests, full catalogue pointer).
 
+### Wave 3 — impeccable slop pass (R-50/R-51 + console tokens)
+Pre-wave audit verdict: the frontend was nearly slop-free (zero console.logs/TODOs/gradients/marketing filler); the real defect was **stale hand-typed proof metrics** on the page whose thesis is traceability, plus a handful of off-token colors.
+
+Shipped (impeccable `polish` — refinement, incumbent world preserved; detector: 0 findings):
+- `scripts/gen-metrics.mjs` + `src/lib/metrics.gen.json` — proof metrics GENERATED from the repo (R-IDs from REQUIREMENTS.md, endpoints from the route tree, tests from a vitest JSON run). Landing, case study (incl. meta description), and the PDF one-pager all import the JSON; `--check` mode for CI (wired in Wave 4). Stale 52/268/61 → live 54/533/61, and the case-study copy now states the numbers are generated, not typed.
+- Killed `accent-[#D97757]` (Anthropic brand clay) on the PAT scope checkboxes → `accent-accent`.
+- New status tokens `--sev-high` (#ea580c / #db6d28 dark) and `--change` (#7c3aed / #a371f7 dark) replacing raw hexes in severity.tsx, queue-list.tsx, inline-action.tsx, project-tabs.tsx — dark theme now correct for both.
+- Clashes over-allocation pill: raw amber Tailwind palette (light-only, broken on dark) → warning tokens.
+- Shared `<TerminalCard>`/`<TrafficLights>` — the 4 hand-inlined terminal chromes unified (one surface #0e0e0f, consistent sizing, consistent aria-hidden).
+- Shared `<WedgeGrid>` — the three-wedge argument now has one source; landing and case study can no longer fork.
+- globals.css: stale double header ("Apple/iOS…", "Linear acid-lime…") rewritten to describe the actual macOS-terminal-light theme; `--font-serif` renamed `--font-display` (it is SF Pro Display, a sans — the old name lied).
+- Deleted dead 262-line `components/forms/budget-form.tsx` (zero importers, verified).
+- `lib/review/gather.ts`: last `any` in the codebase removed (bare `SupabaseClient`, house style).
+
+Verified: tsc clean, 533/533 tests, eslint 1 pre-existing warning only, production build green, impeccable detector 0 findings.
+
 ## R-IDs touched
 - R-64 → DONE (new)
 - R-25 → code column updated (tools.mjs)

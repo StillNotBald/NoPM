@@ -1,13 +1,11 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────
-   NoPM — Apple/iOS design language: white + grey, SF type,
-   restraint, soft shadows. (token names kept; values re-themed)
-   ───────────────────────────────────────────────────────────── */
-/* ─────────────────────────────────────────────────────────────
-   Mac-dev / Terminal theme — light-first (Geist-style greys),
-   Linear acid-lime as the single rationed accent (fills + indicators
-   only; technical text stays mono ink). Dark = near-black terminal.
+   NoPM — macOS-terminal-light theme.
+   Light-first: white canvas, near-black ink, terminal-green
+   #00a600 as the single brand accent, JetBrains Mono for
+   technical text. Dark = near-black terminal (status hues follow
+   the GitHub-dark ramp). Status colors are functional, not brand.
    ───────────────────────────────────────────────────────────── */
 :root {
   --bg-canvas: #ffffff; /* white background */
@@ -25,7 +23,9 @@
   --info: #2563eb; /* vibrant blue — "in progress" */
   --success: #16a34a; /* vibrant green */
   --warning: #f59e0b; /* vibrant amber */
+  --sev-high: #ea580c; /* orange — "high" severity, between warning and danger */
   --danger: #e5484d; /* vibrant red */
+  --change: #7c3aed; /* violet — change-control artifacts in review */
 }
 
 :root {
@@ -49,7 +49,9 @@
   --info: #4493f8;
   --success: #3fb950;
   --warning: #d29922;
+  --sev-high: #db6d28;
   --danger: #f85149;
+  --change: #a371f7;
   color-scheme: dark;
 }
 
@@ -69,12 +71,16 @@
   --color-info: var(--info);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-sev-high: var(--sev-high);
   --color-danger: var(--danger);
+  --color-change: var(--change);
 
-  /* SF on Apple, Inter as the cross-platform SF-like fallback */
+  /* SF on Apple, Inter as the cross-platform SF-like fallback.
+     `display` is the large-title cut (SF Pro Display) — a sans, despite
+     sitting where a serif token often would. */
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter),
     "Segoe UI", system-ui, sans-serif;
-  --font-serif: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter),
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter),
     "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", var(--font-jetbrains-mono), "JetBrains Mono", monospace;
 

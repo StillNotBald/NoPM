@@ -91,8 +91,7 @@ function weight(item: ReviewItem): number {
 // ── gather ────────────────────────────────────────────────────────────────────
 
 export async function gatherReviewItems(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  db: SupabaseClient<any>,
+  db: SupabaseClient,
 ): Promise<ReviewItem[]> {
   // Build a project-id → name map for enrichment
   const { data: projectRows } = await db

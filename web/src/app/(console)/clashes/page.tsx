@@ -172,7 +172,7 @@ export default async function ClashesPage() {
                       </td>
                       <td className="px-5 py-3.5 max-w-xs">
                         {clash.over_allocation_pct != null && (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mb-1 whitespace-nowrap tabular-nums">
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning bg-warning/10 border border-warning/25 rounded px-1.5 py-0.5 mb-1 whitespace-nowrap tabular-nums">
                             +{Number(clash.over_allocation_pct).toFixed(0)}% over
                           </span>
                         )}

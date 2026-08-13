@@ -30,14 +30,14 @@ const kindMeta: Record<
   change: {
     label: "Change Requests in Review",
     chipClass:
-      "rounded-full bg-[#7c3aed]/10 px-2 py-0.5 font-mono text-xs font-medium text-[#7c3aed]",
-    dotClass: "text-[#7c3aed]",
+      "rounded-full bg-change/10 px-2 py-0.5 font-mono text-xs font-medium text-change",
+    dotClass: "text-change",
   },
   risk: {
     label: "High / Critical Risks",
     chipClass:
-      "rounded-full bg-[#ea580c]/10 px-2 py-0.5 font-mono text-xs font-medium text-[#ea580c]",
-    dotClass: "text-[#ea580c]",
+      "rounded-full bg-sev-high/10 px-2 py-0.5 font-mono text-xs font-medium text-sev-high",
+    dotClass: "text-sev-high",
   },
   clash: {
     label: "Unresolved Clashes",

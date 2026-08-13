@@ -289,7 +289,7 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
       {/* CR metadata */}
       <div className="mb-3">
         <div className="flex flex-wrap gap-2 mb-2">
-          <Badge tone="neutral" className="text-[#7c3aed] bg-[#7c3aed]/10">change request</Badge>
+          <Badge tone="neutral" className="text-change bg-change/10">change request</Badge>
           {item.project && (
             <span className="rounded bg-sunken border border-border-subtle px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
               {item.project}

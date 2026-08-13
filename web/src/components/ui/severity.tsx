@@ -23,7 +23,7 @@ export type SeverityLevel =
 const dotColour: Record<SeverityLevel, string> = {
   critical: "text-danger",          // red
   urgent: "text-danger",            // red (priority equivalent of critical)
-  high: "text-[#ea580c]",           // clear orange
+  high: "text-sev-high",            // clear orange
   medium: "text-warning",           // amber
   low: "text-ink-muted",            // grey
 };

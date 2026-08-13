@@ -1,20 +1,14 @@
 import Link from "next/link";
 import { DemoLoginButton } from "@/components/demo-login-button";
+import { TerminalCard } from "@/components/ui/terminal-card";
+import { WedgeGrid } from "@/components/marketing/wedges";
+import metrics from "@/lib/metrics.gen.json";
 
 export const metadata = {
   title: "NoPM — project governance your AI agent can operate",
   description:
     "A lite, API-first project-management tool your AI agent drives like the aws/supabase CLIs. Immutable audit, scoped tokens, four-eyes approval — enforced in the data layer.",
 };
-
-function Wedge({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-lg border border-border-subtle bg-surface p-6">
-      <h3 className="text-sm font-semibold text-ink">{title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-ink-secondary">{children}</p>
-    </div>
-  );
-}
 
 export default function Landing() {
   return (
@@ -40,7 +34,7 @@ export default function Landing() {
         <p className="text-sm font-medium uppercase tracking-widest text-accent">
           AI-native · governance-grade · lite
         </p>
-        <h1 className="mt-4 max-w-3xl font-serif text-4xl sm:text-5xl leading-[1.1] text-ink">
+        <h1 className="mt-4 max-w-3xl font-display text-4xl sm:text-5xl leading-[1.1] text-ink">
           Project governance your AI agent can actually operate.
         </h1>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
@@ -61,13 +55,7 @@ export default function Landing() {
       </section>
 
       <section className="mx-auto max-w-5xl px-6 py-8">
-        <div className="overflow-hidden rounded-xl border border-border-subtle bg-[#0e0e0f]">
-          <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" aria-hidden />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" aria-hidden />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" aria-hidden />
-            <span className="ml-3 font-mono text-xs text-white/40">an agent drives NoPM</span>
-          </div>
+        <TerminalCard title="an agent drives NoPM">
           <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-white/80">
 {`$ nopm tasks rm task_8f3a --reason "superseded by revised cutover plan"
 ⏸ delete requested — pending a checker's approval (four-eyes)
@@ -79,25 +67,14 @@ $ nopm audit --limit 1
 created_at            actor_label     action        target
 2026-06-08T…          checker (agent) task.delete   task 8f3a`}
           </pre>
-        </div>
+        </TerminalCard>
         <p className="mt-3 text-center text-xs text-ink-muted">
-          The same surface a human uses — 61 documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
+          The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
         </p>
       </section>
 
-      <section className="mx-auto grid max-w-5xl gap-4 px-6 py-12 sm:grid-cols-3">
-        <Wedge title="Agent-operable">
-          Every action is a documented REST endpoint with a stable JSON shape. Scoped <code className="font-mono">resource:action</code> tokens,
-          an OpenAPI spec, an <code className="font-mono">llms.txt</code> index, and a <code className="font-mono">nopm</code> CLI — so any agent drives it over plain HTTP.
-        </Wedge>
-        <Wedge title="Institutional governance">
-          Every mutation writes exactly one append-only audit row. Destructive actions need four-eyes: a maker requests,
-          a different checker approves. Enforced by Postgres triggers &amp; constraints — even a service key can&apos;t rewrite history.
-        </Wedge>
-        <Wedge title="The whole triangle">
-          Timeline, resource and budget in one governed model — the gap most PM tools miss. Over-allocation surfaces as a
-          clash; spend rolls up to variance and burn; a locked timeline forces a rebaseline sign-off.
-        </Wedge>
+      <section className="mx-auto max-w-5xl px-6 py-12">
+        <WedgeGrid />
       </section>
 
       <footer className="border-t border-border-subtle">

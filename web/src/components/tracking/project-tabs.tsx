@@ -453,7 +453,7 @@ function OverviewTab({
                 </span>
               )}
               {riskBySeverity.high > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-[#ea580c]/30 bg-[#ea580c]/10 px-2.5 py-1 text-xs font-medium text-[#ea580c]">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-sev-high/30 bg-sev-high/10 px-2.5 py-1 text-xs font-medium text-sev-high">
                   <span className="font-mono tabular-nums font-semibold">{riskBySeverity.high}</span>
                   <span className="opacity-80 font-normal">high</span>
                 </span>

@@ -7,6 +7,7 @@
  */
 
 import { jsPDF } from "jspdf";
+import metrics from "@/lib/metrics.gen.json";
 
 // ─── palette (mirrors pdf.ts + globals.css) ───────────────────────────────────
 const C_INK:    [number, number, number] = [22,  22,  22];   // #161616
@@ -57,10 +58,12 @@ const BUILD_MODULES = [
   "Change-control pipeline, notifications, deck export (PDF / PPTX / HTML)",
 ];
 
+// Generated from the RTM, the test run, and the API route tree
+// (scripts/gen-metrics.mjs); CI fails if they drift from reality.
 const METRICS: [string, string][] = [
-  ["52", "traced requirements (R-IDs) in RTM"],
-  ["268", "governance-focused tests (vitest)"],
-  ["61", "documented REST endpoints + OpenAPI"],
+  [String(metrics.rids), "traced requirements (R-IDs) in RTM"],
+  [String(metrics.tests), "governance-focused tests (vitest)"],
+  [String(metrics.endpoints), "documented REST endpoints + OpenAPI"],
   ["1", "immutable audit row per mutation — no exceptions"],
   ["0", "bundled LLM — governance ships without any model key"],
 ];

@@ -19,10 +19,8 @@ export const runtime = "nodejs";
  * same validators.)
  */
 function zodBody(schema: z.ZodType, required = true) {
-  const { $schema: _, ...jsonSchema } = z.toJSONSchema(schema, { io: "input" }) as Record<
-    string,
-    unknown
-  >;
+  const jsonSchema = z.toJSONSchema(schema, { io: "input" }) as Record<string, unknown>;
+  delete jsonSchema.$schema; // meta-keyword noise inside an OpenAPI document
   return { required, content: { "application/json": { schema: jsonSchema } } };
 }
 

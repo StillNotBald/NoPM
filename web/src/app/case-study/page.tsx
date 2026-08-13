@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { DownloadOnePagerButton } from "@/components/case-study/download-button";
 import { DemoLoginButton } from "@/components/demo-login-button";
+import { TerminalCard } from "@/components/ui/terminal-card";
+import { WedgeGrid } from "@/components/marketing/wedges";
+import metrics from "@/lib/metrics.gen.json";
 
 export const metadata = {
   title: "Case Study — NoPM",
   description:
-    "How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and 52 traced requirements shipped in eight waves.",
+    `How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and ${metrics.rids} traced requirements shipped in eight waves.`,
 };
 
 // ─── shared primitives ────────────────────────────────────────────────────────
@@ -20,21 +23,6 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 function Rule() {
   return <hr className="border-border-subtle" />;
-}
-
-function Wedge({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-lg border border-border-subtle bg-sunken p-5">
-      <h3 className="text-sm font-semibold text-ink">{title}</h3>
-      <p className="mt-2 text-sm leading-relaxed text-ink-secondary">{children}</p>
-    </div>
-  );
 }
 
 function Metric({ value, label }: { value: string; label: string }) {
@@ -81,7 +69,7 @@ export default function CaseStudyPage() {
       {/* ── hero ── */}
       <section className="mx-auto max-w-4xl px-6 pb-10 pt-12">
         <SectionLabel>Portfolio case study</SectionLabel>
-        <h1 className="mt-3 max-w-3xl font-serif text-3xl sm:text-4xl leading-[1.1] text-ink">
+        <h1 className="mt-3 max-w-3xl font-display text-3xl sm:text-4xl leading-[1.1] text-ink">
           I build the systems that make unclear requirements impossible.
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">
@@ -138,7 +126,7 @@ export default function CaseStudyPage() {
         </p>
         <blockquote className="mt-6 border-l-2 border-accent pl-4">
           <p className="text-sm leading-relaxed text-ink-secondary italic">
-            &ldquo;The same surface a human uses — 61 documented endpoints, OpenAPI,
+            &ldquo;The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI,
             an <code className="font-mono">llms.txt</code> index, and scoped
             Bearer tokens — is the surface an AI agent uses. No special mode,
             no privileged bypass.&rdquo;
@@ -156,27 +144,8 @@ export default function CaseStudyPage() {
         <h2 className="mt-3 text-xl font-semibold text-ink">
           Three properties most PM tools can&apos;t claim simultaneously.
         </h2>
-        <div className="mt-6 grid gap-4 sm:grid-cols-3">
-          <Wedge title="AI-native / agent-operable">
-            Every action is a stable REST endpoint. Scoped{" "}
-            <code className="font-mono text-xs">resource:action</code> Bearer
-            tokens, an OpenAPI spec, an{" "}
-            <code className="font-mono text-xs">llms.txt</code> discovery index,
-            and a <code className="font-mono text-xs">nopm</code> CLI let any
-            agent drive the tool over plain HTTP — identical to the web console.
-          </Wedge>
-          <Wedge title="Institutional governance">
-            Every mutation writes exactly one append-only audit row. Destructive
-            deletes need four-eyes: a maker requests, a{" "}
-            <em>different</em> checker approves (enforced by Postgres{" "}
-            <code className="font-mono text-xs">CHECK</code> constraints). Even
-            a service key can&apos;t rewrite history.
-          </Wedge>
-          <Wedge title="The whole triangle">
-            Timeline, resource, and budget in one governed model — the gap most
-            lite PM tools miss. Over-allocation surfaces as a clash; spend rolls
-            up to EVM variance; a locked timeline forces a rebaseline sign-off.
-          </Wedge>
+        <div className="mt-6">
+          <WedgeGrid />
         </div>
       </section>
 
@@ -192,15 +161,10 @@ export default function CaseStudyPage() {
         </h2>
 
         {/* terminal card */}
-        <div className="mt-6 overflow-hidden rounded-xl border border-border-subtle bg-[#0e0e0f]">
-          <div className="flex items-center gap-1.5 border-b border-white/10 px-4 py-2.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" aria-hidden />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" aria-hidden />
-            <span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" aria-hidden />
-            <span className="ml-3 font-mono text-xs text-white/40">
-              governance is invisible to the operator — provable in audit
-            </span>
-          </div>
+        <TerminalCard
+          className="mt-6"
+          title="governance is invisible to the operator — provable in audit"
+        >
           <pre className="overflow-x-auto px-5 py-4 font-mono text-[12px] leading-relaxed text-white/80">
 {`$ nopm tasks rm task_8f3a --reason "superseded by revised cutover plan"
 ⏸  delete requested — pending a checker's approval (four-eyes)
@@ -212,7 +176,7 @@ $ nopm audit --limit 1
 created_at            actor_label     action        target
 2026-06-08T…          checker (agent) task.delete   task_8f3a`}
           </pre>
-        </div>
+        </TerminalCard>
 
         <div className="mt-8 grid gap-x-8 gap-y-2 sm:grid-cols-2">
           <ul className="space-y-2">
@@ -264,15 +228,17 @@ created_at            actor_label     action        target
           Numbers that show the governance isn&apos;t hand-waving.
         </h2>
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <Metric value="52" label="traced requirements (R-IDs) in RTM" />
-          <Metric value="268" label="governance-focused tests (vitest)" />
-          <Metric value="61" label="documented REST endpoints + OpenAPI" />
+          <Metric value={String(metrics.rids)} label="traced requirements (R-IDs) in RTM" />
+          <Metric value={String(metrics.tests)} label="governance-focused tests (vitest)" />
+          <Metric value={String(metrics.endpoints)} label="documented REST endpoints + OpenAPI" />
           <Metric value="1" label="immutable audit row per mutation — no exceptions" />
           <Metric value="0" label="bundled LLM — governance ships without any model key" />
         </div>
         <p className="mt-6 text-sm leading-relaxed text-ink-muted">
-          Every requirement has an R-ID, a status, and a traceability row. RTM
-          verification runs in CI. Tests target the governance rules first: can a
+          These numbers are not typed into this page — they are generated from
+          the RTM, the test run, and the API route tree, and CI fails if they
+          drift from reality. Every requirement has an R-ID, a status, and a
+          traceability row. Tests target the governance rules first: can a
           maker self-approve? Does a missing scope return 403? Does a delete
           without a four-eyes approval fail?
         </p>
@@ -312,7 +278,7 @@ created_at            actor_label     action        target
               </li>
               <li>
                 <span className="font-mono text-xs text-ink">vitest</span>{" "}
-                — 268 tests, governance-first coverage
+                — {metrics.tests} tests, governance-first coverage
               </li>
             </ul>
           </div>

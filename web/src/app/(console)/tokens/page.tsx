@@ -297,7 +297,7 @@ export default function TokensPage() {
                     checked={selectedScopes.has(scope)}
                     onChange={() => toggleScope(scope)}
                     disabled={minting}
-                    className="h-4 w-4 rounded border-border-subtle accent-[#D97757] cursor-pointer shrink-0"
+                    className="h-4 w-4 rounded border-border-subtle accent-accent cursor-pointer shrink-0"
                   />
                   <span className="text-sm text-ink font-mono group-hover:text-accent transition-colors">
                     {scope}

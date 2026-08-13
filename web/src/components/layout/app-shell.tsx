@@ -12,6 +12,7 @@ import { cn } from "@/lib/cn";
 import { CommandPalette, CmdKTrigger, CmdKTriggerMobile } from "@/components/command-palette";
 import { RightPushPanel, PUSH_MARGIN, PUSH_MARGIN_NONE } from "@/components/ui/right-push-panel";
 import { AssistantPanel } from "@/components/assistant/panel";
+import { TrafficLights } from "@/components/ui/terminal-card";
 import { ToastProvider } from "@/components/ui/toast";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
@@ -74,10 +75,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         >
           <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle bg-canvas/80 px-3 backdrop-blur-xl sm:px-4">
             {/* macOS window chrome — terminal motif */}
-            <div className="hidden items-center gap-2 pr-1 sm:flex" aria-hidden>
-              <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
-              <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
-              <span className="h-3 w-3 rounded-full bg-[#28c840]" />
+            <div className="hidden pr-1 sm:flex">
+              <TrafficLights size="md" />
             </div>
             {/* brand shown when there's no sidebar (mobile/tablet) */}
             <div className="flex items-center gap-1.5 lg:hidden">
