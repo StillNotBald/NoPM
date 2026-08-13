@@ -4,7 +4,7 @@
   "title": "Design System: NoPM",
   "extensions": {
     "colorMeta": {
-      "terminal-green": { "role": "primary", "displayName": "Terminal Green", "canonical": "#00a600", "tonalRamp": ["#032b03", "#065806", "#088408", "#00a600", "#1fbc1f", "#5ed05e", "#a3e4a3", "#e2f7e2"] },
+      "accent-blue": { "role": "primary", "displayName": "Fluent Blue", "canonical": "#0078d4", "tonalRamp": ["#032b45", "#005a9e", "#106ebe", "#0078d4", "#2b88d8", "#60cdff", "#a6e2ff", "#e3f4ff"] },
       "canvas": { "role": "neutral", "displayName": "Canvas White", "canonical": "#ffffff", "tonalRamp": ["#161616", "#3d3d40", "#6a6a70", "#98989e", "#c2c2c6", "#e5e5e8", "#f0f0f2", "#ffffff"] },
       "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#161616", "tonalRamp": ["#0a0a0b", "#161616", "#2e2e30", "#555559", "#8b8b90", "#b8b8bc", "#dededf", "#f5f5f6"] },
       "terminal-surface": { "role": "neutral", "displayName": "Terminal Surface", "canonical": "#0e0e0f", "tonalRamp": ["#0a0a0b", "#0e0e0f", "#151517", "#1e1e22", "#26262b", "#34343a", "#55555c", "#8b8b90"] },
@@ -34,9 +34,9 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Terminal-green action button — the accent's main job.",
+      "description": "Fluent-blue action button — the accent's main job.",
       "html": "<button class=\"ds-btn-primary\">Open console</button>",
-      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; background: var(--accent, #00a600); color: #ffffff; font-weight: 600; font-size: 14px; border: none; border-radius: 8px; transition: background-color 150ms; cursor: pointer; } .ds-btn-primary:hover { background: var(--accent-hover, #009100); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(0,166,0,0.4); }"
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; background: var(--accent, #0078d4); color: #ffffff; font-weight: 600; font-size: 14px; border: none; border-radius: 8px; transition: background-color 150ms; cursor: pointer; } .ds-btn-primary:hover { background: var(--accent-hover, #106ebe); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(0,120,212,0.4); }"
     },
     {
       "name": "Secondary Button",
@@ -44,7 +44,7 @@
       "refersTo": "button-secondary",
       "description": "Bordered neutral button for non-primary actions.",
       "html": "<button class=\"ds-btn-secondary\">Sign in →</button>",
-      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; background: var(--bg-surface, #ffffff); color: var(--text-primary, #161616); font-weight: 500; font-size: 14px; border: 1px solid var(--border-subtle, #e5e5e8); border-radius: 8px; transition: background-color 150ms; cursor: pointer; } .ds-btn-secondary:hover { background: var(--bg-sunken, #f0f0f2); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(0,166,0,0.4); }"
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; background: var(--bg-surface, #ffffff); color: var(--text-primary, #161616); font-weight: 500; font-size: 14px; border: 1px solid var(--border-subtle, #e5e5e8); border-radius: 8px; transition: background-color 150ms; cursor: pointer; } .ds-btn-secondary:hover { background: var(--bg-sunken, #f0f0f2); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(0,120,212,0.4); }"
     },
     {
       "name": "Status Badge",
@@ -60,7 +60,7 @@
       "refersTo": "input-default",
       "description": "Hairline-bordered field; focus = strong border + green ring.",
       "html": "<input class=\"ds-input\" placeholder=\"Search records…\" />",
-      "css": ".ds-input { height: 40px; width: 100%; max-width: 280px; border-radius: 8px; border: 1px solid var(--border-subtle, #e5e5e8); background: var(--bg-canvas, #ffffff); padding: 0 12px; font-size: 14px; color: var(--text-primary, #161616); } .ds-input::placeholder { color: var(--text-muted, #8b8b90); } .ds-input:focus-visible { outline: none; border-color: var(--border-strong, #d2d2d6); box-shadow: 0 0 0 2px rgba(0,166,0,0.3); }"
+      "css": ".ds-input { height: 40px; width: 100%; max-width: 280px; border-radius: 8px; border: 1px solid var(--border-subtle, #e5e5e8); background: var(--bg-canvas, #ffffff); padding: 0 12px; font-size: 14px; color: var(--text-primary, #161616); } .ds-input::placeholder { color: var(--text-muted, #8b8b90); } .ds-input:focus-visible { outline: none; border-color: var(--border-strong, #d2d2d6); box-shadow: 0 0 0 2px rgba(0,120,212,0.3); }"
     },
     {
       "name": "Terminal Card",
@@ -73,16 +73,16 @@
   ],
   "narrative": {
     "northStar": "The Governed Terminal",
-    "overview": "NoPM looks like the tool of an engineer who runs a tight ship: a white, light-first macOS workspace with a dark terminal beating at its center. The operating surfaces are calm, dense, and typographically quiet — near-black ink on white, one rationed green accent — while the terminal motif carries the brand's proof moments. Restraint is the personality: color means status, never decoration; monospace means data, never costume.",
+    "overview": "NoPM looks like the tool of an engineer who runs a tight ship: a white, light-first macOS workspace with a dark terminal beating at its center. The operating surfaces are calm, dense, and typographically quiet — near-black ink on white, one rationed blue accent — while the terminal motif carries the brand's proof moments. Restraint is the personality: color means status, never decoration; monospace means data, never costume.",
     "keyCharacteristics": [
       "Light-first white canvas with a component-scoped fixed-dark terminal surface (#0e0e0f) in BOTH themes",
-      "One brand accent (terminal green #00a600); five functional status hues that never leak into branding",
+      "One brand accent (Fluent blue #0078d4); status hues never leak into branding",
       "SF/Inter for prose, SF Mono/JetBrains Mono for anything technical",
       "Hairline borders do the separating; shadows are reserved for overlays",
       "Density tuned for operators: 14px body, tight tables, generous section separation"
     ],
     "rules": [
-      { "name": "The One Green Rule", "body": "Terminal green is the only color allowed to mean 'NoPM.' Status hues appear only on the state they name, in tint-plus-saturated-text pills, never as fills or decoration.", "section": "colors" },
+      { "name": "The One Blue Rule", "body": "Fluent blue is the only color allowed to mean 'NoPM.' Status hues appear only on the state they name, in tint-plus-saturated-text pills, never as fills or decoration.", "section": "colors" },
       { "name": "The Mono-Means-Data Rule", "body": "Monospace is reserved for code, commands, identifiers, scopes, and measured values. Prose never sets in mono; data never sets in prose type.", "section": "typography" },
       { "name": "The Flat-By-Default Rule", "body": "Surfaces at rest are flat and bordered. Shadow is a statement of layering, never decoration.", "section": "elevation" }
     ],
@@ -95,7 +95,7 @@
     ],
     "donts": [
       "Don't introduce gradients, glass/blur decoration, or colored border-left accents",
-      "Don't use terminal green for status or any status hue for branding",
+      "Don't use the brand blue for status or any status hue for branding",
       "Don't hardcode Tailwind palette classes — they broke dark mode once already",
       "Don't add resting shadows to cards or emoji as icons",
       "Don't exceed the three-step ink hierarchy for text"

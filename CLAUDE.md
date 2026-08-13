@@ -4,7 +4,7 @@
 A **lite, API-first project-management tool that a user's own AI agent operates** (like the `aws` / `supabase` / `hubspot` CLIs — NoPM bundles **no** LLM). It is Chu Ling's **live-hosted portfolio proof-piece** for employers, deployed to **stillnotbald.com**. The thesis is the resume line: *"I build the systems that make unclear requirements impossible."* Governance (audit, traceability, change-control) is engineered into the **data + API layer**, not the UI.
 
 ## Stack — do not deviate (ask first)
-Next.js **16** (App Router) · TypeScript · **Tailwind v4** · shadcn-style primitives on **macOS-terminal-light tokens** (white/near-black canvas + ink text + terminal-green `#00a600` accent, JetBrains Mono accents; retheme owner-approved 2026-06-08, constitution corrected 2026-07-11) · **Supabase** (Postgres + Auth + RLS) · **Vercel** host + **Cloudflare** DNS.
+Next.js **16** (App Router) · TypeScript · **Tailwind v4** · shadcn-style primitives on **macOS-terminal-light tokens** (white/near-black canvas + ink text + Fluent-blue `#0078d4` accent, JetBrains Mono accents; blue retheme owner-approved 2026-08-13) · **Supabase** (Postgres + Auth + RLS) · **Vercel** host + **Cloudflare** DNS.
 Approved libs: `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `otplib`, `pptxgenjs`, `jspdf`, `html2canvas`, `dnd-kit`, `resend` (demo-mode), `pg` (migration runner). Nothing else without asking.
 
 ## Scope (v1) — 8 modules + governance
@@ -37,7 +37,7 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - gate: `npm run rtm:verify` (RTM consistency; run from `web/` — a copy also exists at `scripts/rtm-verify.mjs`)
 - rtm: `requirements/REQUIREMENTS.md` + `requirements/TRACEABILITY.md` (same-commit rule)
 - sprintLog: `sprint-log/<date>_<intent>/` from `_template/` (SPRINT_SUMMARY.md always)
-- uiTemplates: macOS-terminal-light tokens (white/near-black canvas + ink text + terminal-green `#00a600` accent, JetBrains Mono accents), shadcn-style primitives (retheme owner-approved 2026-06-08, constitution corrected 2026-07-11)
+- uiTemplates: macOS-terminal-light tokens (white/near-black canvas + ink text + Fluent-blue `#0078d4` accent, JetBrains Mono accents), shadcn-style primitives (blue retheme owner-approved 2026-08-13)
 - sanitization: no real client/stakeholder names in tracked .md; portfolio-public repo
 - memoryStore: the owner's local `~/.claude/projects/<this-repo>/memory/` (machine-local, not in the repo)
 

@@ -1,6 +1,6 @@
 ---
 name: NoPM
-description: macOS-terminal-light — governed project management with a terminal heart
+description: terminal-light — governed project management with a terminal heart, Fluent-blue accent
 colors:
   canvas: "#ffffff"
   sunken: "#f0f0f2"
@@ -9,8 +9,8 @@ colors:
   ink: "#161616"
   ink-secondary: "#555559"
   ink-muted: "#8b8b90"
-  terminal-green: "#00a600"
-  terminal-green-hover: "#009100"
+  accent-blue: "#0078d4"
+  accent-blue-hover: "#106ebe"
   terminal-surface: "#0e0e0f"
   status-info: "#2563eb"
   status-success: "#16a34a"
@@ -47,13 +47,13 @@ spacing:
   xl: "40px"
 components:
   button-primary:
-    backgroundColor: "{colors.terminal-green}"
+    backgroundColor: "{colors.accent-blue}"
     textColor: "#ffffff"
     rounded: "{rounded.md}"
     padding: "0 16px"
     height: "40px"
   button-primary-hover:
-    backgroundColor: "{colors.terminal-green-hover}"
+    backgroundColor: "{colors.accent-blue-hover}"
   button-secondary:
     backgroundColor: "{colors.canvas}"
     textColor: "{colors.ink}"
@@ -79,13 +79,13 @@ components:
 
 **Creative North Star: "The Governed Terminal"**
 
-NoPM looks like the tool of an engineer who runs a tight ship: a white, light-first macOS workspace with a dark terminal beating at its center. The operating surfaces are calm, dense, and typographically quiet — near-black ink on white, one rationed green accent — while the terminal motif (traffic-light chrome, mono transcripts, the `$ nopm` prompt) carries the brand's proof moments: this product is operated by commands and audited by rows, and the UI is honest about that. Dark mode is not a skin but the terminal turned inside-out: near-black canvas, GitHub-dark status hues.
+NoPM looks like the tool of an engineer who runs a tight ship: a white, light-first workspace with a dark terminal beating at its center. The operating surfaces are calm, dense, and typographically quiet — near-black ink on white, one rationed blue accent — while the terminal motif (traffic-light chrome, mono transcripts, the `$ nopm` prompt) carries the brand's proof moments: this product is operated by commands and audited by rows, and the UI is honest about that. Dark mode is not a skin but the terminal turned inside-out: near-black canvas, GitHub-dark status hues.
 
-Restraint is the personality. Color means status, never decoration; monospace means data, command, or measurement, never costume; the green appears where an action or a live signal earns it. The system rejects gradients, glassmorphism, decorative shadows, and marketing exuberance.
+Restraint is the personality. Color means status, never decoration; monospace means data, command, or measurement, never costume; the blue appears where an action or a live signal earns it. The system rejects gradients, glassmorphism, decorative shadows, and marketing exuberance.
 
 **Key Characteristics:**
 - Light-first white canvas with a component-scoped fixed-dark terminal surface (#0e0e0f) in BOTH themes
-- One brand accent (terminal green #00a600); five functional status hues that never leak into branding
+- One brand accent (Fluent blue #0078d4 — owner retheme 2026-08-13, was terminal green); status hues never leak into branding
 - SF/Inter for prose, SF Mono/JetBrains Mono for anything technical
 - Hairline borders (#e5e5e8) do the separating; shadows are reserved for overlays
 - Density tuned for operators: 14px body, tight tables, generous section separation
@@ -95,7 +95,7 @@ Restraint is the personality. Color means status, never decoration; monospace me
 A white-and-ink field where color is a signal, not a surface.
 
 ### Primary
-- **Terminal Green** (#00a600, hover #009100): the single brand accent — primary buttons, live indicators, section eyebrows, focus rings (at 30-40% alpha), selection tint. On fills it carries white text in light mode; dark mode swaps to a brighter #00c24a with near-black text.
+- **Fluent Blue** (#0078d4, hover #106ebe): the single brand accent — primary buttons, live indicators, section eyebrows, focus rings (at 30-40% alpha), selection tint. On fills it carries white text in light mode; dark mode swaps to a brighter #60cdff with near-black text.
 
 ### Neutral
 - **Canvas White** (#ffffff): page and card background.
@@ -105,8 +105,8 @@ A white-and-ink field where color is a signal, not a surface.
 - **Terminal Surface** (#0e0e0f): the fixed-dark terminal-window background, identical in both themes; white text at 40-80% alpha lives on it.
 
 ### Status (functional, never brand)
-- **Info Blue** (#2563eb): in-progress states.
-- **Success Green** (#16a34a): completed/healthy (distinct from the brand green — status, not action).
+- **Info Blue** (#2563eb): in-progress states. (Deliberately deeper than the brand blue; appears only in tint-pills, never as a fill, so the two blues do not compete.)
+- **Success Green** (#16a34a): completed/healthy — status, not action.
 - **Warning Amber** (#f59e0b): at-risk, over-allocation.
 - **Severity Orange** (#ea580c): "high" severity — the step between warning and danger.
 - **Danger Red** (#e5484d): critical/urgent, destructive actions.
@@ -114,7 +114,7 @@ A white-and-ink field where color is a signal, not a surface.
 
 Dark theme swaps every value to its GitHub-dark counterpart (defined in `web/src/app/globals.css`); status hues keep their meanings exactly.
 
-**The One Green Rule.** Terminal green is the only color allowed to mean "NoPM." Status hues appear only on the state they name, in tint-plus-saturated-text pills (15% background alpha), never as fills or decoration.
+**The One Blue Rule.** Fluent blue is the only color allowed to mean "NoPM." Status hues appear only on the state they name, in tint-plus-saturated-text pills (15% background alpha), never as fills or decoration.
 
 ## Typography
 
@@ -156,7 +156,7 @@ Small, precise radii: 5px (sm) for tight controls, 8px (md) as the default for b
 
 ### Buttons
 - **Shape:** rounded-md (8px); lg size steps to 11px.
-- **Primary:** terminal-green fill, white text, semibold; hover deepens to #009100.
+- **Primary:** Fluent-blue fill, white text, semibold; hover deepens to #106ebe.
 - **Secondary:** white surface, hairline border, ink text; hover fills sunken gray.
 - **Ghost:** ink-secondary text, hover sunken; **Danger:** danger fill, white text.
 - **Focus:** 2px ring at accent/40. **Disabled:** 50% opacity, pointer-events none.
@@ -189,7 +189,7 @@ Small, precise radii: 5px (sm) for tight controls, 8px (md) as the default for b
 
 ### Don't:
 - **Don't** introduce gradients, glass/blur decoration, or colored border-left accents — the system's rejection list is absolute.
-- **Don't** use terminal green for status ("success" has its own green, #16a34a) or any status hue for branding.
+- **Don't** use the brand blue for status ("in progress" has its own deeper blue, #2563eb) or any status hue for branding.
 - **Don't** hardcode Tailwind palette classes (`amber-50`, `indigo-500`) — they broke dark mode once already.
 - **Don't** add resting shadows to cards or emoji as icons.
 - **Don't** exceed the three-step ink hierarchy for text — a fourth gray means the hierarchy is failing.

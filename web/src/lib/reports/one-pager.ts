@@ -14,7 +14,7 @@ const C_INK:    [number, number, number] = [22,  22,  22];   // #161616
 const C_CANVAS: [number, number, number] = [255, 255, 255];  // #ffffff
 const C_SUNKEN: [number, number, number] = [240, 240, 242];  // #f0f0f2
 const C_LINE:   [number, number, number] = [229, 229, 232];  // #e5e5e8
-const C_ACCENT: [number, number, number] = [0,   166,   0];  // #00a600 terminal-green
+const C_ACCENT: [number, number, number] = [0,   120, 212];  // #0078d4 Fluent blue
 const C_MUTED:  [number, number, number] = [139, 139, 144];  // #8b8b90
 const C_WHITE:  [number, number, number] = [255, 255, 255];
 
@@ -248,7 +248,7 @@ export function generateOnePager(): void {
   const codeLines = [
     { text: "$ nopm tasks rm task_8f3a --reason \"superseded\"", color: [200, 200, 200] as [number, number, number] },
     { text: "  ⏸  pending four-eyes approval (different token required)", color: [139, 139, 144] as [number, number, number] },
-    { text: "$ nopm approve req_2c91   →   ✓ committed · 1 immutable audit row written", color: [0, 166, 0] as [number, number, number] },
+    { text: "$ nopm approve req_2c91   →   ✓ committed · 1 immutable audit row written", color: [96, 205, 255] as [number, number, number] },
   ];
   codeLines.forEach(({ text, color }, i) => {
     doc.setTextColor(...color);

@@ -34,3 +34,7 @@ web/scripts/mainline-*.html
 .claude/settings.local.json
 .impeccable/config.local.json
 .impeccable/cache/
+
+# browser-automation artifacts
+.playwright-mcp/
+/*.png

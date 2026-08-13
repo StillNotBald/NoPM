@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
 /* ─────────────────────────────────────────────────────────────
-   NoPM — macOS-terminal-light theme.
-   Light-first: white canvas, near-black ink, terminal-green
-   #00a600 as the single brand accent, JetBrains Mono for
-   technical text. Dark = near-black terminal (status hues follow
-   the GitHub-dark ramp). Status colors are functional, not brand.
+   NoPM — terminal-light theme.
+   Light-first: white canvas, near-black ink, Fluent blue
+   #0078d4 as the single brand accent (owner retheme 2026-08-13,
+   was terminal-green), JetBrains Mono for technical text.
+   Dark = near-black terminal (status hues follow the GitHub-dark
+   ramp). Status colors are functional, not brand.
    ───────────────────────────────────────────────────────────── */
 :root {
   --bg-canvas: #ffffff; /* white background */
@@ -17,9 +18,9 @@
   --text-primary: #161616; /* black font */
   --text-secondary: #555559;
   --text-muted: #8b8b90;
-  --accent: #00a600; /* vibrant macOS-terminal green — buttons/indicators */
-  --accent-hover: #009100;
-  --accent-ink: #ffffff; /* white text on the green button */
+  --accent: #0078d4; /* Fluent blue — buttons/indicators */
+  --accent-hover: #106ebe;
+  --accent-ink: #ffffff; /* white text on the blue button */
   --info: #2563eb; /* vibrant blue — "in progress" */
   --success: #16a34a; /* vibrant green */
   --warning: #f59e0b; /* vibrant amber */
@@ -43,9 +44,9 @@
   --text-primary: #ededf0;
   --text-secondary: #a0a0a8;
   --text-muted: #6b6b73;
-  --accent: #00c24a; /* vibrant green — pops on near-black */
-  --accent-hover: #19d35f;
-  --accent-ink: #04230f; /* dark text on the bright-green button */
+  --accent: #60cdff; /* bright Fluent blue — pops on near-black */
+  --accent-hover: #7bd6ff;
+  --accent-ink: #003253; /* dark text on the bright-blue button */
   --info: #4493f8;
   --success: #3fb950;
   --warning: #d29922;

@@ -38,7 +38,7 @@ Three properties competitors can't truthfully claim simultaneously: (1) **agent-
 
 ## Brand Commitments
 
-- **Visual world (BINDING, owner-confirmed 2026-08-13):** macOS-terminal-light — white/near-black canvas, ink text, terminal-green `#00a600` single accent, JetBrains Mono for technical text, shadcn-style primitives, the macOS traffic-light terminal motif. Bolder work happens WITHIN this world (composition, type scale, motion, motif) — never a new palette.
+- **Visual world (BINDING, owner-updated 2026-08-13):** terminal-light — white/near-black canvas, ink text, **Fluent blue `#0078d4` single accent** (owner retheme 2026-08-13; replaced terminal-green), JetBrains Mono for technical text, shadcn-style primitives, the traffic-light terminal motif. Bolder work happens WITHIN this world (composition, type scale, motion, motif) — never a new palette.
 - Name: NoPM. Domain: stillnotbald.com. Voice: a working engineer's — concrete mechanisms, no hype, terse empty states.
 - Sanitization is a brand commitment: no real client/stakeholder names in tracked files, ever.
 

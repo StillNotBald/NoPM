@@ -11,7 +11,7 @@ const P = {
   ink:     "#161616",
   muted:   "#8b8b90",
   line:    "#e5e5e8",
-  accent:  "#00a600",   // vibrant terminal-green — buttons / indicators
+  accent:  "#0078d4",   // Fluent blue — buttons / indicators
   // semantic
   green:   "#16a34a",
   amber:   "#f59e0b",
