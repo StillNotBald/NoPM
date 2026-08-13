@@ -1,0 +1,54 @@
+name: Diag demo (temporary)
+
+# TEMPORARY diagnostic for the broken demo login (2026-08-13). Prints only
+# booleans/counts — never key material, never passwords. Delete after use.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Probe Supabase state
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          node - <<'EOF'
+          import { createClient } from "@supabase/supabase-js";
+          const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+          const svc = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+          const ws = await svc.from("workspaces").select("id, slug");
+          console.log("workspaces query error:", ws.error ? ws.error.message : "none");
+          console.log("workspaces count:", ws.data ? ws.data.length : null, "| slugs:", ws.data ? ws.data.map(w => w.slug).join(",") : null);
+
+          const users = await svc.auth.admin.listUsers();
+          console.log("listUsers error:", users.error ? users.error.message : "none");
+          if (users.data) {
+            const demo = users.data.users.find(u => u.email === process.env.DEMO_EMAIL);
+            console.log("auth users count:", users.data.users.length);
+            console.log("demo user exists:", !!demo, demo ? "| confirmed:" + !!demo.email_confirmed_at + " | banned:" + (demo.banned_until ?? "no") : "");
+          }
+
+          const anon = createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+          const probe = await anon.auth.signInWithPassword({ email: process.env.DEMO_EMAIL, password: process.env.DEMO_PASSWORD });
+          console.log("demo password sign-in:", probe.error ? "FAILED — " + probe.error.message : "OK");
+          if (!probe.error) await anon.auth.signOut();
+          EOF
