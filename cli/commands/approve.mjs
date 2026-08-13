@@ -16,7 +16,7 @@ export async function run(rest, ctx) {
 
   // 'nopm approve reject <id> [--reason]'
   if (sub === "reject") {
-    const id = arg || ctx.flags._[0];
+    const id = arg; // flags._[0] is "reject" itself — never an id
     if (!id) ctx.die("usage: nopm approve reject <requestId> [--reason <why>]");
     const body = ctx.flags.reason ? { reason: ctx.flags.reason } : {};
     const { data } = await ctx.api("POST", `/api/deletion-requests/${id}/reject`, body);
@@ -26,7 +26,7 @@ export async function run(rest, ctx) {
   }
 
   // 'nopm approve <id>'  — sub IS the id (legacy positional)
-  const id = sub || ctx.flags._[0];
+  const id = sub;
   if (!id) ctx.die("usage: nopm approve <requestId>   (needs a checker token)");
   const { data } = await ctx.api("POST", `/api/deletion-requests/${id}/approve`);
   console.log("✓ approved & committed.");

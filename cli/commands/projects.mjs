@@ -22,7 +22,7 @@ export const describe = "List, create, inspect, update, lock, unlock, or delete 
 export const usage = [
   "nopm projects ls                                         list all projects",
   "nopm projects get <id>                                   fetch a single project",
-  "nopm projects create --name <n> [--code <c>] [--program <p>] [--rag <status>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--currency <USD>]",
+  "nopm projects create --name <n> --code <c> [--program <p>] [--rag <status>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--currency <USD>]",
   "nopm projects update <id> [--name <n>] [--code <c>] [--rag <status>] [--pct <0-100>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>]",
   "nopm projects lock   <id> [--reason <why>]               lock project timeline",
   "nopm projects unlock <id>                                unlock project timeline",
@@ -58,10 +58,10 @@ export async function run(rest, ctx) {
     }
 
     case "create": {
-      if (!f.name) ctx.die("usage: nopm projects create --name <name> [--code <code>] [--program <p>]");
+      if (!f.name || !f.code) ctx.die("usage: nopm projects create --name <name> --code <code>   (code: short unique id, 1-32 chars, e.g. APOLLO)");
       const body = {
         name: f.name,
-        ...(f.code        && { code: f.code }),
+        code: f.code,
         ...(f.program     && { program: f.program }),
         ...(f.description && { description: f.description }),
         ...(f.rag         && { rag_status: f.rag }),

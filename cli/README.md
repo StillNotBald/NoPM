@@ -1,18 +1,27 @@
 # `nopm` CLI
 
-Drive NoPM from your terminal — or hand it to your AI agent. Scoped Bearer token, documented endpoints, `--json` for machine output.
+Drive NoPM from your terminal — or hand it to your AI agent. Scoped Bearer token, documented endpoints, `--json` for machine output, `--curl` to see exactly what would be sent.
+
+The CLI has **zero dependencies** and **no database access** — every command is a thin call to the public REST API, so it can't cheat the governance layer even if it wanted to.
+
+## Install
 
 ```bash
-# point at your instance + save a scoped token (shown once when minted)
-node nopm.mjs auth set-token npm_xxx --url https://stillnotbald.com
+# from a clone
+node cli/nopm.mjs --version
+
+# or link it globally
+cd cli && npm link          # then just:  nopm projects ls
 ```
 
 ## Auth
 
 ```bash
-nopm auth set-token <token> [--url <url>]   # save your scoped PAT
-nopm whoami                                  # show actor + scopes
+nopm auth set-token npm_xxx --url https://stillnotbald.com   # save your scoped PAT (0600 perms)
+nopm whoami                                                  # show actor + scopes
 ```
+
+Environment variables `NOPM_TOKEN` / `NOPM_API_URL` override the saved config.
 
 ## Projects  (scope: project:read / project:write)
 
@@ -45,35 +54,44 @@ nopm approve <requestId>                     # CHECKER (must be a different toke
 nopm approve reject <requestId> [--reason <why>]
 ```
 
-## Audit log  (scope: audit:read)
+## Audit log & discovery
 
 ```bash
 nopm audit [--limit 20] [--page 1] [--target-type task] [--action task.create] [--actor-id <id>]
+nopm search q "kanban"                       # full-workspace search
+nopm timeline                                # Mainline portfolio graph summary (--json for the full graph)
+nopm openapi                                 # operation index from the live spec (--json for the full spec)
 ```
+
+Every module (risks, issues, clashes, resources, allocations, time, budget, expenses, documents, decisions, changes, rebaselines, notifications, reports, tokens) has its own command group — run `nopm help` for the full catalogue.
 
 ## Global flags
 
 | Flag | Effect |
 |------|--------|
 | `--json` | Machine-readable JSON output (any command) |
+| `--curl` | Print the equivalent curl command instead of sending the request (token masked as `$NOPM_TOKEN`) |
+| `--help` / `-h` | Usage for a command group — never fires an API call |
 | `--page <n>` | Pagination (list commands) |
 | `--limit <n>` | Page size (list commands) |
+| `--flag=value` | Alternative syntax for values that start with `--` |
+
+## Tests
+
+```bash
+cd cli && npm test           # node --test — parseFlags/die/out units + per-command URL/body contracts
+```
 
 ## Architecture
 
 ```
 cli/
-  nopm.mjs              dispatcher — dynamic-import commands/<group>.mjs
+  nopm.mjs              dispatcher — dynamic-import commands/<group>.mjs; central --help/--version
   lib/
-    api.mjs             loadConfig/saveConfig/api/out/parseFlags/die
-  commands/
-    auth.mjs            set-token
-    whoami.mjs          GET /api/me
-    projects.mjs        ls/get/create/update/lock/unlock/rm (EXEMPLAR)
-    tasks.mjs           ls/get/create/update/rm
-    approvals.mjs       ls (GET /api/deletion-requests)
-    approve.mjs         approve / reject (POST /api/deletion-requests/:id/{approve,reject})
-    audit.mjs           ls (GET /api/audit)
+    api.mjs             loadConfig/saveConfig/api/out/parseFlags/die (CliError, --curl dry-run)
+  commands/             24 command groups, one file each (describe + usage + run)
+  test/
+    cli.test.mjs        contract tests with a stubbed ctx.api — no network
 ```
 
 Four-eyes by design: a `maker` token can *request* a task deletion but cannot approve it; a separate `checker` token (`task:delete:approve`) commits it. Every call lands in the audit log.

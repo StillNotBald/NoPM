@@ -6,6 +6,21 @@ import path from "node:path";
 const CFG_DIR = path.join(homedir(), ".nopm");
 const CFG_FILE = path.join(CFG_DIR, "config.json");
 
+/**
+ * Terminal-failure signal. die() throws this instead of calling
+ * process.exit(): exiting mid-request leaves undici sockets half-closed and
+ * (on Windows) trips a libuv assertion on the way out. The dispatcher in
+ * nopm.mjs catches it, prints, and sets process.exitCode so node exits
+ * cleanly once the event loop drains.
+ */
+export class CliError extends Error {
+  constructor(message, payload) {
+    super(message);
+    this.payload = payload;
+    this.isCliError = true;
+  }
+}
+
 export function loadConfig() {
   const fromEnv = {
     url: process.env.NOPM_API_URL,
@@ -22,18 +37,31 @@ export function loadConfig() {
 }
 
 export function saveConfig(cfg) {
-  if (!existsSync(CFG_DIR)) mkdirSync(CFG_DIR, { recursive: true });
-  writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2));
+  // The config file holds a PAT — owner-only permissions (no-op on Windows ACLs).
+  if (!existsSync(CFG_DIR)) mkdirSync(CFG_DIR, { recursive: true, mode: 0o700 });
+  writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
+}
+
+/** Render the curl equivalent of a request (token masked as $NOPM_TOKEN). */
+function toCurl(method, url, body) {
+  const parts = [`curl -X ${method} '${url}'`, `-H 'Authorization: Bearer '"$NOPM_TOKEN"''`];
+  if (body) parts.push(`-H 'Content-Type: application/json'`, `-d '${JSON.stringify(body).replace(/'/g, "'\\''")}'`);
+  return parts.join(" \\\n  ");
 }
 
 /**
  * Make an authenticated request to the NoPM API.
  * Returns the parsed JSON envelope ({ data, ... }).
- * Throws an Error with .status on non-2xx.
+ * Throws a CliError with .status on non-2xx.
+ * opts.curl: print the equivalent curl command instead of executing (dry run).
  */
-export async function api(method, p, body) {
+export async function api(method, p, body, opts = {}) {
   const cfg = loadConfig();
   if (!cfg.token) die("No token. Run: nopm auth set-token <token> [--url <url>]");
+  if (opts.curl) {
+    console.log(toCurl(method, cfg.url + p, body));
+    throw new CliDryRun();
+  }
   const res = await fetch(cfg.url + p, {
     method,
     headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
@@ -41,12 +69,19 @@ export async function api(method, p, body) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const err = new Error(`HTTP ${res.status}: ${json.error || JSON.stringify(json)}`);
+    const err = new CliError(`HTTP ${res.status}: ${json.error || JSON.stringify(json)}`, json);
     err.status = res.status;
-    err.payload = json;
     throw err;
   }
   return json;
+}
+
+/** Thrown after a --curl dry-run has printed; the dispatcher exits 0. */
+export class CliDryRun extends Error {
+  constructor() {
+    super("dry run");
+    this.isDryRun = true;
+  }
 }
 
 /**
@@ -68,17 +103,26 @@ export function out(data, ctx, columns) {
 
 /**
  * Parse argv into { _: [positionals], <named flag>: value }.
- * --flag x  => { flag: "x" }
- * --flag    => { flag: true }
+ * --flag x        => { flag: "x" }
+ * --flag          => { flag: true }
+ * --flag=x        => { flag: "x" }   (use for values that start with "--")
+ * -h              => { help: true }
  */
 export function parseFlags(argv) {
   const result = { _: [] };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith("--")) {
-      const k = a.slice(2);
-      const next = argv[i + 1];
-      result[k] = next && !next.startsWith("--") ? argv[++i] : true;
+    if (a === "-h") {
+      result.help = true;
+    } else if (a.startsWith("--")) {
+      const eq = a.indexOf("=");
+      if (eq !== -1) {
+        result[a.slice(2, eq)] = a.slice(eq + 1);
+      } else {
+        const k = a.slice(2);
+        const next = argv[i + 1];
+        result[k] = next !== undefined && !next.startsWith("--") ? argv[++i] : true;
+      }
     } else {
       result._.push(a);
     }
@@ -86,9 +130,7 @@ export function parseFlags(argv) {
   return result;
 }
 
-/** Print to stderr and exit 1. */
+/** Report a terminal failure. Throws CliError — never returns. */
 export function die(msg, payload) {
-  console.error("✗ " + msg);
-  if (payload?.fields) for (const f of payload.fields) console.error(`  - ${f.field}: ${f.message}`);
-  process.exit(1);
+  throw new CliError(msg, payload);
 }

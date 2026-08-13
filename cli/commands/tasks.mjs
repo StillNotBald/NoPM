@@ -85,7 +85,7 @@ export async function run(rest, ctx) {
 
     case "rm":
     case "delete": {
-      const id = arg || f._[0];
+      const id = arg; // f._[0] is the subcommand itself — never an id
       if (!id) ctx.die("usage: nopm tasks rm <taskId> --reason <why>");
       if (!f.reason) ctx.die("usage: nopm tasks rm <taskId> --reason <why>");
       const result = await ctx.api("DELETE", `/api/tasks/${id}`, { reason: f.reason });

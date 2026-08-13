@@ -4,7 +4,7 @@
 // help: aggregates each module's describe + usage (no central registry to maintain)
 
 import { api, out, die, parseFlags, loadConfig } from "./lib/api.mjs";
-import { readdir } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,7 +30,12 @@ async function showHelp() {
     }
     console.log();
   }
-  console.log("  global: --json for machine output");
+  console.log("  global: --json for machine output, --curl to print the request instead of sending it");
+}
+
+async function showVersion() {
+  const pkg = JSON.parse(await readFile(path.join(__dir, "package.json"), "utf8"));
+  console.log(`nopm ${pkg.version}`);
 }
 
 async function main() {
@@ -41,12 +46,16 @@ async function main() {
     await showHelp();
     return;
   }
+  if (group === "--version" || group === "-v") {
+    await showVersion();
+    return;
+  }
 
   // Build context that every command module receives
   const flags = parseFlags(rest);
   const ctx = {
     flags,
-    api: (method, p, body) => api(method, p, body),
+    api: (method, p, body) => api(method, p, body, { curl: flags.curl }),
     out: (data, _ctx, columns) => out(data, { flags }, columns),
     die,
     loadConfig,
@@ -59,15 +68,29 @@ async function main() {
     if (e.code === "ERR_MODULE_NOT_FOUND") {
       console.error(`✗ Unknown command: ${group}`);
       console.error("Run  nopm help  for available commands.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
     throw e;
+  }
+
+  // `nopm <group> --help` / `-h` prints the group's usage — it must NEVER
+  // fall through to a default subcommand and fire a live API call.
+  if (flags.help) {
+    console.log(`${group}  —  ${mod.describe ?? ""}`);
+    for (const u of mod.usage ?? []) console.log(`  ${u}`);
+    return;
   }
 
   await mod.run(rest, ctx);
 }
 
 main().catch((e) => {
-  // Structured API errors already have a user-friendly message from api()
-  die(e.message, e.payload);
+  if (e?.isDryRun) return; // --curl printed the request; nothing was sent
+  // CliError (and structured API errors) carry a user-friendly message
+  console.error("✗ " + e.message);
+  if (e?.payload?.fields) {
+    for (const f of e.payload.fields) console.error(`  - ${f.field}: ${f.message}`);
+  }
+  process.exitCode = 1;
 });

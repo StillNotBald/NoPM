@@ -24,7 +24,7 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-20 | API contract | DONE | `web/src/lib/api/handler.ts`, `web/src/lib/api/response.ts`, `web/src/lib/api/errors.ts` | — |
 | R-21 | OpenAPI spec | DONE | `web/src/app/api/openapi.json/route.ts` | — |
 | R-22 | /llms.txt | DONE | `web/src/app/llms.txt/route.ts` | — |
-| R-23 | nopm CLI | DONE | `cli/nopm.mjs`, `cli/package.json` | — |
+| R-23 | nopm CLI | DONE | `cli/nopm.mjs`, `cli/lib/api.mjs`, `cli/commands/timeline.mjs`, `cli/commands/openapi.mjs`, `cli/package.json`, `cli/README.md` | `cli/test/cli.test.mjs` |
 | R-24 | BYOK governed AI assistant | DONE | `web/src/lib/crypto.ts`, `web/supabase/migrations/20260608000014_assistant_credentials.sql`, `web/src/app/api/assistant/credentials/route.ts`, `web/src/app/api/assistant/chat/route.ts`, `web/src/lib/assistant/index.ts`, `web/src/lib/assistant/tools.ts`, `web/src/lib/assistant/token.ts`, `web/src/lib/assistant/providers/index.ts`, `web/src/lib/assistant/fallback.ts`, `web/src/components/assistant/panel.tsx`, `web/src/components/assistant/setup.tsx` | — |
 | R-30 | RAG dashboard | DONE | `web/src/app/(console)/dashboard/page.tsx`, `web/src/components/dashboard/rag-donut-card.tsx`, `web/src/components/dashboard/health-rollup-cards.tsx`, `web/src/components/dashboard/program-bar-card.tsx` | — |
 | R-31 | Registers + inspector | DONE | `web/src/components/tracking/detail-panel.tsx`, `web/src/components/tracking/activity-table.tsx`, `web/src/components/layout/app-shell.tsx` | — |

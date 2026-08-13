@@ -23,9 +23,26 @@ Shipped:
 - Root `.mcp.json` — zero-config MCP pickup in Claude Code for a cloned repo.
 - `web/mcp/README.md` — 23-tool catalogue, Claude Code zero-config section.
 
+### Wave 2 — CLI hardening + installability (R-23)
+Pre-wave audit findings: `nopm <group> --help` silently executed the group's default live API call (verified: `projects --help` fired GET /api/projects); missing-id guards were defeated by their own `arg || f._[0]` fallback (`nopm tasks rm --reason x` sent `DELETE /api/tasks/rm`); `die()` called `process.exit(1)` mid-request, tripping a libuv assertion on Windows on every error; `private: true` with no license/engines; zero tests; PAT config written with default permissions.
+
+Shipped:
+- Errors-as-exceptions: `die()` now throws `CliError`; the dispatcher prints + sets `process.exitCode` — no more mid-request exits, no more libuv assertion.
+- Central `--help`/`-h` interception in the dispatcher — prints the group's usage, structurally cannot fall through to a live call (all 26 groups at once).
+- Missing-id guards fixed at all 3 `|| f._[0]` sites (tasks rm, approve, approve reject).
+- `parseFlags`: `--flag=value` syntax (expresses values starting with `--`), `-h` → help.
+- `--curl` global dry-run flag — prints the exact request with the token masked as `$NOPM_TOKEN`.
+- `saveConfig`: 0700 dir / 0600 file (PAT at rest).
+- New commands: `nopm timeline` (Mainline graph), `nopm openapi` (live spec index, no auth).
+- `projects create` now requires `--code` (matches the validator — was a guaranteed 422 without it).
+- Installable: `private` removed, MIT, `bin`, `files`, `engines >=20`, v1.0.0.
+- `cli/test/cli.test.mjs` — 15 node:test contract tests (parseFlags/die/out units + stubbed-ctx URL/body assertions + "dies BEFORE any API call" guards + all-modules help contract). `npm test` wired.
+- README rewritten (install, --curl, tests, full catalogue pointer).
+
 ## R-IDs touched
 - R-64 → DONE (new)
 - R-25 → code column updated (tools.mjs)
+- R-23 → hardened; tests column filled
 
 ## Files
 - `web/mcp/tools.mjs` (new), `web/mcp/server.mjs`, `web/src/lib/assistant/tools.ts`
