@@ -27,6 +27,28 @@ HTTP status codes: 200 ok, 201 created, 202 accepted, 204 no content,
 Lists accept ?limit (1..100, default 20) and ?page (1-based).
 Response includes total, page, limit alongside data.
 
+## Field enums & formats (read this to avoid 422s)
+Projects:    code REQUIRED on create (1-32 chars, short unique identifier, e.g. APOLLO); name REQUIRED.
+             rag_status = not_started | red | amber | green | complete
+             phase = initiation | planning | execution | monitoring | closing
+             start_date / target_date = YYYY-MM-DD; currency = 3-letter ISO code.
+Tasks:       name REQUIRED. status_type = backlog | unstarted | started | completed | canceled (default backlog)
+             priority = low | medium | high | urgent (default medium)
+             start_date / due_date = YYYY-MM-DD; completion_pct = integer 0-100.
+Milestones:  name REQUIRED. status = not_started | on_track | at_risk | delayed | completed
+             target_date = ISO 8601 datetime WITH offset (e.g. 2026-09-30T00:00:00Z); start_date = YYYY-MM-DD.
+Risks:       title, severity, likelihood REQUIRED. severity / likelihood = low | medium | high | critical
+             status = open | mitigating | closed | accepted (default open)
+             raised_at / due_date = ISO 8601 datetime with offset.
+Issues:      title, priority REQUIRED. priority = low | medium | high | urgent
+             severity (optional) = low | medium | high | critical
+             status = open | in_progress | resolved | closed (default open)
+             resolution_eta / resolved_at = YYYY-MM-DD.
+Task deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
+Change requests: title, category, priority, status REQUIRED on create; priority = low | medium | high | critical
+             decision endpoint takes { "decision": "approve" | "reject" | "defer", "rationale": "..." }.
+Task dependencies: type = FS | SS | FF | SF (default FS), lag_days integer (default 0).
+
 ## Maker-checker: task deletion
 DELETE /tasks/{id} does NOT immediately delete the task.
 It requires scope task:delete:request and creates a deletion_request with status=pending.
@@ -44,16 +66,26 @@ Read it at GET /audit (scope: audit:read).
 
 GET    /health                             — scope:none — liveness probe, public
 GET    /me                                 — scope:any  — resolve the current actor (type, id, workspaceId, scopes)
+PATCH  /me                                 — user session only — update own profile
 
-GET    /tokens                             — scope:admin/manager session — list API tokens (token_hash never returned)
-POST   /tokens                             — scope:admin/manager session — mint a new token (raw value returned once)
-DELETE /tokens/{id}                        — scope:admin/manager session — revoke a token
+POST   /auth/demo-login                    — public — start a demo viewer session
+POST   /auth/signout                       — user session — end the session
+GET    /auth/mfa                           — user session — get MFA enabled status for the current user
+POST   /auth/mfa/enroll                    — user session — begin TOTP enrollment (returns secret + otpauth URI)
+POST   /auth/mfa/verify                    — user session — confirm TOTP code, enable MFA, receive backup codes (shown once)
+POST   /auth/mfa/disable                   — user session — disable MFA and clear TOTP secret
+
+GET    /tokens                             — admin/manager session — list API tokens (token_hash never returned)
+POST   /tokens                             — admin/manager session — mint a new token (raw value returned once)
+DELETE /tokens/{id}                        — admin/manager session — revoke a token
 
 GET    /projects                           — scope:project:read  — list projects in workspace
 POST   /projects                           — scope:project:write — create a project
 GET    /projects/{id}                      — scope:project:read  — get a project
 PATCH  /projects/{id}                      — scope:project:write — update a project
 DELETE /projects/{id}                      — scope:project:write — hard delete a project
+POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only)
+POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline
 
 GET    /projects/{id}/milestones           — scope:milestone:read  — list milestones for a project
 POST   /projects/{id}/milestones           — scope:milestone:write — create a milestone under a project
@@ -66,6 +98,9 @@ POST   /projects/{id}/tasks                — scope:task:write — create a tas
 GET    /tasks/{id}                         — scope:task:read  — get a task
 PATCH  /tasks/{id}                         — scope:task:write — update a task (Kanban moves are audited)
 DELETE /tasks/{id}                         — scope:task:delete:request — request task deletion (maker step, returns 202, creates deletion_request)
+GET    /tasks/{id}/dependencies            — scope:task:read  — list a task's predecessors
+POST   /tasks/{id}/dependencies            — scope:task:write — add a dependency (predecessor_id, type FS|SS|FF|SF, lag_days)
+DELETE /tasks/{id}/dependencies            — scope:task:write — remove a dependency (predecessor_id in body)
 
 GET    /projects/{id}/risks                — scope:risk:read  — list risks for a project
 POST   /projects/{id}/risks                — scope:risk:write — create a risk under a project
@@ -108,16 +143,57 @@ GET    /projects/{id}/expenses             — scope:budget:read  — list expen
 POST   /projects/{id}/expenses             — scope:budget:write — create an expense for a project
 DELETE /expenses/{id}                      — scope:budget:write — delete an expense
 
+GET    /documents                          — scope:document:read  — list documents (?project_id, ?doc_type, ?status filters)
+POST   /documents                          — scope:document:write — create a document record
+GET    /documents/{id}                     — scope:document:read  — get a document
+PATCH  /documents/{id}                     — scope:document:write — update a document
+DELETE /documents/{id}                     — scope:document:write — delete a document
+GET    /documents/{id}/file                — scope:document:read  — download the attached file
+POST   /documents/{id}/file                — scope:document:write — attach an uploaded file (path, file_name, mime_type, file_size)
+DELETE /documents/{id}/file                — scope:document:write — detach the file
+POST   /documents/{id}/file/sign           — scope:document:write — get a signed upload URL (max 25 MiB)
+
+GET    /projects/{id}/decisions            — scope:decision:read  — list decisions for a project
+POST   /projects/{id}/decisions            — scope:decision:write — record a decision
+GET    /decisions/{id}                     — scope:decision:read  — get a decision
+PATCH  /decisions/{id}                     — scope:decision:write — update a decision
+DELETE /decisions/{id}                     — scope:decision:write — delete a decision
+
+GET    /projects/{id}/change-requests      — scope:change:read  — list change requests for a project
+POST   /projects/{id}/change-requests      — scope:change:write — raise a change request
+GET    /change-requests/{id}               — scope:change:read  — get a change request
+PATCH  /change-requests/{id}               — scope:change:write — update a change request
+DELETE /change-requests/{id}               — scope:change:write — delete a change request
+POST   /change-requests/{id}/decision      — scope:change:write — decide a change request (approve | reject | defer + rationale, audited)
+
+GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
+POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required)
+POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign off a rebaseline (four-eyes)
+POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply a signed-off rebaseline
+
 GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed)
 POST   /deletion-requests/{id}/approve     — scope:task:delete:approve — approve and execute a pending deletion (four-eyes: approver != requester)
 POST   /deletion-requests/{id}/reject      — scope:task:delete:approve — reject a pending deletion request
 
-GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id)
+GET    /notifications                      — scope:notification:read — list in-app notifications for the actor
+PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
+POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
-GET    /auth/mfa                           — scope:user session — get MFA enabled status for the current user
-POST   /auth/mfa/enroll                    — scope:user session — begin TOTP enrollment (returns secret + otpauth URI)
-POST   /auth/mfa/verify                    — scope:user session — confirm TOTP code, enable MFA, receive backup codes (shown once)
-POST   /auth/mfa/disable                   — scope:user session — disable MFA and clear TOTP secret
+GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id)
+GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, risks, issues, clashes, documents, change requests, decisions
+GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
+
+GET    /reports/deck                       — scope:audit:read — portfolio deck (?format=pptx|pdf|html)
+POST   /reports/deck                       — scope:audit:read — portfolio deck (POST variant)
+GET    /reports/project/{id}               — scope:audit:read — single-project report (?format=pptx|pdf|html)
+POST   /reports/project/{id}               — scope:audit:read — single-project report (POST variant)
+
+POST   /assistant/chat                     — user session only — BYOK governed assistant turn (SSE or JSON)
+GET    /assistant/conversations            — user session only — list saved assistant conversations
+GET    /assistant/conversations/{id}       — user session only — get one conversation
+GET    /assistant/credentials              — user session only — check stored provider credential status (never returns the key)
+PUT    /assistant/credentials              — user session only — store a provider API key (AES-256-GCM at rest)
+DELETE /assistant/credentials              — user session only — remove the stored key
 
 GET    /api/openapi.json                   — scope:none — OpenAPI 3.1 spec for this API (public)
 
@@ -126,9 +202,13 @@ GET    /api/openapi.json                   — scope:none — OpenAPI 3.1 spec f
 ## MCP server
 
 NoPM ships a native Model Context Protocol (MCP) server at web/mcp/server.mjs.
-It exposes the governed tool set above over STDIO so any MCP client (Claude Desktop, Cursor, etc.)
-can drive NoPM as an agent. Capabilities are bounded by the PAT scopes; all writes are audited;
-task deletion goes through maker-checker. See web/mcp/README.md for setup instructions.
+It exposes 23 governed tools (list/get/create/update across the core modules, plus
+workspace search, budget, clashes, resources, and the audit log) over STDIO so any
+MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agent.
+Tool schemas are generated from the same registry the in-app assistant uses and are
+lock-tested against the API's Zod validators. Capabilities are bounded by the PAT
+scopes; all writes are audited; task deletion goes through maker-checker.
+See web/mcp/README.md for setup instructions.
 
 ---
 
@@ -137,7 +217,7 @@ task deletion goes through maker-checker. See web/mcp/README.md for setup instru
 Task deletion is intentionally two-step to provide change-control traceability:
 
 1. Maker step   — token with scope task:delete:request calls DELETE /tasks/{id}
-                  (optionally with a JSON body containing "reason")
+                  with a JSON body containing "reason" (REQUIRED)
                   Returns 202 with a deletion_request object (status=pending)
                   The task is NOT deleted yet.
 
@@ -150,6 +230,9 @@ Task deletion is intentionally two-step to provide change-control traceability:
 
 To cancel instead: POST /deletion-requests/{id}/reject (same scope, self-rejection allowed).
 `;
+
+/** Exported for llms-coverage.test.ts — locks this index to the OpenAPI spec. */
+export const textForTesting = TEXT;
 
 export const GET = route(
   async () =>

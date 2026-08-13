@@ -1,6 +1,30 @@
 import { route } from "@/lib/api/handler";
+import { z } from "zod";
+import { createProjectSchema, updateProjectSchema } from "@/app/api/projects/_schema";
+import { createMilestoneSchema, updateMilestoneSchema } from "@/app/api/milestones/_schema";
+import {
+  TaskCreateSchema,
+  TaskUpdateSchema,
+  TaskDeleteRequestSchema,
+} from "@/app/api/tasks/_schema";
+import { createRiskSchema, updateRiskSchema } from "@/app/api/risks/_schema";
+import { createIssueSchema, updateIssueSchema } from "@/app/api/issues/_schema";
 
 export const runtime = "nodejs";
+
+/**
+ * Request bodies for the core governed entities are GENERATED from the same
+ * Zod validators the endpoints run — the spec cannot drift from what the API
+ * actually accepts. (tools-zod.test.ts locks the agent tool registry to the
+ * same validators.)
+ */
+function zodBody(schema: z.ZodType, required = true) {
+  const { $schema: _, ...jsonSchema } = z.toJSONSchema(schema, { io: "input" }) as Record<
+    string,
+    unknown
+  >;
+  return { required, content: { "application/json": { schema: jsonSchema } } };
+}
 
 const spec = {
   openapi: "3.1.0",
@@ -136,7 +160,7 @@ const spec = {
         summary: "Create a project",
         description: "scope: project:write",
         operationId: "createProject",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, description: { type: "string" }, status: { type: "string" }, start_date: { type: "string", format: "date" }, end_date: { type: "string", format: "date" } } } } } },
+        requestBody: zodBody(createProjectSchema),
         responses: {
           "201": { description: "Project created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -161,7 +185,7 @@ const spec = {
         description: "scope: project:write",
         operationId: "updateProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, status: { type: "string" }, start_date: { type: "string", format: "date" }, end_date: { type: "string", format: "date" } } } } } },
+        requestBody: zodBody(updateProjectSchema),
         responses: {
           "200": { description: "Updated project", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -201,7 +225,7 @@ const spec = {
         description: "scope: milestone:write",
         operationId: "createMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name"], properties: { name: { type: "string" }, target_date: { type: "string", format: "date" }, status: { type: "string" }, completion_pct: { type: "number" }, owner_id: { type: "string", format: "uuid" }, sort_order: { type: "integer" } } } } } },
+        requestBody: zodBody(createMilestoneSchema),
         responses: {
           "201": { description: "Milestone created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -226,7 +250,7 @@ const spec = {
         description: "scope: milestone:write",
         operationId: "updateMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, target_date: { type: "string", format: "date" }, status: { type: "string" }, completion_pct: { type: "number" }, owner_id: { type: "string", format: "uuid" }, sort_order: { type: "integer" } } } } } },
+        requestBody: zodBody(updateMilestoneSchema),
         responses: {
           "200": { description: "Updated milestone", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -265,7 +289,7 @@ const spec = {
         description: "scope: task:write",
         operationId: "createTask",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "status_type"], properties: { name: { type: "string" }, description: { type: "string" }, milestone_id: { type: "string", format: "uuid" }, status_type: { type: "string" }, status: { type: "string" }, assignee_id: { type: "string", format: "uuid" }, priority: { type: "string" }, start_date: { type: "string", format: "date" }, due_date: { type: "string", format: "date" }, completion_pct: { type: "number" }, sort_order: { type: "integer" } } } } } },
+        requestBody: zodBody(TaskCreateSchema),
         responses: {
           "201": { description: "Task created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -290,7 +314,7 @@ const spec = {
         description: "scope: task:write. Kanban status moves are audited.",
         operationId: "updateTask",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" }, description: { type: "string" }, status_type: { type: "string" }, status: { type: "string" }, assignee_id: { type: "string", format: "uuid" }, priority: { type: "string" }, start_date: { type: "string", format: "date" }, due_date: { type: "string", format: "date" }, completion_pct: { type: "number" }, sort_order: { type: "integer" } } } } } },
+        requestBody: zodBody(TaskUpdateSchema),
         responses: {
           "200": { description: "Updated task", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -302,7 +326,7 @@ const spec = {
         description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending. Returns 202. A different token with scope task:delete:approve must approve it.",
         operationId: "requestTaskDeletion",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
+        requestBody: zodBody(TaskDeleteRequestSchema),
         responses: {
           "202": { description: "Deletion request created (pending)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Duplicate pending request", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -330,7 +354,7 @@ const spec = {
         description: "scope: risk:write",
         operationId: "createRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "severity", "likelihood", "status"], properties: { title: { type: "string" }, description: { type: "string" }, severity: { type: "string" }, likelihood: { type: "string" }, category: { type: "string" }, mitigation: { type: "string" }, owner_id: { type: "string", format: "uuid" }, status: { type: "string" }, raised_at: { type: "string", format: "date-time" }, due_date: { type: "string", format: "date" } } } } } },
+        requestBody: zodBody(createRiskSchema),
         responses: {
           "201": { description: "Risk created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -355,7 +379,7 @@ const spec = {
         description: "scope: risk:write",
         operationId: "updateRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, severity: { type: "string" }, likelihood: { type: "string" }, category: { type: "string" }, mitigation: { type: "string" }, owner_id: { type: "string", format: "uuid" }, status: { type: "string" }, raised_at: { type: "string", format: "date-time" }, due_date: { type: "string", format: "date" } } } } } },
+        requestBody: zodBody(updateRiskSchema),
         responses: {
           "200": { description: "Updated risk", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -394,7 +418,7 @@ const spec = {
         description: "scope: issue:write",
         operationId: "createIssue",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "priority", "status"], properties: { title: { type: "string" }, description: { type: "string" }, priority: { type: "string" }, resolution: { type: "string" }, owner_id: { type: "string", format: "uuid" }, status: { type: "string" }, raised_at: { type: "string", format: "date-time" }, due_date: { type: "string", format: "date" } } } } } },
+        requestBody: zodBody(createIssueSchema),
         responses: {
           "201": { description: "Issue created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -419,7 +443,7 @@ const spec = {
         description: "scope: issue:write",
         operationId: "updateIssue",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, priority: { type: "string" }, resolution: { type: "string" }, owner_id: { type: "string", format: "uuid" }, status: { type: "string" }, raised_at: { type: "string", format: "date-time" }, due_date: { type: "string", format: "date" } } } } } },
+        requestBody: zodBody(updateIssueSchema),
         responses: {
           "200": { description: "Updated issue", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },

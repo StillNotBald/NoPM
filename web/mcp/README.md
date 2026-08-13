@@ -15,6 +15,10 @@ Select the scopes your agent needs (see below) and copy the token — it is show
 
 ### 2. Register in your MCP client
 
+#### Claude Code (zero config)
+
+A cloned repo already contains `.mcp.json` at the root. Set `NOPM_TOKEN` in your environment and open the repo in Claude Code — the `nopm` tools appear automatically.
+
 #### Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`)
 
 ```json
@@ -55,22 +59,32 @@ Restart your MCP client. In Claude Desktop you should see the NoPM tools in the 
 
 ## Tool catalogue
 
+Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the in-app assistant uses**, so the two agent surfaces cannot drift apart. Field names and enums are lock-tested against the API's Zod validators (`web/src/lib/assistant/tools-zod.test.ts`).
+
 | Tool | Method | Scope required |
 |---|---|---|
 | `list_projects` | GET /api/projects | `project:read` |
+| `get_project` | GET /api/projects/:id | `project:read` |
 | `create_project` | POST /api/projects | `project:write` |
+| `update_project` | PATCH /api/projects/:id | `project:write` |
 | `list_milestones` | GET /api/projects/:id/milestones | `milestone:read` |
 | `create_milestone` | POST /api/projects/:id/milestones | `milestone:write` |
+| `update_milestone` | PATCH /api/milestones/:id | `milestone:write` |
 | `list_tasks` | GET /api/projects/:id/tasks | `task:read` |
+| `get_task` | GET /api/tasks/:id | `task:read` |
 | `create_task` | POST /api/projects/:id/tasks | `task:write` |
+| `update_task` | PATCH /api/tasks/:id (the governed Kanban move) | `task:write` |
 | `request_task_deletion` | DELETE /api/tasks/:id | `task:delete:request` |
 | `list_risks` | GET /api/projects/:id/risks | `risk:read` |
 | `create_risk` | POST /api/projects/:id/risks | `risk:write` |
+| `update_risk` | PATCH /api/risks/:id | `risk:write` |
 | `list_issues` | GET /api/projects/:id/issues | `issue:read` |
 | `create_issue` | POST /api/projects/:id/issues | `issue:write` |
+| `update_issue` | PATCH /api/issues/:id | `issue:write` |
 | `get_budget` | GET /api/projects/:id/budget | `budget:read` |
 | `list_clashes` | GET /api/clashes | `clash:read` |
 | `list_resources` | GET /api/resources | `resource:read` |
+| `search_workspace` | GET /api/search | `project:read` |
 | `query_audit` | GET /api/audit | `audit:read` |
 
 ### Recommended minimum scopes for a read-only agent
