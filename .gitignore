@@ -29,3 +29,8 @@ nopm-reels/
 docs/research/
 scripts/wf-*.js
 web/scripts/mainline-*.html
+
+# machine-local harness + impeccable local state
+.claude/settings.local.json
+.impeccable/config.local.json
+.impeccable/cache/
