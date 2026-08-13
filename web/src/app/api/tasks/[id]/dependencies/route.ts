@@ -25,7 +25,7 @@ const DependencyDeleteSchema = z.object({
 
 type DependencyCreateInput = z.infer<typeof DependencyCreateSchema>;
 
-// ── Circular-dependency guard (ported from prior-pmo-tool schedulerUtils) ──────────────
+// ── Circular-dependency guard (ported from a prior PMO tool's scheduler utils) ─
 
 /**
  * Returns true if a path exists from `startId` to `endId` through

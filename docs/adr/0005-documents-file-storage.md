@@ -5,7 +5,7 @@
 
 ## Context
 
-The predecessor-platform-reuse wave called for a "document folder viewer." Two readings were possible: (a) a metadata-only **document control register** (folder, version, approval status, owner, provenance) over generated/linked artifacts, or (b) **real file storage** — upload, store, preview, download actual files. The first interpretation was shipped first (register + Review Queue); the user then explicitly required **actual file storage**.
+The platform-reuse wave called for a "document folder viewer." Two readings were possible: (a) a metadata-only **document control register** (folder, version, approval status, owner, provenance) over generated/linked artifacts, or (b) **real file storage** — upload, store, preview, download actual files. The first interpretation was shipped first (register + Review Queue); the user then explicitly required **actual file storage**.
 
 Document storage was not in the original v1 module list, so per the constitution's "STOP and ask" rule it was surfaced and confirmed before building.
 

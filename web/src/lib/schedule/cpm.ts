@@ -1,9 +1,9 @@
 /**
  * Critical Path Method (CPM) — pure, side-effect-free.
  *
- * Ported and adapted from prior-pmo-tool/utils/cpmUtils.ts.
+ * Ported and adapted from a prior PMO tool's CPM utils.
  * Works on NoPM's relational data shapes (tasks array + flat deps array)
- * rather than prior-pmo-tool's nested JSON. No I/O, no React, no Next.js — safe
+ * rather than that tool's nested JSON. No I/O, no React, no Next.js — safe
  * to import on the client or server.
  */
 

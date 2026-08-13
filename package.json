@@ -1,6 +1,7 @@
 {
   "name": "nopm-workspace",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "description": "NoPM — agent-operable project governance (portfolio proof-piece). Governance workspace at root; app in web/.",
   "scripts": {

@@ -3,7 +3,7 @@
 **TL;DR:** Four enrichment passes in one day: Apple re-theme → 3-panel shell → PMBOK fields → EVM + risk scoring + History tab; also right-push panel + reference IDs.
 
 ## Declared goals
-- Re-theme to Apple/iOS white+grey (matching prior-console-app look-and-feel)
+- Re-theme to Apple/iOS white+grey (matching the prior console app's look-and-feel)
 - 3-panel responsive shell: icon-rail sidebar, mobile drawer, right-push inspector
 - PMBOK content enrichment: additive nullable fields on all entities (charter, risk scoring, baseline dates, task acceptance criteria, issue severity)
 - EVM panel: PV/EV/AC/CPI/SPI/EAC/VAC from real budget + completion data

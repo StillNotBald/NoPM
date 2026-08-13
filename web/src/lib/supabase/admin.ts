@@ -6,7 +6,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
  * fail-closed audit writes, and maker-checker commits that must run
  * regardless of the caller's row-level permissions.
  *
- * Cached as a process singleton (one socket pool) per predecessor-platform's pattern.
+ * Cached as a process singleton (one socket pool).
  */
 let cached: SupabaseClient | null = null;
 

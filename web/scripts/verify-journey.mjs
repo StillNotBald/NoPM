@@ -12,8 +12,9 @@ const env = Object.fromEntries(
   readFileSync(path.join(here, "..", ".env.local"), "utf8")
     .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
 );
+const dbRef = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
 const c = new pg.Client({
-  connectionString: `postgresql://postgres:${env.SUPABASE_DB_PASSWORD}@db.supabase-project-ref.supabase.co:5432/postgres`,
+  connectionString: env.DB_URL || `postgresql://postgres:${env.SUPABASE_DB_PASSWORD}@db.${dbRef}.supabase.co:5432/postgres`,
   ssl: { rejectUnauthorized: false },
 });
 await c.connect();

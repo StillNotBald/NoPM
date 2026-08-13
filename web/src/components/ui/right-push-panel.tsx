@@ -3,7 +3,7 @@
 /**
  * RightPushPanel — non-modal right-side panel that PUSHES the content column.
  *
- * Design contract (ported from predecessor-platform's RightPushPanel.tsx):
+ * Design contract (ported from a prior platform's RightPushPanel):
  *  - Slides in from the right edge; NO backdrop/overlay on desktop.
  *  - On desktop (lg+) the caller's <main> gets a right-margin via the exported
  *    PUSH_MARGIN / PUSH_MARGIN_NONE helpers so the columns sit side-by-side.

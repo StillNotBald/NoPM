@@ -10,8 +10,9 @@ const env = Object.fromEntries(
     .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
 );
 const pw = env.SUPABASE_DB_PASSWORD;
+const ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
 const c = new pg.Client({
-  connectionString: `postgresql://postgres:${pw}@db.supabase-project-ref.supabase.co:5432/postgres`,
+  connectionString: env.DB_URL || `postgresql://postgres:${pw}@db.${ref}.supabase.co:5432/postgres`,
   ssl: { rejectUnauthorized: false },
 });
 await c.connect();

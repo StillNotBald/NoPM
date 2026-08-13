@@ -36,7 +36,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 - **R-64** Agent tool-registry integrity — ONE tool registry (`web/mcp/tools.mjs`) shared verbatim by the MCP server and the in-app assistant (no copy to drift); every write tool's field names, required list, and enums **lock-tested against the API's Zod validators** (`z.toJSONSchema` introspection — the drift that once made 5 write tools 422 on every call is now CI-impossible); OpenAPI request bodies for the core entities **generated from the same Zod schemas**; `llms.txt` covered by its own spec-coverage drift test; registry expanded with `get_*`/`update_*`/`search_workspace` (the governed Kanban move is now agent-reachable) under the unchanged least-privilege scope ceiling; repo-root `.mcp.json` for zero-config Claude Code pickup. — **DONE**
 - **R-28** Mainline portfolio timeline — one governed `GET /api/timeline` assembling the cross-project graph (lanes/nodes/edges/critical-path) + a real task-dependency DAG seed. — **PARTIAL** (feed + dependency data shipped; the Subway/Journal/Network switcher UI deferred)
 
-## Console (prior-console-app look)
+## Console
 - **R-30** RAG portfolio dashboard (health cards, project table, filter pills). — **DONE**
 - **R-31** Registers as tables + right-inspector. — **DONE**
 - **R-32** Kanban — drag = an audited status change. — **DONE**

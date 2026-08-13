@@ -1,6 +1,6 @@
 # Sprint Summary — 2026-06-08_w3-console-ui-exports
 
-**TL;DR:** Full console UI (prior-console-app look) across all 8 modules + server-side deck export PPTX/PDF/HTML; verified 3/3.
+**TL;DR:** Full console UI across all 8 modules + server-side deck export PPTX/PDF/HTML; verified 3/3.
 
 ## Declared goals
 - Console pages for all 8 PM modules + governance screens (R-30..R-36)

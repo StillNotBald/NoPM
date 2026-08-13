@@ -1,4 +1,4 @@
--- NoPM · 0008 content enrichment — additive P0 fields that port prior-pmo-tool / PMBOK
+-- NoPM · 0008 content enrichment — additive P0 fields that port a prior PMO tool / PMBOK
 -- richness (charter, baselines, risk scoring, RAID parity) onto existing tables.
 --
 -- ADDITIVE ONLY: every column is nullable (or carries a safe default); no existing
@@ -46,13 +46,13 @@ alter table projects
   add column health_commentary    text,
   add column baseline_start_date  date,
   add column baseline_target_date date;
-comment on column projects.business_case        is 'PMBOK charter: business case / justification (prior-pmo-tool benefitOfBusiness).';
-comment on column projects.objective            is 'PMBOK charter: project purpose / objective (prior-pmo-tool projectObjective).';
-comment on column projects.scope_summary        is 'PMBOK charter: high-level scope (prior-pmo-tool scope / synopsis).';
+comment on column projects.business_case        is 'PMBOK charter: business case / justification (prior-tool benefitOfBusiness).';
+comment on column projects.objective            is 'PMBOK charter: project purpose / objective (prior-tool projectObjective).';
+comment on column projects.scope_summary        is 'PMBOK charter: high-level scope (prior-tool scope / synopsis).';
 comment on column projects.sponsor              is 'PMBOK charter: named project sponsor.';
 comment on column projects.project_manager      is 'PMBOK charter: named project manager.';
 comment on column projects.phase                is 'PMBOK process group the project is currently in.';
-comment on column projects.health_commentary    is 'RAG narrative — one-line "why is it amber?" (prior-pmo-tool WeeklyLog.content).';
+comment on column projects.health_commentary    is 'RAG narrative — one-line "why is it amber?" (prior-tool WeeklyLog.content).';
 comment on column projects.baseline_start_date  is 'PMBOK baseline start; pairs with start_date for schedule variance.';
 comment on column projects.baseline_target_date is 'PMBOK baseline finish; source for rebaseline diff.';
 
@@ -63,11 +63,11 @@ alter table milestones
   add column start_date           date,
   add column baseline_target_date date,
   add column actual_date          date;
-comment on column milestones.description          is 'Milestone narrative (prior-pmo-tool Milestone.description / Asana notes).';
+comment on column milestones.description          is 'Milestone narrative (prior-tool Milestone.description / Asana notes).';
 comment on column milestones.deliverable          is 'PMBOK WBS deliverable / acceptance output.';
-comment on column milestones.start_date           is 'Milestone start; needed for a real Gantt bar (prior-pmo-tool startDate).';
+comment on column milestones.start_date           is 'Milestone start; needed for a real Gantt bar (prior-tool startDate).';
 comment on column milestones.baseline_target_date is 'PMBOK baseline finish; feeds rebaseline diff.';
-comment on column milestones.actual_date          is 'Actual achieved date (prior-pmo-tool actualEndDate / achievedDate).';
+comment on column milestones.actual_date          is 'Actual achieved date (prior-tool actualEndDate / achievedDate).';
 
 -- ── tasks: agile / Jira-Asana-ClickUp parity metadata ───────────────────────
 alter table tasks
@@ -94,8 +94,8 @@ alter table risks
   add column residual_risk    text;
 comment on column risks.probability_pct  is 'PMBOK quantitative probability of occurrence (0-100).';
 comment on column risks.impact_score     is 'PMBOK impact on a 1-5 scale; pairs with likelihood for the 5x5 matrix.';
-comment on column risks.response_strategy is 'PMBOK four threat responses (orthogonal to status). prior-pmo-tool STRATEGY_TYPES.';
-comment on column risks.risk_category    is 'Governance taxonomy (prior-pmo-tool RISK_CATEGORIES, 10 values).';
+comment on column risks.response_strategy is 'PMBOK four threat responses (orthogonal to status). prior-tool STRATEGY_TYPES.';
+comment on column risks.risk_category    is 'Governance taxonomy (prior-tool RISK_CATEGORIES, 10 values).';
 comment on column risks.impact_area      is 'PMBOK impact category the risk threatens.';
 comment on column risks.trigger          is 'PMBOK risk trigger / early-warning indicator.';
 comment on column risks.residual_risk    is 'PMBOK residual risk remaining after the chosen response.';
@@ -108,8 +108,8 @@ alter table issues
   add column resolution_eta date,
   add column resolved_at    date;
 comment on column issues.severity       is 'PMBOK issue impact severity; parity with the risk register.';
-comment on column issues.issue_category is 'Governance taxonomy (prior-pmo-tool ISSUE_CATEGORIES, 10 values).';
-comment on column issues.impact         is 'PMBOK issue-log "impact" narrative (prior-pmo-tool impactAnalysis).';
+comment on column issues.issue_category is 'Governance taxonomy (prior-tool ISSUE_CATEGORIES, 10 values).';
+comment on column issues.impact         is 'PMBOK issue-log "impact" narrative (prior-tool impactAnalysis).';
 comment on column issues.resolution_eta is 'PMBOK target resolution date.';
 comment on column issues.resolved_at    is 'PMBOK issue lifecycle: date the issue was resolved/closed.';
 

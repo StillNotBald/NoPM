@@ -23,9 +23,9 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - Dev: `npm run dev`  ·  Build: `npm run build`  ·  Lint: `npm run lint`
 - Migrate: `npm run migrate` (set `DB_URL` to the Supabase connection string first)
 - Test: `npm run test` (vitest — added in W6)
-- Supabase project: `nopm` / ref `supabase-project-ref` / ap-southeast-1. Secrets in `web/.env.local` (gitignored).
+- Supabase project: `nopm` (ap-southeast-1). Project ref + secrets live in `web/.env.local` (gitignored).
 
-## Discipline (lite predecessor-platform)
+## Discipline (lite descendant of my regulated-platform methodology)
 - `requirements/REQUIREMENTS.md` (R-IDs, canonical) + `requirements/TRACEABILITY.md` (RTM mirror — update the same row in the same commit; `npm run rtm:verify`).
 - `sprint-log/<date>_<intent>/` from `_template/` — `SPRINT_SUMMARY.md` always (the receipt), `PLAN.md`/`DECISIONS.md` when warranted.
 - `docs/adr/NNNN-*.md` for architectural/irreversible decisions.
@@ -39,7 +39,7 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - sprintLog: `sprint-log/<date>_<intent>/` from `_template/` (SPRINT_SUMMARY.md always)
 - uiTemplates: macOS-terminal-light tokens (white/near-black canvas + ink text + terminal-green `#00a600` accent, JetBrains Mono accents), shadcn-style primitives (retheme owner-approved 2026-06-08, constitution corrected 2026-07-11)
 - sanitization: no real client/stakeholder names in tracked .md; portfolio-public repo
-- memoryStore: `~/.claude/projects/<redacted>/memory/`
+- memoryStore: the owner's local `~/.claude/projects/<this-repo>/memory/` (machine-local, not in the repo)
 
 ## Do NOT build (ask first)
 real email **send** (Resend stays demo-mode — previews only), dry-run gates, OAuth/PKCE, multi-tenant beyond workspace_id+RLS, custom-field engine, automations, comments/notification-threads, any bundled LLM. (Extra view types are also ask-first — the **Mainline** timeline UI is greenlit but parked.)

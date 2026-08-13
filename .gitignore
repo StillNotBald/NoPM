@@ -24,3 +24,8 @@ cli/*.pptx
 # Pitch material + rendered reels stay out of the repo (190MB media; pitch plan convention)
 nopm-pitch-assets/
 nopm-reels/
+
+# private research + dead orchestration scripts (removed from tracking 2026-08-13; history purged before publish)
+docs/research/
+scripts/wf-*.js
+web/scripts/mainline-*.html

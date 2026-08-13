@@ -9,7 +9,7 @@
 - **My Work "Tasks assigned to me" was always empty — real bug, not data.** Root-caused by reproducing the SSR server-client path: `my-work/page.tsx` selected `tasks.reference_id`, but the `tasks` table has **no** `reference_id` column → the query errored (`column tasks.reference_id does not exist`) → `tasksResult.data` was null → empty list. (Risks/issues legitimately have `reference_id`; tasks don't.) Removed it from the select; My Work now shows the 18 open tasks. *Status-only smoke + an `id`-only debug query both passed — only the exact page query + a body-level render check exposed it.*
 - **Dashboard project dossier (C-level §4a):** clicking a portfolio row now opens a right-push **status dossier** in the inspector — RAG + completion, milestone tracker, open risks/issues (deep-linked), recent **change history** (audit slice), baseline-slip, and "Open full project →". The project name still deep-links directly (stops propagation). New `ProjectDossier` + `DashboardProjectRow`; fetches via existing `/api/projects/[id]` + `/milestones` + `/risks` + `/issues` + `/api/audit`.
 - **Profile setting:** Settings → Profile now shows an avatar (initials), the account **email** (read-only, from the browser Supabase client), display name (editable, audited via `PATCH /api/me`), role + workspace.
-- **Privacy:** removed a hardcoded personal email (`hello@stillnotbald.com`) from the Settings "Contact support" link → `hello@stillnotbald.com`. (Was the only personal-email leak in `src/`.)
+- **Privacy:** removed a hardcoded personal email from the Settings "Contact support" link → `hello@stillnotbald.com`.
 
 ## R-IDs touched
 - R-41 / R-44 (My Work / unified identity) → bug fixed (tasks now resolve)

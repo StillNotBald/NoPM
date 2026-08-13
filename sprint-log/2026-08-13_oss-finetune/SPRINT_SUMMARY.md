@@ -55,7 +55,7 @@ Shipped (impeccable `polish` — refinement, incumbent world preserved; detector
 
 Verified: tsc clean, 533/533 tests, eslint 1 pre-existing warning only, production build green, impeccable detector 0 findings.
 
-### Wave 4 — credibility hardening (the predecessor-platform-gap items)
+### Wave 4 — credibility hardening (the predecessor-methodology gap items)
 The comparison audit's two sharpest findings both attacked the project's own thesis: governance gates that lived only on the owner's machine, and an RTM that traced to code but not to test evidence.
 
 Shipped:
@@ -67,6 +67,18 @@ Shipped:
 - **`npm run health`** — one-command RAG dashboard: requirements statuses, RTM integrity, test evidence, sprint-log freshness, ADR count, leak-gate status.
 - **RTM Tests column filled**: ~35 empty rows → 10 (the remainder are honestly untested). Concrete test files per row; page-render rows cite the authed smoke; R-60's stale "267/267" now defers to the generated metrics.
 - **Root README rewritten**: agent-surfaces table, START-HERE routing table, gates section, correct layout (cli/ was missing entirely).
+
+### Wave 5 — OSS scrub + publish pack
+Content scrub (this commit; the git-history purge follows as a separate confirmed step):
+- **MIT LICENSE** at root + `license` fields in root/web/cli package.json.
+- **Untracked + gitignored**: `docs/research/` (13 client-derived files incl. the self-declared PRIVATE folder), 11 dead `scripts/wf-*.js` orchestration scripts (absolute local paths), 190KB of off-theme `web/scripts/mainline-*.html` prototypes.
+- **Codenames genericized** in 22 sites across CLAUDE.md, 2 ADRs, REQUIREMENTS.md, 7 sprint logs, 4 source comments, and migration 0008's column comments (filename-tracked runner — text-only edit is safe): private repo names → neutral descriptions.
+- **Live Supabase ref removed** from CLAUDE.md and env-derived in `diag.mjs` / `verify-journey.mjs` (`DB_URL` override or ref parsed from `NEXT_PUBLIC_SUPABASE_URL`).
+- **Personal email redacted** from the wave11 sprint log (the note recording its own removal had re-leaked it).
+- **Machine path** removed from CLAUDE.md's memoryStore line.
+- **`web/.env.example` completed**: DB_URL, ADMIN_EMAIL/PASSWORD, NOPM_API_URL, NOPM_TOKEN (every var the code reads is now documented).
+- **`web/README.md`**: was untouched create-next-app boilerplate; now a real app guide (run/verify/layout/invariants/MCP).
+- **CONTRIBUTING.md + SECURITY.md** added (the same-commit discipline as contributor rules; security model as a probe map; the image-size exception documented).
 
 ## R-IDs touched
 - R-64 → DONE (new)
