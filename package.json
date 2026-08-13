@@ -9,6 +9,8 @@
     "lint": "npm --prefix web run lint",
     "test": "npm --prefix web run test",
     "migrate": "node web/scripts/apply-migrations.mjs",
-    "rtm:verify": "node scripts/rtm-verify.mjs"
+    "rtm:verify": "node scripts/rtm-verify.mjs",
+    "health": "node scripts/health.mjs",
+    "prepare": "node scripts/setup-hooks.mjs"
   }
 }

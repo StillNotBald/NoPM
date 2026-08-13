@@ -11,10 +11,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+// Env precedence: process.env (CI secrets) over web/.env.local (local dev).
+let fileEnv = {};
+try {
+  fileEnv = Object.fromEntries(
+    readFileSync(path.join(here, "..", ".env.local"), "utf8")
+      .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
+  );
+} catch {
+  // no .env.local — CI provides everything via process.env
+}
+const env = { ...fileEnv, ...process.env };
 const BASE = process.env.BASE || "https://stillnotbald.com";
 const EMAIL = process.env.ADMIN_EMAIL || env.ADMIN_EMAIL || "admin@stillnotbald.com";
 const ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];

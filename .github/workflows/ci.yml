@@ -37,6 +37,59 @@ jobs:
       - name: RTM integrity (requirements ↔ on-disk code paths)
         run: npm run rtm:verify
 
+      - name: Generated proof metrics are fresh (case-study numbers ↔ reality)
+        run: node scripts/gen-metrics.mjs --check
+
+  cli-tests:
+    # The CLI has zero dependencies — contract tests run on bare node.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: CLI contract tests
+        run: npm test
+
+  name-scan:
+    # The leak gate over EVERY tracked text file (hashed blocklist — the gate
+    # cannot leak what it guards). Same script the pre-commit hook runs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Confidential-token scan (full tree)
+        run: node scripts/commit-gate.mjs --all
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # Gate at critical. Standing high-severity exception (2026-08-13):
+      # image-size (via pptxgenjs) — DoS through malicious ICNS/JXL/HEIF
+      # parsing; no patched version exists. NoPM's deck export only feeds
+      # pptxgenjs data-driven charts/text, never user-supplied image files,
+      # so the vulnerable parse path is unreachable. Re-evaluate when
+      # image-size ships a fix.
+      - name: npm audit (production deps, critical)
+        run: npm audit --omit=dev --audit-level=critical
+
   secrets-scan:
     # Full-history secret scan (added 2026-07-11, boundary audit). NoPM's
     # history was verified clean the same day; this keeps it that way.

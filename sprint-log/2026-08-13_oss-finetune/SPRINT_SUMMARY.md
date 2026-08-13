@@ -55,6 +55,19 @@ Shipped (impeccable `polish` — refinement, incumbent world preserved; detector
 
 Verified: tsc clean, 533/533 tests, eslint 1 pre-existing warning only, production build green, impeccable detector 0 findings.
 
+### Wave 4 — credibility hardening (the predecessor-platform-gap items)
+The comparison audit's two sharpest findings both attacked the project's own thesis: governance gates that lived only on the owner's machine, and an RTM that traced to code but not to test evidence.
+
+Shipped:
+- **Gates travel with the clone**: checked-in `.githooks/` (pre-commit = leak gate; pre-push = typecheck + tests + RTM + metrics freshness + CLI tests) installed automatically via `prepare` → `scripts/setup-hooks.mjs` (zero-dep `core.hooksPath`, no husky).
+- **commit-gate rewritten with a HASHED blocklist** — the gate no longer contains the confidential names it guards (SHA-256 of normalized 1/2-grams). `--all` mode scans every tracked file; runs as a CI `name-scan` job. Fixed a false-positive (credentials/route.ts is code, not a secret dump). The gate immediately earned its keep: found 2 codename mentions in shipped source comments the audits had missed.
+- **CI upgraded 2 → 6 jobs**: verify (+ gen-metrics `--check`), cli-tests, name-scan, dependency-audit, secrets-scan (existing), plus the new `e2e-smoke.yml`.
+- **Authenticated E2E smoke in CI** (`e2e-smoke.yml`, weekly + on-demand): `auth-smoke.mjs` now falls back to process.env so CI secrets work — the check that historically caught what unit tests missed is no longer a manual one-off. R-61 TODO → PARTIAL.
+- **Dependency fixes**: `npm audit fix` + Next.js 16.2.7 → 16.3.0 cleared 10 of 12 vulnerabilities (all criticals); standing documented exception for image-size-via-pptxgenjs (unreachable parse path, no patched version exists).
+- **`npm run health`** — one-command RAG dashboard: requirements statuses, RTM integrity, test evidence, sprint-log freshness, ADR count, leak-gate status.
+- **RTM Tests column filled**: ~35 empty rows → 10 (the remainder are honestly untested). Concrete test files per row; page-render rows cite the authed smoke; R-60's stale "267/267" now defers to the generated metrics.
+- **Root README rewritten**: agent-surfaces table, START-HERE routing table, gates section, correct layout (cli/ was missing entirely).
+
 ## R-IDs touched
 - R-64 → DONE (new)
 - R-25 → code column updated (tools.mjs)
