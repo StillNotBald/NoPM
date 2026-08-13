@@ -126,10 +126,10 @@ describe("case-study page.tsx — header fits 390px", () => {
 // 4. Case-study hero heading — mobile step
 // ---------------------------------------------------------------------------
 describe("case-study page.tsx — hero h1 steps down on mobile", () => {
-  it("h1 is text-3xl below sm, text-4xl at sm+ (no undownscaled text-4xl)", () => {
+  it("h1 is text-3xl below sm, stepped up at sm+ (no undownscaled display size)", () => {
     const h1Line = CASE_STUDY.split("\n").find((l) => l.includes("<h1 "));
     expect(h1Line).toBeTruthy();
-    expect(h1Line).toMatch(/text-3xl sm:text-4xl/);
+    expect(h1Line).toMatch(/text-3xl sm:text-[45]xl/);
   });
 
   it("has no bare (non-stepped) text-4xl/5xl/6xl heading anywhere on the page", () => {

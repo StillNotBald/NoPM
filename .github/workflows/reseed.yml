@@ -59,5 +59,22 @@ jobs:
       - name: Reseed demo workspace
         run: npm run seed:all
 
+      - name: Repair demo login (password ↔ env sync)
+        # Reseed never touches auth passwords; this step re-aligns the demo
+        # user's password with the DEMO_PASSWORD secret and probes a real
+        # sign-in. Skips safely when the DEMO_* secrets aren't configured.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          if [ -z "$DEMO_EMAIL" ] || [ -z "$DEMO_PASSWORD" ]; then
+            echo "skipped — DEMO_EMAIL / DEMO_PASSWORD secrets not configured on this repo"
+            exit 0
+          fi
+          node scripts/fix-demo-auth.mjs
+
       - name: Success summary
         run: echo "Demo workspace reseeded successfully at $(date -u +'%Y-%m-%dT%H:%M:%SZ')."

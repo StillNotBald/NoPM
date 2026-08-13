@@ -13,7 +13,7 @@ export const metadata = {
 export default function Landing() {
   return (
     <div className="min-h-screen bg-canvas text-ink">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
+      <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <div className="flex items-center gap-2">
           <span className="grid h-7 w-7 place-items-center rounded-[8px] bg-accent text-sm font-semibold text-white">
             N
@@ -30,55 +30,61 @@ export default function Landing() {
         </nav>
       </header>
 
-      <section className="mx-auto max-w-5xl px-6 pb-10 pt-16">
-        <p className="text-sm font-medium uppercase tracking-widest text-accent">
-          AI-native · governance-grade · lite
-        </p>
-        <h1 className="mt-4 max-w-3xl font-display text-4xl sm:text-5xl leading-[1.1] text-ink">
-          Project governance your AI agent can actually operate.
-        </h1>
-        <p className="mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
-          NoPM is a lite, API-first project-management tool — like the <code className="font-mono text-ink">aws</code> or{" "}
-          <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Your own agent drives it
-          over a documented REST API. Immutable audit, scoped tokens, and four-eyes approval are enforced in the data
-          layer — not bolted onto the UI.
-        </p>
-        <div className="mt-8 flex flex-wrap gap-3">
-          <DemoLoginButton />
-          <Link href="/login" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
-            Sign in →
-          </Link>
-          <a href="/llms.txt" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
-            Read the agent API
-          </a>
+      <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-14 pt-16 lg:grid-cols-[1.05fr_1fr]">
+        <div>
+          <p className="rise text-sm font-medium uppercase tracking-widest text-accent">
+            AI-native · governance-grade · lite
+          </p>
+          <h1 className="rise rise-1 mt-4 font-display text-4xl sm:text-5xl xl:text-6xl leading-[1.05] tracking-tight text-ink">
+            Project governance your AI agent can actually operate.
+          </h1>
+          <p className="rise rise-2 mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
+            NoPM is a lite, API-first project-management tool — like the <code className="font-mono text-ink">aws</code> or{" "}
+            <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Your own agent drives it
+            over a documented REST API. Immutable audit, scoped tokens, and four-eyes approval are enforced in the data
+            layer — not bolted onto the UI.
+          </p>
+          <div className="rise rise-3 mt-8 flex flex-wrap gap-3">
+            <DemoLoginButton />
+            <Link href="/login" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
+              Sign in →
+            </Link>
+            <a href="/llms.txt" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
+              Read the agent API
+            </a>
+          </div>
+        </div>
+
+        <div className="rise rise-2">
+          <TerminalCard title="an agent drives NoPM">
+            <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-white/80">
+{`$ nopm tasks rm task_8f3a \\
+    --reason "superseded by revised cutover plan"
+⏸ delete requested — pending a checker's
+  approval (four-eyes)
+
+$ nopm approve req_2c91
+✓ approved & committed
+  # a different token: task:delete:approve
+  # one immutable audit row written
+
+$ nopm audit --limit 1
+created_at   actor_label      action       target
+2026-06-08T… checker (agent)  task.delete  task_8f3a`}
+            </pre>
+          </TerminalCard>
+          <p className="mt-3 text-xs text-ink-muted">
+            The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
+          </p>
         </div>
       </section>
 
-      <section className="mx-auto max-w-5xl px-6 py-8">
-        <TerminalCard title="an agent drives NoPM">
-          <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-white/80">
-{`$ nopm tasks rm task_8f3a --reason "superseded by revised cutover plan"
-⏸ delete requested — pending a checker's approval (four-eyes)
-
-$ nopm approve req_2c91          # a different token: task:delete:approve
-✓ approved & committed           # one immutable audit row written
-
-$ nopm audit --limit 1
-created_at            actor_label     action        target
-2026-06-08T…          checker (agent) task.delete   task 8f3a`}
-          </pre>
-        </TerminalCard>
-        <p className="mt-3 text-center text-xs text-ink-muted">
-          The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
-        </p>
-      </section>
-
-      <section className="mx-auto max-w-5xl px-6 py-12">
+      <section className="mx-auto max-w-6xl px-6 py-12">
         <WedgeGrid />
       </section>
 
       <footer className="border-t border-border-subtle">
-        <div className="mx-auto flex max-w-5xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
+        <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
           <span>Built solo with an AI multi-agent workflow.</span>
           <span className="font-mono text-xs">stillnotbald.com</span>
         </div>

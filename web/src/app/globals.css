@@ -110,3 +110,32 @@ body {
 ::selection {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
+
+/* The one authored motion moment: marketing-hero entrance. Exponential
+   ease-out from an already-visible-adjacent state; staggered by .rise-N. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise {
+  animation: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.rise-1 { animation-delay: 80ms; }
+.rise-2 { animation-delay: 160ms; }
+.rise-3 { animation-delay: 260ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .rise-1,
+  .rise-2,
+  .rise-3 {
+    animation: none;
+  }
+}

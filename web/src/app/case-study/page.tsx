@@ -68,18 +68,20 @@ export default function CaseStudyPage() {
 
       {/* ── hero ── */}
       <section className="mx-auto max-w-4xl px-6 pb-10 pt-12">
-        <SectionLabel>Portfolio case study</SectionLabel>
-        <h1 className="mt-3 max-w-3xl font-display text-3xl sm:text-4xl leading-[1.1] text-ink">
+        <div className="rise">
+          <SectionLabel>Portfolio case study</SectionLabel>
+        </div>
+        <h1 className="rise rise-1 mt-3 font-display text-3xl sm:text-5xl leading-[1.05] tracking-tight text-ink">
           I build the systems that make unclear requirements impossible.
         </h1>
-        <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">
+        <p className="rise rise-2 mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">
           NoPM is a live, hosted proof-piece for that thesis. It is a lite,
           API-first project management tool where governance — immutable audit,
           scoped tokens, four-eyes approval — is{" "}
           <em>engineered into the data and API layer</em>, not bolted onto the UI.
           Shipped solo in eight waves using an AI multi-agent workflow.
         </p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
+        <div className="rise rise-3 mt-6 flex flex-wrap items-center gap-3">
           <DemoLoginButton className="px-4 py-2 text-sm" label="Open the live demo →" />
           <Link
             href="/login"
