@@ -86,6 +86,14 @@ History purge (executed after the content scrub, owner-confirmed):
 - Final sweep: 16/16 tokens at zero hits across full history (blobs + messages). Repo shrank to 2.27 MiB.
 - Force-push to origin pending owner action: `ALLOW_DESTRUCTIVE=1 git push --force origin main`.
 
+### Waves 6-7 — UI/UX discipline + retheme + bolder (owner-directed, same day)
+- **UI discipline layer**: PRODUCT.md (product truth incl. pilot-client audience, genericized) + DESIGN.md ("The Governed Terminal": tokens, named rules, component specs) + `.impeccable/design.json` sidecar + design-detector hook enabled; pilot-client token added (hashed) to the leak gate.
+- **Owner retheme**: brand accent terminal-green → **Fluent blue #0078d4** (dark #60cdff) across tokens, all report themes, and the discipline docs. Accent-only; world otherwise preserved.
+- **Bolder pass** (impeccable, within the committed world): landing hero → two-column terminal-in-hero (6xl headline, proof moment above the fold); wedges → one hairline ledger strip (shared, landing + case study); one authored rise entrance (reduced-motion safe). Detector: 0 findings; 533 tests green.
+
+### Incident — live demo outage (root-caused + resolved same day)
+"Try the live demo" dead-ended at `login?error=demo_unavailable`. Root cause: the **Supabase free-tier project had been paused for inactivity** (host DNS removed — also explains local "DNS block" and CI seed failures). Owner restored via dashboard; services settled in ~3 min. Repairs shipped along the way: `fix-demo-auth.mjs` (admin password↔env re-sync + sign-in probe, refuses on missing env) wired as a guarded reseed step; reseed re-run green; funnel re-verified in-browser end-to-end (landing → dashboard → review → trust). Vercel was NOT hooked to git pushes (last deploy 33d old, manual) — deployed manually; also fixed web's `prepare` script killing Vercel's `npm install` (root-directory build lacks the repo root; now no-ops).
+
 ## R-IDs touched
 - R-64 → DONE (new)
 - R-25 → code column updated (tools.mjs)
