@@ -11,6 +11,7 @@
  */
 export const SCOPES = [
   "project:read", "project:write",
+  "program:read", "program:write",
   "milestone:read", "milestone:write",
   "task:read", "task:write", "task:delete:request", "task:delete:approve",
   "project:delete:request", "project:delete:approve",
@@ -27,6 +28,7 @@ export const SCOPES = [
   "notification:read",
   "audit:read",
   "assistant:read", "assistant:write",
+  "saved_view:read", "saved_view:write",
 ] as const;
 
 export type Scope = (typeof SCOPES)[number];
@@ -38,7 +40,9 @@ export const SCOPE_RESOURCES: ReadonlySet<string> = new Set(
 
 const SCOPE_SET: ReadonlySet<string> = new Set(SCOPES);
 
-const WILDCARD = /^([a-z]+):\*$/;
+// [a-z_]+ (not just [a-z]+) so an underscored resource name — e.g.
+// saved_view — still supports a "<resource>:*" wildcard grant.
+const WILDCARD = /^([a-z_]+):\*$/;
 
 /**
  * True if `scope` is a known concrete scope, a `<resource>:*` wildcard for a

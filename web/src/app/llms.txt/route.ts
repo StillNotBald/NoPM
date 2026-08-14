@@ -46,6 +46,10 @@ Issues:      title, priority REQUIRED. priority = low | medium | high | urgent
              severity (optional) = low | medium | high | critical
              status = open | in_progress | resolved | closed (default open)
              resolution_eta / resolved_at = YYYY-MM-DD.
+Programs:    name REQUIRED. rag_status = not_started | red | amber | green | complete (same domain as
+             Projects — this value is the program's DECLARED health, set independently of the
+             computed rollup from its child projects). owner_id, if set, must be a resource_members id
+             (NOT a profiles id — same identity model as tasks.assignee_id since 0019).
 Task deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
 Project deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
 Change requests: title, category, priority, status REQUIRED on create; priority = low | medium | high | critical
@@ -79,6 +83,8 @@ Read it at GET /audit (scope: audit:read).
 GET    /health                             — scope:none — liveness probe, public
 GET    /me                                 — scope:any  — resolve the current actor (type, id, workspaceId, scopes)
 PATCH  /me                                 — user session only — update own profile
+GET    /me/preferences                     — user session only — get DB-persisted display config (columns/groupBy per register, density, dateDisplay, defaultLanding) — L-39, unaudited (ADR 0009). Response includes demo (true for the shared demo login — treat as cookie-only, never write DB prefs for it).
+PUT    /me/preferences                     — user session only — upsert display config. Body { config }; unknown keys stripped (not rejected), 10KB serialized-size cap, 422 on an unrecognised value for a whitelisted key or over the size cap.
 
 POST   /auth/demo-login                    — public — start a demo viewer session
 POST   /auth/signout                       — user session — end the session
@@ -98,6 +104,19 @@ PATCH  /projects/{id}                      — scope:project:write — update a 
 DELETE /projects/{id}                      — scope:project:delete:request — request project deletion (maker step, returns 202, creates deletion_request)
 POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only)
 POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline
+
+GET    /programs                           — scope:program:read  — list programs in workspace
+POST   /programs                           — scope:program:write — create a program (a named, ownable container above projects — L-01)
+GET    /programs/{id}                      — scope:program:read  — get a program
+PATCH  /programs/{id}                      — scope:program:write — update a program (rag_status here is DECLARED health, independent of the computed child rollup — L-02)
+DELETE /programs/{id}                      — scope:program:write — delete a program (plain hard delete, single-step, audited — NOT maker-checker; never deletes child projects, they just lose program_id)
+
+GET    /saved-views                        — scope:saved_view:read  — list saved views (own personal + all shared in workspace, never another identity's personal view — L-41). Optional ?register=tasks|risks|issues|clashes|...
+POST   /saved-views                        — scope:saved_view:write — save the current filters+sort+columns+groupBy as a view (L-05). Token/agent callers are always forced to scope=shared (no owning identity for personal).
+GET    /saved-views/{id}                   — scope:saved_view:read  — get a saved view (404, not 403, if it's personal and not yours)
+PATCH  /saved-views/{id}                   — scope:saved_view:write — update/share/protect a saved view; owner or admin only (403 otherwise). A protected view 403s a config PATCH unless the same call also unprotects it (L-07). Scope/protected toggles are audited (L-06/L-07).
+DELETE /saved-views/{id}                   — scope:saved_view:write — delete a saved view (plain hard delete, single-step, audited — NOT maker-checker)
+POST   /saved-views/{id}/duplicate         — scope:saved_view:write — clone any visible view (incl. a protected one) into a fresh, unprotected personal copy owned by the caller — user sessions only
 
 GET    /projects/{id}/milestones           — scope:milestone:read  — list milestones for a project
 POST   /projects/{id}/milestones           — scope:milestone:write — create a milestone under a project

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -19,12 +19,15 @@ import {
   readAppearanceCookie,
   buildAppearanceCookieHeader,
   resolveHtmlAttrs,
+  mergeAppearanceWithDb,
   type AppearancePrefs,
   type AppearanceMode,
   type FontScale,
   type Density,
   type DateDisplay,
 } from "@/lib/theme/appearance";
+import type { PreferencesConfig } from "@/app/api/me/preferences/_schema";
+import { apiGet, apiPut } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 
 function initials(name: string): string {
@@ -287,12 +290,49 @@ function SegmentedControl<T extends string | number>({
 
 function AppearanceSection() {
   const [prefs, setPrefs] = useState<AppearancePrefs>(DEFAULT_APPEARANCE);
+  // True once GET /api/me/preferences has confirmed this is a signed-in,
+  // NON-demo user — only then does `update()` PUT density/dateDisplay back
+  // to the account (L-39). Stays false for the demo identity (shared login
+  // — ADR 0009) or if the fetch never resolves; either way `update()` keeps
+  // behaving exactly as before (cookie/live DOM only, nothing new to break).
+  const [dbSynced, setDbSynced] = useState(false);
+  const isDemoRef = useRef(false);
+  const dbConfigRef = useRef<PreferencesConfig>({});
 
   useEffect(() => {
     // Two-pass read (SSR-safe default first, real cookie after mount) —
     // same pattern as ThemeToggle/useDateDisplayPref.
+    const cookiePrefs = readAppearanceCookie(document.cookie);
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPrefs(readAppearanceCookie(document.cookie));
+    setPrefs(cookiePrefs);
+
+    // L-39 follow-through: merge in the account's DB density/dateDisplay
+    // (DB wins for a signed-in non-demo user) — same precedence layout.tsx
+    // already applies server-side and use-appearance.ts applies for the
+    // date-display hook. Best-effort: any failure (network, 401, demo actor
+    // rejecting later) just leaves the cookie-only behavior in place.
+    let cancelled = false;
+    apiGet<{ config?: PreferencesConfig; demo?: boolean }>("/api/me/preferences")
+      .then((data) => {
+        if (cancelled || !data) return;
+        dbConfigRef.current = data.config ?? {};
+        isDemoRef.current = Boolean(data.demo);
+        setDbSynced(!isDemoRef.current);
+        const merged = mergeAppearanceWithDb(cookiePrefs, data.config ?? null, {
+          isDemo: isDemoRef.current,
+        });
+        if (merged.density !== cookiePrefs.density || merged.dateDisplay !== cookiePrefs.dateDisplay) {
+          setPrefs(merged);
+          document.cookie = buildAppearanceCookieHeader(merged);
+          applyAppearanceLive(merged);
+        }
+      })
+      .catch(() => {
+        // Not signed in / token caller / offline — stay cookie-only.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   function update<K extends keyof AppearancePrefs>(key: K, val: AppearancePrefs[K]) {
@@ -300,6 +340,23 @@ function AppearanceSection() {
     setPrefs(next);
     document.cookie = buildAppearanceCookieHeader(next);
     applyAppearanceLive(next);
+
+    // Mirror density/dateDisplay into the account's DB record so it follows
+    // a signed-in non-demo user across devices — mode/fontScale stay
+    // cookie/per-device only (outside user_preferences' whitelist, L-39).
+    if ((key === "density" || key === "dateDisplay") && dbSynced) {
+      const nextConfig: PreferencesConfig = {
+        ...dbConfigRef.current,
+        density: next.density,
+        dateDisplay: next.dateDisplay,
+      };
+      dbConfigRef.current = nextConfig;
+      apiPut("/api/me/preferences", { config: nextConfig }).catch(() => {
+        // Best-effort — a failed PUT never rolls back the already-applied
+        // cookie/live change (same fail-soft posture as the rest of this
+        // section; preferences are display-only, never governance data).
+      });
+    }
   }
 
   return (
@@ -309,7 +366,10 @@ function AppearanceSection() {
       </CardHeader>
       <CardBody className="space-y-6">
         <p className="text-sm text-ink-secondary">
-          Display-only. Stored in a cookie on this device — never synced, never audited.
+          Display-only, never audited. Theme and text size stay on this device (a cookie).
+          {dbSynced
+            ? " Density and date format also follow your account across devices."
+            : " Density and date format follow your account when you're signed in (not on the shared demo login)."}
         </p>
 
         <div className="space-y-1.5">

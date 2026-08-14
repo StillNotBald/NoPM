@@ -7,7 +7,9 @@ import {
   LEGACY_THEME_COOKIE_NAME,
   parseAppearancePrefs,
   resolveHtmlAttrs,
+  mergeAppearanceWithDb,
 } from "@/lib/theme/appearance";
+import { readSignedInAppearanceOverride } from "@/lib/theme/server-prefs";
 import "./globals.css";
 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
@@ -55,6 +57,14 @@ export default async function RootLayout({
     const legacyDark = store.get(LEGACY_THEME_COOKIE_NAME)?.value === "dark";
     if (legacyDark) prefs = { ...prefs, mode: "dark" };
   }
+  // L-39 follow-through: for a signed-in NON-demo user, density/dateDisplay
+  // persisted to user_preferences win over the cookie (cross-device account
+  // state) — see mergeAppearanceWithDb's docstring for why mode/fontScale
+  // are excluded and why the demo identity is exempt. Fails soft to the
+  // cookie value alone on any error (anonymous visitor, demo, Supabase
+  // hiccup) — never blocks first paint.
+  const dbOverride = await readSignedInAppearanceOverride();
+  prefs = mergeAppearanceWithDb(prefs, dbOverride, { isDemo: false });
   const { classNames, style } = resolveHtmlAttrs(prefs);
   return (
     <html

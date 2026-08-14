@@ -304,3 +304,244 @@ test("time entry billable flag: explicit true/false wins, omitted falls back to 
     }
   }
 });
+
+// ── F2a write journeys (programs / saved views / preferences) ──────────────
+//
+// Same idiom as the F1 block above: real governed writes over the same
+// session-cookie-driven API the UI and agents use, each asserting the exact
+// governance semantics the L-row's acceptance criteria demand, with full
+// cleanup in a `finally`.
+
+test("program CRUD via API writes exactly one audit row per mutation (program-crud)", async ({
+  page,
+}) => {
+  // Environment-readiness guard (see f2a-features.spec.ts's program-rollup
+  // test for the same check + the sprint receipt for why): migration
+  // 20260815000034 not applied / schema cache not reloaded is an infra gap
+  // this worker cannot fix (never runs migrations) — skip, don't fail.
+  const probe = await page.request.get("/api/programs?limit=1");
+  test.skip(
+    !probe.ok(),
+    "GET /api/programs failed — programs table not migrated / schema cache not reloaded in this environment",
+  );
+
+  const created = await page.request.post("/api/programs", {
+    data: { code: `E2E${Date.now() % 100000}`, name: `E2E Program ${STAMP}` },
+  });
+  expect(created.status()).toBe(201);
+  const program = (await created.json()).data;
+
+  async function auditTotal(action: string) {
+    const res = await page.request.get(
+      `/api/audit?action=${action}&target_type=program&target_id=${program.id}&limit=1`,
+    );
+    expect(res.ok()).toBeTruthy();
+    return (await res.json()).total as number;
+  }
+
+  try {
+    expect(await auditTotal("program.create")).toBe(1);
+
+    // L-02: rag_status is settable independently of the computed child rollup.
+    const patched = await page.request.patch(`/api/programs/${program.id}`, {
+      data: { rag_status: "amber" },
+    });
+    expect(patched.ok()).toBeTruthy();
+    expect((await patched.json()).data.rag_status).toBe("amber");
+    expect(await auditTotal("program.update")).toBe(1);
+  } finally {
+    // L-01: deleting a program is a plain audited hard delete — NOT
+    // maker-checker (owner-locked, PROJECTS ONLY) — and must never cascade
+    // into child projects (none attached here, so this only proves the
+    // delete itself completes and is audited).
+    const del = await page.request.delete(`/api/programs/${program.id}`);
+    expect(del.status()).toBe(204);
+    expect(await auditTotal("program.delete")).toBe(1);
+    const gone = await page.request.get(`/api/programs/${program.id}`);
+    expect(gone.status()).toBe(404);
+  }
+});
+
+test("saved view four corners: create → share → protect → delete, each audited, personal views invisible to a second identity (saved-view-four-corners)", async ({
+  page,
+}) => {
+  // Environment-readiness guard (migration 20260815000035 — see
+  // program-crud's identical guard above for why this worker skips rather
+  // than fixes it).
+  const probe = await page.request.get("/api/saved-views?limit=1");
+  test.skip(
+    !probe.ok(),
+    "GET /api/saved-views failed — saved_views table not migrated / schema cache not reloaded in this environment",
+  );
+
+  // A second identity to prove personal-invisibility (L-41's acceptance
+  // criterion demands "verified by logging in as a second identity, not an
+  // admin-based query"). NOPM_CHECKER_TOKEN (scripts/bootstrap.mjs) is the
+  // pre-provisioned second actor the project/task four-eyes journey above
+  // reuses, but its scope list (["project:read","task:read",
+  // "task:delete:approve","project:delete:approve","rebaseline:approve",
+  // "audit:read"]) carries no saved_view:* grant — extending shared demo
+  // bootstrap infra is out of this task's scope, so a fresh, narrowly-scoped
+  // PAT is minted here instead (same "mint and revoke a PAT" idiom as the
+  // token test above). A token actor's `id` is the token row's own id
+  // (lib/auth/guard.ts) — never the admin session's profile id — so this
+  // genuinely is a different identity for isVisibleToActor's owner_id check.
+  const mintRes = await page.request.post("/api/tokens", {
+    data: {
+      name: `e2e-second-identity-${STAMP}`,
+      scopes: ["saved_view:read", "saved_view:write"],
+    },
+  });
+  expect(mintRes.status()).toBe(201);
+  const minted = (await mintRes.json()).data;
+  const secondIdentity = minted.token as string;
+
+  let viewId: string | undefined;
+  try {
+    async function auditTotal(action: string, targetId: string) {
+      const res = await page.request.get(
+        `/api/audit?action=${action}&target_type=saved_view&target_id=${targetId}&limit=1`,
+      );
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()).total as number;
+    }
+
+    // Create — personal by default, one saved_view.create audit row.
+    const createRes = await page.request.post("/api/saved-views", {
+      data: {
+        register: "tasks",
+        name: `E2E view ${STAMP}`,
+        scope: "personal",
+        config: { columns: ["name", "status_type"] },
+      },
+    });
+    expect(createRes.status()).toBe(201);
+    const view = (await createRes.json()).data;
+    viewId = view.id;
+    expect(view.scope).toBe("personal");
+    expect(await auditTotal("saved_view.create", view.id)).toBe(1);
+
+    // Personal-invisibility (L-41): the second identity's list must NOT
+    // include it, and a direct GET degrades to 404 (not 403) — the
+    // non-leaking shape saved-views/[id]/route.ts documents.
+    const secondList = await page.request.get(
+      `/api/saved-views?register=tasks&limit=100`,
+      { headers: { Authorization: `Bearer ${secondIdentity}` } },
+    );
+    expect(secondList.ok()).toBeTruthy();
+    expect(
+      (await secondList.json()).data.some((v: { id: string }) => v.id === view.id),
+    ).toBe(false);
+    const secondGetBefore = await page.request.get(`/api/saved-views/${view.id}`, {
+      headers: { Authorization: `Bearer ${secondIdentity}` },
+    });
+    expect(secondGetBefore.status()).toBe(404);
+
+    // Share (L-06) — one saved_view.shared audit row; now visible to the
+    // second identity.
+    const sharedRes = await page.request.patch(`/api/saved-views/${view.id}`, {
+      data: { scope: "shared" },
+    });
+    expect(sharedRes.ok()).toBeTruthy();
+    expect((await sharedRes.json()).data.scope).toBe("shared");
+    expect(await auditTotal("saved_view.shared", view.id)).toBe(1);
+    const secondListAfterShare = await page.request.get(
+      `/api/saved-views?register=tasks&limit=100`,
+      { headers: { Authorization: `Bearer ${secondIdentity}` } },
+    );
+    expect(
+      (await secondListAfterShare.json()).data.some((v: { id: string }) => v.id === view.id),
+    ).toBe(true);
+
+    // Protect (L-07) — one saved_view.protected audit row; a config PATCH is
+    // now rejected 403 unless the same call also unprotects.
+    const protectRes = await page.request.patch(`/api/saved-views/${view.id}`, {
+      data: { protected: true },
+    });
+    expect(protectRes.ok()).toBeTruthy();
+    expect((await protectRes.json()).data.protected).toBe(true);
+    expect(await auditTotal("saved_view.protected", view.id)).toBe(1);
+
+    const blockedConfigPatch = await page.request.patch(`/api/saved-views/${view.id}`, {
+      data: { config: { columns: ["name"] } },
+    });
+    expect(blockedConfigPatch.status()).toBe(403);
+
+    // Delete — one saved_view.delete audit row.
+    const delRes = await page.request.delete(`/api/saved-views/${view.id}`);
+    expect(delRes.status()).toBe(204);
+    expect(await auditTotal("saved_view.delete", view.id)).toBe(1);
+    viewId = undefined; // already cleaned up
+
+    const gone = await page.request.get(`/api/saved-views/${view.id}`);
+    expect(gone.status()).toBe(404);
+  } finally {
+    if (viewId) {
+      await page.request.delete(`/api/saved-views/${viewId}`).catch(() => {});
+    }
+    await page.request.delete(`/api/tokens/${minted.id}`).catch(() => {});
+  }
+});
+
+test("PUT /api/me/preferences round-trips density/dateDisplay/columns with zero audit rows (prefs-persistence)", async ({
+  page,
+}) => {
+  const before = await page.request.get("/api/me/preferences");
+  // Environment-readiness guard (migration 20260815000036 — see
+  // program-crud's identical guard above for why this worker skips rather
+  // than fixes it).
+  test.skip(
+    !before.ok(),
+    "GET /api/me/preferences failed — user_preferences table not migrated / schema cache not reloaded in this environment",
+  );
+  const beforeJson = await before.json();
+  expect(typeof beforeJson.data.demo).toBe("boolean");
+
+  // ADR 0009 (amended for user_preferences): zero writeAudit calls anywhere
+  // in this route, ever — there is no target_id to scope by (no `id` column
+  // is ever returned), so the closest machine-checkable proxy is that this
+  // action name never appears in the audit log at all, before or after.
+  const auditBefore = await page.request.get(`/api/audit?action=user_preferences.update&limit=1`);
+  const auditBeforeTotal = (await auditBefore.json()).total as number;
+  expect(auditBeforeTotal).toBe(0);
+
+  try {
+    const put = await page.request.put("/api/me/preferences", {
+      data: {
+        config: {
+          density: "compact",
+          dateDisplay: "relative",
+          columns: { tasks: ["name", "status_type"] },
+        },
+      },
+    });
+    expect(put.ok()).toBeTruthy();
+    const putJson = await put.json();
+    expect(putJson.data.config.density).toBe("compact");
+    expect(putJson.data.config.dateDisplay).toBe("relative");
+    expect(putJson.data.config.columns.tasks).toEqual(["name", "status_type"]);
+
+    // Round trip: a fresh GET reflects exactly what was just written.
+    const after = await page.request.get("/api/me/preferences");
+    const afterJson = await after.json();
+    expect(afterJson.data.config.density).toBe("compact");
+    expect(afterJson.data.config.dateDisplay).toBe("relative");
+
+    // Unknown keys are stripped, not rejected (L-39 acceptance criterion).
+    const putWithJunk = await page.request.put("/api/me/preferences", {
+      data: { config: { density: "comfortable", notARealKey: "nope" } },
+    });
+    expect(putWithJunk.ok()).toBeTruthy();
+    expect((await putWithJunk.json()).data.config).not.toHaveProperty("notARealKey");
+
+    const auditAfter = await page.request.get(`/api/audit?action=user_preferences.update&limit=1`);
+    expect((await auditAfter.json()).total as number).toBe(0);
+  } finally {
+    // Reset to the pre-test config so this real per-account row doesn't leak
+    // state into a later run (same "reset so the shared session doesn't
+    // leak state" idiom f1-features.spec.ts's density-toggle test uses).
+    await page.request
+      .put("/api/me/preferences", { data: { config: beforeJson.data.config ?? {} } })
+      .catch(() => {});
+  }
+});

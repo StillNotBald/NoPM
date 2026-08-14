@@ -1,6 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { z } from "zod";
 import { createProjectSchema, updateProjectSchema, ProjectDeleteRequestSchema } from "@/app/api/projects/_schema";
+import { createProgramSchema, updateProgramSchema } from "@/app/api/programs/_schema";
 import { createMilestoneSchema, updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
   TaskCreateSchema,
@@ -9,6 +10,8 @@ import {
 } from "@/app/api/tasks/_schema";
 import { createRiskSchema, updateRiskSchema } from "@/app/api/risks/_schema";
 import { createIssueSchema, updateIssueSchema } from "@/app/api/issues/_schema";
+import { createSavedViewSchema, updateSavedViewSchema } from "@/app/api/saved-views/_schema";
+import { putPreferencesBodySchema } from "@/app/api/me/preferences/_schema";
 
 export const runtime = "nodejs";
 
@@ -225,6 +228,169 @@ const spec = {
           "202": { description: "Deletion request created (pending)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error (reason required), or a pending deletion request already exists for this project", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/programs": {
+      get: {
+        tags: ["programs"],
+        summary: "List programs",
+        description: "scope: program:read",
+        operationId: "listPrograms",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated program list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["programs"],
+        summary: "Create a program",
+        description: "scope: program:write",
+        operationId: "createProgram",
+        requestBody: zodBody(createProgramSchema),
+        responses: {
+          "201": { description: "Program created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/programs/{id}": {
+      get: {
+        tags: ["programs"],
+        summary: "Get a program",
+        description: "scope: program:read",
+        operationId: "getProgram",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Program", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["programs"],
+        summary: "Update a program",
+        description: "scope: program:write",
+        operationId: "updateProgram",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: zodBody(updateProgramSchema),
+        responses: {
+          "200": { description: "Updated program", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["programs"],
+        summary: "Delete a program",
+        description:
+          "scope: program:write. PLAIN single-step hard delete with one audit row (program.delete) — " +
+          "NOT routed through deletion_requests. Owner-locked (Decision 3, requirements/devops-wave1/" +
+          "README.md): the four-eyes maker-checker flow stays PROJECTS ONLY; programs behave like " +
+          "milestones/risks/issues here. Deleting a program never deletes its child projects — " +
+          "projects.program_id is FK'd ON DELETE SET NULL, so children simply lose the grouping.",
+        operationId: "deleteProgram",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Program deleted" },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/saved-views": {
+      get: {
+        tags: ["saved-views"],
+        summary: "List saved views",
+        description:
+          "scope: saved_view:read. Returns the caller's OWN personal views plus every shared view " +
+          "in the workspace — never another identity's personal view (L-41). Optional ?register= " +
+          "filters to one register's views (e.g. tasks, risks, issues, clashes).",
+        operationId: "listSavedViews",
+        parameters: [
+          { name: "register", in: "query", schema: { type: "string" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated saved-view list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["saved-views"],
+        summary: "Create a saved view",
+        description:
+          "scope: saved_view:write. Captures filters+sort+columns+groupBy as config jsonb. " +
+          "A token/agent caller's view is always forced to scope=shared — tokens have no profiles " +
+          "row to privately own a personal view with.",
+        operationId: "createSavedView",
+        requestBody: zodBody(createSavedViewSchema),
+        responses: {
+          "201": { description: "Saved view created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/saved-views/{id}": {
+      get: {
+        tags: ["saved-views"],
+        summary: "Get a saved view",
+        description: "scope: saved_view:read. 404 (not 403) if the view is personal and belongs to a different identity.",
+        operationId: "getSavedView",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Saved view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found (or not visible to this identity)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["saved-views"],
+        summary: "Update a saved view",
+        description:
+          "scope: saved_view:write. Only the owner or a workspace admin may mutate (403 otherwise). " +
+          "A protected view rejects a config-changing PATCH with 403 unless the SAME call also sets " +
+          "protected:false (L-07). Scope (share/unshare) and protected toggles are each audited under " +
+          "their own action name (saved_view.shared / saved_view.protected) — L-06/L-07.",
+        operationId: "updateSavedView",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: zodBody(updateSavedViewSchema),
+        responses: {
+          "200": { description: "Updated saved view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not the owner/admin, or config PATCH rejected on a still-protected view", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["saved-views"],
+        summary: "Delete a saved view",
+        description: "scope: saved_view:write. Plain single-step hard delete, one audit row — NOT maker-checker.",
+        operationId: "deleteSavedView",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "403": { description: "Not the owner/admin", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/saved-views/{id}/duplicate": {
+      post: {
+        tags: ["saved-views"],
+        summary: "Duplicate a saved view into a personal copy",
+        description:
+          "scope: saved_view:write. Clones any visible view — including a protected one (L-07: " +
+          "protection guards the original from silent edit, not from being forked) — into a fresh, " +
+          "unprotected personal copy owned by the caller. User sessions only: a token/agent actor has " +
+          "no owning identity for the copy.",
+        operationId: "duplicateSavedView",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { content: { "application/json": { schema: { type: "object", properties: { name: { type: "string" } } } } } },
+        responses: {
+          "201": { description: "Duplicated saved view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Token/agent actor attempted a duplicate (no owning identity)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1624,6 +1790,38 @@ const spec = {
           "200": { description: "Updated actor identity", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/me/preferences": {
+      get: {
+        tags: ["auth"],
+        summary: "Get the current user's DB-persisted display preferences (L-39)",
+        description:
+          "scope: user session only (token actors 403). Per-user, workspace-scoped display config " +
+          "(columns per register, groupBy per register, density, dateDisplay, defaultLanding) — NOT " +
+          "governance data, never audited (ADR 0009). `demo` in the response is true for the shared " +
+          "demo login; the client should treat prefs as cookie/localStorage-only in that case, since a " +
+          "DB write here would be shared across every visitor using that one identity.",
+        operationId: "getMyPreferences",
+        responses: {
+          "200": { description: "Preferences config (empty object if none saved yet)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      put: {
+        tags: ["auth"],
+        summary: "Upsert the current user's DB-persisted display preferences (L-39)",
+        description:
+          "scope: user session only (token actors 403). Body { config: {...} } validated against a " +
+          "closed key whitelist (unknown keys stripped, not rejected) and a 10KB serialized-size cap. " +
+          "No audit row is written — per-user display state, not governance data (ADR 0009).",
+        operationId: "putMyPreferences",
+        requestBody: zodBody(putPreferencesBodySchema),
+        responses: {
+          "200": { description: "Preferences upserted", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error (unrecognised value for a whitelisted key) or config exceeds the 10KB size cap", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

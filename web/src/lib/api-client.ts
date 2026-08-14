@@ -25,5 +25,6 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
 
 export const apiGet = <T = unknown>(path: string) => call<T>("GET", path);
 export const apiPost = <T = unknown>(path: string, body?: unknown) => call<T>("POST", path, body);
+export const apiPut = <T = unknown>(path: string, body?: unknown) => call<T>("PUT", path, body);
 export const apiPatch = <T = unknown>(path: string, body?: unknown) => call<T>("PATCH", path, body);
 export const apiDelete = <T = unknown>(path: string, body?: unknown) => call<T>("DELETE", path, body);

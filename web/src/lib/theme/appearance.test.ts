@@ -16,6 +16,7 @@ import {
   buildAppearanceCookieHeader,
   readAppearanceCookie,
   resolveHtmlAttrs,
+  mergeAppearanceWithDb,
   type AppearancePrefs,
 } from "./appearance";
 
@@ -191,5 +192,68 @@ describe("appearance — resolveHtmlAttrs", () => {
         `${scale}%`,
       );
     }
+  });
+});
+
+describe("mergeAppearanceWithDb — L-39 cookie<->DB merge precedence", () => {
+  const cookiePrefs: AppearancePrefs = {
+    mode: "dark",
+    fontScale: 112.5,
+    density: "comfortable",
+    dateDisplay: "absolute",
+  };
+
+  it("DB wins over cookie for density/dateDisplay when signed in and NOT demo", () => {
+    const merged = mergeAppearanceWithDb(
+      cookiePrefs,
+      { density: "compact", dateDisplay: "relative" },
+      { isDemo: false },
+    );
+    expect(merged.density).toBe("compact");
+    expect(merged.dateDisplay).toBe("relative");
+  });
+
+  it("mode and fontScale are NEVER overridden by DB — they are outside the user_preferences whitelist", () => {
+    const merged = mergeAppearanceWithDb(
+      cookiePrefs,
+      { density: "compact", dateDisplay: "relative" },
+      { isDemo: false },
+    );
+    expect(merged.mode).toBe(cookiePrefs.mode);
+    expect(merged.fontScale).toBe(cookiePrefs.fontScale);
+  });
+
+  it("demo identity stays cookie-only, even if a DB config were somehow present", () => {
+    const merged = mergeAppearanceWithDb(
+      cookiePrefs,
+      { density: "compact", dateDisplay: "relative" },
+      { isDemo: true },
+    );
+    expect(merged).toEqual(cookiePrefs);
+  });
+
+  it("no DB row (null/undefined config) falls back to the cookie untouched", () => {
+    expect(mergeAppearanceWithDb(cookiePrefs, null, { isDemo: false })).toEqual(cookiePrefs);
+    expect(mergeAppearanceWithDb(cookiePrefs, undefined, { isDemo: false })).toEqual(cookiePrefs);
+  });
+
+  it("a partial DB config (only density set) only overrides that one field", () => {
+    const merged = mergeAppearanceWithDb(cookiePrefs, { density: "compact" }, { isDemo: false });
+    expect(merged.density).toBe("compact");
+    expect(merged.dateDisplay).toBe(cookiePrefs.dateDisplay);
+  });
+
+  it("a corrupt/out-of-registry DB value falls back to the cookie's value for that field, never throws", () => {
+    const merged = mergeAppearanceWithDb(
+      cookiePrefs,
+      { density: "ultra-compact", dateDisplay: 42 },
+      { isDemo: false },
+    );
+    expect(merged.density).toBe(cookiePrefs.density);
+    expect(merged.dateDisplay).toBe(cookiePrefs.dateDisplay);
+  });
+
+  it("an empty DB config object changes nothing", () => {
+    expect(mergeAppearanceWithDb(cookiePrefs, {}, { isDemo: false })).toEqual(cookiePrefs);
   });
 });

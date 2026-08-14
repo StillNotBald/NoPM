@@ -37,6 +37,68 @@ A cookie is per-browser by construction: it never crosses devices, never crosses
 
 To keep the line legible for future features: anything that (a) another user could see, (b) represents a decision/approval/state-transition on a governed entity, or (c) needs to survive a device change for the *same* accountable human (e.g. a saved report, a notification preference tied to who gets paged) does **not** get this treatment — it goes through the normal API + `writeAudit` (or the assistant/notification-center patterns already in scope) like everything else in the constitution.
 
+## Amendment (2026-08-15) — extending the carve-out to `user_preferences` (L-39)
+
+L-39 adds a second, DB-backed store for per-user display state:
+`user_preferences` (one row per `(user_id, workspace_id)`, migration
+`20260815000036`), read/written through `GET`/`PUT /api/me/preferences`.
+Its `config` jsonb holds a closed whitelist — `columns` and `groupBy` (both
+per register), `density`, `dateDisplay`, `defaultLanding` — validated by a
+Zod schema that **strips** unknown keys (never rejects the request for
+carrying one) and enforces a 10KB serialized-size cap. This amendment
+extends this ADR's carve-out to that table rather than opening a second,
+separately-reasoned exception:
+
+- **Still not governance data.** Every test in "Why this doesn't need
+  governance" above applies unchanged: nothing another user can see, zero
+  blast radius to revert, nothing that can hide or falsify governed activity,
+  and an audit row here would be exactly the same noise this ADR already
+  rejects. `user_preferences` ships with **zero `writeAudit` calls** in
+  `GET`/`PUT /api/me/preferences` — same as the appearance cookie.
+- **`assistant_credentials`-shaped, not `saved_views`-shaped.** The table is
+  RLS-enabled with **zero policies** (deny-all) — only the service-role
+  admin client reads/writes it, filtered explicitly by `(user_id,
+  workspace_id)` in every query, the same pattern migration `0014`
+  (`assistant_credentials`) established. This is deliberately unlike
+  `saved_views`, which IS audited (workspace data, visible to other members,
+  shareable/protectable) — `user_preferences` is private per-account
+  furniture, never workspace data.
+- **Why a DB table exists at all, when the original ADR said "not persisted
+  to the database":** that line described `appearance.ts`'s four dials
+  (mode/fontScale/density/dateDisplay) specifically, and the final
+  paragraph of this ADR already named the exact next step: "If a future
+  requirement needs appearance to follow the account... that is a new,
+  ask-first decision — it would mean a DB column + explicit scoping per the
+  shared-demo-identity lesson." L-39 is that decision, made explicitly, not
+  a silent extension. `mode` and `fontScale` are **not** in
+  `user_preferences`' whitelist and remain cookie-only, per-device, exactly
+  as originally decided — only `density` and `dateDisplay` are mirrored into
+  the DB (alongside the genuinely-new `columns`/`groupBy`/`defaultLanding`
+  keys, which had no cookie precedent at all).
+- **Merge precedence: DB wins over the cookie for a signed-in NON-demo
+  user.** `layout.tsx` reads the appearance cookie as before, then — for a
+  resolved, non-demo session — overlays `user_preferences.density` /
+  `.dateDisplay` on top of it (`mergeAppearanceWithDb`,
+  `web/src/lib/theme/appearance.ts`) before the first paint's html
+  classes/font-size are stamped. The same precedence is applied client-side
+  by the date-display hook and the settings page. A cookie-cleared or
+  new-device signed-in user therefore sees their account's density/date
+  preference, not a reset default — the opposite of what a pure-cookie
+  design would give them, and the entire point of building this table.
+- **The shared-demo-identity caveat still holds, unchanged, for this
+  table.** The demo login remains one Supabase identity shared by many real
+  visitors. `isDemoActor()` gates every write path this feature touches:
+  the settings page and the register column-chooser/group-by controls
+  (`web/src/lib/views/use-register-preferences.ts`) both check the `demo`
+  flag `GET /api/me/preferences` returns and simply never call `PUT` for
+  the demo account — so demo prefs stay **per-visitor-session best effort**,
+  sourced from the cookie/localStorage exactly as before this amendment.
+  Nothing about `user_preferences` weakens that guarantee; the table is
+  reachable for the demo identity's *own* row (the API itself has no
+  demo-specific block — a demo `PUT` would technically succeed), but no
+  code path in the product ever issues one, by the same client-side
+  discipline this whole carve-out already depends on.
+
 ## Consequences
 
 - Appearance preferences ship with **zero new API routes, zero new DB tables, zero new audit volume** — nothing to add to `openapi.json`/`llms.txt` for this feature.

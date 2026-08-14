@@ -1,0 +1,210 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo } from "react";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ragLabel, ragTone } from "@/lib/status";
+import { cn } from "@/lib/cn";
+import { dateToX, laneIndexByProject, capLabels } from "@/lib/mainline/layout";
+import type { TLGraph, TLNode } from "@/lib/timeline/gather";
+
+const LANE_H = 56;
+const PX_PER_DAY = 5;
+const MIN_WIDTH = 720;
+const LABEL_CAP_PER_LANE = 14; // perf guard — see lib/mainline/layout.ts capLabels
+
+function dayCount(startIso: string, endIso: string): number {
+  const days = Math.round((+new Date(endIso) - +new Date(startIso)) / 86_400_000);
+  return Math.max(days, 1);
+}
+
+/**
+ * Lens 1 — Subway (Portfolio): one lane per project, milestone + task nodes
+ * plotted on a shared horizontal time axis. Read-only — every node is a
+ * deep-link to its real page (EntityLink-style href already resolved by
+ * gatherTimeline). SteerCo gates + Today render as workspace-wide gridlines
+ * (they aren't scoped to a single project lane).
+ */
+export function PortfolioLens({ graph }: { graph: TLGraph }) {
+  const laneNodes = useMemo(
+    () => graph.nodes.filter((n): n is TLNode => n.kind === "milestone" || n.kind === "task"),
+    [graph.nodes],
+  );
+
+  const lanes = useMemo(() => laneIndexByProject(graph.projects.map((p) => p.id)), [graph.projects]);
+
+  const width = Math.max(MIN_WIDTH, dayCount(graph.axis.start, graph.axis.end) * PX_PER_DAY);
+  const height = graph.projects.length * LANE_H;
+
+  const byProject = useMemo(() => {
+    const map = new Map<string, TLNode[]>();
+    for (const n of laneNodes) {
+      if (!n.projectId) continue;
+      if (!map.has(n.projectId)) map.set(n.projectId, []);
+      map.get(n.projectId)!.push(n);
+    }
+    for (const arr of map.values()) arr.sort((a, b) => a.date.localeCompare(b.date));
+    return map;
+  }, [laneNodes]);
+
+  const todayX = dateToX(graph.axis.today, graph.axis.start, graph.axis.end, width);
+  const todayVisible = graph.axis.today >= graph.axis.start && graph.axis.today <= graph.axis.end;
+
+  if (graph.projects.length === 0) {
+    return (
+      <EmptyState purpose="Nothing scheduled across the portfolio yet — add a project with milestones or tasks to see the Subway lens." canWrite={false} />
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface shadow-sm">
+        <div className="flex" style={{ minWidth: 280 + width }}>
+          {/* Sticky project label column */}
+          <div className="shrink-0 sticky left-0 z-20 w-52 sm:w-64 border-r border-border-subtle bg-surface">
+            <div className="flex items-center border-b border-border-subtle bg-sunken/60 px-3" style={{ height: 40 }}>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted select-none">
+                Project
+              </span>
+            </div>
+            {graph.projects.map((p) => (
+              <Link
+                key={p.id}
+                href={`/projects/${p.id}`}
+                className="flex items-center gap-2 border-b border-border-subtle px-3 hover:bg-sunken/40 transition-colors min-h-[44px]"
+                style={{ height: LANE_H }}
+              >
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-medium text-ink">{p.code}</span>
+                  <span className="block truncate text-[11px] text-ink-muted">{p.name}</span>
+                </span>
+                <Badge size="sm" tone={ragTone(p.ragStatus)} className="shrink-0">
+                  {ragLabel(p.ragStatus)}
+                </Badge>
+              </Link>
+            ))}
+          </div>
+
+          {/* Scrollable axis + lanes */}
+          <div className="relative flex-1" style={{ width, minWidth: width }}>
+            {/* Header: SteerCo gates */}
+            <div className="relative border-b border-border-subtle bg-sunken/60" style={{ height: 40 }}>
+              {graph.axis.steercoDates.map((d) => {
+                const x = dateToX(d, graph.axis.start, graph.axis.end, width);
+                return (
+                  <div key={d} className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: x }}>
+                    <div className="absolute top-0 bottom-0 w-px bg-warning/40" />
+                    <span className="ml-1 whitespace-nowrap text-[9px] font-medium text-warning">SteerCo</span>
+                  </div>
+                );
+              })}
+              {todayVisible && (
+                <div className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: todayX }}>
+                  <div className="rounded-full bg-accent px-1.5 py-0.5">
+                    <span className="text-[9px] font-bold text-white whitespace-nowrap select-none">Today</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Background gridlines (steerco + today), full height */}
+            <div className="absolute inset-x-0 pointer-events-none" style={{ top: 40, bottom: 0 }}>
+              {graph.axis.steercoDates.map((d) => (
+                <div
+                  key={d}
+                  className="absolute top-0 bottom-0 w-px bg-warning/20"
+                  style={{ left: dateToX(d, graph.axis.start, graph.axis.end, width) }}
+                />
+              ))}
+              {todayVisible && (
+                <div className="absolute top-0 bottom-0 w-px bg-accent/60" style={{ left: todayX }} />
+              )}
+            </div>
+
+            {/* Lanes */}
+            <div style={{ position: "relative", height }}>
+              {graph.projects.map((p) => {
+                const nodes = byProject.get(p.id) ?? [];
+                const laneY = (lanes.get(p.id) ?? 0) * LANE_H;
+                const showLabel = capLabels(nodes.length, LABEL_CAP_PER_LANE);
+                return (
+                  <div
+                    key={p.id}
+                    className="absolute left-0 right-0 border-b border-border-subtle"
+                    style={{ top: laneY, height: LANE_H }}
+                  >
+                    {nodes.map((n, i) => {
+                      const x = dateToX(n.date, graph.axis.start, graph.axis.end, width);
+                      const critical = n.onCriticalPath;
+                      const isMilestone = n.kind === "milestone";
+                      const node = (
+                        <div
+                          key={n.id}
+                          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center gap-0.5"
+                          style={{ left: x }}
+                          title={`${n.label}${n.status ? ` · ${n.status}` : ""}${critical ? " · Critical path" : ""}`}
+                        >
+                          <span
+                            className={cn(
+                              isMilestone ? "h-3 w-3 rotate-45 rounded-[2px]" : "h-2.5 w-2.5 rounded-full",
+                              critical ? "ring-2 ring-danger" : "",
+                            )}
+                            style={{ background: critical ? "var(--color-danger)" : p.color }}
+                          />
+                          {showLabel[i] && (
+                            <span className="max-w-[90px] truncate text-[9px] text-ink-muted select-none">
+                              {n.label}
+                            </span>
+                          )}
+                        </div>
+                      );
+                      return n.href ? (
+                        <Link
+                          key={n.id}
+                          href={n.href}
+                          className="absolute inset-y-0 block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 rounded"
+                          style={{ left: x - 22, width: 44 }}
+                          aria-label={n.label}
+                        >
+                          {node}
+                        </Link>
+                      ) : (
+                        node
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1">
+        <div className="flex items-center gap-1.5">
+          <span className="h-3 w-3 rotate-45 rounded-[2px] bg-ink-muted/60" />
+          <span className="text-[11px] text-ink-muted">Milestone</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-ink-muted/60" />
+          <span className="text-[11px] text-ink-muted">Task</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full ring-2 ring-danger" style={{ background: "var(--color-danger)" }} />
+          <span className="text-[11px] text-ink-muted">Critical-path project</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-px bg-accent/60" style={{ display: "inline-block" }} />
+          <span className="text-[11px] text-ink-muted">Today</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-px bg-warning/40" style={{ display: "inline-block" }} />
+          <span className="text-[11px] text-ink-muted">SteerCo gate</span>
+        </div>
+      </div>
+    </div>
+  );
+}

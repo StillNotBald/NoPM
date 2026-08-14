@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   FolderKanban,
   Map,
+  Route,
   FileText,
   AlertTriangle,
   CircleAlert,
@@ -48,6 +49,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/projects", label: "Projects", icon: FolderKanban },
       { href: "/portfolio", label: "Portfolio", icon: Map },
+      { href: "/mainline", label: "Mainline", icon: Route },
       { href: "/documents", label: "Documents", icon: FileText },
     ],
   },

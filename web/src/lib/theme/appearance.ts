@@ -74,11 +74,16 @@ function isFontScale(v: unknown): v is FontScale {
   return typeof v === "number" && (FONT_SCALES as readonly number[]).includes(v);
 }
 
-function isDensity(v: unknown): v is Density {
+// Exported (not just used internally) — L-39's merge helper below and its
+// callers (layout.tsx, use-appearance.ts, the settings page) validate a
+// DB-sourced `density`/`dateDisplay` value against these same closed sets
+// before ever letting it override the cookie, so there is exactly ONE
+// definition of "valid" for each dial, however many places read it.
+export function isDensity(v: unknown): v is Density {
   return typeof v === "string" && (DENSITIES as readonly string[]).includes(v);
 }
 
-function isDateDisplay(v: unknown): v is DateDisplay {
+export function isDateDisplay(v: unknown): v is DateDisplay {
   return typeof v === "string" && (DATE_DISPLAYS as readonly string[]).includes(v);
 }
 
@@ -172,4 +177,37 @@ export function resolveHtmlAttrs(prefs: AppearancePrefs): ResolvedHtmlAttrs {
   else if (prefs.mode === "system") classNames.push("theme-system");
   if (prefs.density === "compact") classNames.push("density-compact");
   return { classNames, style: { fontSize: `${prefs.fontScale}%` } };
+}
+
+// ── DB merge (L-39 follow-through) ──────────────────────────────────────────
+//
+// user_preferences.config (web/src/app/api/me/preferences/_schema.ts) mirrors
+// TWO of the four appearance dials — density and dateDisplay — so a signed-in
+// NON-demo user's choice follows their ACCOUNT, not just their device. mode
+// and fontScale are NOT in that table's whitelist and stay cookie-only,
+// always: this merge only ever touches density/dateDisplay.
+//
+// `isDemo` short-circuits to the cookie untouched — the shared-demo-identity
+// carve-out (ADR 0009 amendment): the demo login is one Supabase identity
+// shared by many real visitors, so a DB-backed value keyed by that identity
+// would leak visitor A's density choice onto visitor B. The cookie is the
+// ONLY source of truth for the demo account; this function is the one place
+// that rule is enforced in code, so every caller (layout.tsx SSR merge,
+// use-appearance.ts's client hook, the settings page) shares one behavior.
+export interface DbAppearanceFields {
+  density?: unknown;
+  dateDisplay?: unknown;
+}
+
+export function mergeAppearanceWithDb(
+  cookiePrefs: AppearancePrefs,
+  dbConfig: DbAppearanceFields | null | undefined,
+  opts: { isDemo: boolean },
+): AppearancePrefs {
+  if (opts.isDemo || !dbConfig) return cookiePrefs;
+  return {
+    ...cookiePrefs,
+    density: isDensity(dbConfig.density) ? dbConfig.density : cookiePrefs.density,
+    dateDisplay: isDateDisplay(dbConfig.dateDisplay) ? dbConfig.dateDisplay : cookiePrefs.dateDisplay,
+  };
 }
