@@ -25,6 +25,7 @@ The in-app **BYOK assistant** uses the same registry as the MCP server: your own
 | Trace a requirement to code + tests | [`requirements/TRACEABILITY.md`](requirements/TRACEABILITY.md) (RTM, CI-verified) |
 | Read an architectural decision | [`docs/adr/`](docs/adr/) |
 | See how each wave was built | [`sprint-log/`](sprint-log/) — dated receipts, per wave |
+| Learn the console UI (operator / admin / agent surfaces) | [`user-manual/README.md`](user-manual/README.md) |
 | Drive it from a terminal | [`cli/README.md`](cli/README.md) |
 | Connect an MCP client | [`web/mcp/README.md`](web/mcp/README.md) |
 | Check project health | `npm run health` (RAG dashboard, no network) |
@@ -57,6 +58,13 @@ Secrets live in `web/.env.local` (gitignored). See `web/.env.example`.
 - **pre-push** — typecheck, full test suite, RTM integrity, generated-metrics freshness, CLI contract tests
 - **CI** — all of the above plus full-tree name scan, gitleaks (full history), dependency audit, and a weekly authenticated page-render smoke against the live site
 - **Proof metrics are generated, not typed** — the case-study numbers come from `web/scripts/gen-metrics.mjs` (RTM + vitest + route tree); CI fails if they drift
+
+## Operations & governance docs
+- Go-live / cutover procedure: [`CUTOVER/`](CUTOVER/README.md) — install, deploy, rollback, backup-restore, go/no-go, dry-run records
+- How the pieces fit together: [`system_architecture.md`](system_architecture.md)
+- What is live right now (the production snapshot): [`PROD_DOOR.md`](PROD_DOOR.md)
+- Test evidence tree: [`testing-log/`](testing-log/README.md)
+- Console user manual (operator / admin / agents): [`user-manual/README.md`](user-manual/README.md)
 
 ## Stack
 Next.js 16 · TypeScript · Tailwind v4 · Supabase (Postgres + Auth + RLS) · Vercel + Cloudflare DNS.

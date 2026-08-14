@@ -14,7 +14,8 @@ You need a Supabase project (free tier works): create one, copy the URL + anon k
 
 ```bash
 npm run migrate            # applies web/supabase/migrations/ in order (uses DB_URL)
-npm run seed:all           # optional: demo workspace, projects, clash, budget, approvals
+node scripts/bootstrap.mjs # REQUIRED before seeding on a fresh DB: creates the workspace + first admin + demo PATs
+npm run seed:all           # optional: demo projects, clash, budget, approvals (throws if bootstrap hasn't run)
 ```
 
 ## Verify
