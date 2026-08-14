@@ -8,7 +8,15 @@
  *    (CWE-209); in dev the message is surfaced deliberately
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { ApiError, AuthError, ScopeError, NotFoundError, RuleError, toErrorResponse } from "./errors";
+import {
+  ApiError,
+  AuthError,
+  ScopeError,
+  NotFoundError,
+  RuleError,
+  RateLimitError,
+  toErrorResponse,
+} from "./errors";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -49,6 +57,14 @@ describe("error classes — status, message and code defaults", () => {
     expect(e.code).toBe("rule_violation");
   });
 
+  it("RateLimitError defaults to 429 / rate_limited", () => {
+    const e = new RateLimitError();
+    expect(e).toBeInstanceOf(ApiError);
+    expect(e.status).toBe(429);
+    expect(e.message).toBe("Rate limit exceeded");
+    expect(e.code).toBe("rate_limited");
+  });
+
   it("subclasses accept custom messages and codes", () => {
     const e = new ScopeError("Token lacks task:delete:approve", "missing_scope");
     expect(e.message).toBe("Token lacks task:delete:approve");
@@ -57,7 +73,13 @@ describe("error classes — status, message and code defaults", () => {
 
   it('every subclass reports name "ApiError" (set in the base constructor)', () => {
     // Worth pinning: instanceof is the reliable discriminator, not `.name`.
-    for (const e of [new AuthError(), new ScopeError(), new NotFoundError(), new RuleError("x")]) {
+    for (const e of [
+      new AuthError(),
+      new ScopeError(),
+      new NotFoundError(),
+      new RuleError("x"),
+      new RateLimitError(),
+    ]) {
       expect(e.name).toBe("ApiError");
       expect(e).toBeInstanceOf(Error);
     }
@@ -70,6 +92,7 @@ describe("toErrorResponse — ApiError mapping", () => {
     ["ScopeError", new ScopeError(), 403, "Insufficient scope for this action", "forbidden_scope"],
     ["NotFoundError", new NotFoundError(), 404, "Not found", "not_found"],
     ["RuleError", new RuleError("Self-approval rejected"), 422, "Self-approval rejected", "rule_violation"],
+    ["RateLimitError", new RateLimitError("Retry in 30s."), 429, "Retry in 30s.", "rate_limited"],
   ];
 
   it.each(cases)("%s → %i with { error, code }", async (_name, error, status, message, code) => {
