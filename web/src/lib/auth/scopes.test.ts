@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SCOPES, isValidScope } from "./scopes";
+import { SCOPES, isValidScope, AGENT_PRESET_SCOPES } from "./scopes";
 import { TOOL_SCOPES } from "@/lib/assistant/tools";
 
 describe("scope registry", () => {
@@ -57,5 +57,53 @@ describe("scope registry", () => {
     // and no wildcard could smuggle an approve in
     expect(tool.has("*")).toBe(false);
     for (const s of TOOL_SCOPES) expect(s.endsWith(":*")).toBe(false);
+  });
+
+  // F1e / L-49 — "Connect your agent" mints a PAT preset with this scope
+  // list. It must stay read-only + task:write and never smuggle in an
+  // approve/admin/token-management scope, however SCOPES grows later.
+  describe("AGENT_PRESET_SCOPES (connect-your-agent preset)", () => {
+    it("has no duplicates and is a strict subset of the registry", () => {
+      expect(new Set(AGENT_PRESET_SCOPES).size).toBe(AGENT_PRESET_SCOPES.length);
+      const registry = new Set<string>(SCOPES);
+      for (const s of AGENT_PRESET_SCOPES) expect(registry.has(s)).toBe(true);
+      for (const s of AGENT_PRESET_SCOPES) expect(isValidScope(s)).toBe(true);
+    });
+
+    it("is read-only plus exactly task:write — never approve/admin/token/delete", () => {
+      const preset = new Set<string>(AGENT_PRESET_SCOPES);
+      // the one write scope allowed
+      expect(preset.has("task:write")).toBe(true);
+      for (const s of AGENT_PRESET_SCOPES) {
+        expect(s === "task:write" || s.endsWith(":read")).toBe(true);
+      }
+      // never a delete/approve step, never a bare/resource wildcard, never
+      // an admin- or token-management scope (no such scope exists in the
+      // registry today, but assert defensively so a future addition can't
+      // silently widen this preset).
+      for (const s of AGENT_PRESET_SCOPES) {
+        expect(s).not.toMatch(/approve/);
+        expect(s).not.toMatch(/admin/);
+        expect(s).not.toMatch(/token/);
+        expect(s).not.toMatch(/delete/);
+        expect(s.endsWith(":*")).toBe(false);
+      }
+      expect(preset.has("*")).toBe(false);
+      expect(preset.has("rebaseline:approve")).toBe(false);
+      expect(preset.has("task:delete:approve")).toBe(false);
+      expect(preset.has("task:delete:request")).toBe(false);
+      expect(preset.has("project:delete:approve")).toBe(false);
+      expect(preset.has("project:delete:request")).toBe(false);
+    });
+
+    it("covers every readable resource in the registry", () => {
+      const presetResources = new Set(
+        AGENT_PRESET_SCOPES.filter((s) => s.endsWith(":read")).map((s) => s.split(":")[0]),
+      );
+      const readResources = new Set(
+        SCOPES.filter((s) => s.endsWith(":read")).map((s) => s.split(":")[0]),
+      );
+      expect(presetResources).toEqual(readResources);
+    });
   });
 });

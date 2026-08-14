@@ -12,7 +12,7 @@ export default async function DocumentsPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: documents }, { data: projects }, { data: members }] =
+  const [{ data: documents }, { data: projects }, { data: members }, { data: viewerProfile }] =
     await Promise.all([
       db
         .from("documents")
@@ -22,7 +22,10 @@ export default async function DocumentsPage() {
         .order("updated_at", { ascending: false }),
       db.from("projects").select("id, name").order("name"),
       db.from("profiles").select("id, display_name, email"),
+      // caller's own role — see risks/page.tsx for the pattern (L-46).
+      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     ]);
+  const canWrite = viewerProfile?.role !== "viewer";
 
   const projectMap = Object.fromEntries(
     (projects ?? []).map((p) => [p.id, p.name]),
@@ -50,6 +53,7 @@ export default async function DocumentsPage() {
               projects={projects ?? []}
               projectMap={projectMap}
               ownerMap={ownerMap}
+              canWrite={canWrite}
             />
           </Suspense>
         </Card>

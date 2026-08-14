@@ -322,6 +322,31 @@ const spec = {
         },
       },
     },
+    "/tasks": {
+      get: {
+        tags: ["tasks"],
+        summary: "Cross-project task list (L-04)",
+        description: "scope: task:read. Workspace-scoped (not per-project). Filters: project_id, assignee_id, status_type, priority, due_before, due_after, overdue=true, q (name ilike). Sort (L-10): ?sort=field:asc|desc against a whitelist (due_date|priority|status_type|name|created_at|completion_pct) — an unknown field or direction 422s. Reused verbatim by GET /export?entity=tasks.",
+        operationId: "listTasks",
+        parameters: [
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — see description for the field whitelist" },
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "status_type", in: "query", schema: { type: "string" } },
+          { name: "priority", in: "query", schema: { type: "string" } },
+          { name: "due_before", in: "query", schema: { type: "string", format: "date" } },
+          { name: "due_after", in: "query", schema: { type: "string", format: "date" } },
+          { name: "overdue", in: "query", schema: { type: "boolean" } },
+          { name: "q", in: "query", schema: { type: "string" }, description: "Case-insensitive substring match against task name" },
+        ],
+        responses: {
+          "200": { description: "Paginated cross-project task list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "422": { description: "Unknown sort field or direction", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/tasks/{id}": {
       get: {
         tags: ["tasks"],
@@ -695,7 +720,7 @@ const spec = {
         summary: "Log a time entry",
         description: "scope: time:write. Cost is auto-computed as hours * member.cost_rate.",
         operationId: "createTimeEntry",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id", "project_id", "entry_date", "hours"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, entry_date: { type: "string", format: "date" }, hours: { type: "number", minimum: 0 }, note: { type: "string" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id", "project_id", "entry_date", "hours"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, entry_date: { type: "string", format: "date" }, hours: { type: "number", minimum: 0 }, note: { type: "string" }, billable: { type: "boolean", description: "L-29: whether this entry counts as billable. Omitted → defaults from the owning project's default_billable." } } } } } },
         responses: {
           "201": { description: "Time entry created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -876,6 +901,54 @@ const spec = {
         ],
         responses: {
           "200": { description: "Paginated audit log entries", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+    },
+    "/export": {
+      get: {
+        tags: ["export"],
+        summary: "Governed CSV export (L-27 / L-36)",
+        description:
+          "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
+          "audit:read, or time:read). Streams text/csv with Content-Disposition " +
+          "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
+          "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
+          "truth, so a filter honored in a list view is always honored the same way in its " +
+          "export): tasks accept project_id/assignee_id/status_type/priority/" +
+          "due_before/due_after/overdue/q/sort; risks/issues REQUIRE project_id (they are " +
+          "project-scoped) plus status/severity(/priority for issues)/sort; clashes take no " +
+          "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
+          "project_id/member_id; audit accepts target_type/target_id/action/actor_id. Capped " +
+          "at 10,000 rows — if the true match count exceeds the cap, a final CSV row notes the " +
+          "truncation and the server logs it. The export is a governed read but still writes " +
+          "exactly one fail-closed audit_log row (action export.csv, target_type=entity, " +
+          "after={entity, row_count, filters}) — so exporting the audit log itself is itself " +
+          "audited (L-36).",
+        operationId: "exportCsv",
+        parameters: [
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "time_entries"] } },
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Required for entity=risks|issues; optional filter for entity=tasks|time_entries" },
+          { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues (whitelisted per entity, same as the list API)" },
+          { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=tasks" },
+          { name: "status_type", in: "query", schema: { type: "string" }, description: "entity=tasks" },
+          { name: "priority", in: "query", schema: { type: "string" }, description: "entity=tasks|issues" },
+          { name: "due_before", in: "query", schema: { type: "string", format: "date" }, description: "entity=tasks" },
+          { name: "due_after", in: "query", schema: { type: "string", format: "date" }, description: "entity=tasks" },
+          { name: "overdue", in: "query", schema: { type: "string", enum: ["true"] }, description: "entity=tasks" },
+          { name: "q", in: "query", schema: { type: "string" }, description: "entity=tasks (name ilike)" },
+          { name: "status", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
+          { name: "severity", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
+          { name: "member_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=time_entries" },
+          { name: "target_type", in: "query", schema: { type: "string" }, description: "entity=audit" },
+          { name: "target_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
+          { name: "action", in: "query", schema: { type: "string" }, description: "entity=audit" },
+          { name: "actor_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
+        ],
+        responses: {
+          "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present)", content: { "text/csv": { schema: { type: "string" } } } },
+          "403": { description: "Forbidden — missing the entity's read scope", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invalid/missing entity, or missing project_id for entity=risks|issues, or an invalid sort field", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "project_id not found in this workspace (entity=risks|issues)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

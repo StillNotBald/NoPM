@@ -3,6 +3,9 @@ import {
   memberUtilisation,
   workspaceSummary,
   fmtHours,
+  memberPeriodUtilisation,
+  periodMultiplier,
+  WEEKS_PER_MONTH,
   type WorkspaceMemberInput,
 } from "./utilisation";
 
@@ -272,5 +275,75 @@ describe("fmtHours", () => {
     expect(fmtHours(r.allocatedHours!)).toBe("13.9");
     expect(fmtHours(r.freeHours!)).toBe("23.6");
     expect(fmtHours(memberUtilisation(100, 40).freeHours!)).toBe("0");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// periodMultiplier / memberPeriodUtilisation — L-13 workload chart
+// ---------------------------------------------------------------------------
+
+describe("periodMultiplier", () => {
+  it("week is a no-op (1x)", () => {
+    expect(periodMultiplier("week")).toBe(1);
+  });
+
+  it("month scales by the average weeks-per-month constant", () => {
+    expect(periodMultiplier("month")).toBe(WEEKS_PER_MONTH);
+    expect(periodMultiplier("month")).toBeCloseTo(4.333, 3);
+  });
+});
+
+describe("memberPeriodUtilisation — null capacity renders as 'not set', never 0 or Infinity", () => {
+  it("null capacity_hours_per_week yields null hours at week AND month, regardless of allocation", () => {
+    const week = memberPeriodUtilisation(150, null, "week");
+    const month = memberPeriodUtilisation(150, null, "month");
+    expect(week).toEqual({ capacityHours: null, allocatedHours: null, isOver: true });
+    expect(month).toEqual({ capacityHours: null, allocatedHours: null, isOver: true });
+  });
+
+  it("never produces NaN or Infinity for a zero-allocation, null-capacity member", () => {
+    const r = memberPeriodUtilisation(0, null, "month");
+    expect(r.capacityHours).toBeNull();
+    expect(r.allocatedHours).toBeNull();
+    expect(Number.isFinite(r.capacityHours as number)).toBe(false); // null, not a finite/NaN number
+  });
+});
+
+describe("memberPeriodUtilisation — week view", () => {
+  it("matches memberUtilisation directly (1x multiplier)", () => {
+    const r = memberPeriodUtilisation(50, 40, "week");
+    expect(r.capacityHours).toBe(40);
+    expect(r.allocatedHours).toBe(20);
+    expect(r.isOver).toBe(false);
+  });
+
+  it("flags over-capacity at week granularity", () => {
+    const r = memberPeriodUtilisation(150, 40, "week");
+    expect(r.isOver).toBe(true);
+    expect(r.allocatedHours).toBe(60);
+  });
+});
+
+describe("memberPeriodUtilisation — month view scales the denominator correctly", () => {
+  it("scales BOTH capacity and allocated hours by weeks-per-month", () => {
+    const r = memberPeriodUtilisation(50, 40, "month");
+    // 40h/wk * 4.333 = 173.3h/mo; 20h/wk * 4.333 = 86.7h/mo
+    expect(r.capacityHours).toBeCloseTo(173.3, 1);
+    expect(r.allocatedHours).toBeCloseTo(86.7, 1);
+  });
+
+  it("utilisation % is period-invariant within independent per-side rounding (same precedent as memberUtilisation)", () => {
+    const week = memberPeriodUtilisation(65, 37.5, "week");
+    const month = memberPeriodUtilisation(65, 37.5, "month");
+    const weekPct = (week.allocatedHours! / week.capacityHours!) * 100;
+    const monthPct = (month.allocatedHours! / month.capacityHours!) * 100;
+    expect(monthPct).toBeCloseTo(weekPct, 1);
+  });
+
+  it("isOver is scale-invariant — same verdict at week and month", () => {
+    const week = memberPeriodUtilisation(120, 30, "week");
+    const month = memberPeriodUtilisation(120, 30, "month");
+    expect(week.isOver).toBe(true);
+    expect(month.isOver).toBe(true);
   });
 });

@@ -39,6 +39,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/my-work", label: "My Work", icon: Inbox },
       { href: "/my-tasks", label: "My Tasks", icon: ListTodo },
+      { href: "/tasks", label: "Tasks", icon: ListChecks },
       { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     ],
   },

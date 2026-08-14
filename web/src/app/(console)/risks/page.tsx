@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
+import { formatByPref } from "@/lib/format/dates";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
@@ -15,6 +18,7 @@ import {
 import { RiskRowButton } from "@/components/registers/risk-detail";
 import { EntityLink } from "@/components/ui/entity-link";
 import { RiskFocusOpener } from "@/components/registers/risk-focus-opener";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type SeverityLevel = "low" | "medium" | "high" | "critical";
 type RiskStatus = "open" | "mitigating" | "closed" | "accepted";
@@ -49,11 +53,6 @@ function strategyTone(s: ResponseStrategy) {
   return "success" as const; // accept
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
-
 export default async function RisksPage() {
   const db = await createClient();
   const {
@@ -61,7 +60,11 @@ export default async function RisksPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: risks }, { data: projects }, { data: members }] = await Promise.all([
+  const dateDisplayPref = parseAppearancePrefs(
+    (await cookies()).get(APPEARANCE_COOKIE_NAME)?.value,
+  ).dateDisplay;
+
+  const [{ data: risks }, { data: projects }, { data: members }, { data: viewerProfile }] = await Promise.all([
     db
       .from("risks")
       .select(
@@ -72,7 +75,11 @@ export default async function RisksPage() {
     // owner_id → display name. risks.owner_id references profiles(id); also
     // map resource_members so a member id resolves regardless of source.
     db.from("profiles").select("id, display_name, email"),
+    // caller's own role — mirrors requireScope() in lib/auth/guard.ts: only
+    // "viewer" is read-only. Read-only lookup, never audited (L-46).
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
+  const canWrite = viewerProfile?.role !== "viewer";
 
   const { data: resourceMembers } = await db
     .from("resource_members")
@@ -226,7 +233,10 @@ export default async function RisksPage() {
                       {ownerName(risk.owner_id)}
                     </td>
                     <td className="px-5 py-3 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
-                      {formatDate(risk.due_date)}
+                      {(() => {
+                        const due = formatByPref(risk.due_date, dateDisplayPref);
+                        return <span title={due.title}>{due.text}</span>;
+                      })()}
                     </td>
                   </RiskRowButton>
                   );
@@ -235,10 +245,13 @@ export default async function RisksPage() {
             </table>
           </div>
         ) : (
-          <div className="px-5 py-16 text-center">
-            <p className="text-sm text-ink-muted">No risks recorded yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use &ldquo;New Risk&rdquo; to log the first one.</p>
-          </div>
+          <EmptyState
+            purpose="The risk register tracks anything that could derail a project before it happens — probability, impact, and a mitigation owner."
+            canWrite={canWrite}
+            action={<NewRiskButton projects={projects ?? []} />}
+            docsHref="/trust"
+            docsLabel="See governance in the Trust Center"
+          />
         )}
       </Card>
       </div>

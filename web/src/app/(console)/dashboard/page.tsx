@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
+import { formatByPref } from "@/lib/format/dates";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
@@ -11,6 +14,13 @@ import { HealthRollupCards } from "@/components/dashboard/health-rollup-cards";
 import { ExportBoardPack } from "@/components/dashboard/export-board-pack";
 import { EntityLink } from "@/components/ui/entity-link";
 import { DashboardProjectRow } from "@/components/dashboard/dashboard-project-row";
+import { CardFreshness } from "@/components/dashboard/card-freshness";
+import { DashboardFilterBar } from "@/components/dashboard/dashboard-filter-bar";
+import {
+  filterDashboardProjects,
+  dashboardFilterLabel,
+  type DashboardFilters,
+} from "@/lib/insight/dashboard-filter";
 
 // ── types ────────────────────────────────────────────────────────────────────
 
@@ -28,30 +38,91 @@ interface Project {
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
-export default async function DashboardPage() {
+type SearchParams = { [key: string]: string | string[] | undefined };
+
+function firstParam(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const db = await createClient();
   const {
     data: { user },
   } = await db.auth.getUser();
 
+  const dateDisplayPref = parseAppearancePrefs(
+    (await cookies()).get(APPEARANCE_COOKIE_NAME)?.value,
+  ).dateDisplay;
+
   if (!user) {
     redirect("/login");
   }
 
-  // Parallel fetches
+  // L-15 — dashboard-wide filter, URL-encoded (program / project / date-range).
+  const sp = await searchParams;
+  const filters: DashboardFilters = {
+    program: firstParam(sp.program),
+    project: firstParam(sp.project),
+    dateFrom: firstParam(sp.date_from),
+    dateTo: firstParam(sp.date_to),
+  };
+
+  // Parallel fetches — unfiltered; the filter is applied in JS below so
+  // every card's numbers derive from the same filtered project set.
   const [projectsResult, risksResult, issuesResult, clashesResult] = await Promise.all([
     db.from("projects").select("id,code,name,rag_status,completion_pct,program,target_date"),
     db.from("risks").select("project_id,status"),
     db.from("issues").select("project_id,status"),
-    db.from("clashes").select("id", { count: "exact", head: true }),
+    db.from("clashes").select("id,project_a_id,project_b_id"),
   ]);
 
-  const projects: Project[] = (projectsResult.data ?? []) as Project[];
-  const riskRows = (risksResult.data ?? []) as { project_id: string | null; status: string }[];
-  const issueRows = (issuesResult.data ?? []) as { project_id: string | null; status: string }[];
+  // L-34 — stamp the fetch time right after the queries resolve (not render
+  // time); every card on this page shares this one fetch, so one timestamp
+  // is honest for all of them.
+  const fetchedAt = new Date().toISOString();
+
+  const allProjects: Project[] = (projectsResult.data ?? []) as Project[];
+  const allRiskRows = (risksResult.data ?? []) as { project_id: string | null; status: string }[];
+  const allIssueRows = (issuesResult.data ?? []) as { project_id: string | null; status: string }[];
+  const allClashRows = (clashesResult.data ?? []) as {
+    id: string;
+    project_a_id: string | null;
+    project_b_id: string | null;
+  }[];
+
+  // ── Apply the active filter to the project set, then scope every other
+  // register (risks/issues/clashes) to that same filtered set. ──────────────
+  const projects = filterDashboardProjects(allProjects, filters);
+  const filteredProjectIds = new Set(projects.map((p) => p.id));
+  const isFiltered = projects.length !== allProjects.length;
+
+  const riskRows = isFiltered
+    ? allRiskRows.filter((r) => r.project_id !== null && filteredProjectIds.has(r.project_id))
+    : allRiskRows;
+  const issueRows = isFiltered
+    ? allIssueRows.filter((i) => i.project_id !== null && filteredProjectIds.has(i.project_id))
+    : allIssueRows;
+  const clashRows = isFiltered
+    ? allClashRows.filter(
+        (c) =>
+          (c.project_a_id !== null && filteredProjectIds.has(c.project_a_id)) ||
+          (c.project_b_id !== null && filteredProjectIds.has(c.project_b_id)),
+      )
+    : allClashRows;
+
   const riskCount = riskRows.length;
   const issueCount = issueRows.length;
-  const clashCount = clashesResult.count ?? 0;
+  const clashCount = clashRows.length;
+
+  // Active-filter subtitle — the filtered project's code/name, not its raw id.
+  const filteredProject = filters.project ? allProjects.find((p) => p.id === filters.project) : undefined;
+  const filterLabel = dashboardFilterLabel(filters, {
+    projectLabel: filteredProject ? `${filteredProject.code} — ${filteredProject.name}` : undefined,
+  });
 
   // per-project OPEN counts — the iron-triangle health shown on each portfolio row
   const openRisksByProject = new Map<string, number>();
@@ -97,9 +168,21 @@ export default async function DashboardPage() {
 
   const ragCounts = { green: greenCount, amber: amberCount, red: redCount, complete: completeCount, not_started: notStarted };
 
+  // Filter-bar dropdown options are drawn from the FULL (unfiltered) set so
+  // choosing one filter never hides the others.
+  const programOptions = Array.from(
+    new Set(allProjects.map((p) => p.program).filter((p): p is string => !!p)),
+  ).sort();
+  const projectOptions = [...allProjects]
+    .sort((a, b) => a.code.localeCompare(b.code))
+    .map((p) => ({ id: p.id, label: `${p.code} — ${p.name}` }));
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <PageHeader title="Command Centre" action={<ExportBoardPack />} />
+
+      {/* ── Dashboard-wide filter (L-15) ── */}
+      <DashboardFilterBar programs={programOptions} projects={projectOptions} />
 
       {/* ── Health rollup KPI strip ── */}
       <HealthRollupCards
@@ -112,25 +195,43 @@ export default async function DashboardPage() {
         issueCount={issueCount}
         clashCount={clashCount}
         overdueCount={overdueCount}
+        filterLabel={filterLabel}
+        fetchedAt={fetchedAt}
       />
 
       {/* ── Charts row: RAG donut + program bar ── */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <RagDonutCard counts={ragCounts} />
-        <ProgramBarCard programs={programs} />
+        <RagDonutCard counts={ragCounts} filterLabel={filterLabel} fetchedAt={fetchedAt} />
+        <ProgramBarCard programs={programs} filterLabel={filterLabel} fetchedAt={fetchedAt} />
       </div>
 
       {/* ── Portfolio table ── */}
       <Card>
         <CardHeader>
-          <CardTitle>Portfolio</CardTitle>
-          <span className="text-xs text-ink-muted">{totalProjects} projects</span>
+          <div className="min-w-0">
+            <CardTitle>Portfolio</CardTitle>
+            <span className="mt-0.5 block text-xs text-ink-muted truncate">
+              {totalProjects} projects{filterLabel ? ` · ${filterLabel}` : ""}
+            </span>
+          </div>
+          <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />
         </CardHeader>
         <CardBody className="p-0">
           {projects.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-ink-muted">
-              No projects yet. Create your first project to get started.
-            </p>
+            <div className="px-5 py-10 text-center">
+              <p className="text-sm text-ink-muted">
+                No projects yet. Create your first project to get started.
+              </p>
+              {/* L-49 — final first-run step: no onboarding wizard exists yet
+                  (F2), so this is the pointer into the connect-your-agent
+                  card on the tokens page. */}
+              <a
+                href="/tokens#connect-agent"
+                className="mt-2 inline-block text-xs text-accent hover:underline"
+              >
+                Or connect an AI agent to drive NoPM for you →
+              </a>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
@@ -171,6 +272,9 @@ export default async function DashboardPage() {
                       new Date(project.target_date) < today;
                     const openR = openRisksByProject.get(project.id) ?? 0;
                     const openI = openIssuesByProject.get(project.id) ?? 0;
+                    const targetDate = project.target_date
+                      ? formatByPref(project.target_date, dateDisplayPref)
+                      : null;
 
                     return (
                       <DashboardProjectRow
@@ -247,18 +351,15 @@ export default async function DashboardPage() {
 
                         {/* Target date */}
                         <td className="whitespace-nowrap px-5 py-3.5">
-                          {project.target_date ? (
+                          {targetDate ? (
                             <span
+                              title={targetDate.title}
                               className={cn(
                                 "font-mono text-xs tabular-nums",
                                 isOverdue ? "text-danger font-medium" : "text-ink-secondary",
                               )}
                             >
-                              {new Date(project.target_date).toLocaleDateString("en-GB", {
-                                day: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              })}
+                              {targetDate.text}
                               {isOverdue && (
                                 <span className="ml-1.5 inline-block rounded-full bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger">
                                   overdue

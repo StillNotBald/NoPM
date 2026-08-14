@@ -785,6 +785,7 @@ export function ProjectTabs({
   issues,
   dependencies = [],
   charterDoc = null,
+  actualHoursByTask = {},
 }: {
   project: Project;
   milestones: Milestone[];
@@ -793,6 +794,8 @@ export function ProjectTabs({
   issues: Issue[];
   dependencies?: TaskDependency[];
   charterDoc?: CharterDocument | null;
+  /** L-33 — Σ time_entries.hours per task id, batched server-side. */
+  actualHoursByTask?: Record<string, number>;
 }) {
   const [active, setActive] = useState<Tab>("charter");
 
@@ -882,6 +885,7 @@ export function ProjectTabs({
           tasks={tasks}
           isLocked={project.is_locked}
           members={members}
+          actualHoursByTask={actualHoursByTask}
         />
       )}
       {active === "board" && (

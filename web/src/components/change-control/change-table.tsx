@@ -2,7 +2,9 @@
 
 import { Badge } from "@/components/ui/badge";
 import { EntityLink } from "@/components/ui/entity-link";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ChangeRowButton } from "@/components/change-control/change-detail";
+import { NewChangeButton } from "@/components/change-control/new-change-button";
 import type { ChangeRequest } from "@/components/change-control/change-form";
 import type { Tone } from "@/lib/status";
 
@@ -54,17 +56,20 @@ interface ChangeTableProps {
   rows: ChangeRequest[];
   projectMap: Record<string, string>;
   projects: Array<{ id: string; name: string }>;
+  /** false for viewer-role callers — see risks/page.tsx (L-46). */
+  canWrite?: boolean;
 }
 
-export function ChangeTable({ rows, projectMap, projects }: ChangeTableProps) {
+export function ChangeTable({ rows, projectMap, projects, canWrite = true }: ChangeTableProps) {
   if (rows.length === 0) {
     return (
-      <div className="px-5 py-16 text-center">
-        <p className="text-sm text-ink-muted">No change requests recorded yet.</p>
-        <p className="mt-1 text-xs text-ink-muted">
-          Use &ldquo;Raise Change Request&rdquo; to log the first one.
-        </p>
-      </div>
+      <EmptyState
+        purpose="Change control captures anything that would move scope, schedule, or cost outside the agreed plan — with an explicit approve/reject decision and rationale."
+        canWrite={canWrite}
+        action={<NewChangeButton projects={projects} />}
+        docsHref="/trust"
+        docsLabel="See governance in the Trust Center"
+      />
     );
   }
 

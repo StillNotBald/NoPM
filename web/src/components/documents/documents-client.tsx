@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Plus } from "lucide-react";
 import { FolderTree, type FolderTreeSelection } from "./folder-tree";
 import { DocumentRowButton, DocumentViewer } from "./document-viewer";
@@ -57,6 +58,8 @@ interface DocumentsClientProps {
   projects: { id: string; name: string }[];
   projectMap: Record<string, string>;
   ownerMap: Record<string, string>;
+  /** false for viewer-role callers — see risks/page.tsx (L-46). */
+  canWrite?: boolean;
 }
 
 // ── DocumentsClient ───────────────────────────────────────────────────────────
@@ -66,6 +69,7 @@ export function DocumentsClient({
   projects,
   projectMap,
   ownerMap,
+  canWrite = true,
 }: DocumentsClientProps) {
   const inspector = useInspector();
   const searchParams = useSearchParams();
@@ -223,19 +227,23 @@ export function DocumentsClient({
               </tbody>
             </table>
           </div>
+        ) : documents.length === 0 ? (
+          <EmptyState
+            purpose="Documents hold the durable artifacts of the project — charters, plans, RAID logs, status reports — versioned and linked back to the project they belong to."
+            canWrite={canWrite}
+            action={
+              <Button variant="secondary" size="sm" onClick={openNew}>
+                <Plus size={14} className="mr-1" />
+                New Document
+              </Button>
+            }
+            docsHref="/trust"
+            docsLabel="See governance in the Trust Center"
+          />
         ) : (
-          <div className="px-5 py-16 text-center">
-            <p className="text-sm text-ink-muted">
-              {documents.length === 0
-                ? "No documents recorded yet."
-                : "No documents match the selected filter."}
-            </p>
-            {documents.length === 0 && (
-              <p className="mt-1 text-xs text-ink-muted">
-                Use &quot;New Document&quot; to add the first one.
-              </p>
-            )}
-          </div>
+          <p className="px-5 py-16 text-center text-sm text-ink-muted">
+            No documents match the selected filter.
+          </p>
         )}
       </div>
     </div>

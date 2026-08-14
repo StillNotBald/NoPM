@@ -7,6 +7,10 @@ import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { createRiskSchema } from "@/app/api/risks/_schema";
 import { nextRefId } from "@/lib/ref-id";
+import { parseSort, orderOptions } from "@/lib/api/sort";
+import { RISK_SORT_FIELDS, parseRiskFilters } from "@/app/api/risks/_query";
+
+export { RISK_SORT_FIELDS };
 
 export const runtime = "nodejs";
 
@@ -34,13 +38,30 @@ export const GET = route(async ({ actor, params, request }) => {
   const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
   const offset = (page - 1) * limit;
 
-  const { data: items, error, count } = await db
+  // Reject an unknown sort field/direction before touching the DB.
+  const sort = parseSort(url.searchParams.get("sort"), RISK_SORT_FIELDS, {
+    field: "created_at",
+    ascending: false,
+  });
+
+  const filters = parseRiskFilters(url.searchParams);
+
+  let query = db
     .from("risks")
     .select("*", { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .eq("project_id", projectId);
+
+  // Inlined (not applyRiskFilters<Q>/applySort<Q>): the generic helpers trip
+  // TS2589 against this route's concrete builder type — same workaround as the
+  // issues/audit/time-entries/export routes. parseRiskFilters/parseSort stay
+  // the single source of truth for param mapping + whitelist.
+  if (filters.status) query = query.eq("status", filters.status);
+  if (filters.severity) query = query.eq("severity", filters.severity);
+  query = query.order(sort.field, orderOptions(sort));
+  query = query.range(offset, offset + limit - 1);
+
+  const { data: items, error, count } = await query;
 
   if (error) throw new Error(error.message);
 

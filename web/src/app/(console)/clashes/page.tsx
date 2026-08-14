@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { EntityLink } from "@/components/ui/entity-link";
 import { ClashFocusOpener } from "@/app/(console)/clashes/_clash-focus-opener";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type ClashType = "schedule" | "resource" | "dependency";
 type ClashSeverity = "low" | "medium" | "high" | "critical";
@@ -197,12 +198,14 @@ export default async function ClashesPage() {
             </table>
           </div>
         ) : (
-          <div className="px-5 py-16 text-center">
-            <p className="text-sm text-ink-muted">No clashes detected yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">
-              Resource over-allocations are flagged here automatically.
-            </p>
-          </div>
+          // Clashes are system-detected (schedule/resource/dependency
+          // over-allocation) — there is no manual "New Clash" write action
+          // on this register, so the empty state is explanatory only.
+          <EmptyState
+            purpose="Clashes are detected automatically — schedule, resource, and dependency conflicts across every project surface here as soon as NoPM finds one."
+            docsHref="/trust"
+            docsLabel="See governance in the Trust Center"
+          />
         )}
       </Card>
       </div>

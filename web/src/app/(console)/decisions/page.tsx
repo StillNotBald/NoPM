@@ -15,7 +15,7 @@ export default async function DecisionsPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: decisions }, { data: projects }] = await Promise.all([
+  const [{ data: decisions }, { data: projects }, { data: viewerProfile }] = await Promise.all([
     db
       .from("decisions")
       .select(
@@ -23,7 +23,10 @@ export default async function DecisionsPage() {
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
+    // caller's own role — see risks/page.tsx for the pattern (L-46).
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
+  const canWrite = viewerProfile?.role !== "viewer";
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
 
@@ -58,6 +61,7 @@ export default async function DecisionsPage() {
             projectMap={projectMap}
             refMap={refMap}
             projects={projects ?? []}
+            canWrite={canWrite}
           />
         </Card>
       </div>

@@ -56,6 +56,38 @@
   color-scheme: dark;
 }
 
+/* System-mode dark (L-37): `.theme-system` is stamped on <html> by
+   layout.tsx when the user's appearance preference is "system" — no `dark`
+   class is added server-side because the server cannot know the visitor's
+   OS theme. This block is the SSR-safe way to still go dark: it is a pure
+   `prefers-color-scheme` media query, so it activates client-side from the
+   OS setting with no flash and no JS, and it tracks OS theme changes live.
+   Every var below is copied 1:1 from the `.dark` block above — keep them in
+   sync if that block ever changes. */
+@media (prefers-color-scheme: dark) {
+  .theme-system {
+    --bg-canvas: #0a0a0b;
+    --bg-surface: #151517;
+    --bg-grouped: #0a0a0b;
+    --bg-sunken: #1e1e22;
+    --border-subtle: #26262b;
+    --border-strong: #34343a;
+    --text-primary: #ededf0;
+    --text-secondary: #a0a0a8;
+    --text-muted: #6b6b73;
+    --accent: #60cdff;
+    --accent-hover: #7bd6ff;
+    --accent-ink: #003253;
+    --info: #4493f8;
+    --success: #3fb950;
+    --warning: #d29922;
+    --sev-high: #db6d28;
+    --danger: #f85149;
+    --change: #a371f7;
+    color-scheme: dark;
+  }
+}
+
 @theme inline {
   --color-canvas: var(--bg-canvas);
   --color-surface: var(--bg-surface);
@@ -138,4 +170,56 @@ body {
   .rise-3 {
     animation: none;
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Density (L-38). `.density-compact` on <html> (stamped by layout.tsx
+   from the appearance cookie, or toggled live by the settings page)
+   shrinks the vertical rhythm of the app's dominant row-based surfaces:
+   register tables (risks/issues/clashes/tokens/budget/decisions/
+   resources — they all share the same `px-5 py-3`/`py-3.5` cell
+   convention) and kanban cards. Rules are scoped by the exact utility
+   classes already in use rather than editing every page, per the task's
+   "a few targeted CSS rules" instruction — no component file had to move.
+
+   R-63 (touch targets >=44px at 390px): only VERTICAL padding is reduced
+   here. Every interactive control inside these rows/cards keeps its own
+   sizing — buttons/badges size themselves via h-8/h-10 in Button/Badge,
+   untouched by these rules. The one true tap target these rules could
+   shrink is the row itself (register rows are `<tr role="button">`,
+   see RiskRowButton/IssueRowButton) — so compact mode floors every such
+   row at 44px via min-height, independent of how tight the padding gets.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --density-row-py: 0.75rem; /* py-3 — register table cell vertical padding */
+  --density-row-py-lg: 0.875rem; /* py-3.5 variant (portfolio/roadmap tables) */
+  --density-card-py: 0.625rem; /* py-2.5 — kanban card vertical padding */
+}
+
+.density-compact {
+  --density-row-py: 0.375rem; /* py-1.5 */
+  --density-row-py-lg: 0.375rem;
+  --density-card-py: 0.375rem; /* py-1.5 */
+}
+
+.density-compact th.px-5.py-3,
+.density-compact td.px-5.py-3 {
+  padding-top: var(--density-row-py);
+  padding-bottom: var(--density-row-py);
+}
+
+.density-compact td.px-5.py-3\.5 {
+  padding-top: var(--density-row-py-lg);
+  padding-bottom: var(--density-row-py-lg);
+}
+
+.density-compact .kanban-card {
+  padding-top: var(--density-card-py);
+  padding-bottom: var(--density-card-py);
+}
+
+/* R-63 floor: reduced padding above must never take a clickable register
+   row below the 44px minimum touch target at 390px. */
+.density-compact tr[role="button"] {
+  min-height: 44px;
 }

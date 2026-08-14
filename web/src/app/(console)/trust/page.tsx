@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { ExportCsvButton } from "@/components/export-csv-button";
 import { cn } from "@/lib/cn";
 
 export const metadata = { title: "Trust Center — NoPM" };
@@ -94,7 +95,15 @@ export default async function TrustPage() {
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <div className="mx-auto max-w-4xl space-y-8">
-      <PageHeader title="Trust Center" action={<Badge tone="accent">Immutable</Badge>} />
+      <PageHeader
+        title="Trust Center"
+        action={
+          <>
+            <ExportCsvButton href="/api/export?entity=audit" />
+            <Badge tone="accent">Immutable</Badge>
+          </>
+        }
+      />
 
       {/* Error state */}
       {error && (

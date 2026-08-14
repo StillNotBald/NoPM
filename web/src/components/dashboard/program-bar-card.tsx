@@ -2,13 +2,24 @@
 
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { HorizontalBarChart } from "@/components/charts/bar";
+import { CardFreshness } from "@/components/dashboard/card-freshness";
 
 type ProgramEntry = {
   program: string | null;
   count: number;
 };
 
-export function ProgramBarCard({ programs }: { programs: ProgramEntry[] }) {
+export function ProgramBarCard({
+  programs,
+  filterLabel,
+  fetchedAt,
+}: {
+  programs: ProgramEntry[];
+  /** L-15 — active-filter note, named in the subtitle. */
+  filterLabel?: string | null;
+  /** L-34 — data fetch time, shown + a manual refresh button. */
+  fetchedAt?: string;
+}) {
   const items = programs
     .sort((a, b) => b.count - a.count)
     .slice(0, 8) // cap at 8 rows to keep the card compact
@@ -20,8 +31,13 @@ export function ProgramBarCard({ programs }: { programs: ProgramEntry[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>By Program</CardTitle>
-        <span className="text-xs text-ink-muted font-mono">{programs.length} programs</span>
+        <div className="min-w-0">
+          <CardTitle>By Program</CardTitle>
+          <span className="mt-0.5 block text-xs text-ink-muted font-mono truncate">
+            {programs.length} programs{filterLabel ? ` · ${filterLabel}` : ""}
+          </span>
+        </div>
+        {fetchedAt && <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />}
       </CardHeader>
       <CardBody>
         {items.length === 0 ? (

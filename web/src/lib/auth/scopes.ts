@@ -49,3 +49,16 @@ export function isValidScope(scope: string): boolean {
   const m = scope.match(WILDCARD);
   return !!m && SCOPE_RESOURCES.has(m[1]);
 }
+
+/**
+ * Least-privilege preset for the "Connect your agent" onboarding flow
+ * (F1e / L-49) — every read scope in the registry plus `task:write`, so a
+ * freshly-minted agent PAT can read the whole workspace and move/edit tasks
+ * but can never request/approve a deletion, approve a rebaseline, or write
+ * anything else. Derived from SCOPES (not hand-listed) so it can never drift
+ * onto a scope the registry doesn't recognise; scopes.test.ts asserts the
+ * least-privilege shape directly against this constant.
+ */
+export const AGENT_PRESET_SCOPES: readonly Scope[] = SCOPES.filter((s) =>
+  s.endsWith(":read"),
+).concat(["task:write"]);

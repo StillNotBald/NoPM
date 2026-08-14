@@ -105,6 +105,7 @@ GET    /milestones/{id}                    — scope:milestone:read  — get a m
 PATCH  /milestones/{id}                    — scope:milestone:write — update a milestone
 DELETE /milestones/{id}                    — scope:milestone:write — delete a milestone
 
+GET    /tasks                              — scope:task:read  — cross-project task list (L-04), workspace-scoped not per-project. Filters: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q. Sort (L-10): ?sort=field:asc|desc against due_date|priority|status_type|name|created_at|completion_pct — unknown field/direction 422s. Reused by GET /export?entity=tasks.
 GET    /projects/{id}/tasks                — scope:task:read  — list tasks for a project
 POST   /projects/{id}/tasks                — scope:task:write — create a task in a project
 GET    /tasks/{id}                         — scope:task:read  — get a task
@@ -145,7 +146,7 @@ PATCH  /allocations/{id}                   — scope:resource:write — update a
 DELETE /allocations/{id}                   — scope:resource:write — delete an allocation
 
 GET    /time-entries                       — scope:time:read  — list time entries (?project_id and ?member_id filters available)
-POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate)
+POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate; billable defaults from the project's default_billable when omitted — L-29)
 DELETE /time-entries/{id}                  — scope:time:write — delete a time entry
 
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual, variance, burn_pct)
@@ -195,6 +196,8 @@ POST   /notifications/read-all             — scope:notification:read — mark 
 GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id)
 GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
+
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id; audit: target_type/target_id/action/actor_id). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
 
 GET    /reports/deck                       — scope:audit:read — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read — portfolio deck (POST variant)

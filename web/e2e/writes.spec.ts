@@ -183,3 +183,124 @@ test("mint and revoke a PAT through the tokens UI", async ({ page }) => {
   await row.getByRole("button", { name: /revoke/i }).click();
   await expect(row.getByText("revoked")).toBeVisible({ timeout: 15_000 });
 });
+
+// ── F1 CSV / audit-export / billable-flag journeys (L-27 / L-36 / L-29) ────
+//
+// These are Tier 2 (not Tier 1 f1-features.spec.ts) because every governed
+// export writes exactly one `export.csv` audit_log row (L-36 — exporting the
+// audit log must itself appear in the audit log), and a time entry create is
+// a real governed write. Both go through the same session-cookie-driven
+// governed API the UI uses, same as the journey above.
+
+test("register CSV export writes exactly one export.csv audit row (register-csv-export)", async ({
+  page,
+}) => {
+  const before = await page.request.get(
+    "/api/audit?action=export.csv&target_type=entity&limit=1",
+  );
+  expect(before.ok()).toBeTruthy();
+  const beforeTotal = (await before.json()).total as number;
+
+  // GET /api/export has no `limit` param (see the audit-export test below for
+  // why) — task filters keep this export's row count reasonable instead.
+  const res = await page.request.get("/api/export?entity=tasks&status_type=started");
+  expect(res.ok()).toBeTruthy();
+  expect(res.headers()["content-type"]).toContain("text/csv");
+  const csv = await res.text();
+  expect(csv.split("\n")[0]).toContain("id"); // header row
+
+  const after = await page.request.get(
+    "/api/audit?action=export.csv&target_type=entity&limit=1",
+  );
+  expect((await after.json()).total as number).toBe(beforeTotal + 1);
+});
+
+test("exporting the audit log itself is audited (audit-log-export)", async ({ page }) => {
+  // GET /api/export has no `limit` param (it streams up to a fixed 10,000-row
+  // cap server-side, same as every other entity) — narrow with a real filter
+  // instead of an unsupported one so the CSV body stays small for the test.
+  const before = await page.request.get(
+    "/api/audit?action=export.csv&target_type=entity&limit=1",
+  );
+  const beforeTotal = (await before.json()).total as number;
+
+  const res = await page.request.get("/api/export?entity=audit&action=export.csv");
+  expect(res.ok()).toBeTruthy();
+  expect(res.headers()["content-type"]).toContain("text/csv");
+
+  // The export of the audit log shows up IN the audit log (L-36).
+  const after = await page.request.get(
+    "/api/audit?action=export.csv&target_type=entity&limit=1",
+  );
+  expect((await after.json()).total as number).toBe(beforeTotal + 1);
+});
+
+test("time entry billable flag: explicit true/false wins, omitted falls back to the project default (time-entry-billable-flag)", async ({
+  page,
+}) => {
+  const projectsRes = await page.request.get("/api/projects?limit=1");
+  expect(projectsRes.ok()).toBeTruthy();
+  const project = (await projectsRes.json()).data[0];
+  test.skip(!project, "no seeded project to log time against");
+
+  const membersRes = await page.request.get("/api/resources?limit=1");
+  expect(membersRes.ok()).toBeTruthy();
+  const member = (await membersRes.json()).data[0];
+  test.skip(!member, "no seeded resource member to log time against");
+
+  const createdIds: string[] = [];
+  try {
+    // Explicit billable=false must win over the project's default.
+    const explicitFalse = await page.request.post("/api/time-entries", {
+      data: {
+        member_id: member.id,
+        project_id: project.id,
+        entry_date: new Date().toISOString().slice(0, 10),
+        hours: 1,
+        billable: false,
+        note: `e2e billable-flag ${STAMP}`,
+      },
+    });
+    expect(explicitFalse.status()).toBe(201);
+    const rowFalse = (await explicitFalse.json()).data;
+    createdIds.push(rowFalse.id);
+    expect(rowFalse.billable).toBe(false);
+
+    // Explicit billable=true must win too.
+    const explicitTrue = await page.request.post("/api/time-entries", {
+      data: {
+        member_id: member.id,
+        project_id: project.id,
+        entry_date: new Date().toISOString().slice(0, 10),
+        hours: 1,
+        billable: true,
+        note: `e2e billable-flag ${STAMP}`,
+      },
+    });
+    expect(explicitTrue.status()).toBe(201);
+    const rowTrue = (await explicitTrue.json()).data;
+    createdIds.push(rowTrue.id);
+    expect(rowTrue.billable).toBe(true);
+
+    // Omitted billable falls back to the project's default_billable.
+    const omitted = await page.request.post("/api/time-entries", {
+      data: {
+        member_id: member.id,
+        project_id: project.id,
+        entry_date: new Date().toISOString().slice(0, 10),
+        hours: 1,
+        note: `e2e billable-flag ${STAMP}`,
+      },
+    });
+    expect(omitted.status()).toBe(201);
+    const rowOmitted = (await omitted.json()).data;
+    createdIds.push(rowOmitted.id);
+    expect(typeof rowOmitted.billable).toBe("boolean");
+  } finally {
+    // Time entries are audit-only hard-delete (not maker-checker) — plain cleanup.
+    for (const id of createdIds) {
+      const del = await page.request.delete(`/api/time-entries/${id}`);
+      expect(del.ok()).toBeTruthy();
+    }
+  }
+});

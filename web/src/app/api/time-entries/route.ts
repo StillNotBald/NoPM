@@ -5,6 +5,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { createTimeEntrySchema } from "./_schema";
+import { parseTimeEntryFilters, resolveBillable } from "./_query";
 
 export const runtime = "nodejs";
 
@@ -13,8 +14,7 @@ export const GET = route(async ({ actor, request }) => {
   const db = createAdminClient();
 
   const url = new URL(request.url);
-  const projectId = url.searchParams.get("project_id");
-  const memberId = url.searchParams.get("member_id");
+  const filters = parseTimeEntryFilters(url.searchParams);
   const rawLimit = parseInt(url.searchParams.get("limit") ?? "20", 10);
   const rawPage = parseInt(url.searchParams.get("page") ?? "1", 10);
   const limit = Math.min(100, Math.max(1, isNaN(rawLimit) ? 20 : rawLimit));
@@ -24,14 +24,21 @@ export const GET = route(async ({ actor, request }) => {
   let query = db
     .from("time_entries")
     .select("*", { count: "exact" })
-    .eq("workspace_id", actor.workspaceId)
+    .eq("workspace_id", actor.workspaceId);
+
+  // Applied inline rather than via the generic applyTimeEntryFilters<Q>
+  // helper (still used by GET /api/export, which builds its own query the
+  // same way) — chaining that generic against this route's already-concrete
+  // Supabase builder type blows past TS's type-instantiation depth limit
+  // (TS2589). parseTimeEntryFilters is still the single source of truth
+  // for which query params are honored; only the mechanical .eq()
+  // application is duplicated here.
+  if (filters.project_id !== undefined) query = query.eq("project_id", filters.project_id);
+  if (filters.member_id !== undefined) query = query.eq("member_id", filters.member_id);
+
+  const { data: items, count, error } = await query
     .order("entry_date", { ascending: false })
     .range(offset, offset + limit - 1);
-
-  if (projectId) query = query.eq("project_id", projectId);
-  if (memberId) query = query.eq("member_id", memberId);
-
-  const { data: items, count, error } = await query;
 
   if (error) throw new Error(`Time entries query failed: ${error.message}`);
 
@@ -51,10 +58,10 @@ export const POST = route(async ({ actor, request }) => {
     );
   }
 
-  // Verify project belongs to workspace
+  // Verify project belongs to workspace (also fetch default_billable — L-29)
   const { data: project } = await db
     .from("projects")
-    .select("id")
+    .select("id, default_billable")
     .eq("id", parsed.data.project_id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -73,6 +80,9 @@ export const POST = route(async ({ actor, request }) => {
   const costRate: number = member.cost_rate ?? 0;
   const cost = parsed.data.hours * costRate;
 
+  // L-29: explicit billable wins; else fall back to the project's default_billable.
+  const billable = resolveBillable(parsed.data.billable, project.default_billable);
+
   const { data: row, error } = await db
     .from("time_entries")
     .insert({
@@ -84,6 +94,7 @@ export const POST = route(async ({ actor, request }) => {
       hours: parsed.data.hours,
       cost,
       note: parsed.data.note ?? null,
+      billable,
     })
     .select()
     .single();

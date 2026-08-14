@@ -1,20 +1,28 @@
 "use client";
 
 /**
- * HorizontalBarChart — hand-rolled SVG horizontal bars (program / register counts).
+ * HorizontalBarChart — hand-rolled SVG horizontal bars (program / register
+ * counts, and — via `displayValue` — the resources workload chart's
+ * allocated-vs-capacity bars, L-13).
  *
  * Props:
- *   items      Array of { label, value, color? }
+ *   items      Array of { label, value, color?, displayValue? }
  *   maxValue   Optional cap; defaults to max(values)
  *   barHeight  Individual bar height in px (default 16)
  *   gap        Gap between bars in px (default 10)
- *   showValues Show numeric label at bar end (default true)
+ *   showValues Show a value label at bar end (default true)
+ *   valueWidth Px reserved for the value label column (default 36; widen for longer displayValue strings)
  */
 
 type BarItem = {
   label: string;
   value: number;
   color?: string;
+  /**
+   * Pre-formatted text shown in place of the raw `value` (e.g. "20 / 40h").
+   * `value` still drives the bar's width — this only changes the label.
+   */
+  displayValue?: string;
 };
 
 type HorizontalBarProps = {
@@ -23,6 +31,7 @@ type HorizontalBarProps = {
   barHeight?: number;
   gap?: number;
   showValues?: boolean;
+  valueWidth?: number;
 };
 
 export function HorizontalBarChart({
@@ -31,6 +40,7 @@ export function HorizontalBarChart({
   barHeight = 16,
   gap = 10,
   showValues = true,
+  valueWidth: valueWidthProp,
 }: HorizontalBarProps) {
   if (items.length === 0) {
     return (
@@ -40,7 +50,7 @@ export function HorizontalBarChart({
 
   const max = maxValue ?? Math.max(...items.map((i) => i.value), 1);
   const labelWidth = 120; // px reserved for label text
-  const valueWidth = showValues ? 36 : 0;
+  const valueWidth = showValues ? (valueWidthProp ?? 36) : 0;
   const svgWidth = 400; // viewBox width; scales with CSS
   const trackWidth = svgWidth - labelWidth - valueWidth - 8;
   const totalHeight = items.length * (barHeight + gap) - gap;
@@ -54,7 +64,9 @@ export function HorizontalBarChart({
     >
       {items.map((item, i) => {
         const y = i * (barHeight + gap);
-        const fillWidth = max > 0 ? (item.value / max) * trackWidth : 0;
+        // Clamp to the track — over-max values (e.g. over-capacity) are
+        // signalled via `color`, not by the fill spilling past the track.
+        const fillWidth = max > 0 ? Math.min(1, item.value / max) * trackWidth : 0;
         const fill = item.color ?? "var(--accent)";
         return (
           <g key={item.label}>
@@ -99,7 +111,7 @@ export function HorizontalBarChart({
                 fill="var(--text-muted)"
                 fontFamily="ui-monospace, 'SF Mono', monospace"
               >
-                {item.value}
+                {item.displayValue ?? item.value}
               </text>
             )}
           </g>

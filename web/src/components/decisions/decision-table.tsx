@@ -2,7 +2,9 @@
 
 import { Badge } from "@/components/ui/badge";
 import { EntityLink } from "@/components/ui/entity-link";
+import { EmptyState } from "@/components/ui/empty-state";
 import { DecisionRowButton } from "@/components/decisions/decision-detail";
+import { NewDecisionButton } from "@/components/decisions/new-decision-button";
 import type { Decision } from "@/components/decisions/decision-form";
 import type { Tone } from "@/lib/status";
 
@@ -43,17 +45,20 @@ interface DecisionTableProps {
   projectMap: Record<string, string>;
   refMap: Record<string, string>; // decision id → reference_id (for supersedes display)
   projects: Array<{ id: string; name: string }>;
+  /** false for viewer-role callers — see risks/page.tsx (L-46). */
+  canWrite?: boolean;
 }
 
-export function DecisionTable({ rows, projectMap, refMap, projects }: DecisionTableProps) {
+export function DecisionTable({ rows, projectMap, refMap, projects, canWrite = true }: DecisionTableProps) {
   if (rows.length === 0) {
     return (
-      <div className="px-5 py-16 text-center">
-        <p className="text-sm text-ink-muted">No decisions logged yet.</p>
-        <p className="mt-1 text-xs text-ink-muted">
-          Use &ldquo;Add Decision&rdquo; to record the first one.
-        </p>
-      </div>
+      <EmptyState
+        purpose="The decision log records what was decided, the options considered, and why — a durable rationale trail for anyone who joins the project later."
+        canWrite={canWrite}
+        action={<NewDecisionButton projects={projects} />}
+        docsHref="/trust"
+        docsLabel="See governance in the Trust Center"
+      />
     );
   }
 

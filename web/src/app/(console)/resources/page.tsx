@@ -11,6 +11,7 @@ import {
   fmtHours,
 } from "@/lib/resource/utilisation";
 import { ResourceActions } from "./resource-actions";
+import { WorkloadChart } from "@/components/resources/workload-chart";
 
 interface ResourceMember {
   id: string;
@@ -181,6 +182,18 @@ export default async function ResourcesPage() {
               </CardBody>
             </Card>
           </div>
+        )}
+
+        {/* Workload chart — allocated vs capacity per member (L-13) */}
+        {rows.length > 0 && (
+          <WorkloadChart
+            members={rows.map((m) => ({
+              id: m.id,
+              name: m.name,
+              capacityHoursPerWeek: m.capacity_hours_per_week,
+              totalAllocationPct: allocationsByMember[m.id] ?? 0,
+            }))}
+          />
         )}
 
         {/* Members table */}

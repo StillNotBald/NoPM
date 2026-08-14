@@ -10,6 +10,22 @@ import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
 import { createClient } from "@/lib/supabase/client";
 import { useRequireSession } from "@/lib/auth/use-require-session";
+import {
+  APPEARANCE_MODES,
+  FONT_SCALES,
+  DENSITIES,
+  DATE_DISPLAYS,
+  DEFAULT_APPEARANCE,
+  readAppearanceCookie,
+  buildAppearanceCookieHeader,
+  resolveHtmlAttrs,
+  type AppearancePrefs,
+  type AppearanceMode,
+  type FontScale,
+  type Density,
+  type DateDisplay,
+} from "@/lib/theme/appearance";
+import { cn } from "@/lib/cn";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -197,6 +213,164 @@ function ProfileSection() {
   );
 }
 
+// ── Appearance section ─────────────────────────────────────────────────────────
+//
+// L-37/L-38/L-42. Per-user DISPLAY preferences — the constitutional
+// carve-out (owner-presented, unobjected; ADR 0009): NOT audited, no DB
+// row, no `writeAudit` call. Writes ONE cookie (`nopm_appearance`) and
+// applies live by stamping the same classes/style layout.tsx would stamp
+// on the next request, so the choice is visible immediately without a
+// full reload. Every option here comes from the closed preset registry in
+// `@/lib/theme/appearance` — there is no free-form input on this card.
+
+const MODE_LABEL: Record<AppearanceMode, string> = {
+  system: "System",
+  light: "Light",
+  dark: "Dark",
+};
+
+const DENSITY_LABEL: Record<Density, string> = {
+  comfortable: "Comfortable",
+  compact: "Compact",
+};
+
+const DATE_DISPLAY_LABEL: Record<DateDisplay, string> = {
+  absolute: "Absolute",
+  relative: "Relative",
+};
+
+/** Applies prefs to the live DOM immediately — same shape layout.tsx applies server-side. */
+function applyAppearanceLive(prefs: AppearancePrefs) {
+  const html = document.documentElement;
+  const { classNames, style } = resolveHtmlAttrs(prefs);
+  html.classList.remove("dark", "theme-system", "density-compact");
+  for (const c of classNames) html.classList.add(c);
+  html.style.fontSize = style.fontSize;
+}
+
+function SegmentedControl<T extends string | number>({
+  options,
+  labels,
+  value,
+  onChange,
+  columns,
+}: {
+  options: readonly T[];
+  labels: Record<T, string>;
+  value: T;
+  onChange: (v: T) => void;
+  columns: number;
+}) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+      {options.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          aria-pressed={value === opt}
+          // h-11 (44px) keeps every option a valid touch target at 390px (R-63) —
+          // no icon-only compression here the way the per-table density toggle uses.
+          className={cn(
+            "flex h-11 items-center justify-center rounded-md border px-2 text-sm font-medium transition-colors",
+            value === opt
+              ? "border-accent bg-accent/10 text-accent"
+              : "border-border-subtle bg-surface text-ink-secondary hover:bg-sunken",
+          )}
+          onClick={() => onChange(opt)}
+        >
+          {labels[opt]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AppearanceSection() {
+  const [prefs, setPrefs] = useState<AppearancePrefs>(DEFAULT_APPEARANCE);
+
+  useEffect(() => {
+    // Two-pass read (SSR-safe default first, real cookie after mount) —
+    // same pattern as ThemeToggle/useDateDisplayPref.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPrefs(readAppearanceCookie(document.cookie));
+  }, []);
+
+  function update<K extends keyof AppearancePrefs>(key: K, val: AppearancePrefs[K]) {
+    const next = { ...prefs, [key]: val };
+    setPrefs(next);
+    document.cookie = buildAppearanceCookieHeader(next);
+    applyAppearanceLive(next);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Appearance</CardTitle>
+      </CardHeader>
+      <CardBody className="space-y-6">
+        <p className="text-sm text-ink-secondary">
+          Display-only. Stored in a cookie on this device — never synced, never audited.
+        </p>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Theme
+          </label>
+          <SegmentedControl
+            options={APPEARANCE_MODES}
+            labels={MODE_LABEL}
+            value={prefs.mode}
+            onChange={(v) => update("mode", v)}
+            columns={3}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Text size
+          </label>
+          <SegmentedControl
+            options={FONT_SCALES}
+            labels={Object.fromEntries(FONT_SCALES.map((s) => [s, `${s}%`])) as Record<FontScale, string>}
+            value={prefs.fontScale}
+            onChange={(v) => update("fontScale", v)}
+            columns={4}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Density
+          </label>
+          <SegmentedControl
+            options={DENSITIES}
+            labels={DENSITY_LABEL}
+            value={prefs.density}
+            onChange={(v) => update("density", v)}
+            columns={2}
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Dates
+          </label>
+          <SegmentedControl
+            options={DATE_DISPLAYS}
+            labels={DATE_DISPLAY_LABEL}
+            value={prefs.dateDisplay}
+            onChange={(v) => update("dateDisplay", v)}
+            columns={2}
+          />
+          <p className="text-xs text-ink-muted">
+            Relative dates (&quot;In 3d&quot;) always show the exact date on hover.
+          </p>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 // ── Settings page ──────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -310,6 +484,9 @@ export default function SettingsPage() {
 
         {/* ── Profile ────────────────────────────────────────────────────────── */}
         <ProfileSection />
+
+        {/* ── Appearance (L-37/L-38/L-42 — display-only, unaudited) ───────────── */}
+        <AppearanceSection />
 
         {/* ── Security ───────────────────────────────────────────────────────── */}
         <div>

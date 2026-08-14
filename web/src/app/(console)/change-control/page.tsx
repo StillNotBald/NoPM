@@ -15,7 +15,7 @@ export default async function ChangeControlPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: changeRequests }, { data: projects }] = await Promise.all([
+  const [{ data: changeRequests }, { data: projects }, { data: viewerProfile }] = await Promise.all([
     db
       .from("change_requests")
       .select(
@@ -23,7 +23,10 @@ export default async function ChangeControlPage() {
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
+    // caller's own role — see risks/page.tsx for the pattern (L-46).
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
+  const canWrite = viewerProfile?.role !== "viewer";
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
 
@@ -68,6 +71,7 @@ export default async function ChangeControlPage() {
             rows={changeRequestRows}
             projectMap={projectMap}
             projects={projects ?? []}
+            canWrite={canWrite}
           />
         </Card>
       </div>

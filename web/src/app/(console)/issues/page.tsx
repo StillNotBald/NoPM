@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
+import { formatByPref } from "@/lib/format/dates";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Card } from "@/components/ui/card";
@@ -9,6 +12,7 @@ import { NewIssueButton } from "@/components/registers/new-issue-form";
 import { IssueRowButton } from "@/components/registers/issue-detail";
 import { EntityLink } from "@/components/ui/entity-link";
 import { IssueFocusOpener } from "@/components/registers/issue-focus-opener";
+import { EmptyState } from "@/components/ui/empty-state";
 
 type PriorityLevel = "low" | "medium" | "high" | "urgent";
 type IssueStatus = "open" | "in_progress" | "resolved" | "closed";
@@ -18,11 +22,6 @@ function statusTone(s: IssueStatus) {
   if (s === "in_progress") return "info" as const;
   if (s === "open") return "warning" as const;
   return "neutral" as const;
-}
-
-function formatDate(iso: string | null) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
 function statusLabel(s: IssueStatus) {
@@ -37,7 +36,11 @@ export default async function IssuesPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: issues }, { data: projects }] = await Promise.all([
+  const dateDisplayPref = parseAppearancePrefs(
+    (await cookies()).get(APPEARANCE_COOKIE_NAME)?.value,
+  ).dateDisplay;
+
+  const [{ data: issues }, { data: projects }, { data: viewerProfile }] = await Promise.all([
     db
       .from("issues")
       .select(
@@ -45,7 +48,10 @@ export default async function IssuesPage() {
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
+    // caller's own role — see risks/page.tsx for the pattern (L-46).
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
+  const canWrite = viewerProfile?.role !== "viewer";
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
 
@@ -129,7 +135,10 @@ export default async function IssuesPage() {
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
-                      {formatDate(issue.due_date)}
+                      {(() => {
+                        const due = formatByPref(issue.due_date, dateDisplayPref);
+                        return <span title={due.title}>{due.text}</span>;
+                      })()}
                     </td>
                   </IssueRowButton>
                 ))}
@@ -137,10 +146,13 @@ export default async function IssuesPage() {
             </table>
           </div>
         ) : (
-          <div className="px-5 py-16 text-center">
-            <p className="text-sm text-ink-muted">No issues logged yet.</p>
-            <p className="mt-1 text-xs text-ink-muted">Use &ldquo;New Issue&rdquo; to log the first one.</p>
-          </div>
+          <EmptyState
+            purpose="The issue register tracks problems that have already happened — what broke, who owns the fix, and when it resolved."
+            canWrite={canWrite}
+            action={<NewIssueButton projects={projects ?? []} />}
+            docsHref="/trust"
+            docsLabel="See governance in the Trust Center"
+          />
         )}
       </Card>
       </div>

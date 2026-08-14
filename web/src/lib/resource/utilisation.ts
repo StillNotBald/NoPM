@@ -93,3 +93,55 @@ export function workspaceSummary(members: WorkspaceMemberInput[]): WorkspaceSumm
 export function fmtHours(h: number): string {
   return Number.isInteger(h) ? String(h) : h.toFixed(1);
 }
+
+// ---------------------------------------------------------------------------
+// Period-aware capacity (L-13 workload chart) — week/month denominator.
+// ---------------------------------------------------------------------------
+
+export type UtilisationPeriod = "week" | "month";
+
+/**
+ * Average weeks per month (52 / 12). Capacity is stored as a weekly figure
+ * (`capacity_hours_per_week`); the workload chart's month view scales BOTH
+ * the numerator (allocated hours) and denominator (capacity) by this same
+ * factor, so a member's utilisation % is period-invariant — only the
+ * absolute hour figures shown change with the selector.
+ */
+export const WEEKS_PER_MONTH = 52 / 12;
+
+/** Scale factor from a weekly figure to the given period. */
+export function periodMultiplier(period: UtilisationPeriod): number {
+  return period === "month" ? WEEKS_PER_MONTH : 1;
+}
+
+export interface PeriodUtilisation {
+  /** Capacity for the period — null when capacity_hours_per_week is null ("not set", never 0). */
+  capacityHours: number | null;
+  /** Allocated hours for the period — null when capacity_hours_per_week is null (no denominator to derive hours from). */
+  allocatedHours: number | null;
+  /** True when total allocation exceeds 100% — scale-invariant, same at week or month. */
+  isOver: boolean;
+}
+
+/**
+ * Period-scaled capacity/allocated hours for one member — the input to each
+ * bar in the workload chart. Mirrors `memberUtilisation`'s null-capacity
+ * contract: a member with no declared capacity gets `null` hours (rendered
+ * as "capacity not set" by the caller), never 0 and never Infinity.
+ */
+export function memberPeriodUtilisation(
+  totalAllocationPct: number,
+  capacityHoursPerWeek: number | null,
+  period: UtilisationPeriod,
+): PeriodUtilisation {
+  const week = memberUtilisation(totalAllocationPct, capacityHoursPerWeek);
+  if (capacityHoursPerWeek == null || week.allocatedHours == null) {
+    return { capacityHours: null, allocatedHours: null, isOver: week.isOver };
+  }
+  const mult = periodMultiplier(period);
+  return {
+    capacityHours: Math.round(capacityHoursPerWeek * mult * 10) / 10,
+    allocatedHours: Math.round(week.allocatedHours * mult * 10) / 10,
+    isOver: week.isOver,
+  };
+}

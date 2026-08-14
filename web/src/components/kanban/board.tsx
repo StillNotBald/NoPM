@@ -20,6 +20,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
+import { STALE_STATUS_AGE_DAYS } from "@/lib/insight/status-age";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -81,13 +82,24 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
     transition,
   };
 
+  // L-23 status-aging — server-computed (see status-age.ts), merged onto the
+  // task row in projects/[id]/page.tsx. NOTE: a drag move here updates
+  // status_type optimistically but does not re-derive this age (that needs
+  // a fresh audit_log read) — it stays showing the pre-move age until the
+  // next full page load/refresh, same as the rest of this board's local state.
+  const statusAgeDays = typeof task.status_age_days === "number" ? task.status_age_days : null;
+  const statusAgeSince = task.status_age_since === "created" ? "created" : "status_change";
+  const isStale = statusAgeDays !== null && statusAgeDays > STALE_STATUS_AGE_DAYS;
+
   return (
     <div
       ref={setNodeRef}
       style={style}
       {...(isLocked ? {} : { ...attributes, ...listeners })}
       className={cn(
-        "rounded-md border border-border-subtle bg-surface px-3 py-2.5 text-sm",
+        // kanban-card: density-compact hook (globals.css) — not a Tailwind
+        // utility, purely a CSS-selector target.
+        "kanban-card rounded-md border border-border-subtle bg-surface px-3 py-2.5 text-sm",
         "transition-shadow",
         // touch-action: none on the draggable node so dnd-kit's PointerSensor
         // can claim touch gestures without the page hijacking them as a scroll
@@ -102,6 +114,17 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
       <p className="font-medium text-ink leading-snug">{task.name}</p>
       <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
         <Severity level={task.priority} />
+        {statusAgeDays !== null && (
+          <span
+            className={cn(
+              "text-xs font-medium tabular-nums",
+              isStale ? "text-warning" : "text-ink-muted",
+            )}
+            title={statusAgeSince === "created" ? "Never moved — age since created" : "Days in current status"}
+          >
+            {statusAgeDays}d{statusAgeSince === "created" ? " since created" : ""}
+          </span>
+        )}
         {movedNote && (
           <span className="text-xs text-success font-medium">
             moved — audited ✓

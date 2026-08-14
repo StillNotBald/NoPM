@@ -3,6 +3,7 @@
 import { Card, CardBody } from "@/components/ui/card";
 import { Sparkline } from "@/components/charts/sparkline";
 import { cn } from "@/lib/cn";
+import { CardFreshness } from "@/components/dashboard/card-freshness";
 
 type MetricCardProps = {
   label: string;
@@ -70,6 +71,10 @@ type HealthRollupProps = {
   issueCount: number;
   clashCount: number;
   overdueCount: number;
+  /** L-15 — active-filter note, named above the strip. */
+  filterLabel?: string | null;
+  /** L-34 — data fetch time, shown + a manual refresh button. */
+  fetchedAt?: string;
 };
 
 export function HealthRollupCards({
@@ -82,6 +87,8 @@ export function HealthRollupCards({
   issueCount,
   clashCount,
   overdueCount,
+  filterLabel,
+  fetchedAt,
 }: HealthRollupProps) {
   const overduePct =
     totalProjects > 0 ? Math.round((overdueCount / totalProjects) * 100) : 0;
@@ -96,7 +103,14 @@ export function HealthRollupCards({
     healthScore >= 70 ? "success" : healthScore >= 40 ? "warning" : "danger";
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+    <div className="space-y-2">
+      {(filterLabel || fetchedAt) && (
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs text-ink-muted truncate">{filterLabel}</span>
+          {fetchedAt && <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       <MetricCard
         label="Portfolio health"
         value={`${healthScore}%`}
@@ -121,6 +135,7 @@ export function HealthRollupCards({
         sub={`${amberCount} amber · ${redCount} red`}
         tone={redCount > 0 ? "danger" : amberCount > 0 ? "warning" : "neutral"}
       />
+      </div>
     </div>
   );
 }

@@ -4,8 +4,11 @@ import { useState, useMemo } from "react";
 import { CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/cn";
 import { EntityLink } from "@/components/ui/entity-link";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,15 +47,6 @@ function isDueSoon(due: string | null) {
   return d >= TODAY && d.getTime() - TODAY.getTime() <= DUE_SOON_MS;
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 function statusTone(st: string): "neutral" | "info" | "success" | "warning" | "danger" {
   if (st === "completed" || st === "canceled") return "success";
   if (st === "started") return "info";
@@ -69,9 +63,10 @@ function matchesFilter(task: ProjectTask, filter: Filter): boolean {
 
 // ── Task row ──────────────────────────────────────────────────────────────────
 
-function TaskRow({ task }: { task: ProjectTask }) {
+function TaskRow({ task, dateDisplayPref }: { task: ProjectTask; dateDisplayPref: DateDisplayPref }) {
   const overdue = isOverdue(task.due_date);
   const soon = !overdue && isDueSoon(task.due_date);
+  const due = formatByPref(task.due_date, dateDisplayPref);
 
   return (
     <div className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken">
@@ -107,12 +102,13 @@ function TaskRow({ task }: { task: ProjectTask }) {
       {/* due date */}
       {task.due_date && (
         <span
+          title={due.title}
           className={cn(
             "shrink-0 whitespace-nowrap font-mono text-xs tabular-nums",
             overdue ? "font-medium text-danger" : soon ? "text-warning" : "text-ink-muted",
           )}
         >
-          {formatDate(task.due_date)}
+          {due.text}
           {overdue && (
             <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-[10px] text-danger">
               overdue
@@ -170,6 +166,7 @@ function FilterPill({
 
 export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const dateDisplayPref = useDateDisplayPref();
 
   // Derived counts for filter pills
   const counts = useMemo(
@@ -214,11 +211,10 @@ export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
   // Empty state
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
-        <CheckCircle2 size={36} className="text-success" strokeWidth={1.5} />
-        <p className="text-sm font-medium text-ink">No tasks assigned to you</p>
-        <p className="text-xs text-ink-muted">Tasks assigned to you across all projects will appear here.</p>
-      </div>
+      <EmptyState
+        icon={<CheckCircle2 size={36} className="text-success" strokeWidth={1.5} />}
+        purpose="No tasks assigned to you. Anything assigned to you across every project will show up here."
+      />
     );
   }
 
@@ -260,7 +256,7 @@ export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
             {/* Task rows */}
             <div className="p-2 space-y-0.5">
               {group.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} />
+                <TaskRow key={t.id} task={t} dateDisplayPref={dateDisplayPref} />
               ))}
             </div>
           </div>

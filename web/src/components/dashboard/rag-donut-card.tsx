@@ -2,6 +2,7 @@
 
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { DonutChart, DonutLegend } from "@/components/charts/donut";
+import { CardFreshness } from "@/components/dashboard/card-freshness";
 
 type RagCounts = {
   green: number;
@@ -19,15 +20,30 @@ const RAG_SEGMENTS = (counts: RagCounts) => [
   { label: "In progress", value: counts.not_started,  color: "var(--info)"    },
 ];
 
-export function RagDonutCard({ counts }: { counts: RagCounts }) {
+export function RagDonutCard({
+  counts,
+  filterLabel,
+  fetchedAt,
+}: {
+  counts: RagCounts;
+  /** L-15 — active-filter note, named in the subtitle. */
+  filterLabel?: string | null;
+  /** L-34 — data fetch time, shown + a manual refresh button. */
+  fetchedAt?: string;
+}) {
   const segments = RAG_SEGMENTS(counts);
   const total = Object.values(counts).reduce((a, b) => a + b, 0);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Portfolio Health</CardTitle>
-        <span className="text-xs text-ink-muted font-mono">{total} projects</span>
+        <div className="min-w-0">
+          <CardTitle>Portfolio Health</CardTitle>
+          <span className="mt-0.5 block text-xs text-ink-muted font-mono truncate">
+            {total} projects{filterLabel ? ` · ${filterLabel}` : ""}
+          </span>
+        </div>
+        {fetchedAt && <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />}
       </CardHeader>
       <CardBody>
         <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">

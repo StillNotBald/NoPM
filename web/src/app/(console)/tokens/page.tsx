@@ -8,8 +8,10 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/cn";
 import { useRequireSession } from "@/lib/auth/use-require-session";
+import { AGENT_PRESET_SCOPES } from "@/lib/auth/scopes";
 
 const ALL_SCOPES = [
   "project:*",
@@ -38,6 +40,29 @@ interface ApiToken {
   created_at: string;
 }
 
+// The exact MCP client config from web/mcp/README.md ("Claude Desktop"
+// section) — copied verbatim so it works unmodified in a real client. The
+// placeholder token string is intentionally not a real token.
+const MCP_CONFIG_JSON = `{
+  "mcpServers": {
+    "nopm": {
+      "command": "node",
+      "args": ["/absolute/path/to/NoPM/web/mcp/server.mjs"],
+      "env": {
+        "NOPM_API_URL": "https://stillnotbald.com",
+        "NOPM_TOKEN": "npm_your_token_here"
+      }
+    }
+  }
+}`;
+
+type AgentTab = "pat" | "mcp" | "byok";
+const AGENT_TABS: { key: AgentTab; label: string }[] = [
+  { key: "pat", label: "Mint scoped PAT" },
+  { key: "mcp", label: "MCP config" },
+  { key: "byok", label: "BYOK assistant" },
+];
+
 function formatRelative(iso: string | null): string {
   if (!iso) return "Never";
   const diff = Date.now() - new Date(iso).getTime();
@@ -53,6 +78,31 @@ function formatRelative(iso: string | null): string {
 export default function TokensPage() {
   const router = useRouter();
   const sessionStatus = useRequireSession();
+
+  // --- role gate (L-46) — API tokens are admin/manager-only server-side
+  // (see requireTokenAdmin() in api/tokens/route.ts); a viewer or plain
+  // "member" hitting GET /api/tokens today just gets a raw 403 rendered as
+  // listError. undefined = still loading /api/me. ---
+  const [role, setRole] = useState<string | null | undefined>(undefined);
+  const canManageTokens = role === "admin" || role === "manager";
+
+  useEffect(() => {
+    if (sessionStatus !== "authenticated") return;
+    let cancelled = false;
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+         
+        setRole(json?.data?.role ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setRole(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionStatus]);
 
   // --- list state ---
   const [tokens, setTokens] = useState<ApiToken[]>([]);
@@ -70,6 +120,11 @@ export default function TokensPage() {
   const [newToken, setNewToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // --- connect-your-agent card (L-49) ---
+  const [agentTab, setAgentTab] = useState<AgentTab>("pat");
+  const [agentTokenName, setAgentTokenName] = useState("AI agent");
+  const [mcpCopied, setMcpCopied] = useState(false);
+
   const loadTokens = useCallback(async () => {
     setListLoading(true);
     setListError(null);
@@ -86,9 +141,12 @@ export default function TokensPage() {
   }, []);
 
   useEffect(() => {
+    // Only admin/manager can list tokens — skip the fetch entirely for
+    // everyone else instead of surfacing its 403 as listError.
+    if (!canManageTokens) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadTokens();
-  }, [loadTokens]);
+  }, [canManageTokens, loadTokens]);
 
   const toggleScope = (scope: Scope) => {
     setSelectedScopes((prev) => {
@@ -99,36 +157,57 @@ export default function TokensPage() {
     });
   };
 
+  // Shared mint call — the manual scope-picker form and the "Connect your
+  // agent" least-privilege preset (L-49) both go through this one path, so
+  // there is exactly one mint flow, one API call, one audit row shape.
+  // Returns true on success so callers know whether to reset their own form.
+  const mintToken = useCallback(
+    async (name: string, scopes: string[]) => {
+      if (!name.trim()) {
+        setMintError("Token name is required.");
+        return false;
+      }
+      if (scopes.length === 0) {
+        setMintError("Select at least one scope.");
+        return false;
+      }
+      setMinting(true);
+      setMintError(null);
+      setNewToken(null);
+      try {
+        const res = await fetch("/api/tokens", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: name.trim(), scopes }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "Failed to create token");
+        setNewToken(json.data?.token ?? null);
+        await loadTokens();
+        router.refresh();
+        return true;
+      } catch (e) {
+        setMintError(e instanceof Error ? e.message : "Unknown error");
+        return false;
+      } finally {
+        setMinting(false);
+      }
+    },
+    [loadTokens, router],
+  );
+
   const handleMint = async () => {
-    if (!mintName.trim()) {
-      setMintError("Token name is required.");
-      return;
-    }
-    if (selectedScopes.size === 0) {
-      setMintError("Select at least one scope.");
-      return;
-    }
-    setMinting(true);
-    setMintError(null);
-    setNewToken(null);
-    try {
-      const res = await fetch("/api/tokens", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: mintName.trim(), scopes: [...selectedScopes] }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to create token");
-      setNewToken(json.data?.token ?? null);
+    const ok = await mintToken(mintName, [...selectedScopes]);
+    if (ok) {
       setMintName("");
       setSelectedScopes(new Set());
-      await loadTokens();
-      router.refresh();
-    } catch (e) {
-      setMintError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
-      setMinting(false);
     }
+  };
+
+  // Least-privilege agent preset (L-49): read-only + task:write, asserted
+  // against the scopes registry in scopes.test.ts — never approve/admin.
+  const handleMintAgentPreset = async () => {
+    await mintToken(agentTokenName, [...AGENT_PRESET_SCOPES]);
   };
 
   const handleRevoke = async (id: string) => {
@@ -160,6 +239,37 @@ export default function TokensPage() {
   // handles the redirect.
   if (sessionStatus !== "authenticated") return null;
 
+  // Still resolving /api/me — avoid a flash of the wrong (member/viewer)
+  // state before we know the real role.
+  if (role === undefined) {
+    return (
+      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <div className="mx-auto flex max-w-4xl items-center justify-center py-16">
+          <Spinner />
+        </div>
+      </div>
+    );
+  }
+
+  // Token management is admin/manager-only server-side (L-46 role-aware
+  // empty state — the shared demo login is a VIEWER and would otherwise
+  // just 403 against GET/POST /api/tokens).
+  if (!canManageTokens) {
+    return (
+      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+        <div className="mx-auto max-w-4xl space-y-8">
+          <PageHeader title="API Tokens" />
+          <Card>
+            <EmptyState
+              purpose="API tokens let an external agent or CI job call NoPM's governed API. Minting and revoking tokens is restricted to admins and managers so the audit trail always ties a token back to an accountable owner."
+              canWrite={false}
+            />
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <div className="mx-auto max-w-4xl space-y-8">
@@ -181,6 +291,138 @@ export default function TokensPage() {
         </div>
       )}
 
+      {/* Connect your agent (L-49) — three paths into the governed API. */}
+      <Card id="connect-agent">
+        <CardHeader>
+          <div>
+            <CardTitle>Connect your agent</CardTitle>
+            <p className="mt-0.5 text-xs text-ink-muted">
+              NoPM bundles no LLM — point your own agent, MCP client, or model at it.
+            </p>
+          </div>
+        </CardHeader>
+        <CardBody className="space-y-5">
+          <div role="tablist" aria-label="Connect your agent" className="flex flex-wrap gap-1.5">
+            {AGENT_TABS.map((tab) => {
+              const isActive = agentTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  role="tab"
+                  aria-selected={isActive}
+                  type="button"
+                  onClick={() => setAgentTab(tab.key)}
+                  className={cn(
+                    "min-h-[44px] rounded-md border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
+                    isActive
+                      ? "border-border-strong bg-canvas text-ink shadow-sm"
+                      : "border-border-subtle bg-surface text-ink-secondary hover:bg-sunken hover:text-ink",
+                  )}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {agentTab === "pat" && (
+            <div className="space-y-3">
+              <p className="text-sm text-ink-secondary">
+                Mint a token pre-scoped to least privilege: it can read every
+                register and edit/move tasks, but it can never request or
+                approve a deletion, approve a rebaseline, or manage other
+                tokens.
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {AGENT_PRESET_SCOPES.map((s) => (
+                  <Badge key={s} tone="neutral">
+                    {s}
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Input
+                  value={agentTokenName}
+                  onChange={(e) => setAgentTokenName(e.target.value)}
+                  disabled={minting}
+                  className="h-11 sm:h-10 sm:max-w-xs text-base sm:text-sm"
+                  aria-label="Agent token name"
+                />
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={handleMintAgentPreset}
+                  disabled={minting || !agentTokenName.trim()}
+                >
+                  {minting ? (
+                    <>
+                      <Spinner size="sm" className="mr-2" /> Minting…
+                    </>
+                  ) : (
+                    "Mint agent token"
+                  )}
+                </Button>
+              </div>
+              {mintError && (
+                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{mintError}</p>
+              )}
+              <p className="text-xs text-ink-muted">
+                Shown once — copy it into your agent&apos;s environment right away.
+              </p>
+            </div>
+          )}
+
+          {agentTab === "mcp" && (
+            <div className="space-y-3">
+              <p className="text-sm text-ink-secondary">
+                NoPM ships a native MCP server (<code className="font-mono text-xs">web/mcp/server.mjs</code>) —
+                any MCP client can drive it once you mint a PAT above. Paste
+                this into <code className="font-mono text-xs">.mcp.json</code> (or your client&apos;s
+                equivalent config) and set <code className="font-mono text-xs">NOPM_TOKEN</code> to the token
+                you just minted.
+              </p>
+              <div className="relative">
+                <pre className="overflow-x-auto rounded-md bg-canvas border border-border-subtle px-3 py-3 text-xs font-mono text-ink whitespace-pre">
+                  {MCP_CONFIG_JSON}
+                </pre>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="absolute right-2 top-2"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(MCP_CONFIG_JSON);
+                    setMcpCopied(true);
+                    setTimeout(() => setMcpCopied(false), 2000);
+                  }}
+                >
+                  {mcpCopied ? "Copied!" : "Copy config"}
+                </Button>
+              </div>
+              <p className="text-xs text-ink-muted">
+                Full setup + governance guarantees: <code className="font-mono text-xs">web/mcp/README.md</code>.
+              </p>
+            </div>
+          )}
+
+          {agentTab === "byok" && (
+            <div className="space-y-3">
+              <p className="text-sm text-ink-secondary">
+                Prefer chatting instead of scripting? Open the AI assistant
+                (the <span className="inline-flex items-center gap-1 font-medium text-ink">✦ Sparkles</span> icon
+                in the top navigation) and choose{" "}
+                <span className="font-medium text-ink">&ldquo;Connect your own model&rdquo;</span> to
+                paste your own OpenAI, Anthropic, or Google API key.
+              </p>
+              <p className="text-xs text-ink-muted">
+                NoPM still ships no model and no key — your key drives NoPM&apos;s
+                own governed API through an ephemeral scoped token, audited
+                exactly like any other agent.
+              </p>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+
       {/* Token list */}
       <Card>
         <CardHeader>
@@ -194,7 +436,10 @@ export default function TokensPage() {
           ) : listError ? (
             <p className="px-5 py-6 text-sm text-danger">{listError}</p>
           ) : tokens.length === 0 ? (
-            <p className="px-5 py-6 text-sm text-ink-muted">No tokens yet. Mint one below.</p>
+            <EmptyState
+              purpose="No tokens yet. A scoped token lets an agent or script call the NoPM API on this workspace's behalf — every action it takes is audited under the token as the actor."
+              className="py-10"
+            />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
