@@ -60,11 +60,9 @@ Recon before writing `f1-features.spec.ts` found `GET /api/tasks` (L-04), the so
 - **R-68 marked PARTIAL, not DONE** — this task's own editorial call, following the R-28 Mainline precedent (feed/data live, UI deferred) rather than either overclaiming DONE or blocking the whole wave's receipt on an out-of-scope UI build.
 - **L-13 (workload chart) and L-15 (dashboard filter) folded into R-68** — the task brief's parenthetical only spelled out `L-04/08/10/23/27/29/33/34/36` for R-68 and named `L-46/L-49` for R-70, leaving L-13/L-15 unassigned; both are register/dashboard operational enhancements (same O1 umbrella as the rest of R-68) and account for the last 2 of the locked 16-row total. Flagged for the reviewer to confirm.
 
-## Commit map (placeholder — workers do not run git; main session owns commits)
-- `web/e2e/f1-features.spec.ts`, `web/e2e/writes.spec.ts` → one commit (e2e: F1 journeys)
-- `web/src/app/api/openapi.json/route.ts`, `web/src/app/llms.txt/route.ts` → one commit (fix(contract): document GET /tasks)
-- `requirements/REQUIREMENTS.md`, `requirements/TRACEABILITY.md` → one commit (docs(rtm): R-68/R-69/R-70)
-- `sprint-log/2026-08-15_feature-wave-f1/SPRINT_SUMMARY.md` → same commit as the RTM update, or its own docs(sprint) commit
+## Commit map + land evidence
+Landed 2026-08-15 as ONE commit, 0379cc8 (all six worker tasks + the main-session land pass). The land pass — beyond review — built the /tasks page + sidebar entry itself (the F1a agent died mid-wave on a connection error; API + shared components had landed, the page had not), activated the three fixme journeys, flipped R-68 PARTIAL->DONE, added the missing sort.test.ts + tasks/_query.test.ts the verifiers flagged, fixed the CSV formula-injection hole (CWE-1236, leading =+-@/tab/CR now quote-prefixed, tested), unified the TS2589 inline-filter workaround across risks/issues/tasks routes, fixed tokens-page lint errors, and corrected the demo-identity e2e (the demo login is a MANAGER by design — the viewer-branch e2e needs a seeded viewer login, tracked for F2).
+**Live verification (wave close):** migration 033 applied + PostgREST reload; Vercel prod deploy; health 200; auth-smoke 19/19; /tasks serving. Suites at land: 1,296 unit / 64 e2e (13 F1 journeys incl. the three cross-project-register journeys ACTIVE) / tsc / lint / RTM 60 R-IDs — all green.
 
 ## Tests / verification
 - `cd web && npx tsc --noEmit` — clean, no errors.
