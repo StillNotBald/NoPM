@@ -21,7 +21,9 @@ Success:   { "data": <object|array>, ["total": N, "page": N, "limit": N] }
 Error:     { "error": "<message>", ["fields": [{"field": "...", "message": "..."}]] }
 
 HTTP status codes: 200 ok, 201 created, 202 accepted, 204 no content,
-  400 bad request, 401 unauthenticated, 403 forbidden (scope), 404 not found, 422 rule/validation error.
+  400 bad request, 401 unauthenticated, 403 forbidden (scope), 404 not found, 422 rule/validation error,
+  429 rate limited (baseline workspace+actor-class limit, fixed 60s window; retry after the interval
+  named in the error message; code: rate_limited).
 
 ## Pagination
 Lists accept ?limit (1..100, default 20) and ?page (1-based).

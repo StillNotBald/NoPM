@@ -33,7 +33,9 @@ const spec = {
       "API-first project-management tool designed to be driven by AI agents. " +
       "All mutations produce an immutable audit_log entry. " +
       "Task deletion is maker-checker: DELETE /tasks/{id} creates a deletion_request; " +
-      "a separate token with scope task:delete:approve must POST /deletion-requests/{id}/approve.",
+      "a separate token with scope task:delete:approve must POST /deletion-requests/{id}/approve. " +
+      "Every authenticated request is subject to a baseline workspace+actor-class rate limit " +
+      "(fixed 60s window; defaults 600/min read, 120/min write) — see components.responses.RateLimited.",
   },
   servers: [{ url: "https://stillnotbald.com/api", description: "Production" }],
   components: {
@@ -82,6 +84,16 @@ const spec = {
             },
           },
         },
+      },
+    },
+    responses: {
+      RateLimited: {
+        description:
+          "429 — baseline rate limit exceeded (workspace+actor-class, fixed 60s window; " +
+          "defaults 600/min read, 120/min write; configurable via NOPM_RATE_READ_PER_MIN / " +
+          "NOPM_RATE_WRITE_PER_MIN). Applies to every authenticated route in this API — " +
+          "documented once here rather than per-path. code: rate_limited.",
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
       },
     },
   },
@@ -220,13 +232,13 @@ const spec = {
       post: {
         tags: ["milestones"],
         summary: "Create a milestone under a project",
-        description: "scope: milestone:write",
+        description: "scope: milestone:write. 422 project_locked when the project is locked.",
         operationId: "createMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createMilestoneSchema),
         responses: {
           "201": { description: "Milestone created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, or project_locked when the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -245,24 +257,26 @@ const spec = {
       patch: {
         tags: ["milestones"],
         summary: "Update a milestone",
-        description: "scope: milestone:write",
+        description: "scope: milestone:write. 422 project_locked when the patch touches a schedule-shape field (target_date/baseline_target_date) and the project is locked; status/etc. edits stay live under lock.",
         operationId: "updateMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateMilestoneSchema),
         responses: {
           "200": { description: "Updated milestone", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "project_locked — the patch touches a schedule-shape field and the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       delete: {
         tags: ["milestones"],
         summary: "Delete a milestone",
-        description: "scope: milestone:write",
+        description: "scope: milestone:write. 422 project_locked when the project is locked.",
         operationId: "deleteMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "project_locked — the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -284,13 +298,13 @@ const spec = {
       post: {
         tags: ["tasks"],
         summary: "Create a task in a project",
-        description: "scope: task:write",
+        description: "scope: task:write. 422 project_locked when the project is locked.",
         operationId: "createTask",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(TaskCreateSchema),
         responses: {
           "201": { description: "Task created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, or project_locked when the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -309,25 +323,26 @@ const spec = {
       patch: {
         tags: ["tasks"],
         summary: "Update a task",
-        description: "scope: task:write. Kanban status moves are audited.",
+        description: "scope: task:write. Kanban status moves are audited. 422 project_locked when the patch touches a schedule-shape field (dates/estimate_hours/milestone_id) and the project is locked; status/checklist/assignee/etc. edits stay live under lock.",
         operationId: "updateTask",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(TaskUpdateSchema),
         responses: {
           "200": { description: "Updated task", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "project_locked — the patch touches a schedule-shape field and the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       delete: {
         tags: ["tasks"],
         summary: "Request task deletion (maker step)",
-        description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending. Returns 202. A different token with scope task:delete:approve must approve it.",
+        description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending. Returns 202. A different token with scope task:delete:approve must approve it. 422 project_locked when the project is locked (deletion always reshapes the schedule).",
         operationId: "requestTaskDeletion",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(TaskDeleteRequestSchema),
         responses: {
           "202": { description: "Deletion request created (pending)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Duplicate pending request", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Duplicate pending request, or project_locked when the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1413,25 +1428,26 @@ const spec = {
       post: {
         tags: ["tasks"],
         summary: "Add a task dependency",
-        description: "scope: task:write. Guards against self-dependency, duplicates, and circular references.",
+        description: "scope: task:write. Guards against self-dependency, duplicates, and circular references. 422 project_locked when the project is locked (a new dependency edge reshapes the schedule graph).",
         operationId: "createTaskDependency",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["predecessor_id"], properties: { predecessor_id: { type: "string", format: "uuid" }, type: { type: "string", enum: ["FS", "SS", "FF", "SF"], default: "FS" }, lag_days: { type: "integer", default: 0 } } } } } },
         responses: {
           "201": { description: "Dependency created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Rule violation (self-dep, duplicate, circular)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Rule violation (self-dep, duplicate, circular), or project_locked when the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       delete: {
         tags: ["tasks"],
         summary: "Remove a task dependency",
-        description: "scope: task:write. Body: { predecessor_id }.",
+        description: "scope: task:write. Body: { predecessor_id }. 422 project_locked when the project is locked (removing a dependency edge reshapes the schedule graph).",
         operationId: "deleteTaskDependency",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["predecessor_id"], properties: { predecessor_id: { type: "string", format: "uuid" } } } } } },
         responses: {
           "204": { description: "Dependency removed" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "project_locked — the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

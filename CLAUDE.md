@@ -14,7 +14,7 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - **Governance is invisible** in operational flows, but *showcased* in the Trust Center. Enforce audit/scopes/maker-checker in the data + API layer, never as UI clutter.
 - **Every mutation = exactly one immutable `audit_log` row** (`writeAudit`, fail-closed). No silent writes.
 - **API = data-access layer**: every action is a documented `app/api/**/route.ts`; the web UI and CLI only call the API. Wrap handlers with `route()` from `@/lib/api/handler`.
-- **One JSON contract**: success `{ data }` (+ `total/page/limit`); failure `{ error }` (+ `fields`). Correct codes (401 auth, 403 scope, 404, 422 rule). Use `@/lib/api/response` + `@/lib/api/errors`.
+- **One JSON contract**: success `{ data }` (+ `total/page/limit`); failure `{ error }` (+ `fields`). Correct codes (401 auth, 403 scope, 404, 422 rule, 429 rate-limited). Use `@/lib/api/response` + `@/lib/api/errors`.
 - **Scoped Bearer PATs** (`npm_`, SHA-256 hashed, shown once; scopes `resource:action`). Token callers use the admin client → **always filter queries by `actor.workspaceId`** (RLS is bypassed for them).
 - **Maker-checker on delete-task**: `deletion_requests` (request → approve); approver ≠ requester (DB CHECK + API guard); self-approval rejected (422/403).
 - Secrets hashed at rest, shown once, never logged.

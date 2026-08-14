@@ -42,6 +42,13 @@ export class RuleError extends ApiError {
   }
 }
 
+/** Workspace+actor-class request budget exceeded (see @/lib/api/rate-limit). */
+export class RateLimitError extends ApiError {
+  constructor(message = "Rate limit exceeded", code = "rate_limited") {
+    super(429, message, code);
+  }
+}
+
 export function toErrorResponse(error: unknown): NextResponse {
   if (error instanceof ApiError) {
     return NextResponse.json(
