@@ -22,7 +22,9 @@ Locked-decisions reference: `requirements/devops-wave1/README.md` (owner-resolve
 - R-66 → DONE (new — baseline API rate limiting)
 
 ## Commit map
-_Filled at LAND._ This task (T5-rtm-docs-receipt) made no git commits — workers in this wave do not run git. The main session maps this sprint-log entry to the actual commit(s) that land the working-tree diff (governance lock, rate limiter, the four migrations, and this doc/contract sync) when it commits.
+Landed 2026-08-14 as four commits: `9a056e0` lock enforcement in triplicate (R-65; includes the adversarial-verify milestone `start_date` fix at both layers) · `930ee29` rate limiting + 429 contract (R-66; includes the uuid `target_id` fix on the `rate.limited` audit row) · `0ddd957` perf migrations (indexes + rollup guard) · `93ba2b1` RTM rows + this receipt.
+
+**Live verification (wave close):** migrations 028–031 applied to live Supabase + PostgREST reload; Vercel prod deploy; health 200; auth-smoke **19/19**; llms.txt serving the 429 contract. DB-level rolled-back live probe on the locked steerco fixture: date change **blocked P0010**, status change **allowed** (work continues), task insert **blocked**, transaction-local rebaseline bypass **works**, milestone `start_date` **blocked** (the verifier-found gap, confirmed closed live), `nopm_rate_check` counts down and denies at limit with retry hint. Zero residue.
 
 ## Files
 - `requirements/REQUIREMENTS.md` — R-65, R-66 rows added (Governance backbone section)
