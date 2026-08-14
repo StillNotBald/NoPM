@@ -41,8 +41,9 @@ Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **I
 - sanitization: no real client/stakeholder names in tracked .md; portfolio-public repo
 - memoryStore: the owner's local `~/.claude/projects/<this-repo>/memory/` (machine-local, not in the repo)
 
-## Do NOT build (ask first)
-real email **send** (Resend stays demo-mode — previews only), dry-run gates, OAuth/PKCE, multi-tenant beyond workspace_id+RLS, custom-field engine, automations, comments/notification-threads, any bundled LLM. (Extra view types are also ask-first — the **Mainline** timeline UI is greenlit but parked.)
+## Scope posture (revised 2026-08-14 — owner decision)
+The old blanket Do-NOT-build list is replaced by a **lite, outcome-scoped** rule. NoPM does **not** chase ClickUp feature parity. New features must serve one of three outcomes, named in the PRD row: (1) **presentable multi-project** — portfolio/program views and rollups that make many concurrent projects legible to management; (2) **easier reporting** — exports, dashboards, board-pack reporting with minimal effort; (3) **frontend flexibility** — clean extensible UI architecture *and* non-code user configuration (appearance, saved views, display config). Micro-interaction polish is de-scoped. Sequencing is **devops-first** (see `requirements/devops-wave1/`). The Mainline timeline UI (R-28) is **un-parked** and belongs to outcome 1.
+Still **ask first** (heavy engines / constitutional invariants): real email **send** (Resend stays demo-mode), custom-field engine, automations engine, comments/notification-threads, OAuth/PKCE/SSO, multi-tenant beyond workspace_id+RLS, any bundled LLM, new dependencies or hosting/infra dependencies, anything weakening workspace-isolation or audit-immutability.
 
 ## Sanctioned (already greenlit, in scope)
 - **BYOK governed assistant** (R-24, ADR 0004) — an in-app assistant where the user pastes their **own** OpenAI/Anthropic/Google **API key** (AES-256-GCM at rest) and that model drives NoPM's REST API via an **ephemeral scoped token** (audited as a token actor; deletes → maker-checker). NoPM still ships **no model and no key** — the "no bundled LLM" rule holds. Optional owner-funded demo key (`NOPM_DEMO_LLM_*`) is rate-limited and server-only.
