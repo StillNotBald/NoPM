@@ -57,4 +57,4 @@ Files this task read but did not modify (already landed by earlier wave-2 tasks 
 - Bootstrap admin-identity de-hardcode (email/display-name, not just workspace slug/name) — tracked as a follow-up in `CUTOVER/01-INSTALL.md` §6, not scoped to this wave.
 
 ## Commit map
-_Placeholder — filled in by the main session at land time (this task has no git access per the wave's hard rule)._
+Landed 2026-08-15 as `5789b61` (the full folder architecture + root README section + bootstrap de-hardcode + web/README bootstrap-before-seed fix). Deployed to production in the same land as wave 1b (`45a35d5`); live-verified health 200 + auth-smoke 19/19.
