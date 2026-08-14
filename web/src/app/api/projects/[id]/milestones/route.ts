@@ -5,6 +5,7 @@ import { okList, created, validationError, safeJson } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { createMilestoneSchema } from "@/app/api/milestones/_schema";
+import { assertProjectUnlocked } from "@/lib/governance/lock";
 
 export const runtime = "nodejs";
 
@@ -62,15 +63,19 @@ export const POST = route(async ({ actor, params, request }) => {
   const projectId = params.id;
   const db = createAdminClient();
 
-  // Verify project belongs to actor's workspace
-  const { data: project } = await db
-    .from("projects")
-    .select("id")
-    .eq("id", projectId)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (!project) throw new NotFoundError("Project not found");
+  // Verify project belongs to actor's workspace, and is not locked — milestone
+  // creation reshapes the schedule, so it is always blocked while frozen.
+  await assertProjectUnlocked(db, projectId, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "milestone.create.blocked",
+      targetType: "milestone",
+      targetId: null,
+      before: null,
+      after: { reason: "project_locked", project_id: projectId },
+    }),
+  );
 
   // Parse and validate body
   const body = await safeJson(request);

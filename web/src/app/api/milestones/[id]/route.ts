@@ -5,6 +5,11 @@ import { ok, noContent, validationError, safeJson } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { updateMilestoneSchema } from "@/app/api/milestones/_schema";
+import {
+  assertProjectUnlocked,
+  SCHEDULE_SHAPE_MILESTONE_FIELDS,
+  touchesScheduleShape,
+} from "@/lib/governance/lock";
 
 export const runtime = "nodejs";
 
@@ -57,6 +62,22 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const input = parsed.data;
 
+  // Schedule-shape changes (target/baseline dates) are blocked while the
+  // parent project is locked; status/completion/owner/etc stay live.
+  if (touchesScheduleShape(input, SCHEDULE_SHAPE_MILESTONE_FIELDS)) {
+    await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
+      writeAudit({
+        workspaceId: actor.workspaceId,
+        actor,
+        action: "milestone.update.blocked",
+        targetType: "milestone",
+        targetId: params.id,
+        before: null,
+        after: { reason: "project_locked", project_id: existing.project_id },
+      }),
+    );
+  }
+
   // Build update payload — only include fields that were explicitly provided
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.name !== undefined) updates.name = input.name;
@@ -105,6 +126,20 @@ export const DELETE = route(async ({ actor, params }) => {
 
   if (fetchError) throw new Error(fetchError.message);
   if (!existing) throw new NotFoundError("Milestone not found");
+
+  // Deleting a milestone removes it from the schedule — always blocked while
+  // the parent project's baseline is frozen.
+  await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "milestone.delete.blocked",
+      targetType: "milestone",
+      targetId: params.id,
+      before: null,
+      after: { reason: "project_locked", project_id: existing.project_id },
+    }),
+  );
 
   const { error: deleteError } = await db
     .from("milestones")

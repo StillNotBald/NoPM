@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { ok, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -120,6 +121,20 @@ export const POST = route(async ({ actor, params, request }) => {
   if (taskErr) throw new Error(taskErr.message);
   if (!successorTask) throw new NotFoundError("Task not found");
 
+  // A new dependency edge reshapes the schedule graph — blocked while the
+  // successor task's project is locked.
+  await assertProjectUnlocked(db, successorTask.project_id, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "dependency.create.blocked",
+      targetType: "task",
+      targetId: params.id,
+      before: null,
+      after: { reason: "project_locked", project_id: successorTask.project_id },
+    }),
+  );
+
   const body = await safeJson(request);
   const parsed = DependencyCreateSchema.safeParse(body ?? {});
   if (!parsed.success) {
@@ -149,6 +164,23 @@ export const POST = route(async ({ actor, params, request }) => {
   if (predErr) throw new Error(predErr.message);
   if (!predecessorTask) {
     throw new NotFoundError("Predecessor task not found in this project");
+  }
+
+  // Defensive: predecessor and successor are currently required to share a
+  // project (see the query above), but guard the predecessor's project too
+  // in case that constraint is ever relaxed.
+  if (predecessorTask.project_id !== successorTask.project_id) {
+    await assertProjectUnlocked(db, predecessorTask.project_id, actor.workspaceId, () =>
+      writeAudit({
+        workspaceId: actor.workspaceId,
+        actor,
+        action: "dependency.create.blocked",
+        targetType: "task",
+        targetId: params.id,
+        before: null,
+        after: { reason: "project_locked", project_id: predecessorTask.project_id },
+      }),
+    );
   }
 
   // Check for duplicate
@@ -234,6 +266,20 @@ export const DELETE = route(async ({ actor, params, request }) => {
 
   if (taskErr) throw new Error(taskErr.message);
   if (!task) throw new NotFoundError("Task not found");
+
+  // Removing a dependency edge reshapes the schedule graph — blocked while
+  // the (successor) task's project is locked.
+  await assertProjectUnlocked(db, task.project_id, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "dependency.delete.blocked",
+      targetType: "task",
+      targetId: params.id,
+      before: null,
+      after: { reason: "project_locked", project_id: task.project_id },
+    }),
+  );
 
   const body = await safeJson(request);
   const parsed = DependencyDeleteSchema.safeParse(body ?? {});

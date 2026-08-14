@@ -48,7 +48,9 @@ export const updateProjectSchema = z.object({
   start_date: z.string().optional(),
   target_date: z.string().optional(),
   currency: z.string().length(3).optional(),
-  is_locked: z.boolean().optional(),
+  // is_locked intentionally NOT accepted here — lock state may only change via
+  // the dedicated POST /api/projects/[id]/lock and /unlock routes (governance:
+  // generic PATCH must never be able to flip the baseline-freeze flag).
   // ── Content enrichment (0008): PMBOK charter + baseline pair + phase ──────
   business_case: z.string().nullish(),
   objective: z.string().nullish(),

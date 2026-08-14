@@ -253,6 +253,22 @@ for (let i = 0; i < depsToInsert.length; i += BATCH_SIZE) {
   depsInserted += batch.length;
 }
 
+// ── Step 6: lock ERP-EMEA now that every child row is in place ────────────────
+// seed.mjs deliberately creates ERP-EMEA UNLOCKED (see its comment there) so
+// every seed script that writes its milestones/tasks/task_dependencies —
+// including this one, above — can do so before the DB-level project-lock
+// backstop (migration 20260814000028) starts enforcing. This script is the
+// last step of `npm run seed:all`, so locking here is the correct "seed
+// children, then lock last" point. Values mirror what seed.mjs used to set
+// at creation time.
+const { error: lockErr } = await db
+  .from("projects")
+  .update({ is_locked: true, lock_reason: "Baseline frozen for steerco" })
+  .eq("workspace_id", W)
+  .eq("code", "ERP-EMEA");
+assertOk("lock ERP-EMEA", lockErr);
+console.log("locked ERP-EMEA (Baseline frozen for steerco)");
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log("\n✓ seed-mainline-deps complete");
 console.log(`  task_dependencies inserted : ${depsInserted}`);

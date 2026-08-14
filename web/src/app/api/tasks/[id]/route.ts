@@ -7,6 +7,7 @@ import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { assertProjectUnlocked, SCHEDULE_SHAPE_TASK_FIELDS, touchesScheduleShape } from "@/lib/governance/lock";
 
 export const runtime = "nodejs";
 
@@ -61,6 +62,23 @@ export const PATCH = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  // Schedule-shape changes (dates, estimate, milestone re-assignment) are
+  // blocked while the parent project is locked; status/checklist/assignee/etc
+  // stay live so day-to-day work continues under a frozen baseline.
+  if (touchesScheduleShape(input, SCHEDULE_SHAPE_TASK_FIELDS)) {
+    await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
+      writeAudit({
+        workspaceId: actor.workspaceId,
+        actor,
+        action: "task.update.blocked",
+        targetType: "task",
+        targetId: params.id,
+        before: null,
+        after: { reason: "project_locked", project_id: existing.project_id },
+      }),
+    );
+  }
 
   // If milestone_id is being changed, validate it belongs to the same project + workspace
   if (input.milestone_id !== undefined && input.milestone_id !== null) {
@@ -121,6 +139,20 @@ export const DELETE = route(async ({ actor, params, request }) => {
 
   if (fetchError) throw new Error(fetchError.message);
   if (!task) throw new NotFoundError("Task not found");
+
+  // A delete-request removes the task from the schedule — always blocked
+  // while the parent project's baseline is frozen.
+  await assertProjectUnlocked(db, task.project_id, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "task.delete_request.blocked",
+      targetType: "task",
+      targetId: params.id,
+      before: null,
+      after: { reason: "project_locked", project_id: task.project_id },
+    }),
+  );
 
   // Check for an existing pending deletion request for this task
   const { data: existingRequest } = await db

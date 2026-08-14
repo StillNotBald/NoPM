@@ -419,11 +419,21 @@ describe("updateProjectSchema", () => {
     expect(updateProjectSchema.safeParse({ rag_status: "yellow" }).success).toBe(false);
     expect(updateProjectSchema.safeParse({ completion_pct: 150 }).success).toBe(false);
     expect(updateProjectSchema.safeParse({ currency: "DOLLARS" }).success).toBe(false);
-    expect(updateProjectSchema.safeParse({ is_locked: "yes" }).success).toBe(false);
   });
 
-  it("accepts is_locked as a boolean (the lock flag is not string-coerced)", () => {
-    expect(updateProjectSchema.parse({ is_locked: true })).toEqual({ is_locked: true });
+  it("strips is_locked — lock state can only change via the lock/unlock routes, never generic PATCH", () => {
+    // Unknown key: zod's default (non-strict) object() silently strips it rather
+    // than rejecting the request, so a stray is_locked in the body is a no-op.
+    expect(updateProjectSchema.parse({ is_locked: true })).toEqual({});
+    expect(updateProjectSchema.parse({ name: "Renamed", is_locked: true })).toEqual({
+      name: "Renamed",
+    });
+    // Even a garbage (non-boolean) value is stripped, not validated — because
+    // the schema no longer knows the key exists at all.
+    expect(updateProjectSchema.safeParse({ is_locked: "yes" })).toEqual({
+      success: true,
+      data: {},
+    });
   });
 });
 

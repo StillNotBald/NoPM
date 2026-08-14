@@ -5,6 +5,7 @@ import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
+import { assertProjectUnlocked } from "@/lib/governance/lock";
 
 export const runtime = "nodejs";
 
@@ -53,15 +54,19 @@ export const POST = route(async ({ actor, params, request }) => {
   const projectId = params.id;
   const db = createAdminClient();
 
-  // Verify project belongs to workspace
-  const { data: project } = await db
-    .from("projects")
-    .select("id")
-    .eq("id", projectId)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (!project) throw new NotFoundError("Project not found");
+  // Verify project belongs to workspace, and is not locked — task creation
+  // reshapes the schedule, so it is always blocked while the baseline is frozen.
+  await assertProjectUnlocked(db, projectId, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "task.create.blocked",
+      targetType: "task",
+      targetId: null,
+      before: null,
+      after: { reason: "project_locked", project_id: projectId },
+    }),
+  );
 
   const body = await safeJson(request);
   const parsed = TaskCreateSchema.safeParse(body);

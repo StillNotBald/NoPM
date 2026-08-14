@@ -17,6 +17,13 @@ export const runtime = "nodejs";
  * the request row locked FOR UPDATE. So a crash can never leave a committed
  * deletion without its audit rows, and two approvers can't double-commit. The
  * function's guards (pending, four-eyes) raise typed errors mapped below.
+ *
+ * If the target task's project was locked after the deletion was requested,
+ * the tasks table's DB-level lock backstop trigger (migration 0028) raises
+ * PROJECT_LOCKED (errcode P0010) inside the same transaction and the delete
+ * (and the whole commit) rolls back — mapped below to a 422 RuleError.
+ * Deliberately no bypass for this path: a commit against a since-locked
+ * project must fail loudly, not go through silently.
  */
 export const POST = route(async ({ actor, params }) => {
   requireScope(actor, "task:delete:approve");
@@ -36,6 +43,8 @@ export const POST = route(async ({ actor, params }) => {
     if (m.includes("NOT_FOUND") || error.code === "P0002") throw new NotFoundError("Deletion request not found");
     if (m.includes("ALREADY_DECIDED") || error.code === "P0001") throw new RuleError("Request already decided");
     if (m.includes("SELF_APPROVAL") || error.code === "P0003") throw new ScopeError("Self-approval is not allowed (four-eyes)");
+    if (m.includes("PROJECT_LOCKED") || error.code === "P0010")
+      throw new RuleError("Project is locked — unlock or rebaseline before committing this deletion.");
     throw new Error(error.message || "Failed to commit deletion");
   }
 

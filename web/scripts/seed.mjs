@@ -55,7 +55,16 @@ console.log(`assistant chat data cleared (${demoConversations.length} conversati
 const P = [
   {
     code: "ERP-EMEA", name: "S/4HANA Core Rollout — EMEA", program: "Global ERP Consolidation",
-    rag_status: "amber", completion_pct: 62, is_locked: true, lock_reason: "Baseline frozen for steerco",
+    rag_status: "amber", completion_pct: 62,
+    // NOTE: is_locked/lock_reason are deliberately NOT set here. This project
+    // is meant to demo the lock feature, but its milestones/tasks (and, later
+    // in the seed:all pipeline, its baseline dates + task_dependencies) are
+    // still being inserted for several more scripts. Migration 0028 (DB-level
+    // project-lock backstop) rejects INSERT/DELETE and schedule-shape UPDATE
+    // on tasks/milestones/task_dependencies for a locked project — so locking
+    // it at creation would break every downstream seed step that writes its
+    // children. The lock is applied last, in scripts/seed-mainline-deps.mjs
+    // (the final script in `npm run seed:all`), once all of them are done.
     phase: "execution",
     business_case: "Meridian Global runs eleven legacy ERP instances across EMEA at a combined run-rate of $14M/yr in licence, hosting, and reconciliation cost. Consolidating the region onto a single S/4HANA core removes the duplicate OPEX, retires three end-of-life ECC instances, and is the dependency gate for every downstream finance and supply-chain initiative in the portfolio.",
     objective: "Migrate all EMEA operating companies onto the unified S/4HANA core, decommission the legacy ECC instances, and establish a single regional finance and logistics system of record — with zero unplanned period-close disruption during cutover.",
