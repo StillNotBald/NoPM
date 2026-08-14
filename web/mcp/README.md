@@ -2,7 +2,7 @@
 
 A native STDIO Model Context Protocol (MCP) server that lets any MCP client — Claude Desktop, Cursor, Continue, or a custom agent — drive NoPM as a governed agent.
 
-NoPM bundles no LLM. This server is a thin bridge: it maps MCP tool calls to NoPM REST API calls authenticated with a scoped Bearer PAT. All governance (audit trail, PAT scopes, maker-checker on task deletion) is enforced server-side.
+NoPM bundles no LLM. This server is a thin bridge: it maps MCP tool calls to NoPM REST API calls authenticated with a scoped Bearer PAT. All governance (audit trail, PAT scopes, maker-checker on task and project deletion) is enforced server-side.
 
 ---
 
@@ -67,6 +67,7 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `get_project` | GET /api/projects/:id | `project:read` |
 | `create_project` | POST /api/projects | `project:write` |
 | `update_project` | PATCH /api/projects/:id | `project:write` |
+| `request_project_deletion` | DELETE /api/projects/:id | `project:delete:request` |
 | `list_milestones` | GET /api/projects/:id/milestones | `milestone:read` |
 | `create_milestone` | POST /api/projects/:id/milestones | `milestone:write` |
 | `update_milestone` | PATCH /api/milestones/:id | `milestone:write` |
@@ -99,7 +100,7 @@ issue:read  budget:read  clash:read  resource:read  audit:read
 All of the above plus:
 
 ```
-project:write  milestone:write  task:write  task:delete:request
+project:write  project:delete:request  milestone:write  task:write  task:delete:request
 risk:write  issue:write
 ```
 
@@ -111,7 +112,7 @@ risk:write  issue:write
 
 - **Every write produces an immutable audit log row.** You can inspect the trail at any time with the `query_audit` tool.
 
-- **Task deletion is maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`, which creates a `deletion_request` with `status=pending` and returns 202 Accepted — the task is NOT deleted. A second, different token with scope `task:delete:approve` must call `POST /api/deletion-requests/:id/approve`. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly.
+- **Task deletion AND project deletion are maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`; `request_project_deletion` calls `DELETE /api/projects/:id`. Both create a `deletion_request` (`status=pending`, `target_type=task` or `target_type=project`) and return 202 Accepted — the target is NOT deleted. A second, different token with the scope matching the request's `target_type` (`task:delete:approve` for tasks, `project:delete:approve` for projects) must call `POST /api/deletion-requests/:id/approve`, which dispatches by `target_type` to the matching commit path. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side for both entity types; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly. Maker-checker is owner-locked to PROJECTS ONLY beyond tasks — milestones/risks/issues stay single-step hard deletes and are not part of this flow.
 
 ---
 

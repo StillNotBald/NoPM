@@ -57,6 +57,7 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   get_project:          { project_id: FAKE_UUID },
   create_project:       { code: "T1", name: "Test" },
   update_project:       { project_id: FAKE_UUID, name: "Test" },
+  request_project_deletion: { project_id: FAKE_UUID, reason: "test cleanup" },
   list_milestones:      { project_id: FAKE_UUID },
   create_milestone:     { project_id: FAKE_UUID, name: "M1" },
   update_milestone:     { milestone_id: FAKE_UUID, status: "on_track" },
@@ -181,8 +182,21 @@ describe("(c) Governance hard limits — TOOL_SCOPES excludes privileged/admin s
     expect(toolScopesArray).not.toContain("task:delete:approve");
   });
 
+  it('TOOL_SCOPES does NOT contain project:delete:approve (checker role must never be held by the assistant — PROJECTS four-eyes, devops-wave1b)', () => {
+    expect(toolScopesArray).not.toContain("project:delete:approve");
+  });
+
+  it('TOOL_SCOPES does NOT contain ANY *:delete:approve scope (belt-and-suspenders: every four-eyes checker scope, present or future, is excluded)', () => {
+    const approveScopes = toolScopesArray.filter((s) => s.endsWith(":delete:approve"));
+    expect(approveScopes, `Found approve scopes in TOOL_SCOPES: [${approveScopes.join(", ")}]`).toHaveLength(0);
+  });
+
   it('TOOL_SCOPES does NOT contain rebaseline:approve (four-eyes; assistant cannot unilaterally rebaseline)', () => {
     expect(toolScopesArray).not.toContain("rebaseline:approve");
+  });
+
+  it('TOOL_SCOPES DOES contain project:delete:request (assistant may REQUEST project deletion, the maker side)', () => {
+    expect(toolScopesArray).toContain("project:delete:request");
   });
 
   it('TOOL_SCOPES does NOT contain any token:* scope (privilege escalation guard)', () => {

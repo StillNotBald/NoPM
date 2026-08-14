@@ -4,13 +4,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { resolveDeletionRequestScope } from "@/lib/governance/deletion-dispatch";
 
 export const runtime = "nodejs";
 
 /**
  * POST /api/deletion-requests/[id]/withdraw
  * Maker step: withdraw your OWN still-pending deletion request.
- * Requires scope task:delete:request.
+ * Requires the maker scope matching the request's target type
+ * (task:delete:request or project:delete:request) — per-type gate.
  * Only the original requester may withdraw (403 otherwise) — this is the one
  * self-decision four-eyes permits: it cancels the request rather than deciding
  * it, so no approver is recorded (the maker_checker_different CHECK enforces
@@ -20,8 +22,6 @@ export const runtime = "nodejs";
  *   2. Write audit "deletion_request.withdrawn"
  */
 export const POST = route(async ({ actor, params }) => {
-  requireScope(actor, "task:delete:request");
-
   const db = createAdminClient();
 
   // Load the deletion request (workspace-scoped)
@@ -34,6 +34,9 @@ export const POST = route(async ({ actor, params }) => {
 
   if (fetchError) throw new Error(fetchError.message);
   if (!deletionRequest) throw new NotFoundError("Deletion request not found");
+
+  // Per-type maker gate — withdrawing a project request needs project:delete:request
+  requireScope(actor, resolveDeletionRequestScope(deletionRequest.target_type));
 
   if (
     deletionRequest.requested_by_id !== actor.id ||

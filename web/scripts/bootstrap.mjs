@@ -27,10 +27,16 @@ const mintToken = () => {
   return { raw, hash: createHash("sha256").update(raw).digest("hex") };
 };
 
+// Workspace slug/name — env-overridable so an enterprise install can set its
+// own workspace instead of the shipped demo. Defaults preserve today's
+// behavior exactly when unset (no behavior change for existing callers).
+const WORKSPACE_SLUG = process.env.NOPM_WORKSPACE_SLUG || "demo";
+const WORKSPACE_NAME = process.env.NOPM_WORKSPACE_NAME || "StillNotBald Programme Office";
+
 // 1) Workspace (upsert by slug)
-let { data: ws } = await db.from("workspaces").select("id").eq("slug", "demo").maybeSingle();
+let { data: ws } = await db.from("workspaces").select("id").eq("slug", WORKSPACE_SLUG).maybeSingle();
 if (!ws) {
-  ws = (await db.from("workspaces").insert({ name: "StillNotBald Programme Office", slug: "demo" }).select("id").single()).data;
+  ws = (await db.from("workspaces").insert({ name: WORKSPACE_NAME, slug: WORKSPACE_SLUG }).select("id").single()).data;
 }
 console.log("workspace:", ws.id);
 
@@ -65,12 +71,17 @@ const checker = mintToken();
 await db.from("api_tokens").insert([
   {
     workspace_id: ws.id, name: "maker (agent)", token_hash: maker.hash, prefix: TOKEN_PREFIX, created_by: userId,
-    scopes: ["project:*", "milestone:*", "task:read", "task:write", "task:delete:request",
+    // project scopes are EXPLICIT, never "project:*" — hasScope()'s resource
+    // wildcard would silently include project:delete:approve, letting the
+    // maker approve its own project deletions (four-eyes defeat at the token
+    // layer). Same rule for any future resource that grows an approve scope.
+    scopes: ["project:read", "project:write", "project:delete:request",
+      "milestone:*", "task:read", "task:write", "task:delete:request",
       "risk:*", "issue:*", "clash:*", "resource:*", "budget:*", "time:*", "audit:read"],
   },
   {
     workspace_id: ws.id, name: "checker (agent)", token_hash: checker.hash, prefix: TOKEN_PREFIX, created_by: userId,
-    scopes: ["project:read", "task:read", "task:delete:approve", "rebaseline:approve", "audit:read"],
+    scopes: ["project:read", "task:read", "task:delete:approve", "project:delete:approve", "rebaseline:approve", "audit:read"],
   },
 ]);
 

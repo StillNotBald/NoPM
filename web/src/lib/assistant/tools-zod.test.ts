@@ -24,7 +24,7 @@ import { z } from "zod";
 import { TOOLS } from "./tools";
 import { TOOL_REGISTRY } from "../../../mcp/tools.mjs";
 
-import { createProjectSchema, updateProjectSchema } from "@/app/api/projects/_schema";
+import { createProjectSchema, updateProjectSchema, ProjectDeleteRequestSchema } from "@/app/api/projects/_schema";
 import { createMilestoneSchema, updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
   TaskCreateSchema,
@@ -45,6 +45,7 @@ const WRITE_TOOL_VALIDATORS: Record<
 > = {
   create_project: { schema: createProjectSchema, routeParams: [] },
   update_project: { schema: updateProjectSchema, routeParams: ["project_id"] },
+  request_project_deletion: { schema: ProjectDeleteRequestSchema, routeParams: ["project_id"] },
   create_milestone: { schema: createMilestoneSchema, routeParams: ["project_id"] },
   update_milestone: { schema: updateMilestoneSchema, routeParams: ["milestone_id"] },
   create_task: { schema: TaskCreateSchema, routeParams: ["project_id"] },

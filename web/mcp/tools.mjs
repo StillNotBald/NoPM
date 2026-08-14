@@ -114,6 +114,30 @@ export const TOOL_REGISTRY = [
       return { path: `/api/projects/${project_id}`, method: "PATCH", body };
     },
   },
+  {
+    name: "request_project_deletion",
+    description:
+      "Request deletion of a project. Does NOT delete immediately — creates a maker-checker " +
+      "deletion request (status=pending, target_type=project) that must be approved by a " +
+      "DIFFERENT actor holding scope project:delete:approve. Self-approval is rejected by the " +
+      "server. Mirrors request_task_deletion; owner-locked (Decision 3, devops-wave1) — this " +
+      "four-eyes flow covers PROJECTS ONLY, not milestones/risks/issues (those stay single-step " +
+      "hard deletes).",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID" },
+        reason: { type: "string", description: "Reason for deletion (required — goes to the audit trail)" },
+      },
+      required: ["project_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/projects/${args.project_id}`,
+      method: "DELETE",
+      body: { reason: args.reason },
+    }),
+  },
 
   // ── Milestones ────────────────────────────────────────────────────────────
   {

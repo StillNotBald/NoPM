@@ -35,9 +35,21 @@ test.skip(!existsSync(ADMIN_STATE), "admin storage state not minted (Supabase en
 
 const STAMP = `e2e-${Date.now()}`;
 
-test("full governed journey: create → render → task → status → maker-checker request → self-approve blocked → withdraw → re-request → reject → cleanup", async ({
+test("full governed journey: create → render → task → status → maker-checker request → self-approve blocked → withdraw → re-request → reject → project four-eyes cleanup", async ({
   page,
 }) => {
+  // Project deletion is maker-checker too (owner-locked to PROJECTS ONLY, Decision 3,
+  // requirements/devops-wave1/README.md) — the hard DELETE this journey's cleanup used
+  // to issue now returns 202 (a pending deletion_request), and committing it requires a
+  // DIFFERENT actor with scope task:delete:approve to approve. Without a checker PAT we
+  // cannot commit the cleanup deletion at all, so skip the whole journey up front rather
+  // than leaving an undeletable e2e project behind in the target environment.
+  const checker = checkerToken();
+  test.skip(
+    !checker,
+    "project cleanup requires the checker PAT (NOPM_CHECKER_TOKEN) — four-eyes approval is the only way to commit a project deletion",
+  );
+
   // Create a project via the governed API (same session as the UI)
   const createdProject = await page.request.post("/api/projects", {
     data: { code: STAMP.toUpperCase().slice(0, 20), name: `E2E Journey ${STAMP}` },
@@ -111,24 +123,47 @@ test("full governed journey: create → render → task → status → maker-che
 
     // A DIFFERENT actor (checker PAT) rejects it — the four-eyes success path.
     // The checker also must NOT be able to withdraw someone else's request.
-    const checker = checkerToken();
-    if (checker) {
-      const foreignWithdraw = await page.request.post(
-        `/api/deletion-requests/${mine2.id}/withdraw`,
-        { headers: { Authorization: `Bearer ${checker}` } },
-      );
-      expect([403, 422].includes(foreignWithdraw.status())).toBeTruthy();
-      const reject = await page.request.post(`/api/deletion-requests/${mine2.id}/reject`, {
-        headers: { Authorization: `Bearer ${checker}` },
-        data: { reason: "e2e cleanup" },
-      });
-      expect(reject.ok()).toBeTruthy();
-    }
-    // (without a checker token, the pending request is cascaded by project cleanup)
+    // (checker is guaranteed present here — the whole journey is skipped up front
+    // when NOPM_CHECKER_TOKEN is unset, since project cleanup below needs it too.)
+    const foreignWithdraw = await page.request.post(
+      `/api/deletion-requests/${mine2.id}/withdraw`,
+      { headers: { Authorization: `Bearer ${checker}` } },
+    );
+    expect([403, 422].includes(foreignWithdraw.status())).toBeTruthy();
+    const reject = await page.request.post(`/api/deletion-requests/${mine2.id}/reject`, {
+      headers: { Authorization: `Bearer ${checker}` },
+      data: { reason: "e2e cleanup" },
+    });
+    expect(reject.ok()).toBeTruthy();
   } finally {
-    // Cleanup: hard-delete the project (cascades tasks; audited by design)
-    const del = await page.request.delete(`/api/projects/${project.id}`);
-    expect(del.ok()).toBeTruthy();
+    // Cleanup: PROJECT deletion is four-eyes too (owner-locked to PROJECTS ONLY,
+    // Decision 3) — this doubles as the new maker-checker success-path coverage
+    // for projects (mirrors the task journey above).
+    //
+    // (a) Maker step: request the deletion (reason required).
+    const delReq = await page.request.delete(`/api/projects/${project.id}`, {
+      data: { reason: "e2e cleanup" },
+    });
+    expect(delReq.status()).toBe(202);
+    const deletionRequest = (await delReq.json()).data;
+
+    // Self-approval must be blocked here too (requester === approver, same admin
+    // session that created the project) — four-eyes applies to PROJECTS as well.
+    const selfApprove = await page.request.post(
+      `/api/deletion-requests/${deletionRequest.id}/approve`,
+    );
+    expect([403, 422].includes(selfApprove.status())).toBeTruthy();
+
+    // (b) Checker step: a DIFFERENT actor (checker PAT) approves and commits it.
+    const approve = await page.request.post(
+      `/api/deletion-requests/${deletionRequest.id}/approve`,
+      { headers: { Authorization: `Bearer ${checker}` } },
+    );
+    expect(approve.ok()).toBeTruthy();
+
+    // The project is actually gone (committed, not just marked pending/approved).
+    const gone = await page.request.get(`/api/projects/${project.id}`);
+    expect(gone.status()).toBe(404);
   }
 });
 

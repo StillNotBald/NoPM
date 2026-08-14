@@ -13,6 +13,33 @@
 // self-approval bug it exists to fix.
 //
 // Idempotent: clears prior deletion_requests for the workspace, then inserts.
+//
+// PROJECT-DELETION FOUR-EYES (devops-wave1b, U1): scopes project:delete:request
+// / project:delete:approve now exist in the registry (web/src/lib/auth/
+// scopes.ts) and the atomic commit RPC (nopm_commit_project_deletion,
+// migration 20260814000032) is landed — but this script deliberately does
+// NOT yet seed a pending target_type='project' row here, for two reasons:
+//   1. There is no PAT-scope granting in THIS script to extend — the
+//      maker/checker api_tokens fixtures live in scripts/bootstrap.mjs
+//      (owned by the parallel docs wave this task must not touch). Note for
+//      whoever owns that file next: its "maker (agent)" token already holds
+//      the wildcard scope "project:*", which — per hasScope()'s resource-
+//      prefix matching (web/src/lib/auth/tokens.ts) — now ALSO grants
+//      project:delete:approve to the maker token once these two new scopes
+//      exist. That silently defeats four-eyes for project deletion (the
+//      maker could approve its own request, DB self-approval check aside)
+//      and needs the wildcard narrowed to an explicit scope list there.
+//   2. The approve/reject routes (web/src/app/api/deletion-requests/[id]/
+//      {approve,reject}/route.ts) are still hardcoded to
+//      nopm_commit_task_deletion + require task:delete:approve only — they
+//      do not yet dispatch on target_type. Seeding a clickable pending
+//      target_type='project' row before that dispatch wiring lands would be
+//      approvable through the STALE route: it would mark the request
+//      committed and write an audit row mislabeled 'task.delete' for
+//      target_type='project', without actually deleting the project. Add
+//      the project-fixture insert here (mirroring the task one below) only
+//      once that route dispatch is wired to call nopm_commit_project_deletion
+//      + require project:delete:approve.
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
 import path from "node:path";

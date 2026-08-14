@@ -47,18 +47,26 @@ Issues:      title, priority REQUIRED. priority = low | medium | high | urgent
              status = open | in_progress | resolved | closed (default open)
              resolution_eta / resolved_at = YYYY-MM-DD.
 Task deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
+Project deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
 Change requests: title, category, priority, status REQUIRED on create; priority = low | medium | high | critical
              decision endpoint takes { "decision": "approve" | "reject" | "defer", "rationale": "..." }.
 Task dependencies: type = FS | SS | FF | SF (default FS), lag_days integer (default 0).
 
-## Maker-checker: task deletion
-DELETE /tasks/{id} does NOT immediately delete the task.
-It requires scope task:delete:request and creates a deletion_request with status=pending.
-Returns 202 Accepted. A DIFFERENT token (approver != requester) with scope task:delete:approve
-must POST /deletion-requests/{id}/approve to execute the deletion.
+## Maker-checker: task and project deletion
+DELETE /tasks/{id} and DELETE /projects/{id} do NOT immediately delete the target.
+Task deletion requires scope task:delete:request; project deletion requires scope
+project:delete:request. Both create a deletion_request with status=pending (target_type=task
+or target_type=project) and return 202 Accepted. A DIFFERENT token (approver != requester) with
+the scope matching the request's target_type must POST /deletion-requests/{id}/approve to
+execute the deletion — task:delete:approve for task requests, project:delete:approve for
+project requests (per-type gate; the route dispatches to the matching commit path).
 Self-approval is rejected with 403; self-rejection with 422 (four-eyes binds both decisions).
 A checker cancels via POST /deletion-requests/{id}/reject; the ORIGINAL requester may cancel
-their own pending request via POST /deletion-requests/{id}/withdraw (scope task:delete:request).
+their own pending request via POST /deletion-requests/{id}/withdraw (per-type maker scope:
+task:delete:request or project:delete:request).
+Owner-locked (Decision 3, requirements/devops-wave1/README.md): maker-checker extends to
+PROJECTS ONLY — milestones/risks/issues stay single-step hard deletes and never create a
+deletion_request row.
 
 ## Audit log
 Every mutation writes exactly one immutable row to the audit_log table.
@@ -87,7 +95,7 @@ GET    /projects                           — scope:project:read  — list proj
 POST   /projects                           — scope:project:write — create a project
 GET    /projects/{id}                      — scope:project:read  — get a project
 PATCH  /projects/{id}                      — scope:project:write — update a project
-DELETE /projects/{id}                      — scope:project:write — hard delete a project
+DELETE /projects/{id}                      — scope:project:delete:request — request project deletion (maker step, returns 202, creates deletion_request)
 POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only)
 POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline
 
@@ -175,10 +183,10 @@ POST   /projects/{id}/rebaselines          — scope:project:write — propose a
 POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign off a rebaseline (four-eyes)
 POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply a signed-off rebaseline
 
-GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed|withdrawn)
-POST   /deletion-requests/{id}/approve     — scope:task:delete:approve — approve and execute a pending deletion (four-eyes: approver != requester)
-POST   /deletion-requests/{id}/reject      — scope:task:delete:approve — reject a pending deletion request (four-eyes: no self-rejection)
-POST   /deletion-requests/{id}/withdraw    — scope:task:delete:request — withdraw your OWN pending deletion request (maker step)
+GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed|withdrawn; target_type=task|project)
+POST   /deletion-requests/{id}/approve     — scope:<type>:delete:approve — approve and execute a pending deletion (per-type gate: task:delete:approve or project:delete:approve; four-eyes: approver != requester)
+POST   /deletion-requests/{id}/reject      — scope:<type>:delete:approve — reject a pending deletion request (per-type gate; four-eyes: no self-rejection)
+POST   /deletion-requests/{id}/withdraw    — scope:task:delete:request — withdraw your OWN pending deletion request (maker step; task or project target)
 
 GET    /notifications                      — scope:notification:read — list in-app notifications for the actor
 PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
@@ -207,31 +215,43 @@ GET    /api/openapi.json                   — scope:none — OpenAPI 3.1 spec f
 ## MCP server
 
 NoPM ships a native Model Context Protocol (MCP) server at web/mcp/server.mjs.
-It exposes 23 governed tools (list/get/create/update across the core modules, plus
+It exposes 24 governed tools (list/get/create/update across the core modules, plus
 workspace search, budget, clashes, resources, and the audit log) over STDIO so any
 MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agent.
 Tool schemas are generated from the same registry the in-app assistant uses and are
 lock-tested against the API's Zod validators. Capabilities are bounded by the PAT
-scopes; all writes are audited; task deletion goes through maker-checker.
+scopes; all writes are audited; task and project deletion both go through maker-checker
+(the assistant/MCP tool set can only request deletion — approve scopes are never granted).
 See web/mcp/README.md for setup instructions.
 
 ---
 
 ## Maker-checker note (expanded)
 
-Task deletion is intentionally two-step to provide change-control traceability:
+Task deletion AND project deletion are intentionally two-step to provide change-control
+traceability. Owner-locked (Decision 3, requirements/devops-wave1/README.md): this flow
+extends to PROJECTS ONLY — milestones/risks/issues stay single-step hard deletes and never
+create a deletion_request row.
 
-1. Maker step   — token with scope task:delete:request calls DELETE /tasks/{id}
-                  with a JSON body containing "reason" (REQUIRED)
-                  Returns 202 with a deletion_request object (status=pending)
-                  The task is NOT deleted yet.
+1. Maker step   — task: token with scope task:delete:request calls DELETE /tasks/{id}
+                  project: token with scope project:delete:request calls DELETE /projects/{id}
+                  Both take a JSON body containing "reason" (REQUIRED)
+                  Both return 202 with a deletion_request object (status=pending,
+                  target_type=task or target_type=project)
+                  The target is NOT deleted yet.
 
-2. Checker step — a DIFFERENT token with scope task:delete:approve calls
+2. Checker step — a DIFFERENT token with the scope matching the request's
+                  target_type (task:delete:approve or project:delete:approve) calls
                   POST /deletion-requests/{id}/approve
                   The API enforces approver != requester (403 on self-approval).
-                  On success the task is deleted, the deletion_request moves to
+                  The route dispatches by the request's target_type to the matching
+                  atomic commit RPC (nopm_commit_task_deletion / nopm_commit_project_deletion).
+                  On success the target is deleted, the deletion_request moves to
                   status=committed, and two audit_log rows are written:
-                  task.delete and deletion_request.approved.
+                  task.delete or project.delete, and deletion_request.approved.
+                  Project deletions also 422 as PROJECT_LOCKED if the project's schedule
+                  was frozen after the deletion was requested (checked at commit time only —
+                  unlike task deletion, the project maker step does not pre-check is_locked).
 
 To cancel instead: a DIFFERENT checker POSTs /deletion-requests/{id}/reject (self-rejection
 is 422), or the original requester POSTs /deletion-requests/{id}/withdraw (their one

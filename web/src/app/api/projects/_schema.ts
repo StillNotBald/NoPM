@@ -63,5 +63,13 @@ export const updateProjectSchema = z.object({
   baseline_target_date: z.string().nullish(),
 });
 
+// Maker step for project deletion (four-eyes, Decision 3 devops-wave1) — mirrors
+// TaskDeleteRequestSchema (web/src/app/api/tasks/_schema.ts): reason is required
+// so the audit trail always records *why* a deletion was requested.
+export const ProjectDeleteRequestSchema = z.object({
+  reason: z.string().min(1, "reason is required").max(1000),
+});
+
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
+export type ProjectDeleteRequestInput = z.infer<typeof ProjectDeleteRequestSchema>;

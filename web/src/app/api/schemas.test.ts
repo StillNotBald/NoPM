@@ -16,7 +16,11 @@ import {
   createRebaselineSchema,
   signoffSchema,
 } from "./rebaselines/_schema";
-import { createProjectSchema, updateProjectSchema } from "./projects/_schema";
+import {
+  createProjectSchema,
+  updateProjectSchema,
+  ProjectDeleteRequestSchema,
+} from "./projects/_schema";
 import { createTokenSchema } from "./tokens/_schema";
 import { SCOPES } from "@/lib/auth/scopes";
 
@@ -434,6 +438,21 @@ describe("updateProjectSchema", () => {
       success: true,
       data: {},
     });
+  });
+});
+
+describe("ProjectDeleteRequestSchema (maker-checker entry point — Decision 3, devops-wave1)", () => {
+  it("requires a non-empty reason", () => {
+    expect(ProjectDeleteRequestSchema.parse({ reason: "Duplicate of FIN-MIG" })).toEqual({
+      reason: "Duplicate of FIN-MIG",
+    });
+    expect(ProjectDeleteRequestSchema.safeParse({}).success).toBe(false);
+    expect(ProjectDeleteRequestSchema.safeParse({ reason: "" }).success).toBe(false);
+  });
+
+  it("caps the reason at 1000 characters", () => {
+    expect(ProjectDeleteRequestSchema.safeParse({ reason: "x".repeat(1001) }).success).toBe(false);
+    expect(ProjectDeleteRequestSchema.safeParse({ reason: "x".repeat(1000) }).success).toBe(true);
   });
 });
 

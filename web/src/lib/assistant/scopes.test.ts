@@ -20,6 +20,10 @@ describe("TOOL_SCOPES — required scopes are present", () => {
     expect(scopes).toContain("task:delete:request");
   });
 
+  it("includes project:delete:request (maker side of maker-checker, PROJECTS four-eyes)", () => {
+    expect(scopes).toContain("project:delete:request");
+  });
+
   it("includes project:read", () => {
     expect(scopes).toContain("project:read");
   });
@@ -57,6 +61,10 @@ describe("TOOL_SCOPES — forbidden scopes are absent", () => {
     expect(scopes).not.toContain("task:delete:approve");
   });
 
+  it("does NOT include project:delete:approve (checker role denied to assistant — PROJECTS four-eyes)", () => {
+    expect(scopes).not.toContain("project:delete:approve");
+  });
+
   it("does NOT include any token:* scope", () => {
     const tokenScopes = scopes.filter((s) => s.startsWith("token:"));
     expect(tokenScopes).toHaveLength(0);
@@ -91,6 +99,14 @@ describe("hasScope(TOOL_SCOPES, ...) — maker-checker invariant", () => {
 
   it("returns false for task:delete:approve (assistant may NOT APPROVE)", () => {
     expect(hasScope(scopes, "task:delete:approve")).toBe(false);
+  });
+
+  it("returns true for project:delete:request (assistant may REQUEST project deletion)", () => {
+    expect(hasScope(scopes, "project:delete:request")).toBe(true);
+  });
+
+  it("returns false for project:delete:approve (assistant may NOT APPROVE project deletion)", () => {
+    expect(hasScope(scopes, "project:delete:approve")).toBe(false);
   });
 });
 

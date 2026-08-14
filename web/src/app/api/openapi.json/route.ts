@@ -1,6 +1,6 @@
 import { route } from "@/lib/api/handler";
 import { z } from "zod";
-import { createProjectSchema, updateProjectSchema } from "@/app/api/projects/_schema";
+import { createProjectSchema, updateProjectSchema, ProjectDeleteRequestSchema } from "@/app/api/projects/_schema";
 import { createMilestoneSchema, updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
   TaskCreateSchema,
@@ -34,6 +34,9 @@ const spec = {
       "All mutations produce an immutable audit_log entry. " +
       "Task deletion is maker-checker: DELETE /tasks/{id} creates a deletion_request; " +
       "a separate token with scope task:delete:approve must POST /deletion-requests/{id}/approve. " +
+      "Project deletion is maker-checker too (owner-locked, PROJECTS ONLY): DELETE /projects/{id} " +
+      "creates a deletion_request the same way — milestones/risks/issues remain single-step hard " +
+      "deletes and are never routed through deletion_requests. " +
       "Every authenticated request is subject to a baseline workspace+actor-class rate limit " +
       "(fixed 60s window; defaults 600/min read, 120/min write) — see components.responses.RateLimited.",
   },
@@ -204,13 +207,24 @@ const spec = {
       },
       delete: {
         tags: ["projects"],
-        summary: "Delete a project (hard delete)",
-        description: "scope: project:write",
-        operationId: "deleteProject",
+        summary: "Request project deletion (maker step)",
+        description:
+          "scope: project:delete:request. Does NOT delete the project. Creates a deletion_request " +
+          "(target_type=project, status=pending) — mirrors task deletion's maker step (see DELETE " +
+          "/tasks/{id}). Requires reason in the body (goes to the audit trail). Returns 202. A different " +
+          "token must approve it via POST /deletion-requests/{id}/approve to commit the deletion — see " +
+          "that operation for the target-type dispatch and current approve-scope gate. Unlike task " +
+          "deletion, is_locked is NOT checked at this request step (only at commit time, inside the " +
+          "atomic commit RPC) — see PROJECT_LOCKED on the approve operation. Owner-locked (Decision 3, " +
+          "requirements/devops-wave1/README.md): maker-checker extends to PROJECTS ONLY — milestones/" +
+          "risks/issues stay single-step hard deletes and are never routed through deletion_requests.",
+        operationId: "requestProjectDeletion",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: zodBody(ProjectDeleteRequestSchema),
         responses: {
-          "204": { description: "Deleted" },
+          "202": { description: "Deletion request created (pending)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error (reason required), or a pending deletion request already exists for this project", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -798,14 +812,21 @@ const spec = {
       post: {
         tags: ["deletion-requests"],
         summary: "Approve (checker step) — executes the deletion",
-        description: "scope: task:delete:approve. Four-eyes: approver must differ from requester. Atomically deletes the target and commits the request.",
+        description:
+          "scope: task:delete:approve for target_type=task, project:delete:approve for target_type=project " +
+          "(per-type gate, resolved from the loaded request). Four-eyes: approver must differ from requester. " +
+          "Dispatches by target_type to the matching atomic commit RPC " +
+          "(nopm_commit_task_deletion / nopm_commit_project_deletion) — deletes the target and commits " +
+          "the request in one transaction. " +
+          "For target_type=project, also 422s as PROJECT_LOCKED if the project's schedule was frozen " +
+          "after the deletion was requested.",
         operationId: "approveDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Deletion committed", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Self-approval rejected", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided, or PROJECT_LOCKED (target_type=project, schedule frozen since the request was made)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -813,7 +834,7 @@ const spec = {
       post: {
         tags: ["deletion-requests"],
         summary: "Reject a pending deletion request (checker step)",
-        description: "scope: task:delete:approve. Four-eyes: the decider must differ from the requester — self-rejection returns 422. A maker cancels their own request via /withdraw instead.",
+        description: "scope: task:delete:approve for task requests, project:delete:approve for project requests (per-type gate). Four-eyes: the decider must differ from the requester — self-rejection returns 422. A maker cancels their own request via /withdraw instead.",
         operationId: "rejectDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },

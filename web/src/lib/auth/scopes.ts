@@ -13,6 +13,7 @@ export const SCOPES = [
   "project:read", "project:write",
   "milestone:read", "milestone:write",
   "task:read", "task:write", "task:delete:request", "task:delete:approve",
+  "project:delete:request", "project:delete:approve",
   "risk:read", "risk:write",
   "issue:read", "issue:write",
   "clash:read", "clash:write",

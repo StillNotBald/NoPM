@@ -43,6 +43,7 @@ export const TOOL_SCOPES = [
   "task:read",
   "task:write",
   "task:delete:request",
+  "project:delete:request",
   "risk:read",
   "risk:write",
   "issue:read",

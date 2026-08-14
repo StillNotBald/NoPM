@@ -6,6 +6,7 @@ import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { notify } from "@/lib/notify/publish";
 import { z } from "zod";
+import { resolveDeletionApproveScope } from "@/lib/governance/deletion-dispatch";
 
 export const runtime = "nodejs";
 
@@ -16,7 +17,8 @@ const RejectSchema = z.object({
 /**
  * POST /api/deletion-requests/[id]/reject
  * Checker step: reject a pending deletion request.
- * Requires scope task:delete:approve.
+ * Requires the scope matching the request's target type (task:delete:approve
+ * or project:delete:approve) — per-type gate, resolved after loading.
  * Four-eyes applies to BOTH decisions: the maker_checker_different DB CHECK
  * requires a different decider for any non-pending request, so self-rejection
  * is guarded here too (422) instead of surfacing as a DB constraint 500.
@@ -25,8 +27,6 @@ const RejectSchema = z.object({
  *   2. Write audit "deletion_request.rejected"
  */
 export const POST = route(async ({ actor, params, request }) => {
-  requireScope(actor, "task:delete:approve");
-
   const body = await safeJson(request);
   const parsed = RejectSchema.safeParse(body ?? {});
   if (!parsed.success) {
@@ -48,6 +48,9 @@ export const POST = route(async ({ actor, params, request }) => {
 
   if (fetchError) throw new Error(fetchError.message);
   if (!deletionRequest) throw new NotFoundError("Deletion request not found");
+
+  // Per-type checker gate (mirrors approve — guard symmetry on every decision verb)
+  requireScope(actor, resolveDeletionApproveScope(deletionRequest.target_type));
 
   // Must still be pending
   if (deletionRequest.status !== "pending") {

@@ -109,6 +109,45 @@ describe("requireScope — user actor (member / admin)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Project-deletion four-eyes scopes (devops-wave1b, U2 — Decision 3: maker-
+// checker extends to PROJECTS ONLY) — same shape as task:delete:* above.
+// ---------------------------------------------------------------------------
+describe("requireScope — project:delete:request / project:delete:approve", () => {
+  it("throws ScopeError (403) when a token lacks project:delete:request", () => {
+    expect(() =>
+      requireScope(tokenActor(["project:read", "project:write"]), "project:delete:request"),
+    ).toThrowError(ScopeError);
+  });
+
+  it("throws ScopeError (403) when a token lacks project:delete:approve", () => {
+    expect(() =>
+      requireScope(tokenActor(["project:delete:request"]), "project:delete:approve"),
+    ).toThrowError(ScopeError);
+  });
+
+  it("passes when a token holds the exact required scope", () => {
+    expect(() =>
+      requireScope(tokenActor(["project:delete:request"]), "project:delete:request"),
+    ).not.toThrow();
+    expect(() =>
+      requireScope(tokenActor(["project:delete:approve"]), "project:delete:approve"),
+    ).not.toThrow();
+  });
+
+  it("a project:* wildcard covers both — same resource-prefix matching as task:*", () => {
+    expect(() =>
+      requireScope(tokenActor(["project:*"]), "project:delete:approve"),
+    ).not.toThrow();
+  });
+
+  it("holding project:delete:request does NOT imply project:delete:approve (distinct scopes)", () => {
+    expect(() =>
+      requireScope(tokenActor(["project:delete:request"]), "project:delete:approve"),
+    ).toThrowError(ScopeError);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Four-eyes self-approval guard logic (pure, extracted from approve route)
 // ---------------------------------------------------------------------------
 /**
