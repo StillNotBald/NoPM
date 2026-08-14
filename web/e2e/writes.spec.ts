@@ -35,7 +35,7 @@ test.skip(!existsSync(ADMIN_STATE), "admin storage state not minted (Supabase en
 
 const STAMP = `e2e-${Date.now()}`;
 
-test("full governed journey: create → render → task → status → maker-checker request → self-approve blocked → reject → cleanup", async ({
+test("full governed journey: create → render → task → status → maker-checker request → self-approve blocked → withdraw → re-request → reject → cleanup", async ({
   page,
 }) => {
   // Create a project via the governed API (same session as the UI)
@@ -87,10 +87,38 @@ test("full governed journey: create → render → task → status → maker-che
     });
     expect(selfReject.status()).toBe(422);
 
-    // A DIFFERENT actor (checker PAT) rejects it — the four-eyes success path
+    // The maker CAN withdraw their own pending request (the one permitted self-act)
+    const withdraw = await page.request.post(`/api/deletion-requests/${mine.id}/withdraw`);
+    expect(withdraw.ok()).toBeTruthy();
+    const afterWithdraw = await page.request.get(`/api/deletion-requests?status=withdrawn`);
+    expect(
+      (await afterWithdraw.json()).data.some((r: { id: string }) => r.id === mine.id),
+    ).toBeTruthy();
+    // Withdrawal is terminal — it cannot be withdrawn (or decided) twice
+    const rewithdraw = await page.request.post(`/api/deletion-requests/${mine.id}/withdraw`);
+    expect(rewithdraw.status()).toBe(422);
+
+    // Withdrawal freed the target: the maker can re-request the same deletion
+    const delReq2 = await page.request.delete(`/api/tasks/${task.id}`, {
+      data: { reason: "e2e governed-journey verification (re-request after withdraw)" },
+    });
+    expect([200, 201, 202].includes(delReq2.status())).toBeTruthy();
+    const pending2 = await page.request.get(`/api/deletion-requests?status=pending`);
+    const mine2 = (await pending2.json()).data.find(
+      (r: { target_id: string; id: string }) => r.target_id === task.id,
+    );
+    expect(mine2).toBeTruthy();
+
+    // A DIFFERENT actor (checker PAT) rejects it — the four-eyes success path.
+    // The checker also must NOT be able to withdraw someone else's request.
     const checker = checkerToken();
     if (checker) {
-      const reject = await page.request.post(`/api/deletion-requests/${mine.id}/reject`, {
+      const foreignWithdraw = await page.request.post(
+        `/api/deletion-requests/${mine2.id}/withdraw`,
+        { headers: { Authorization: `Bearer ${checker}` } },
+      );
+      expect([403, 422].includes(foreignWithdraw.status())).toBeTruthy();
+      const reject = await page.request.post(`/api/deletion-requests/${mine2.id}/reject`, {
         headers: { Authorization: `Bearer ${checker}` },
         data: { reason: "e2e cleanup" },
       });

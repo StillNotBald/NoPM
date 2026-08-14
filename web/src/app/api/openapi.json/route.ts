@@ -767,12 +767,12 @@ const spec = {
       get: {
         tags: ["deletion-requests"],
         summary: "List deletion requests",
-        description: "scope: task:read or audit:read. Optional ?status filter (pending|approved|rejected|committed).",
+        description: "scope: task:read or audit:read. Optional ?status filter (pending|approved|rejected|committed|withdrawn).",
         operationId: "listDeletionRequests",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
-          { name: "status", in: "query", schema: { type: "string", enum: ["pending", "approved", "rejected", "committed"] } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["pending", "approved", "rejected", "committed", "withdrawn"] } },
         ],
         responses: {
           "200": { description: "Paginated deletion request list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -797,13 +797,28 @@ const spec = {
     "/deletion-requests/{id}/reject": {
       post: {
         tags: ["deletion-requests"],
-        summary: "Reject a pending deletion request",
-        description: "scope: task:delete:approve. Self-rejection is allowed.",
+        summary: "Reject a pending deletion request (checker step)",
+        description: "scope: task:delete:approve. Four-eyes: the decider must differ from the requester — self-rejection returns 422. A maker cancels their own request via /withdraw instead.",
         operationId: "rejectDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
         responses: {
           "200": { description: "Request rejected", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided, or self-rejection (four-eyes)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/deletion-requests/{id}/withdraw": {
+      post: {
+        tags: ["deletion-requests"],
+        summary: "Withdraw your own pending deletion request (maker step)",
+        description: "scope: task:delete:request. Only the ORIGINAL requester may withdraw, and only while the request is pending. Cancels the request without a checker decision; audited as deletion_request.withdrawn.",
+        operationId: "withdrawDeletionRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Request withdrawn", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Caller is not the original requester", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Request already decided", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },

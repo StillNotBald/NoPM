@@ -12,6 +12,8 @@ interface DeletionRequest {
   id: string;
   target_type: string;
   target_id: string;
+  requested_by_type: string;
+  requested_by_id: string;
   requested_by_label: string;
   reason: string | null;
   created_at: string;
@@ -143,7 +145,10 @@ export default async function ApprovalsPage() {
 
                   {/* Right: actions */}
                   <div className="shrink-0">
-                    <ApprovalActions requestId={req.id} />
+                    <ApprovalActions
+                      requestId={req.id}
+                      isOwn={req.requested_by_type === "user" && req.requested_by_id === user.id}
+                    />
                   </div>
                 </div>
               </CardBody>

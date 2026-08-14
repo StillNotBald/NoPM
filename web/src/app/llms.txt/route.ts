@@ -54,7 +54,9 @@ DELETE /tasks/{id} does NOT immediately delete the task.
 It requires scope task:delete:request and creates a deletion_request with status=pending.
 Returns 202 Accepted. A DIFFERENT token (approver != requester) with scope task:delete:approve
 must POST /deletion-requests/{id}/approve to execute the deletion.
-Self-approval is rejected with 403. Use POST /deletion-requests/{id}/reject to cancel.
+Self-approval is rejected with 403; self-rejection with 422 (four-eyes binds both decisions).
+A checker cancels via POST /deletion-requests/{id}/reject; the ORIGINAL requester may cancel
+their own pending request via POST /deletion-requests/{id}/withdraw (scope task:delete:request).
 
 ## Audit log
 Every mutation writes exactly one immutable row to the audit_log table.
@@ -171,9 +173,10 @@ POST   /projects/{id}/rebaselines          — scope:project:write — propose a
 POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign off a rebaseline (four-eyes)
 POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply a signed-off rebaseline
 
-GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed)
+GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed|withdrawn)
 POST   /deletion-requests/{id}/approve     — scope:task:delete:approve — approve and execute a pending deletion (four-eyes: approver != requester)
-POST   /deletion-requests/{id}/reject      — scope:task:delete:approve — reject a pending deletion request
+POST   /deletion-requests/{id}/reject      — scope:task:delete:approve — reject a pending deletion request (four-eyes: no self-rejection)
+POST   /deletion-requests/{id}/withdraw    — scope:task:delete:request — withdraw your OWN pending deletion request (maker step)
 
 GET    /notifications                      — scope:notification:read — list in-app notifications for the actor
 PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
@@ -228,7 +231,9 @@ Task deletion is intentionally two-step to provide change-control traceability:
                   status=committed, and two audit_log rows are written:
                   task.delete and deletion_request.approved.
 
-To cancel instead: POST /deletion-requests/{id}/reject (same scope, self-rejection allowed).
+To cancel instead: a DIFFERENT checker POSTs /deletion-requests/{id}/reject (self-rejection
+is 422), or the original requester POSTs /deletion-requests/{id}/withdraw (their one
+permitted self-act — cancels without a decision, audited as deletion_request.withdrawn).
 `;
 
 /** Exported for llms-coverage.test.ts — locks this index to the OpenAPI spec. */

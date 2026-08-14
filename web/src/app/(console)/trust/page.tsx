@@ -25,6 +25,7 @@ const COMMON_ACTIONS: { action: string; description: string }[] = [
   { action: "deletion_request.create", description: "Deletion request raised" },
   { action: "deletion_request.approve", description: "Second reviewer approved request" },
   { action: "deletion_request.reject", description: "Second reviewer rejected request" },
+  { action: "deletion_request.withdrawn", description: "Requester withdrew their own request" },
   { action: "project.create", description: "A project was created" },
   { action: "project.update", description: "Project metadata was updated" },
   { action: "risk.create", description: "A risk was logged" },

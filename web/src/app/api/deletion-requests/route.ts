@@ -5,14 +5,14 @@ import { okList } from "@/lib/api/response";
 
 export const runtime = "nodejs";
 
-const VALID_STATUSES = ["pending", "approved", "rejected", "committed"] as const;
+const VALID_STATUSES = ["pending", "approved", "rejected", "committed", "withdrawn"] as const;
 type DeletionStatus = (typeof VALID_STATUSES)[number];
 
 /**
  * GET /api/deletion-requests
  * List deletion requests for the actor's workspace, newest first.
  * Requires scope task:read OR audit:read (task:read is tried first).
- * Optional ?status filter (pending|approved|rejected|committed).
+ * Optional ?status filter (pending|approved|rejected|committed|withdrawn).
  * Paginated: ?limit (1..100, default 20) & ?page.
  */
 export const GET = route(async ({ actor, request }) => {

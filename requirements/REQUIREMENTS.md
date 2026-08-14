@@ -5,7 +5,7 @@ Status legend: **DONE** · **PARTIAL** · **TODO** · **DEFERRED**. The RTM (`TR
 ## Governance backbone
 - **R-01** Immutable audit log — every mutation writes exactly one append-only row (actor, action, target, before/after). — **DONE** (schema + `writeAudit` + DB trigger; all 42 route.ts wrapped)
 - **R-02** Scoped Bearer PAT auth — `npm_` prefix, SHA-256 hash (raw shown once), `resource:action` scopes, expiry/revoke. — **DONE** (lib + mint/list/revoke endpoints + TOTP enrollment)
-- **R-03** Maker-checker on delete-task — `deletion_requests` request→approve; approver ≠ requester; self-approval rejected. — **DONE** (schema + DB CHECK + request/approve/reject endpoints; four-eyes loop verified)
+- **R-03** Maker-checker on delete-task — `deletion_requests` request→approve; approver ≠ requester; self-approval rejected; the maker may **withdraw** their own still-pending request (no approver recorded; audited; owner decision 2026-08-14). — **DONE** (schema + DB CHECK + request/approve/reject/withdraw endpoints; four-eyes loop verified)
 - **R-04** Control-Tower — project timeline lock → rebaseline sign-off (multi-approver → atomic apply). — **DONE** (schema + lock/unlock/rebaseline/signoff/apply endpoints)
 - **R-05** Dual auth — Supabase session + **TOTP MFA** (enroll/verify/recover + backup codes). — **DONE** (otplib v12; enroll/verify/disable routes)
 - **R-06** Workspace RLS isolation on every table. — **DONE** (21 tables; workspace_id RLS on every table)

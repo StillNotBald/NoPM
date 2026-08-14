@@ -11,11 +11,14 @@ import { cn } from "@/lib/cn";
 
 interface ApprovalActionsProps {
   requestId: string;
+  /** The signed-in user is the original requester — four-eyes blocks their
+   *  approve/reject, so offer withdrawal instead. */
+  isOwn?: boolean;
 }
 
-type ConfirmStep = "approve" | "reject";
+type ConfirmStep = "approve" | "reject" | "withdraw";
 
-export function ApprovalActions({ requestId }: ApprovalActionsProps) {
+export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsProps) {
   const router = useRouter();
   const toast = useToast();
 
@@ -60,7 +63,9 @@ export function ApprovalActions({ requestId }: ApprovalActionsProps) {
       toast.success(
         confirming === "approve"
           ? "Deletion approved and committed."
-          : "Deletion request rejected.",
+          : confirming === "reject"
+            ? "Deletion request rejected."
+            : "Deletion request withdrawn.",
       );
       router.refresh();
     } catch (err) {
@@ -82,8 +87,21 @@ export function ApprovalActions({ requestId }: ApprovalActionsProps) {
         </p>
       )}
 
-      {/* Step 1: pick action */}
-      {!confirming && (
+      {/* Step 1: pick action. Own requests get Withdraw only — four-eyes
+          would 403/422 the maker's approve/reject anyway. */}
+      {!confirming && isOwn && (
+        <div className="flex flex-col items-end gap-1.5">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setConfirming("withdraw")}
+          >
+            Withdraw
+          </Button>
+          <p className="text-xs text-ink-muted">Your request — a different person must decide it.</p>
+        </div>
+      )}
+      {!confirming && !isOwn && (
         <div className="flex items-center gap-2">
           <Button
             variant="primary"
@@ -111,12 +129,16 @@ export function ApprovalActions({ requestId }: ApprovalActionsProps) {
               "rounded-md border px-3 py-2 text-xs font-medium",
               confirming === "approve"
                 ? "border-success/30 bg-success/10 text-success"
-                : "border-danger/30 bg-danger/10 text-danger",
+                : confirming === "reject"
+                  ? "border-danger/30 bg-danger/10 text-danger"
+                  : "border-border-subtle bg-sunken text-ink-secondary",
             )}
           >
             {confirming === "approve"
               ? "Confirm: approve this deletion request?"
-              : "Confirm: reject this deletion request?"}
+              : confirming === "reject"
+                ? "Confirm: reject this deletion request?"
+                : "Confirm: withdraw your deletion request?"}
           </div>
 
           {/* Approve: optional note */}
@@ -164,19 +186,31 @@ export function ApprovalActions({ requestId }: ApprovalActionsProps) {
             </Button>
             <Button
               type="submit"
-              variant={confirming === "approve" ? "primary" : "danger"}
+              variant={
+                confirming === "approve"
+                  ? "primary"
+                  : confirming === "reject"
+                    ? "danger"
+                    : "secondary"
+              }
               size="sm"
               disabled={saving}
             >
               {saving ? (
                 <>
                   <Spinner size="sm" className="mr-1.5" />
-                  {confirming === "approve" ? "Approving…" : "Rejecting…"}
+                  {confirming === "approve"
+                    ? "Approving…"
+                    : confirming === "reject"
+                      ? "Rejecting…"
+                      : "Withdrawing…"}
                 </>
               ) : confirming === "approve" ? (
                 "Confirm Approve"
-              ) : (
+              ) : confirming === "reject" ? (
                 "Confirm Reject"
+              ) : (
+                "Confirm Withdraw"
               )}
             </Button>
           </div>
