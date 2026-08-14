@@ -117,13 +117,19 @@ export function NotificationBell() {
   useEffect(() => {
     const supabase = createClient();
     let channelRef: ReturnType<typeof supabase.channel> | null = null;
+    // Guards the async gap: if the effect is cleaned up (unmount or StrictMode
+    // re-run) before getUser resolves, we must neither subscribe a zombie
+    // channel nor re-use the client's already-subscribed channel instance.
+    let cancelled = false;
 
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (!user) return; // unauthenticated — realtime not available
+    supabase.auth
+      .getUser()
+      .then(({ data: { user } }) => {
+        if (!user || cancelled) return; // unauthenticated or effect torn down
 
-      const channel = supabase
-        .channel("notifications-bell")
-        .on(
+        const channel = supabase
+          .channel("notifications-bell")
+          .on(
           "postgres_changes",
           {
             event: "INSERT",
@@ -146,8 +152,8 @@ export function NotificationBell() {
               setUnreadCount((c) => c + 1);
             }
           },
-        )
-        .on(
+          )
+          .on(
           "postgres_changes",
           {
             event: "UPDATE",
@@ -172,20 +178,26 @@ export function NotificationBell() {
               return prev;
             });
           },
-        )
-        .subscribe((status) => {
+          )
+          .subscribe((status) => {
           // Fail-soft: subscription errors don't break the existing fetch path
           if (status === "CHANNEL_ERROR") {
             // existing fetch-on-focus path remains active; nothing to do
           }
-        });
+          });
 
-      channelRef = channel;
-    });
+        channelRef = channel;
+      })
+      .catch(() => {
+        // Fail-soft: realtime is a convenience layer; fetch-on-focus still works
+      });
 
     return () => {
+      cancelled = true;
       if (channelRef) {
-        channelRef.unsubscribe();
+        // removeChannel (vs unsubscribe) also drops the topic from the client
+        // registry so a remount can recreate "notifications-bell" cleanly
+        supabase.removeChannel(channelRef);
       }
     };
   }, []); // mount/unmount only

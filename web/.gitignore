@@ -45,3 +45,8 @@ next-env.d.ts
 
 # throwaway diagnostic probes (read .env.local at runtime — not for repo)
 scripts/probe-*.mjs
+
+# playwright e2e
+/test-results/
+/playwright-report/
+/e2e/.auth/

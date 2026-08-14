@@ -17,7 +17,9 @@ const RejectSchema = z.object({
  * POST /api/deletion-requests/[id]/reject
  * Checker step: reject a pending deletion request.
  * Requires scope task:delete:approve.
- * Self-rejection is allowed (the checker may reject their own request — only self-approval is blocked).
+ * Four-eyes applies to BOTH decisions: the maker_checker_different DB CHECK
+ * requires a different decider for any non-pending request, so self-rejection
+ * is guarded here too (422) instead of surfacing as a DB constraint 500.
  * Effect:
  *   1. Update the deletion_request: status='rejected', approved_by_* from actor, decided_at=now
  *   2. Write audit "deletion_request.rejected"
@@ -50,6 +52,17 @@ export const POST = route(async ({ actor, params, request }) => {
   // Must still be pending
   if (deletionRequest.status !== "pending") {
     throw new RuleError("Request already decided");
+  }
+
+  // Four-eyes: the decider must differ from the requester (mirrors the
+  // maker_checker_different DB CHECK so callers get a 422, not a 500)
+  if (
+    deletionRequest.requested_by_id === actor.id &&
+    deletionRequest.requested_by_type === actor.type
+  ) {
+    throw new RuleError(
+      "A different person must decide this request — self-rejection is blocked (four-eyes)",
+    );
   }
 
   const now = new Date().toISOString();

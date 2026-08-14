@@ -34,7 +34,7 @@ interface ApiToken {
   prefix: string;
   scopes: string[];
   last_used_at: string | null;
-  revoked_at: string | null;
+  revoked: boolean;
   created_at: string;
 }
 
@@ -210,7 +210,7 @@ export default function TokensPage() {
                 </thead>
                 <tbody>
                   {tokens.map((tok, i) => {
-                    const isRevoked = !!tok.revoked_at;
+                    const isRevoked = tok.revoked;
                     return (
                       <tr
                         key={tok.id}

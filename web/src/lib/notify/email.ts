@@ -53,7 +53,9 @@ function escapeHtml(str: string): string {
 
 export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmail {
   const subject = buildSubject(n.type, n.title);
-  const ctaPath = (n.payload?.href as string | undefined) ?? "/dashboard";
+  // Only same-origin absolute paths may drive the CTA; anything else falls back.
+  const rawHref = typeof n.payload?.href === "string" ? n.payload.href : "/dashboard";
+  const ctaPath = rawHref.startsWith("/") && !rawHref.startsWith("//") ? rawHref : "/dashboard";
   const ctaUrl = `https://stillnotbald.com${ctaPath}`;
 
   const bodyHtml = n.body
@@ -108,7 +110,7 @@ export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmai
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
                   <td style="border-radius:6px;background-color:${BRAND_CORAL};">
-                    <a href="${ctaUrl}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:6px;letter-spacing:0.01em;">View in NoPM &rarr;</a>
+                    <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:6px;letter-spacing:0.01em;">View in NoPM &rarr;</a>
                   </td>
                 </tr>
               </table>

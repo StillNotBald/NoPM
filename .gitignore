@@ -38,3 +38,6 @@ web/scripts/mainline-*.html
 # browser-automation artifacts
 .playwright-mcp/
 /*.png
+
+# graphify generated outputs
+graphify-out/
