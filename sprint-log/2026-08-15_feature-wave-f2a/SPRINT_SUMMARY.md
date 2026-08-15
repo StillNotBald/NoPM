@@ -60,7 +60,8 @@ Confirmed R-28's flip to DONE (both `REQUIREMENTS.md` and `TRACEABILITY.md`) had
 - **R-71/R-72 marked DONE, not PARTIAL, despite the un-migrated environment.** Judged code-completeness (routes/schema/UI/migration-as-written, all correct and unit-tested) as the DONE bar, consistent with F1's own precedent of not blocking a wave's RTM status on its final migrate+deploy+live-verify step (that step is explicitly the *land* pass's job, per the `deploy-each-wave-live` lesson) — while still surfacing the gap loudly (pre-land note in `REQUIREMENTS.md`, this receipt, `test.skip` reasons in the specs themselves) so it can't be missed at land time.
 
 ## Commit map + land evidence
-_Placeholder — filled in by the main session at land. This task made no commits (workers don't run git); all changes above are uncommitted working-tree diffs at the time of this receipt._
+Landed 2026-08-15 as cdfaf60. The land pass absorbed three adversarial-verify catches: the /mainline RSC client-boundary crash (lens constants moved to lib/mainline/lenses.ts — the page threw MAINLINE_LENSES.includes is not a function on every render; journey now green), the Duplicate action un-gated for shared-view viewers, and the saved_views RLS admin escape narrowed to scope=shared (blind PATCH/DELETE of other identities personal views via direct PostgREST closed). auth-smoke grew to 21 pages.
+**Live verification:** migrations 034-036 applied (programs backfilled: 2 from legacy text) + PostgREST reload; Vercel prod deploy; health 200; auth-smoke 21/21 incl. /tasks + /mainline. Suites at land: 1,433 unit / f2a journeys green / tsc / lint / RTM 62 R-IDs.
 
 ## Tests / verification
 - `cd web && npx tsc --noEmit` — clean, no errors (checked before and after this task's edits).
