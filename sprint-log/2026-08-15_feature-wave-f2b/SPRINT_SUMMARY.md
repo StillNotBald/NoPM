@@ -22,13 +22,13 @@
 - E2E journeys skipped this wave: velocity deep journey, flow-card-with-real-transitions, time-report filter journey, log-time-form journey, wizard happy-path, invite-accept happy-path, role-escalation-cap negative e2e (unit-covered).
 - `/login` doesn't consume the `?email=` prefill hint the accept form passes.
 - Empty-dashboard "connect an agent" pointer now lives only inside the wizard's final step — viewers and early-dismissers lose the link (spec-conformant; owner may want a light permanent pointer back).
-- reference-project overlap audit (this session) suggests unifying invite-accept error responses (uniform 400 anti-enumeration) — current distinct 404/422s are safe (32-byte CSPRNG tokens) but the uniform shape is strictly better; candidate for F3.
+- A prior same-stack project audit (this session, notes in the owner's memory store) suggests unifying invite-accept error responses (uniform 400 anti-enumeration) — current distinct 404/422s are safe (32-byte CSPRNG tokens) but the uniform shape is strictly better; candidate for F3.
 - Sidebar + review-queue pre-existing `text-[11px]` literals — batch design cleanup candidate.
 
 ## Land evidence
 
-- Commit: _pending_
-- Migrations applied: _pending_
-- Deploy: _pending_
-- auth-smoke: _pending_
-- Live probes: _pending_
+- Commit: `37d3a6b` (feat, 78 files, +8,353/−33) — RTM rows R-73/74/75 + REQUIREMENTS prose in the same commit (`rtm:verify`: 65 R-IDs, 413 paths on disk).
+- Migrations: 037/038/039 applied to live Supabase via `node scripts/migrate.mjs` (034–036 correctly skipped), then `notify pgrst, 'reload schema'`; `sprints`/`timesheet_submissions`/`invites` confirmed present in `information_schema`.
+- Deploy: `vercel deploy --prod` → READY, aliased to stillnotbald.com; `/api/health` 200.
+- auth-smoke: **23/23 pages 200** including new `/sprints` and `/timesheets`.
+- Live governed probes (**19/19 passed**, probe rows cleaned up; audit rows remain as the genuine record): sprint create→attach→start (**committed_points snapshot = 5, matches the attached task's story_points live**)→re-start 422→close→delete-closed 422→detach-on-closed 422, sprint audit trail complete (`sprint.create/task_added/started/closed`); timesheet submit 201 (240h snapshot) → **SELF-approve 403 AND SELF-reject 403 (guard symmetry live)** → duplicate open submission 422; invite create 201 with `npi_` URL shown once + `token_hash` absent from the response → revoke 200 → accept-after-revoke 422 → `/invite/badtoken` renders the clean error page; `GET /api/metrics/time-in-status` + `GET /api/sprints` both 200.
