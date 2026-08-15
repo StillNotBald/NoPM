@@ -211,6 +211,9 @@ async function fetchTimeEntriesRows(sp: URLSearchParams, workspaceId: string, db
   // duplicated.
   if (filters.project_id !== undefined) query = query.eq("project_id", filters.project_id);
   if (filters.member_id !== undefined) query = query.eq("member_id", filters.member_id);
+  if (filters.date_from !== undefined) query = query.gte("entry_date", filters.date_from);
+  if (filters.date_to !== undefined) query = query.lte("entry_date", filters.date_to);
+  if (filters.billable !== undefined) query = query.eq("billable", filters.billable);
   const { data, error, count } = await query
     .order("entry_date", { ascending: false })
     .range(0, MAX_EXPORT_ROWS - 1);

@@ -25,7 +25,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 // ── ReviewItem shape ──────────────────────────────────────────────────────────
 
-export type ReviewKind = "approval" | "rebaseline" | "change" | "risk" | "clash" | "document";
+export type ReviewKind = "approval" | "rebaseline" | "change" | "timesheet" | "risk" | "clash" | "document";
 
 export interface ReviewItem {
   /** Unique row id from source table */
@@ -57,6 +57,12 @@ export interface ReviewItem {
   // ── Inline-action fields (kind === 'change') ──────────────────────────────
   /** Current status of the change request */
   crStatus?: string;
+
+  // ── Inline-action fields (kind === 'timesheet') ───────────────────────────
+  /** Monday of the submitted week (period_start) */
+  periodStart?: string;
+  /** Snapshot hours_total from the submission */
+  hoursTotal?: number;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -71,6 +77,7 @@ function weight(item: ReviewItem): number {
   const kindWeight: Record<ReviewKind, number> = {
     approval: 0,
     rebaseline: 1,
+    timesheet: 1.5, // between 'approval' and 'change' (D per f2b-specs.md T5)
     change: 2,
     risk: 3,
     clash: 4,
@@ -102,6 +109,12 @@ export async function gatherReviewItems(
     (projectRows ?? []).map((p: { id: string; name: string }) => [p.id, p.name]),
   );
 
+  // Build a member-id → name map (for the 'timesheet' kind's title)
+  const { data: memberRows } = await db.from("resource_members").select("id, name");
+  const memberMap = new Map<string, string>(
+    (memberRows ?? []).map((m: { id: string; name: string }) => [m.id, m.name]),
+  );
+
   // Fan out all queries in parallel
   const [
     deletionsResult,
@@ -110,6 +123,7 @@ export async function gatherReviewItems(
     clashesResult,
     documentsResult,
     changeRequestsResult,
+    timesheetsResult,
   ] = await Promise.allSettled([
     // 1. Deletion requests pending approval
     db
@@ -165,6 +179,20 @@ export async function gatherReviewItems(
         return { data: null, error: null };
       }
     })(),
+
+    // 7. Timesheet submissions pending decision (L-31; defensive — table may
+    //    not exist yet on an unmigrated environment)
+    (async () => {
+      try {
+        return await db
+          .from("timesheet_submissions")
+          .select("id, member_id, period_start, hours_total, submitted_by_label, submitted_at")
+          .eq("status", "submitted")
+          .order("submitted_at", { ascending: true });
+      } catch {
+        return { data: null, error: null };
+      }
+    })(),
   ]);
 
   const items: ReviewItem[] = [];
@@ -200,6 +228,37 @@ export async function gatherReviewItems(
         ageDays: ageDays(row.created_at),
         href: row.project_id ? `/projects/${row.project_id}` : "/projects",
         actionLabel: "Sign off",
+      });
+    }
+  }
+
+  // ── Timesheet submissions (L-31) ────────────────────────────────────────────
+  if (timesheetsResult.status === "fulfilled") {
+    for (const row of (timesheetsResult.value as {
+      data: Array<{
+        id: string;
+        member_id: string;
+        period_start: string;
+        hours_total: number | string | null;
+        submitted_by_label: string;
+        submitted_at: string;
+      }> | null;
+    }).data ?? []) {
+      const memberName = memberMap.get(row.member_id) ?? "Unknown member";
+      const hours = typeof row.hours_total === "string" ? Number(row.hours_total) : (row.hours_total ?? 0);
+      items.push({
+        id: row.id,
+        kind: "timesheet",
+        title: `Timesheet: ${memberName} · week of ${row.period_start}`,
+        ageDays: ageDays(row.submitted_at),
+        href: "/timesheets",
+        actionLabel: "Decide",
+        // inline-action fields
+        targetType: "timesheet_submission",
+        targetId: row.id,
+        requestedByLabel: row.submitted_by_label,
+        periodStart: row.period_start,
+        hoursTotal: Number.isFinite(hours) ? hours : 0,
       });
     }
   }

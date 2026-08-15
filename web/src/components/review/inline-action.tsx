@@ -4,10 +4,11 @@
  * components/review/inline-action.tsx
  *
  * Inspector action cards rendered inside the right-push panel
- * for the two "decide here" kinds in the Review Queue:
+ * for the "decide here" kinds in the Review Queue:
  *
- *   ApprovalInlineAction  — deletion_requests (kind 'approval')
- *   ChangeInlineAction    — change_requests   (kind 'change')
+ *   ApprovalInlineAction   — deletion_requests        (kind 'approval')
+ *   ChangeInlineAction     — change_requests           (kind 'change')
+ *   TimesheetInlineAction  — timesheet_submissions      (kind 'timesheet', L-31)
  *
  * Navigation kinds (risk / clash / document / rebaseline) continue
  * to deep-link and do NOT use these cards.
@@ -316,6 +317,226 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
 
       {/* Reuse DecisionPanel from change-detail */}
       <DecisionPanel crId={item.id} onDecided={handleDecided} />
+    </div>
+  );
+}
+
+// ── TimesheetInlineAction ─────────────────────────────────────────────────────
+// Approve/reject a timesheet_submissions row from within the queue inspector
+// (L-31, four-eyes). Two-step confirm mirrors ApprovalInlineAction; rationale
+// is required on reject (client-side gate, backed by the API's 422).
+
+interface TimesheetInlineActionProps {
+  item: ReviewItem;
+}
+
+type TimesheetAction = "approved" | "rejected";
+
+export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
+  const inspector = useInspector();
+  const router = useRouter();
+  const toast = useToast();
+
+  // confirm step: null = initial, "approved" | "rejected" = user picked one
+  const [confirming, setConfirming] = useState<TimesheetAction | null>(null);
+  const [rationale, setRationale] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  function reset() {
+    setConfirming(null);
+    setRationale("");
+    setError(null);
+    setFieldErrors({});
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!confirming) return;
+
+    // Client-side: reject requires a rationale (mirrors the API's 422)
+    if (confirming === "rejected" && !rationale.trim()) {
+      setFieldErrors({ rationale: "A rationale is required when rejecting." });
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setFieldErrors({});
+
+    try {
+      await apiPost(`/api/timesheet-submissions/${item.id}/decision`, {
+        decision: confirming,
+        rationale: rationale.trim() ? rationale.trim() : undefined,
+      });
+      toast.success(
+        confirming === "approved" ? "Timesheet approved." : "Timesheet rejected.",
+      );
+      inspector.close();
+      router.refresh();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setError(apiErr.message ?? `Failed to ${confirming === "approved" ? "approve" : "reject"} timesheet.`);
+      const map: Record<string, string> = {};
+      for (const f of apiErr.fields ?? []) map[f.field] = f.message;
+      setFieldErrors(map);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-0 pb-4">
+      {/* Submission metadata */}
+      <div className="mb-4">
+        <div className="flex flex-wrap gap-2 mb-3">
+          <Badge tone="info">timesheet submission</Badge>
+        </div>
+
+        <div>
+          {item.requestedByLabel && (
+            <DetailRow label="Submitted By">
+              <span className="font-medium">{item.requestedByLabel}</span>
+            </DetailRow>
+          )}
+          {item.periodStart && (
+            <DetailRow label="Week Of">
+              <span className="font-mono">{item.periodStart}</span>
+            </DetailRow>
+          )}
+          {item.hoursTotal !== undefined && (
+            <DetailRow label="Hours">
+              <span className="font-mono tabular-nums">{item.hoursTotal}</span>
+            </DetailRow>
+          )}
+          <DetailRow label="Pending for">
+            <span className={cn(
+              "font-mono tabular-nums",
+              item.ageDays >= 14 ? "text-danger" : item.ageDays >= 7 ? "text-warning" : "text-ink-muted",
+            )}>
+              {item.ageDays === 0 ? "today" : item.ageDays === 1 ? "1 day" : `${item.ageDays} days`}
+            </span>
+          </DetailRow>
+        </div>
+      </div>
+
+      {/* Four-eyes banner */}
+      <div className="flex gap-2.5 rounded-md border border-warning/30 bg-warning/10 px-3 py-2.5 mb-4">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 mt-0.5 text-warning">
+          <path
+            d="M8 1.5a6.5 6.5 0 1 0 0 13A6.5 6.5 0 0 0 8 1.5ZM7.25 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 6.5a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z"
+            fill="currentColor"
+          />
+        </svg>
+        <p className="text-xs text-warning leading-snug">
+          <span className="font-semibold">Four-eyes:</span> you must be a different person from the submitter. Self-approval is blocked at the API layer.
+        </p>
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger border border-danger/20">
+          {error}
+        </div>
+      )}
+
+      {/* Step 1: pick action */}
+      {!confirming && (
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="primary"
+            size="sm"
+            className="flex-1"
+            onClick={() => setConfirming("approved")}
+          >
+            Approve
+          </Button>
+          <Button
+            type="button"
+            variant="danger"
+            size="sm"
+            className="flex-1"
+            onClick={() => setConfirming("rejected")}
+          >
+            Reject
+          </Button>
+        </div>
+      )}
+
+      {/* Step 2: confirm + rationale */}
+      {confirming && (
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div className={cn(
+            "rounded-md border px-3 py-2.5 text-sm font-medium text-center",
+            confirming === "approved"
+              ? "border-success/30 bg-success/10 text-success"
+              : "border-danger/30 bg-danger/10 text-danger",
+          )}>
+            {confirming === "approved" ? "Confirm: Approve this timesheet?" : "Confirm: Reject this timesheet?"}
+          </div>
+
+          {/* Approve: optional rationale */}
+          {confirming === "approved" && (
+            <div>
+              <FieldLabel>Note (optional)</FieldLabel>
+              <TextareaInput
+                value={rationale}
+                onChange={(e) => setRationale(e.target.value)}
+                placeholder="Any notes for the submitter…"
+                rows={2}
+              />
+            </div>
+          )}
+
+          {/* Reject: required rationale */}
+          {confirming === "rejected" && (
+            <div>
+              <FieldLabel>
+                Rationale <span className="text-danger ml-0.5">*</span>
+              </FieldLabel>
+              <TextareaInput
+                value={rationale}
+                onChange={(e) => setRationale(e.target.value)}
+                placeholder="Why are you rejecting this timesheet?"
+                rows={3}
+              />
+              <FieldError message={fieldErrors.rationale} />
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={reset}
+              disabled={saving}
+              className="flex-1"
+            >
+              Back
+            </Button>
+            <Button
+              type="submit"
+              variant={confirming === "approved" ? "primary" : "danger"}
+              size="sm"
+              disabled={saving}
+              className="flex-1"
+            >
+              {saving ? (
+                <>
+                  <Spinner size="sm" className="mr-1.5" />
+                  {confirming === "approved" ? "Approving…" : "Rejecting…"}
+                </>
+              ) : confirming === "approved" ? (
+                "Confirm Approve"
+              ) : (
+                "Confirm Reject"
+              )}
+            </Button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }

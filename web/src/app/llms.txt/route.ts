@@ -50,6 +50,12 @@ Programs:    name REQUIRED. rag_status = not_started | red | amber | green | com
              Projects — this value is the program's DECLARED health, set independently of the
              computed rollup from its child projects). owner_id, if set, must be a resource_members id
              (NOT a profiles id — same identity model as tasks.assignee_id since 0019).
+Sprints:     project_id, name, start_date, end_date REQUIRED on create (goal optional). start_date /
+             end_date = YYYY-MM-DD; end_date must be >= start_date. state = planned | active | closed
+             — NEVER set via PATCH, only via POST /start (planned->active) and POST /close
+             (active->closed). committed_points/committed_snapshot and completed_points/
+             completed_snapshot are governed snapshots written once by /start and /close respectively
+             — never recomputed by a later task edit.
 Task deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
 Project deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
 Change requests: title, category, priority, status REQUIRED on create; priority = low | medium | high | critical
@@ -97,6 +103,11 @@ GET    /tokens                             — admin/manager session — list AP
 POST   /tokens                             — admin/manager session — mint a new token (raw value returned once)
 DELETE /tokens/{id}                        — admin/manager session — revoke a token
 
+GET    /invites                            — admin/manager session — list link invites (L-47/L-48). status is DERIVED (pending|accepted|revoked|expired), never a stored column. Optional ?status= filter.
+POST   /invites                            — admin/manager session — create a link invite. Role-escalation cap (D5): invite.role must be <= the creator's own rank (viewer<member<manager<admin) — 422 if exceeded. Token prefix npi_. expires_at = now + 7 days. invite_url returned ONCE.
+POST   /invites/{id}/revoke                — admin/manager session — revoke a pending invite (422 if not pending)
+POST   /invites/accept                     — scope:none — public, unauthenticated. Provisions a brand-new login (createUser THEN the atomic nopm_accept_invite RPC — writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). Body: { token, password (>=12 chars), display_name } — NO email field, the invite's own email is always used. Rate-limited 10/min per IP (this endpoint has no actor to key the baseline limiter on). No session is returned — sign in via /login afterwards.
+
 GET    /projects                           — scope:project:read  — list projects in workspace
 POST   /projects                           — scope:project:write — create a project
 GET    /projects/{id}                      — scope:project:read  — get a project
@@ -110,6 +121,16 @@ POST   /programs                           — scope:program:write — create a 
 GET    /programs/{id}                      — scope:program:read  — get a program
 PATCH  /programs/{id}                      — scope:program:write — update a program (rag_status here is DECLARED health, independent of the computed child rollup — L-02)
 DELETE /programs/{id}                      — scope:program:write — delete a program (plain hard delete, single-step, audited — NOT maker-checker; never deletes child projects, they just lose program_id)
+
+GET    /sprints                            — scope:sprint:read  — list sprints in workspace. Filters: ?project_id, ?state=planned|active|closed. Ordered start_date desc.
+POST   /sprints                            — scope:sprint:write — create a sprint under a project (created in state=planned) — L-17
+GET    /sprints/{id}                       — scope:sprint:read  — get a sprint
+PATCH  /sprints/{id}                       — scope:sprint:write — update name/goal/dates only (state is NEVER settable here — use /start and /close). A closed sprint 422s every PATCH.
+DELETE /sprints/{id}                       — scope:sprint:write — delete a sprint (plain hard delete, single-step, audited — NOT maker-checker). Only while state=planned AND no tasks attached (422 otherwise).
+POST   /sprints/{id}/start                 — scope:sprint:write — governed planned->active transition; snapshots committed_points/committed_snapshot from every currently-attached task, written once, never recomputed (L-18)
+POST   /sprints/{id}/close                 — scope:sprint:write — governed active->closed transition; snapshots completed_points/completed_snapshot from attached tasks with status_type=completed, written once, never recomputed (L-18)
+POST   /sprints/{id}/tasks                 — scope:sprint:write — attach a task to a sprint (task must be in this workspace AND the sprint's own project — 422 otherwise); 422 if sprint is closed
+DELETE /sprints/{id}/tasks                 — scope:sprint:write — detach a task from a sprint. ?task_id=<uuid> REQUIRED. The task must currently be attached to THIS sprint (422 otherwise); 422 if sprint is closed
 
 GET    /saved-views                        — scope:saved_view:read  — list saved views (own personal + all shared in workspace, never another identity's personal view — L-41). Optional ?register=tasks|risks|issues|clashes|...
 POST   /saved-views                        — scope:saved_view:write — save the current filters+sort+columns+groupBy as a view (L-05). Token/agent callers are always forced to scope=shared (no owning identity for personal).
@@ -164,9 +185,13 @@ GET    /allocations/{id}                   — scope:resource:read  — get an a
 PATCH  /allocations/{id}                   — scope:resource:write — update an allocation (re-runs clash detection)
 DELETE /allocations/{id}                   — scope:resource:write — delete an allocation
 
-GET    /time-entries                       — scope:time:read  — list time entries (?project_id and ?member_id filters available)
+GET    /time-entries                       — scope:time:read  — list time entries (?project_id, ?member_id, ?date_from/?date_to entry_date window, ?billable filters available)
 POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate; billable defaults from the project's default_billable when omitted — L-29)
 DELETE /time-entries/{id}                  — scope:time:write — delete a time entry
+
+GET    /timesheet-submissions              — scope:time:read    — list timesheet submissions. Filters: ?member_id, ?status=submitted|approved|rejected, ?period=YYYY-MM-DD (period_start exact match). Ordered submitted_at desc.
+POST   /timesheet-submissions              — scope:time:submit  — submit a weekly timesheet for a member (four-eyes maker step, L-31); period_start must be a Monday; snapshots hours_total/entry_count from that week's time_entries, never recomputed afterwards; 422 if nothing to submit or an open submission already exists for this member+period
+POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject a timesheet submission (four-eyes checker step, L-31); the decider must differ from the submitter (compound id+type comparison, guard symmetry on BOTH verbs — 403 otherwise); rationale required on reject
 
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual, variance, burn_pct)
 PUT    /projects/{id}/budget               — scope:budget:write — upsert project budget (planned_amount, committed_amount, currency)
@@ -215,8 +240,9 @@ POST   /notifications/read-all             — scope:notification:read — mark 
 GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id)
 GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
+GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
-GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id; audit: target_type/target_id/action/actor_id). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
 
 GET    /reports/deck                       — scope:audit:read — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read — portfolio deck (POST variant)

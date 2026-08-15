@@ -19,21 +19,49 @@ describe("parseTimeEntryFilters", () => {
     const params = new URLSearchParams({ bogus: "x" });
     expect(parseTimeEntryFilters(params)).toEqual({});
   });
+
+  it("extracts date_from and date_to (L-28/L-30)", () => {
+    const params = new URLSearchParams({ date_from: "2026-08-10", date_to: "2026-08-16" });
+    expect(parseTimeEntryFilters(params)).toEqual({ date_from: "2026-08-10", date_to: "2026-08-16" });
+  });
+
+  it("extracts billable=true as boolean true", () => {
+    const params = new URLSearchParams({ billable: "true" });
+    expect(parseTimeEntryFilters(params)).toEqual({ billable: true });
+  });
+
+  it("extracts billable=false as boolean false", () => {
+    const params = new URLSearchParams({ billable: "false" });
+    expect(parseTimeEntryFilters(params)).toEqual({ billable: false });
+  });
+
+  it("ignores a malformed billable value rather than guessing", () => {
+    const params = new URLSearchParams({ billable: "yes" });
+    expect(parseTimeEntryFilters(params)).toEqual({});
+  });
 });
 
 describe("applyTimeEntryFilters", () => {
   function mockQuery() {
-    const calls: [string, unknown][] = [];
+    const calls: [string, string, unknown][] = [];
     const q = {
       eq(col: string, val: unknown) {
-        calls.push([col, val]);
+        calls.push(["eq", col, val]);
+        return q;
+      },
+      gte(col: string, val: unknown) {
+        calls.push(["gte", col, val]);
+        return q;
+      },
+      lte(col: string, val: unknown) {
+        calls.push(["lte", col, val]);
         return q;
       },
     };
     return { q, calls };
   }
 
-  it("applies no .eq() calls when filters are empty", () => {
+  it("applies no calls when filters are empty", () => {
     const { q, calls } = mockQuery();
     applyTimeEntryFilters(q, {});
     expect(calls).toEqual([]);
@@ -43,9 +71,31 @@ describe("applyTimeEntryFilters", () => {
     const { q, calls } = mockQuery();
     applyTimeEntryFilters(q, { project_id: "p1", member_id: "m1" });
     expect(calls).toEqual([
-      ["project_id", "p1"],
-      ["member_id", "m1"],
+      ["eq", "project_id", "p1"],
+      ["eq", "member_id", "m1"],
     ]);
+  });
+
+  it("applies date_from/date_to as gte/lte on entry_date, and billable as eq — in order", () => {
+    const { q, calls } = mockQuery();
+    applyTimeEntryFilters(q, {
+      project_id: "p1",
+      date_from: "2026-08-10",
+      date_to: "2026-08-16",
+      billable: false,
+    });
+    expect(calls).toEqual([
+      ["eq", "project_id", "p1"],
+      ["gte", "entry_date", "2026-08-10"],
+      ["lte", "entry_date", "2026-08-16"],
+      ["eq", "billable", false],
+    ]);
+  });
+
+  it("applies billable=false (falsy value must still apply, not be treated as absent)", () => {
+    const { q, calls } = mockQuery();
+    applyTimeEntryFilters(q, { billable: false });
+    expect(calls).toEqual([["eq", "billable", false]]);
   });
 });
 

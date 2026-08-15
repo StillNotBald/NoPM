@@ -13,6 +13,11 @@ import { DENSITIES, DATE_DISPLAYS } from "@/lib/theme/appearance";
  *   dateDisplay     one of the appearance presets (L-42) — same mirroring
  *   defaultLanding  personal default landing page (L-39; overrides any
  *                   workspace-level default from the out-of-scope L-40)
+ *   onboarding      first-run wizard state (L-45, D7) — dismiss/resume
+ *                   bookkeeping for components/onboarding/first-run-wizard.tsx.
+ *                   NEVER persisted for a demo actor (the client checks the
+ *                   `demo` flag this same route's GET returns and skips PUT
+ *                   entirely — see route.ts's isDemoActor doc comment).
  *
  * `z.object()` (NOT `.strict()`, NOT `.passthrough()`) strips any key
  * outside this whitelist by default — the exact "unknown keys stripped"
@@ -37,12 +42,26 @@ const columnsSchema = z.record(
 
 const groupBySchema = z.record(registerKeySchema, z.string().min(1).max(64).nullable());
 
+/**
+ * First-run wizard state (L-45, D7) — the exact shape locked by the F2b
+ * decision: `{ completedAt?: ISO string, dismissed?: boolean, step?: number }`.
+ * `z.object()` here (matching the parent schema's convention, NOT `.strict()`)
+ * means an unrecognised key nested inside `onboarding` is silently stripped
+ * too, same as every other top-level key in this file.
+ */
+const onboardingSchema = z.object({
+  completedAt: z.string().datetime().optional(),
+  dismissed: z.boolean().optional(),
+  step: z.number().int().min(1).max(4).optional(),
+});
+
 export const preferencesConfigSchema = z.object({
   columns: columnsSchema.optional(),
   groupBy: groupBySchema.optional(),
   density: z.enum(DENSITIES).optional(),
   dateDisplay: z.enum(DATE_DISPLAYS).optional(),
   defaultLanding: z.string().min(1).max(200).optional(),
+  onboarding: onboardingSchema.optional(),
 });
 
 export type PreferencesConfig = z.infer<typeof preferencesConfigSchema>;

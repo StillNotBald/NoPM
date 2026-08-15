@@ -29,6 +29,7 @@ import {
 import type { PreferencesConfig } from "@/app/api/me/preferences/_schema";
 import { apiGet, apiPut } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
+import { InvitesCard } from "@/components/invite/invites-card";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -547,6 +548,9 @@ export default function SettingsPage() {
 
         {/* ── Appearance (L-37/L-38/L-42 — display-only, unaudited) ───────────── */}
         <AppearanceSection />
+
+        {/* ── Invites (L-47/L-48) — admin/manager only ─────────────────────────── */}
+        <InvitesCard />
 
         {/* ── Security ───────────────────────────────────────────────────────── */}
         <div>

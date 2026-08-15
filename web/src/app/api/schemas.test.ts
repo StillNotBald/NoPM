@@ -22,6 +22,16 @@ import {
   ProjectDeleteRequestSchema,
 } from "./projects/_schema";
 import { createTokenSchema } from "./tokens/_schema";
+import {
+  createSprintSchema,
+  updateSprintSchema,
+  sprintTaskAttachSchema,
+} from "./sprints/_schema";
+import {
+  createTimesheetSubmissionSchema,
+  timesheetDecisionSchema,
+} from "./timesheet-submissions/_schema";
+import { createInviteSchema, acceptInviteSchema } from "./invites/_schema";
 import { SCOPES } from "@/lib/auth/scopes";
 
 const UUID = "11111111-2222-4333-8444-555555555555";
@@ -457,6 +467,161 @@ describe("ProjectDeleteRequestSchema (maker-checker entry point — Decision 3, 
 });
 
 // ---------------------------------------------------------------------------
+// sprints
+// ---------------------------------------------------------------------------
+describe("createSprintSchema", () => {
+  const minimal = {
+    project_id: UUID,
+    name: "Sprint 14",
+    start_date: "2026-09-01",
+    end_date: "2026-09-14",
+  };
+
+  it("accepts a minimal payload with no injected defaults (state is never in the schema)", () => {
+    expect(createSprintSchema.parse(minimal)).toEqual(minimal);
+  });
+
+  it.each(["project_id", "name", "start_date", "end_date"])(
+    "rejects a payload missing %s",
+    (field) => {
+      const payload: Record<string, unknown> = { ...minimal };
+      delete payload[field];
+      const r = createSprintSchema.safeParse(payload);
+      expect(r.success).toBe(false);
+      expect(errorPaths(r)).toContain(field);
+    },
+  );
+
+  it("rejects an empty or over-long name", () => {
+    expect(createSprintSchema.safeParse({ ...minimal, name: "" }).success).toBe(false);
+    expect(createSprintSchema.safeParse({ ...minimal, name: "x".repeat(121) }).success).toBe(false);
+    expect(createSprintSchema.safeParse({ ...minimal, name: "x".repeat(120) }).success).toBe(true);
+  });
+
+  it("rejects a non-UUID project_id", () => {
+    expect(createSprintSchema.safeParse({ ...minimal, project_id: "not-a-uuid" }).success).toBe(false);
+  });
+
+  it.each([
+    ["start_date", "2026/09/01"],
+    ["start_date", "not-a-date"],
+    ["end_date", "2026-09-14T00:00:00Z"],
+  ])("rejects a malformed %s (%s)", (field, value) => {
+    const r = createSprintSchema.safeParse({ ...minimal, [field]: value });
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain(field);
+  });
+
+  it("accepts an optional goal, and allows explicit null", () => {
+    expect(createSprintSchema.safeParse({ ...minimal, goal: "Ship the reporting MVP" }).success).toBe(true);
+    expect(createSprintSchema.safeParse({ ...minimal, goal: null }).success).toBe(true);
+  });
+
+  it("does not itself reject end_date < start_date (cross-field check lives in the route, per the spec)", () => {
+    // The schema only validates SHAPE; the route rejects the combination with
+    // a clean 422 before insert (see sprints/route.ts and [id]/route.ts).
+    expect(
+      createSprintSchema.safeParse({ ...minimal, start_date: "2026-09-14", end_date: "2026-09-01" })
+        .success,
+    ).toBe(true);
+  });
+});
+
+describe("updateSprintSchema", () => {
+  it("accepts an empty object and a valid subset, with no defaults injected", () => {
+    expect(updateSprintSchema.parse({})).toEqual({});
+    expect(updateSprintSchema.parse({ name: "Renamed" })).toEqual({ name: "Renamed" });
+  });
+
+  it("has no `state` field at all — state can never be set via this schema", () => {
+    expect(updateSprintSchema.parse({ state: "active" } as never)).toEqual({});
+  });
+
+  it("rejects invalid values on the fields it does accept", () => {
+    expect(updateSprintSchema.safeParse({ name: "" }).success).toBe(false);
+    expect(updateSprintSchema.safeParse({ start_date: "09/01/2026" }).success).toBe(false);
+    expect(updateSprintSchema.safeParse({ end_date: "09/14/2026" }).success).toBe(false);
+  });
+});
+
+describe("sprintTaskAttachSchema", () => {
+  it("requires a UUID task_id", () => {
+    expect(sprintTaskAttachSchema.parse({ task_id: UUID })).toEqual({ task_id: UUID });
+    expect(sprintTaskAttachSchema.safeParse({}).success).toBe(false);
+    expect(sprintTaskAttachSchema.safeParse({ task_id: "not-a-uuid" }).success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// timesheet-submissions (L-31 four-eyes — Template B)
+// ---------------------------------------------------------------------------
+describe("createTimesheetSubmissionSchema", () => {
+  // 2026-08-17 is a Monday.
+  const minimal = { member_id: UUID, period_start: "2026-08-17" };
+
+  it("accepts a minimal payload with a Monday period_start", () => {
+    expect(createTimesheetSubmissionSchema.parse(minimal)).toEqual(minimal);
+  });
+
+  it.each(["member_id", "period_start"])("rejects a payload missing %s", (field) => {
+    const payload: Record<string, unknown> = { ...minimal };
+    delete payload[field];
+    const r = createTimesheetSubmissionSchema.safeParse(payload);
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain(field);
+  });
+
+  it("rejects a non-UUID member_id", () => {
+    expect(createTimesheetSubmissionSchema.safeParse({ ...minimal, member_id: "not-a-uuid" }).success).toBe(false);
+  });
+
+  it("rejects a malformed period_start", () => {
+    expect(createTimesheetSubmissionSchema.safeParse({ ...minimal, period_start: "2026/08/17" }).success).toBe(false);
+    expect(createTimesheetSubmissionSchema.safeParse({ ...minimal, period_start: "not-a-date" }).success).toBe(false);
+  });
+
+  it("rejects a period_start that is NOT a Monday", () => {
+    // 2026-08-18 is a Tuesday.
+    const r = createTimesheetSubmissionSchema.safeParse({ ...minimal, period_start: "2026-08-18" });
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain("period_start");
+  });
+});
+
+describe("timesheetDecisionSchema", () => {
+  it("accepts approved with no rationale", () => {
+    expect(timesheetDecisionSchema.parse({ decision: "approved" })).toEqual({ decision: "approved" });
+  });
+
+  it("accepts rejected WITH a rationale at the schema layer (the required-on-reject rule is enforced in the route, not here)", () => {
+    expect(
+      timesheetDecisionSchema.parse({ decision: "rejected", rationale: "Hours look inflated" }),
+    ).toEqual({ decision: "rejected", rationale: "Hours look inflated" });
+  });
+
+  it("does NOT itself require rationale on reject — schema only validates shape", () => {
+    // Mirrors createSprintSchema's cross-field note: the schema is shape-only;
+    // assertRationaleOnReject (lib/governance/timesheet-decision.ts) is what
+    // turns a rejected+no-rationale payload into a 422 at the route layer.
+    expect(timesheetDecisionSchema.safeParse({ decision: "rejected" }).success).toBe(true);
+  });
+
+  it("rejects an unknown decision value", () => {
+    expect(timesheetDecisionSchema.safeParse({ decision: "deferred" }).success).toBe(false);
+  });
+
+  it("rejects a blank rationale string (min length 1)", () => {
+    expect(timesheetDecisionSchema.safeParse({ decision: "rejected", rationale: "" }).success).toBe(false);
+  });
+
+  it("rejects a payload missing decision", () => {
+    const r = timesheetDecisionSchema.safeParse({});
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain("decision");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // tokens (PAT minting — scopes validated against the central registry)
 // ---------------------------------------------------------------------------
 describe("createTokenSchema", () => {
@@ -523,5 +688,93 @@ describe("createTokenSchema", () => {
     expect(createTokenSchema.safeParse({ ...minimal, expires_at: "2027-01-01T00:00:00Z" }).success).toBe(true);
     expect(createTokenSchema.safeParse({ ...minimal, expires_at: "2027-01-01" }).success).toBe(false);
     expect(createTokenSchema.safeParse({ ...minimal, expires_at: "soon" }).success).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// invites (link invites — L-47/L-48)
+// ---------------------------------------------------------------------------
+describe("createInviteSchema", () => {
+  const minimal = { email: "new.hire@example.com", role: "member" };
+
+  it("accepts a minimal payload", () => {
+    expect(createInviteSchema.parse(minimal)).toMatchObject(minimal);
+  });
+
+  it("accepts every member_role value", () => {
+    for (const role of ["viewer", "member", "manager", "admin"]) {
+      expect(createInviteSchema.safeParse({ ...minimal, role }).success).toBe(true);
+    }
+  });
+
+  it("rejects an invalid role enum value", () => {
+    const r = createInviteSchema.safeParse({ ...minimal, role: "superadmin" });
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain("role");
+  });
+
+  it("rejects a missing role", () => {
+    const r = createInviteSchema.safeParse({ email: minimal.email });
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain("role");
+  });
+
+  it("rejects a missing/malformed email", () => {
+    expect(createInviteSchema.safeParse({ role: "member" }).success).toBe(false);
+    expect(createInviteSchema.safeParse({ ...minimal, email: "not-an-email" }).success).toBe(false);
+  });
+
+  it("accepts the optional fields (name, role_title, cost_rate, capacity_hours_per_week)", () => {
+    const full = {
+      ...minimal,
+      name: "Jordan Lee",
+      role_title: "Engineer",
+      cost_rate: 120,
+      capacity_hours_per_week: 40,
+    };
+    expect(createInviteSchema.safeParse(full).success).toBe(true);
+  });
+
+  it("rejects a negative cost_rate / capacity_hours_per_week", () => {
+    expect(createInviteSchema.safeParse({ ...minimal, cost_rate: -1 }).success).toBe(false);
+    expect(createInviteSchema.safeParse({ ...minimal, capacity_hours_per_week: -1 }).success).toBe(false);
+  });
+});
+
+describe("acceptInviteSchema", () => {
+  const minimal = { token: "npi_abc123", password: "correct horse battery staple", display_name: "Jordan Lee" };
+
+  it("accepts a minimal valid payload", () => {
+    expect(acceptInviteSchema.parse(minimal)).toEqual(minimal);
+  });
+
+  it("has NO email field in its shape — the invite's own email is always used (D6)", () => {
+    // A stray email in the body must be silently dropped (z.object() strips
+    // unknown keys by default), never accepted as an override.
+    const parsed = acceptInviteSchema.parse({ ...minimal, email: "attacker@example.com" });
+    expect(parsed).not.toHaveProperty("email");
+  });
+
+  it("rejects a missing token", () => {
+    const r = acceptInviteSchema.safeParse({ password: minimal.password, display_name: minimal.display_name });
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain("token");
+  });
+
+  it("rejects a password shorter than 12 characters", () => {
+    const r = acceptInviteSchema.safeParse({ ...minimal, password: "short1234567".slice(0, 11) });
+    expect(r.success).toBe(false);
+    expect(errorPaths(r)).toContain("password");
+  });
+
+  it("accepts a password exactly 12 characters long", () => {
+    expect(acceptInviteSchema.safeParse({ ...minimal, password: "x".repeat(12) }).success).toBe(true);
+  });
+
+  it("rejects a missing/empty display_name", () => {
+    expect(
+      acceptInviteSchema.safeParse({ token: minimal.token, password: minimal.password }).success,
+    ).toBe(false);
+    expect(acceptInviteSchema.safeParse({ ...minimal, display_name: "" }).success).toBe(false);
   });
 });

@@ -94,6 +94,12 @@ describe("scope registry", () => {
       expect(preset.has("task:delete:request")).toBe(false);
       expect(preset.has("project:delete:approve")).toBe(false);
       expect(preset.has("project:delete:request")).toBe(false);
+      // L-31 timesheet four-eyes: time:approve is the checker verb — the
+      // agent preset must never carry it (it's not a :read scope, so the
+      // derived filter already excludes it; assert explicitly so the
+      // exclusion is locked, not incidental).
+      expect(preset.has("time:approve")).toBe(false);
+      expect(preset.has("time:submit")).toBe(false);
     });
 
     it("covers every readable resource in the registry", () => {

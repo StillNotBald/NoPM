@@ -2,6 +2,9 @@ import { route } from "@/lib/api/handler";
 import { z } from "zod";
 import { createProjectSchema, updateProjectSchema, ProjectDeleteRequestSchema } from "@/app/api/projects/_schema";
 import { createProgramSchema, updateProgramSchema } from "@/app/api/programs/_schema";
+import { createSprintSchema, updateSprintSchema, sprintTaskAttachSchema } from "@/app/api/sprints/_schema";
+import { createTimesheetSubmissionSchema, timesheetDecisionSchema } from "@/app/api/timesheet-submissions/_schema";
+import { createInviteSchema, acceptInviteSchema } from "@/app/api/invites/_schema";
 import { createMilestoneSchema, updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
   TaskCreateSchema,
@@ -157,6 +160,80 @@ const spec = {
         },
       },
     },
+    "/invites": {
+      get: {
+        tags: ["invites"],
+        summary: "List link invites (L-47/L-48)",
+        description:
+          "scope: admin or manager user session (D5 — token/agent actors get 403). status is a DERIVED " +
+          "field (pending|accepted|revoked|expired), never a stored column. Optional ?status= filter.",
+        operationId: "listInvites",
+        parameters: [
+          { name: "status", in: "query", schema: { type: "string", enum: ["pending", "accepted", "revoked", "expired"] } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated invite list (token_hash never returned)", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "403": { description: "Forbidden — not an admin/manager user session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["invites"],
+        summary: "Create a link invite (L-47/L-48)",
+        description:
+          "scope: admin or manager user session (D5). Role-escalation cap: invite.role must be <= the " +
+          "creator's own role rank (viewer<member<manager<admin) — a manager can never mint an admin " +
+          "invite (422 rule_violation). Token prefix npi_ (distinct from api_tokens' npm_). expires_at = " +
+          "now + 7 days. Raw invite link (invite_url) is returned ONCE and never stored/logged again.",
+        operationId: "createInvite",
+        requestBody: zodBody(createInviteSchema),
+        responses: {
+          "201": { description: "Invite created (includes one-time invite_url)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Forbidden — not an admin/manager user session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, role-escalation cap exceeded, or a pending invite already exists for this email", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/invites/{id}/revoke": {
+      post: {
+        tags: ["invites"],
+        summary: "Revoke a pending link invite",
+        description: "scope: admin or manager user session (D5). Only a pending invite may be revoked.",
+        operationId: "revokeInvite",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Invite revoked", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invite is not pending (already accepted/revoked/expired)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/invites/accept": {
+      post: {
+        tags: ["invites"],
+        summary: "Accept a link invite — provisions a new login (L-47/L-48)",
+        description:
+          "No auth required — this is the one route in NoPM that creates a brand-new auth user from an " +
+          "unauthenticated request. Rate-limited explicitly (10/req per minute, keyed by IP — this " +
+          "endpoint cannot use the baseline actor-keyed limiter since there is no actor pre-auth). Body " +
+          "has NO email field: the accepted email is always the invite's own. Ordering (D6): " +
+          "admin.auth.admin.createUser FIRST (email_confirm: true), THEN the atomic nopm_accept_invite " +
+          "RPC (writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). " +
+          "If the RPC fails after createUser succeeded, the auth user is best-effort cleaned up " +
+          "(admin.auth.admin.deleteUser). No server-minted session is returned — the client signs in " +
+          "normally via /login afterwards.",
+        security: [],
+        operationId: "acceptInvite",
+        requestBody: zodBody(acceptInviteSchema),
+        responses: {
+          "200": { description: "Account created (workspace + email echoed back; no session)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Invite not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, invite already used, invite expired, or an account with this email already exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Rate limit exceeded (10/min per IP)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/projects": {
       get: {
         tags: ["projects"],
@@ -296,6 +373,200 @@ const spec = {
         responses: {
           "204": { description: "Program deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/sprints": {
+      get: {
+        tags: ["sprints"],
+        summary: "List sprints",
+        description: "scope: sprint:read. Filters: project_id, state (planned|active|closed). Ordered start_date desc.",
+        operationId: "listSprints",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "state", in: "query", schema: { type: "string", enum: ["planned", "active", "closed"] } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated sprint list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["sprints"],
+        summary: "Create a sprint",
+        description: "scope: sprint:write. project_id must belong to the caller's workspace (404 otherwise). Created in state=planned.",
+        operationId: "createSprint",
+        requestBody: zodBody(createSprintSchema),
+        responses: {
+          "201": { description: "Sprint created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/sprints/{id}": {
+      get: {
+        tags: ["sprints"],
+        summary: "Get a sprint",
+        description: "scope: sprint:read",
+        operationId: "getSprint",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Sprint", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["sprints"],
+        summary: "Update a sprint",
+        description:
+          "scope: sprint:write. Only name/goal/dates — state is NEVER settable here (use /start and " +
+          "/close). A closed sprint rejects every PATCH (422).",
+        operationId: "updateSprint",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: zodBody(updateSprintSchema),
+        responses: {
+          "200": { description: "Updated sprint", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error or closed sprint", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["sprints"],
+        summary: "Delete a sprint",
+        description:
+          "scope: sprint:write. PLAIN single-step hard delete with one audit row (sprint.delete) — " +
+          "NOT routed through deletion_requests. Only while state=planned AND no tasks are attached " +
+          "(422 otherwise).",
+        operationId: "deleteSprint",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Sprint deleted" },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Sprint is not planned, or has attached tasks", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/sprints/{id}/start": {
+      post: {
+        tags: ["sprints"],
+        summary: "Start a sprint (planned -> active)",
+        description:
+          "scope: sprint:write. Snapshots committed_points/committed_snapshot from every task currently " +
+          "attached (sprint_id = this sprint). Written once — never recomputed by a later story-point " +
+          "edit. 422 if the sprint is not currently planned.",
+        operationId: "startSprint",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Started sprint", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Sprint is not planned", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/sprints/{id}/close": {
+      post: {
+        tags: ["sprints"],
+        summary: "Close a sprint (active -> closed)",
+        description:
+          "scope: sprint:write. Snapshots completed_points/completed_snapshot from attached tasks whose " +
+          "status_type='completed' at this instant. Written once — never recomputed afterwards. 422 if " +
+          "the sprint is not currently active.",
+        operationId: "closeSprint",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Closed sprint", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Sprint is not active", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/sprints/{id}/tasks": {
+      post: {
+        tags: ["sprints"],
+        summary: "Attach a task to a sprint",
+        description:
+          "scope: sprint:write. The task must exist in this workspace AND already belong to the sprint's " +
+          "own project (422 otherwise, not 404 — the combination is invalid, not the sprint id). 422 if " +
+          "the sprint is closed.",
+        operationId: "attachSprintTask",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: zodBody(sprintTaskAttachSchema),
+        responses: {
+          "200": { description: "Updated task (now attached)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Sprint not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Task not in this workspace/project, or sprint closed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["sprints"],
+        summary: "Detach a task from a sprint",
+        description:
+          "scope: sprint:write. ?task_id=<uuid> required. The task must currently be attached to THIS " +
+          "sprint (422 otherwise). 422 if the sprint is closed.",
+        operationId: "detachSprintTask",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "task_id", in: "query", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": { description: "Updated task (now detached)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Sprint not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Task not attached to this sprint, missing task_id, or sprint closed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/timesheet-submissions": {
+      get: {
+        tags: ["timesheet-submissions"],
+        summary: "List timesheet submissions",
+        description: "scope: time:read. Filters: member_id, status (submitted|approved|rejected), period (= period_start exact match). Ordered submitted_at desc.",
+        operationId: "listTimesheetSubmissions",
+        parameters: [
+          { name: "member_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["submitted", "approved", "rejected"] } },
+          { name: "period", in: "query", schema: { type: "string", format: "date" } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": { description: "Paginated timesheet submission list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+        },
+      },
+      post: {
+        tags: ["timesheet-submissions"],
+        summary: "Submit a weekly timesheet for a member (four-eyes maker step, L-31)",
+        description:
+          "scope: time:submit. period_start must be a Monday; period_end is derived (+6 days). Snapshots " +
+          "hours_total/entry_count from time_entries in that window at submit time — never recomputed " +
+          "afterwards. 422 if the member has no time entries in the period (\"nothing to submit\"), or if " +
+          "an open (submitted|approved) submission already exists for this member+period.",
+        operationId: "submitTimesheet",
+        requestBody: zodBody(createTimesheetSubmissionSchema),
+        responses: {
+          "201": { description: "Timesheet submission created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Resource member not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, nothing to submit, or an open submission already exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/timesheet-submissions/{id}/decision": {
+      post: {
+        tags: ["timesheet-submissions"],
+        summary: "Record an approve / reject decision on a timesheet submission (four-eyes checker step, L-31)",
+        description:
+          "scope: time:approve. The deciding actor must differ from the submitter — compound (id AND " +
+          "type) comparison, guard symmetry on BOTH approve and reject. Status must be 'submitted'. " +
+          "Rejection requires a non-empty rationale.",
+        operationId: "decideTimesheetSubmission",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: zodBody(timesheetDecisionSchema),
+        responses: {
+          "200": { description: "Decision recorded", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Self-approval rejected (four-eyes)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Already decided, or rationale missing on reject", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -869,13 +1140,16 @@ const spec = {
       get: {
         tags: ["time-entries"],
         summary: "List time entries",
-        description: "scope: time:read. Optional ?project_id and ?member_id filters.",
+        description: "scope: time:read. Optional ?project_id, ?member_id, ?date_from/?date_to (entry_date window, inclusive) and ?billable filters.",
         operationId: "listTimeEntries",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
           { name: "member_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "date_from", in: "query", schema: { type: "string", format: "date" }, description: "entry_date >= date_from (inclusive)" },
+          { name: "date_to", in: "query", schema: { type: "string", format: "date" }, description: "entry_date <= date_to (inclusive)" },
+          { name: "billable", in: "query", schema: { type: "string", enum: ["true", "false"] }, description: "Exact match on the billable flag" },
         ],
         responses: {
           "200": { description: "Paginated time entry list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1084,7 +1358,8 @@ const spec = {
           "due_before/due_after/overdue/q/sort; risks/issues REQUIRE project_id (they are " +
           "project-scoped) plus status/severity(/priority for issues)/sort; clashes take no " +
           "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
-          "project_id/member_id; audit accepts target_type/target_id/action/actor_id. Capped " +
+          "project_id/member_id/date_from/date_to/billable; audit accepts " +
+          "target_type/target_id/action/actor_id. Capped " +
           "at 10,000 rows — if the true match count exceeds the cap, a final CSV row notes the " +
           "truncation and the server logs it. The export is a governed read but still writes " +
           "exactly one fail-closed audit_log row (action export.csv, target_type=entity, " +
@@ -1105,6 +1380,9 @@ const spec = {
           { name: "status", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
           { name: "severity", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
           { name: "member_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=time_entries" },
+          { name: "date_from", in: "query", schema: { type: "string", format: "date" }, description: "entity=time_entries (entry_date >=, inclusive)" },
+          { name: "date_to", in: "query", schema: { type: "string", format: "date" }, description: "entity=time_entries (entry_date <=, inclusive)" },
+          { name: "billable", in: "query", schema: { type: "string", enum: ["true", "false"] }, description: "entity=time_entries" },
           { name: "target_type", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "target_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "action", in: "query", schema: { type: "string" }, description: "entity=audit" },
@@ -1200,6 +1478,30 @@ const spec = {
         responses: {
           "200": { description: "Timeline graph", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Forbidden", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/metrics/time-in-status": {
+      get: {
+        tags: ["system"],
+        summary: "Per-task status-span history (flow metrics)",
+        description:
+          "scope: task:read. Read aggregate over the workspace's task audit trail — returns, per matching task, its ordered status_type spans (entered_at/exited_at/hours), the final span left open against now. ?task_id or ?project_id narrow the task set (no match returns an empty array, never 404). ?date_from/?date_to (YYYY-MM-DD) bound the entered_at of returned spans, not the task set. ?limit caps how many tasks are considered when neither task_id nor project_id narrows the set (default 50, max 100). Unknown query params are rejected with 422.",
+        operationId: "getTimeInStatus",
+        parameters: [
+          { name: "task_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "date_from", in: "query", schema: { type: "string", format: "date" } },
+          { name: "date_to", in: "query", schema: { type: "string", format: "date" } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 50, minimum: 1, maximum: 100 } },
+        ],
+        responses: {
+          "200": {
+            description: "Per-task time-in-status spans",
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } },
+          },
+          "403": { description: "Forbidden", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation failed (unknown query param, bad enum/format)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

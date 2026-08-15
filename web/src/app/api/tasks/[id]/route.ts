@@ -219,7 +219,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
       workspaceId: actor.workspaceId,
       recipientIds: approverIds,
       type: "approval.requested",
-      title: `Deletion request: task "${task.title ?? params.id}"`,
+      title: `Deletion request: task "${task.name ?? params.id}"`,
       body: reason ?? undefined,
       payload: { href: "/approvals", taskId: params.id, requestId: deletionRequest.id },
     });

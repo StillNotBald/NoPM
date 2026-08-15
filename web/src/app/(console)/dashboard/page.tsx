@@ -16,6 +16,7 @@ import { EntityLink } from "@/components/ui/entity-link";
 import { DashboardProjectRow } from "@/components/dashboard/dashboard-project-row";
 import { CardFreshness } from "@/components/dashboard/card-freshness";
 import { DashboardFilterBar } from "@/components/dashboard/dashboard-filter-bar";
+import { FirstRunWizard } from "@/components/onboarding/first-run-wizard";
 import {
   filterDashboardProjects,
   dashboardFilterLabel,
@@ -73,12 +74,18 @@ export default async function DashboardPage({
 
   // Parallel fetches — unfiltered; the filter is applied in JS below so
   // every card's numbers derive from the same filtered project set.
-  const [projectsResult, risksResult, issuesResult, clashesResult] = await Promise.all([
+  const [projectsResult, risksResult, issuesResult, clashesResult, viewerProfileResult] = await Promise.all([
     db.from("projects").select("id,code,name,rag_status,completion_pct,program,target_date"),
     db.from("risks").select("project_id,status"),
     db.from("issues").select("project_id,status"),
     db.from("clashes").select("id,project_a_id,project_b_id"),
+    // caller's own role — mirrors requireScope() in lib/auth/guard.ts + the
+    // same lookup risks/page.tsx uses: only "viewer" is read-only. Gates the
+    // first-run wizard below (L-45 — viewers never see it, per
+    // recon-identity.md §5 verify-as-funnel-identity).
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
+  const canWrite = viewerProfileResult.data?.role !== "viewer";
 
   // L-34 — stamp the fetch time right after the queries resolve (not render
   // time); every card on this page shares this one fetch, so one timestamp
@@ -222,15 +229,12 @@ export default async function DashboardPage({
               <p className="text-sm text-ink-muted">
                 No projects yet. Create your first project to get started.
               </p>
-              {/* L-49 — final first-run step: no onboarding wizard exists yet
-                  (F2), so this is the pointer into the connect-your-agent
-                  card on the tokens page. */}
-              <a
-                href="/tokens#connect-agent"
-                className="mt-2 inline-block text-xs text-accent hover:underline"
-              >
-                Or connect an AI agent to drive NoPM for you →
-              </a>
+              {/* L-45 — first-run wizard replaces the old L-49 static pointer
+                  link; the connect-agent link now lives as the wizard's own
+                  last step. Viewers never get the wizard (canWrite gate is
+                  computed server-side above via the caller's role) and just
+                  keep seeing the plain empty state. */}
+              {canWrite && <FirstRunWizard />}
             </div>
           ) : (
             <div className="overflow-x-auto">

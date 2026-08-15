@@ -53,6 +53,25 @@ describe("generateToken", () => {
     expect(a.raw).not.toBe(b.raw);
     expect(a.hash).not.toBe(b.hash);
   });
+
+  // --- prefix override (D13, f2b-specs.md — invites reuse this helper with
+  // a distinct 'npi_' family instead of forking the token generator).
+  it("uses the given prefix override instead of TOKEN_PREFIX", () => {
+    const { raw, prefix } = generateToken("npi_");
+    expect(prefix).toBe("npi_");
+    expect(raw.startsWith("npi_")).toBe(true);
+    expect(raw.startsWith("npm_")).toBe(false);
+  });
+
+  it("hash for a prefix-overridden token is still the SHA-256 of its own raw value", () => {
+    const { raw, hash } = generateToken("npi_");
+    expect(hash).toBe(hashToken(raw));
+  });
+
+  it("defaults to TOKEN_PREFIX when no override is given", () => {
+    const { prefix } = generateToken();
+    expect(prefix).toBe("npm_");
+  });
 });
 
 // ---------------------------------------------------------------------------

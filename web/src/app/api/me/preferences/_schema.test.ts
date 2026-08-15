@@ -16,6 +16,7 @@ describe("preferencesConfigSchema — whitelist (L-39)", () => {
       density: "compact",
       dateDisplay: "relative",
       defaultLanding: "/dashboard",
+      onboarding: { step: 2, dismissed: false },
     });
     expect(parsed.success).toBe(true);
   });
@@ -62,6 +63,64 @@ describe("preferencesConfigSchema — whitelist (L-39)", () => {
     expect(preferencesConfigSchema.safeParse("not-an-object").success).toBe(false);
     expect(preferencesConfigSchema.safeParse(null).success).toBe(false);
     expect(preferencesConfigSchema.safeParse([1, 2, 3]).success).toBe(false);
+  });
+});
+
+describe("preferencesConfigSchema — onboarding key (L-45, first-run wizard, D7)", () => {
+  it("accepts the full onboarding shape locked by D7", () => {
+    const parsed = preferencesConfigSchema.safeParse({
+      onboarding: { step: 2, dismissed: false, completedAt: "2026-08-15T00:00:00.000Z" },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts a partial onboarding object (only step set, still mid-flow)", () => {
+    const parsed = preferencesConfigSchema.safeParse({ onboarding: { step: 3 } });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.onboarding).toEqual({ step: 3 });
+  });
+
+  it("accepts dismissed-only (the X control persists just this)", () => {
+    const parsed = preferencesConfigSchema.safeParse({ onboarding: { dismissed: true } });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("strips unknown keys NESTED inside onboarding, not just at the top level", () => {
+    const parsed = preferencesConfigSchema.parse({
+      onboarding: { step: 1, notAWizardField: "sneaky", completedAt: undefined },
+    });
+    expect(parsed.onboarding).toEqual({ step: 1 });
+    expect(parsed.onboarding).not.toHaveProperty("notAWizardField");
+  });
+
+  it("rejects a step outside 1..4", () => {
+    expect(preferencesConfigSchema.safeParse({ onboarding: { step: 0 } }).success).toBe(false);
+    expect(preferencesConfigSchema.safeParse({ onboarding: { step: 5 } }).success).toBe(false);
+  });
+
+  it("rejects a non-integer step", () => {
+    expect(preferencesConfigSchema.safeParse({ onboarding: { step: 2.5 } }).success).toBe(false);
+  });
+
+  it("rejects a completedAt that isn't a valid ISO datetime string", () => {
+    expect(
+      preferencesConfigSchema.safeParse({ onboarding: { completedAt: "not-a-date" } }).success,
+    ).toBe(false);
+  });
+
+  it("rejects a non-boolean dismissed", () => {
+    expect(preferencesConfigSchema.safeParse({ onboarding: { dismissed: "yes" } }).success).toBe(
+      false,
+    );
+  });
+
+  it("an onboarding value that isn't an object is rejected, not silently dropped", () => {
+    expect(preferencesConfigSchema.safeParse({ onboarding: "dismissed" }).success).toBe(false);
+  });
+
+  it("a config with only onboarding round-trips without inventing the other keys", () => {
+    const parsed = preferencesConfigSchema.parse({ onboarding: { dismissed: true } });
+    expect(parsed).toEqual({ onboarding: { dismissed: true } });
   });
 });
 
