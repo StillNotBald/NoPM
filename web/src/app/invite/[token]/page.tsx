@@ -19,6 +19,15 @@ export const runtime = "nodejs";
  * Never renders the raw token anywhere except the URL the visitor already
  * has, and never leaks workspace internals beyond the workspace's name and
  * the inviter's label.
+ *
+ * T3 (F2c-mini) — deliberate asymmetry vs POST /api/invites/accept: that
+ * API route collapses not-found/expired/used/revoked into ONE uniform 422
+ * message (anti-enumeration — see invite-guard.ts's
+ * INVITE_ACCEPT_ERROR_MESSAGE). THIS page keeps its distinct friendly
+ * per-status copy below ("expired" vs "already used" vs "revoked" vs "not
+ * found") on purpose: it is not a scriptable enumeration surface — the
+ * visitor here already holds the exact link and is reading a page, not
+ * probing a JSON API with arbitrary tokens.
  */
 export default async function InviteAcceptPage({
   params,

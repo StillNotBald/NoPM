@@ -18,12 +18,15 @@ export const TIMESHEET_STATUSES = ["submitted", "approved", "rejected"] as const
 export const TimesheetStatus = z.enum(TIMESHEET_STATUSES);
 
 // Rationale is intentionally NOT required at the schema layer — it is
-// required conditionally (only when decision='rejected'), enforced in the
-// route via assertRationaleOnReject so the 422 message is specific to the
-// decision, matching D1 (f2b-specs.md).
+// required conditionally (only when decision='rejected' or 'reopened'),
+// enforced in the route via assertRationaleOnReject so the 422 message is
+// specific to the decision, matching D1 (f2b-specs.md). "reopened" (R-76/
+// L-32) is the governed unlock verb: approved-only precondition
+// (assertReopenable), rationale required, self-reopen blocked — same guard
+// symmetry as approve/reject (lib/governance/timesheet-decision.ts).
 export const timesheetDecisionSchema = z.object({
-  decision: z.enum(["approved", "rejected"], {
-    error: "decision must be approved or rejected",
+  decision: z.enum(["approved", "rejected", "reopened"], {
+    error: "decision must be approved, rejected, or reopened",
   }),
   rationale: z.string().min(1).optional(),
 });

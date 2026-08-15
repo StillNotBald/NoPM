@@ -14,6 +14,8 @@ const ALL_KINDS: EntityKind[] = [
   "project",
   "task",
   "milestone",
+  "program",
+  "sprint",
   "risk",
   "issue",
   "clash",
@@ -51,9 +53,29 @@ describe("entityHref — project-scoped kinds", () => {
 });
 
 // ---------------------------------------------------------------------------
+// program — T3 (F2c-mini): fragment deep link (matches the portfolio page's
+// actual <section id={program.id}> anchor, not a query param)
+// ---------------------------------------------------------------------------
+describe("entityHref — program (T3, F2c-mini)", () => {
+  it("routes to /portfolio#<id> (fragment, matching the page's real anchor)", () => {
+    expect(entityHref("program", { id: ID })).toBe(`/portfolio#${ID}`);
+  });
+
+  it("ignores projectId (program is not project-scoped)", () => {
+    expect(entityHref("program", { id: ID, projectId: PROJECT_ID })).toBe(
+      entityHref("program", { id: ID }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Per-kind hrefs — register entities (focus query param)
 // ---------------------------------------------------------------------------
 describe("entityHref — register kinds carry a focus query param", () => {
+  it("sprint routes to /sprints?sprint=<id>", () => {
+    expect(entityHref("sprint", { id: ID })).toBe(`/sprints?sprint=${ID}`);
+  });
+
   it("risk routes to /risks?risk=<id>", () => {
     expect(entityHref("risk", { id: ID })).toBe(`/risks?risk=${ID}`);
   });
@@ -79,7 +101,7 @@ describe("entityHref — register kinds carry a focus query param", () => {
   });
 
   it("register kinds ignore projectId entirely", () => {
-    for (const kind of ["risk", "issue", "clash", "decision", "change_request", "document"] as const) {
+    for (const kind of ["sprint", "risk", "issue", "clash", "decision", "change_request", "document"] as const) {
       expect(entityHref(kind, { id: ID, projectId: PROJECT_ID })).toBe(
         entityHref(kind, { id: ID }),
       );
@@ -125,8 +147,8 @@ describe("entityHref — projectId fallbacks", () => {
 // Total coverage of the EntityKind union
 // ---------------------------------------------------------------------------
 describe("entityHref — every EntityKind is handled", () => {
-  it("returns a non-empty string for all 9 kinds", () => {
-    expect(ALL_KINDS).toHaveLength(9);
+  it("returns a non-empty string for all 11 kinds", () => {
+    expect(ALL_KINDS).toHaveLength(11);
     for (const kind of ALL_KINDS) {
       const href = entityHref(kind, { id: ID, projectId: PROJECT_ID });
       expect(typeof href, `${kind} must return a string`).toBe("string");
@@ -159,10 +181,12 @@ describe("entityHref — every EntityKind is handled", () => {
 // FOCUS_PARAM registry
 // ---------------------------------------------------------------------------
 describe("FOCUS_PARAM — registry completeness", () => {
-  // project / task / milestone are deliberately excluded from FOCUS_PARAM:
-  // project has its own page, task/milestone use ?task=/?milestone= on the
-  // project page rather than a register-page focus param.
-  const EXCLUDED: EntityKind[] = ["project", "task", "milestone"];
+  // project / task / milestone / program are deliberately excluded from
+  // FOCUS_PARAM: project has its own page, task/milestone use
+  // ?task=/?milestone= on the project page rather than a register-page
+  // focus param, and program deep-links via a URL FRAGMENT (#<id>) into the
+  // portfolio page rather than a query param (T3, F2c-mini).
+  const EXCLUDED: EntityKind[] = ["project", "task", "milestone", "program"];
   const REGISTER_KINDS = ALL_KINDS.filter((k) => !EXCLUDED.includes(k));
 
   it("has an entry for every register kind and nothing else", () => {

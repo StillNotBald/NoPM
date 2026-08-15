@@ -222,14 +222,17 @@ const spec = {
           "RPC (writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). " +
           "If the RPC fails after createUser succeeded, the auth user is best-effort cleaned up " +
           "(admin.auth.admin.deleteUser). No server-minted session is returned — the client signs in " +
-          "normally via /login afterwards.",
+          "normally via /login afterwards. Anti-enumeration (T3, F2c-mini): a missing, already-used, " +
+          "revoked, or expired invite ALL return the SAME 422 with the SAME message — there is " +
+          "deliberately no distinct 404 for 'not found' (a scripted caller cannot distinguish invite " +
+          "states from this endpoint's response). The public /invite/[token] page keeps distinct " +
+          "friendly per-status copy — that asymmetry is intentional, see invite-guard.ts.",
         security: [],
         operationId: "acceptInvite",
         requestBody: zodBody(acceptInviteSchema),
         responses: {
           "200": { description: "Account created (workspace + email echoed back; no session)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "404": { description: "Invite not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error, invite already used, invite expired, or an account with this email already exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; OR the invite link is not valid or has expired (uniform anti-enumeration message covering not-found/already-used/revoked/expired — never a distinct 404); OR an account with this email already exists (kept distinct — the caller already holds a valid token for that email)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "429": { description: "Rate limit exceeded (10/min per IP)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -554,19 +557,25 @@ const spec = {
     "/timesheet-submissions/{id}/decision": {
       post: {
         tags: ["timesheet-submissions"],
-        summary: "Record an approve / reject decision on a timesheet submission (four-eyes checker step, L-31)",
+        summary: "Record an approve / reject / reopen decision on a timesheet submission (four-eyes checker step, L-31; reopen is R-76/L-32)",
         description:
-          "scope: time:approve. The deciding actor must differ from the submitter — compound (id AND " +
-          "type) comparison, guard symmetry on BOTH approve and reject. Status must be 'submitted'. " +
-          "Rejection requires a non-empty rationale.",
+          "scope: time:approve. decision is one of approved | rejected | reopened. The deciding actor " +
+          "must differ from the submitter — compound (id AND type) comparison, guard symmetry across " +
+          "ALL THREE verbs. approve/reject require status='submitted'; reopen requires the INVERSE — " +
+          "status='approved' (reopen is the governed unlock for the period-close lock, R-76: an " +
+          "approved week's time entries reject create/delete until reopened, migration " +
+          "20260815000040). Rejection AND reopen both require a non-empty rationale; approval does not. " +
+          "Reopen reverts status to 'submitted' and clears decided_by/_type/_label/decided_at/" +
+          "decision_rationale, and notifies the workspace's approvers (the sheet re-enters the Review " +
+          "Queue as a fresh approval request) rather than the submitter.",
         operationId: "decideTimesheetSubmission",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(timesheetDecisionSchema),
         responses: {
           "200": { description: "Decision recorded", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-approval rejected (four-eyes)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Self-decision rejected (four-eyes) — includes self-reopen", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Already decided, or rationale missing on reject", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Already decided (approve/reject) or not approved yet (reopen), or rationale missing on reject/reopen", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1158,12 +1167,16 @@ const spec = {
       post: {
         tags: ["time-entries"],
         summary: "Log a time entry",
-        description: "scope: time:write. Cost is auto-computed as hours * member.cost_rate.",
+        description:
+          "scope: time:write. Cost is auto-computed as hours * member.cost_rate. 422 if the entry's " +
+          "week already has an APPROVED timesheet submission for this member — the week is locked " +
+          "(R-76/L-32; reopen the submission via POST /timesheet-submissions/{id}/decision with " +
+          "decision='reopened' to unlock it).",
         operationId: "createTimeEntry",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id", "project_id", "entry_date", "hours"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, entry_date: { type: "string", format: "date" }, hours: { type: "number", minimum: 0 }, note: { type: "string" }, billable: { type: "boolean", description: "L-29: whether this entry counts as billable. Omitted → defaults from the owning project's default_billable." } } } } } },
         responses: {
           "201": { description: "Time entry created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, or the entry's week is locked (approved timesheet submission)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1171,12 +1184,15 @@ const spec = {
       delete: {
         tags: ["time-entries"],
         summary: "Delete a time entry",
-        description: "scope: time:write",
+        description:
+          "scope: time:write. 422 if the entry's week already has an APPROVED timesheet submission for " +
+          "this member — the week is locked (R-76/L-32; reopen the submission to unlock it).",
         operationId: "deleteTimeEntry",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The entry's week is locked (approved timesheet submission)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1350,7 +1366,7 @@ const spec = {
         summary: "Governed CSV export (L-27 / L-36)",
         description:
           "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
-          "audit:read, or time:read). Streams text/csv with Content-Disposition " +
+          "audit:read, time:read, or program:read). Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
@@ -1359,7 +1375,8 @@ const spec = {
           "project-scoped) plus status/severity(/priority for issues)/sort; clashes take no " +
           "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
           "project_id/member_id/date_from/date_to/billable; audit accepts " +
-          "target_type/target_id/action/actor_id. Capped " +
+          "target_type/target_id/action/actor_id; programs take no filters (fixed name asc, " +
+          "T3 F2c-mini). Capped " +
           "at 10,000 rows — if the true match count exceeds the cap, a final CSV row notes the " +
           "truncation and the server logs it. The export is a governed read but still writes " +
           "exactly one fail-closed audit_log row (action export.csv, target_type=entity, " +
@@ -1367,7 +1384,7 @@ const spec = {
           "audited (L-36).",
         operationId: "exportCsv",
         parameters: [
-          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "time_entries"] } },
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "time_entries", "programs"] } },
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Required for entity=risks|issues; optional filter for entity=tasks|time_entries" },
           { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues (whitelisted per entity, same as the list API)" },
           { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=tasks" },
@@ -1509,7 +1526,7 @@ const spec = {
       get: {
         tags: ["system"],
         summary: "Full-workspace record search",
-        description: "scope: project:read. Case-insensitive search across projects, tasks, risks, issues, clashes, documents, change_requests, and decisions. ?q=<query> (min 1 char). Returns up to 30 results.",
+        description: "scope: project:read. Case-insensitive search across projects, tasks, programs, sprints, risks, issues, clashes, documents, change_requests, and decisions. ?q=<query> (min 1 char). Returns up to 30 results.",
         operationId: "search",
         parameters: [
           { name: "q", in: "query", required: true, schema: { type: "string", minLength: 1 }, description: "Search query" },

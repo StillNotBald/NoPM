@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { RuleError, NotFoundError } from "@/lib/api/errors";
+import { RuleError } from "@/lib/api/errors";
 import { performInviteAccept, type InviteAcceptAdminClient } from "./invite-accept";
 
 const INPUT = {
@@ -96,13 +96,13 @@ describe("performInviteAccept — createUser failure (never reaches the rpc)", (
 // the caller must see a real error, never a silently-swallowed one).
 // ---------------------------------------------------------------------------
 describe("performInviteAccept — FAILURE INJECTION: rpc fails after createUser succeeded", () => {
-  it("calls deleteUser with the created auth user id when the rpc fails", async () => {
+  it("calls deleteUser with the created auth user id when the rpc fails (P0002/NOT_FOUND now maps to a 422 RuleError, not 404 — anti-enumeration, T3 F2c-mini)", async () => {
     const createUser = vi.fn(async () => ({ data: { user: { id: "auth-user-orphan" } }, error: null }));
     const deleteUser = vi.fn(async () => ({ error: null }));
     const rpc = vi.fn(async () => ({ data: null, error: { code: "P0002", message: "NOT_FOUND" } }));
     const db = fakeClient({ createUser, deleteUser, rpc });
 
-    await expect(performInviteAccept(db, INPUT)).rejects.toBeInstanceOf(NotFoundError);
+    await expect(performInviteAccept(db, INPUT)).rejects.toBeInstanceOf(RuleError);
 
     expect(deleteUser).toHaveBeenCalledTimes(1);
     expect(deleteUser).toHaveBeenCalledWith("auth-user-orphan");

@@ -39,15 +39,36 @@ export function WeekGrid({
   rows,
   capacityHoursPerWeek,
   emptyMessage,
+  locked = false,
 }: {
   /** Exactly 7 ISO dates, Monday first. */
   weekDates: string[];
   rows: WeekGridRow[];
   capacityHoursPerWeek: number | null;
   emptyMessage: string;
+  /**
+   * L-32/R-76: true when this week has an APPROVED timesheet_submission —
+   * time entries in it reject create/delete (route guard + DB backstop
+   * trigger, migration 20260815000040) until the submission is reopened.
+   * Purely informational here (the grid has no inline edit/delete controls
+   * to disable) — the caption below just tells the viewer WHY a write would
+   * fail if they tried one elsewhere (e.g. the Log time form).
+   */
+  locked?: boolean;
 }) {
+  const lockedCaption = locked ? (
+    <p className="border-b border-border-subtle bg-warning-subtle px-5 py-2 text-xs font-medium text-warning">
+      Week approved — locked. Time entries in this week can&apos;t be added or removed until the submission is reopened.
+    </p>
+  ) : null;
+
   if (rows.length === 0) {
-    return <p className="px-5 py-8 text-center text-sm text-ink-muted">{emptyMessage}</p>;
+    return (
+      <>
+        {lockedCaption}
+        <p className="px-5 py-8 text-center text-sm text-ink-muted">{emptyMessage}</p>
+      </>
+    );
   }
 
   const columnTotals = weekDates.map((date) =>

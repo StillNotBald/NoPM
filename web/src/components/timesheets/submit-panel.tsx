@@ -43,9 +43,15 @@ export function TimesheetSubmitPanel({
   if (status) {
     const meta = STATUS_BADGE[status];
     return (
-      <Badge tone={meta.tone} className="shrink-0">
-        {meta.label}
-      </Badge>
+      <span className="flex shrink-0 items-center gap-1.5">
+        <Badge tone={meta.tone}>{meta.label}</Badge>
+        {status === "approved" && (
+          // L-32/R-76: the period-close lock — an approved week's time
+          // entries can't be created/deleted until a reopen decision is
+          // recorded (POST /timesheet-submissions/{id}/decision, "reopened").
+          <span className="text-xs text-ink-muted">— week locked</span>
+        )}
+      </span>
     );
   }
 

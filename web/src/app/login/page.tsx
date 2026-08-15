@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardBody } from "@/components/ui/card";
@@ -11,8 +11,32 @@ import { DemoLoginButton } from "@/components/demo-login-button";
 import { cn } from "@/lib/cn";
 
 export default function LoginPage() {
+  // useSearchParams requires a Suspense boundary in the App Router (it opts
+  // the tree into client-side bailout during static generation) — the whole
+  // form lives inside LoginForm so the ?email= prefill (T3, F2c-mini) has a
+  // param source to read from.
+  return (
+    <Suspense fallback={<LoginFormSkeleton />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginFormSkeleton() {
+  return <div className="flex min-h-screen items-center justify-center bg-canvas px-4" />;
+}
+
+function LoginForm() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const searchParams = useSearchParams();
+  // T3 (F2c-mini) — ?email= prefill: a link (e.g. an invite's "sign in
+  // instead" path, or a support hand-off) can pre-fill the email field.
+  // Never touches the password field. Lazy useState initializer reads the
+  // URL exactly once, at mount, from the same searchParams source the
+  // Suspense boundary above already requires — no effect/setState-in-effect
+  // needed, and the visitor can freely edit the field afterwards without it
+  // snapping back.
+  const [email, setEmail] = useState(() => searchParams.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

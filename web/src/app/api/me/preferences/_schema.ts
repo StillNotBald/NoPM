@@ -18,6 +18,11 @@ import { DENSITIES, DATE_DISPLAYS } from "@/lib/theme/appearance";
  *                   NEVER persisted for a demo actor (the client checks the
  *                   `demo` flag this same route's GET returns and skips PUT
  *                   entirely — see route.ts's isDemoActor doc comment).
+ *   tour            governance tour state (L-50, R-77) — dismiss/visited
+ *                   bookkeeping for components/onboarding/governance-tour.tsx.
+ *                   Same demo:false PUT-gating as `onboarding` above (a demo
+ *                   actor keeps this in component state only, fresh per
+ *                   visit — the shared-demo-identity carve-out).
  *
  * `z.object()` (NOT `.strict()`, NOT `.passthrough()`) strips any key
  * outside this whitelist by default — the exact "unknown keys stripped"
@@ -55,6 +60,17 @@ const onboardingSchema = z.object({
   step: z.number().int().min(1).max(4).optional(),
 });
 
+/**
+ * Governance tour state (L-50, R-77) — the shape locked for the F2c-mini T4
+ * task: `{ dismissed?: boolean, visited?: string[] (max 12, item ids) }`.
+ * Same non-strict convention as every other key here — an unrecognised key
+ * nested inside `tour` is silently stripped, not rejected.
+ */
+const tourSchema = z.object({
+  dismissed: z.boolean().optional(),
+  visited: z.array(z.string().min(1).max(64)).max(12).optional(),
+});
+
 export const preferencesConfigSchema = z.object({
   columns: columnsSchema.optional(),
   groupBy: groupBySchema.optional(),
@@ -62,6 +78,7 @@ export const preferencesConfigSchema = z.object({
   dateDisplay: z.enum(DATE_DISPLAYS).optional(),
   defaultLanding: z.string().min(1).max(200).optional(),
   onboarding: onboardingSchema.optional(),
+  tour: tourSchema.optional(),
 });
 
 export type PreferencesConfig = z.infer<typeof preferencesConfigSchema>;

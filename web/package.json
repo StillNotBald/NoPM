@@ -11,7 +11,7 @@
     "test": "vitest run",
     "e2e": "playwright test",
     "rtm:verify": "node scripts/rtm-verify.mjs",
-    "seed:all": "node scripts/seed.mjs && node scripts/seed-members.mjs && node scripts/seed-approvals.mjs && node scripts/seed-change-control.mjs && node scripts/seed-people-link.mjs && node scripts/seed-documents.mjs && node scripts/seed-document-files.mjs && node scripts/seed-baselines.mjs && node scripts/seed-mainline-deps.mjs",
+    "seed:all": "node scripts/seed.mjs && node scripts/seed-members.mjs && node scripts/seed-approvals.mjs && node scripts/seed-change-control.mjs && node scripts/seed-people-link.mjs && node scripts/seed-documents.mjs && node scripts/seed-document-files.mjs && node scripts/seed-baselines.mjs && node scripts/seed-mainline-deps.mjs && node scripts/seed-sprints-timesheets.mjs",
     "mcp": "node mcp/server.mjs",
     "gen:metrics": "node scripts/gen-metrics.mjs",
     "prepare": "node scripts/prepare.mjs"

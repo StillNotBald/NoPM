@@ -24,6 +24,8 @@ import {
   FileText,
   GitPullRequest,
   Lightbulb,
+  Layers,
+  Repeat,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -56,6 +58,8 @@ function RecordIcon({ type }: { type: SearchResult["type"] }) {
   switch (type) {
     case "project":      return <FolderKanban size={size} />;
     case "task":         return <CheckSquare size={size} />;
+    case "program":      return <Layers size={size} />;
+    case "sprint":       return <Repeat size={size} />;
     case "risk":         return <AlertTriangle size={size} />;
     case "issue":        return <CircleDot size={size} />;
     case "clash":        return <Zap size={size} />;
@@ -69,6 +73,8 @@ function RecordIcon({ type }: { type: SearchResult["type"] }) {
 const RECORD_TYPE_LABEL: Record<SearchResult["type"], string> = {
   project: "Project",
   task: "Task",
+  program: "Program",
+  sprint: "Sprint",
   risk: "Risk",
   issue: "Issue",
   clash: "Clash",

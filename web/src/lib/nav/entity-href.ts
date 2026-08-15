@@ -5,6 +5,8 @@ export type EntityKind =
   | "project"
   | "task"
   | "milestone"
+  | "program"
+  | "sprint"
   | "risk"
   | "issue"
   | "clash"
@@ -29,6 +31,18 @@ export function entityHref(
       return projectId ? `/projects/${projectId}?task=${id}` : "/my-tasks";
     case "milestone":
       return projectId ? `/projects/${projectId}?milestone=${id}` : "/projects";
+    // program: the portfolio page (app/(console)/portfolio/page.tsx) has no
+    // ?program= query-param reader — it groups projects into <section
+    // id={program.id}> blocks directly, so a URL FRAGMENT is the real deep
+    // link the page already supports (matches the page's actual anchor,
+    // rather than inventing a query param nothing reads).
+    case "program":
+      return `/portfolio#${id}`;
+    // sprint: the sprints console DOES read ?sprint= (app/(console)/sprints
+    // /page.tsx) to select and show a sprint's detail panel — same shape as
+    // the other register kinds below.
+    case "sprint":
+      return `/sprints?sprint=${id}`;
     case "risk":
       return `/risks?risk=${id}`;
     case "issue":
@@ -44,11 +58,17 @@ export function entityHref(
   }
 }
 
-/** The focus query-param name each register page reads to auto-open a record. */
+/**
+ * The focus query-param name each register page reads to auto-open a
+ * record. "program" is deliberately excluded alongside project/task/
+ * milestone — it deep-links via a URL fragment (#<id>), not a query param
+ * (see entityHref's "program" case above).
+ */
 export const FOCUS_PARAM: Record<
-  Exclude<EntityKind, "project" | "task" | "milestone">,
+  Exclude<EntityKind, "project" | "task" | "milestone" | "program">,
   string
 > = {
+  sprint: "sprint",
   risk: "risk",
   issue: "issue",
   clash: "clash",

@@ -44,6 +44,7 @@ const ENTITY_SCOPES = {
   clashes: "clash:read",
   audit: "audit:read",
   time_entries: "time:read",
+  programs: "program:read",
 } as const;
 
 type Entity = keyof typeof ENTITY_SCOPES;
@@ -76,6 +77,9 @@ const ENTITY_COLUMNS: Record<Entity, string[]> = {
   audit: [
     "id", "workspace_id", "actor_type", "actor_id", "actor_label", "action",
     "target_type", "target_id", "before", "after", "created_at",
+  ],
+  programs: [
+    "id", "workspace_id", "code", "name", "rag_status", "owner_id", "created_at",
   ],
 };
 
@@ -221,6 +225,19 @@ async function fetchTimeEntriesRows(sp: URLSearchParams, workspaceId: string, db
   return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters };
 }
 
+async function fetchProgramsRows(_sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+  // GET /programs takes no filter/sort params today — export mirrors that:
+  // fixed name asc, same posture as fetchClashesRows above.
+  const { data, error, count } = await db
+    .from("programs")
+    .select("*", { count: "exact" })
+    .eq("workspace_id", workspaceId)
+    .order("name", { ascending: true })
+    .range(0, MAX_EXPORT_ROWS - 1);
+  if (error) throw new Error(`Export query failed: ${error.message}`);
+  return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters: {} };
+}
+
 async function fetchAuditRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
   const filters = parseAuditFilters(sp);
   let query = db.from("audit_log").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
@@ -253,6 +270,8 @@ async function fetchEntityRows(entity: Entity, url: URL, workspaceId: string, db
       return fetchTimeEntriesRows(sp, workspaceId, db);
     case "audit":
       return fetchAuditRows(sp, workspaceId, db);
+    case "programs":
+      return fetchProgramsRows(sp, workspaceId, db);
   }
 }
 

@@ -1,9 +1,10 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { assertWeekUnlocked, isPeriodLockedError } from "@/lib/governance/period-lock";
 import { createTimeEntrySchema } from "./_schema";
 import { parseTimeEntryFilters, resolveBillable } from "./_query";
 
@@ -79,6 +80,11 @@ export const POST = route(async ({ actor, request }) => {
     .maybeSingle();
   if (!member) throw new NotFoundError("Resource member not found");
 
+  // L-32/R-76: reject logging into a week whose timesheet is already
+  // approved (locked) — clean 422 before the DB backstop trigger would
+  // otherwise raise a 500-shaped PERIOD_LOCKED error (migration 20260815000040).
+  await assertWeekUnlocked(db, parsed.data.member_id, parsed.data.entry_date);
+
   // cost = hours * cost_rate (default cost_rate to 0 if null)
   const costRate: number = member.cost_rate ?? 0;
   const cost = parsed.data.hours * costRate;
@@ -102,8 +108,20 @@ export const POST = route(async ({ actor, request }) => {
     .select()
     .single();
 
-  if (error || !row) {
-    throw new Error(`Time entry insert failed: ${error?.message ?? "no row returned"}`);
+  if (error) {
+    // Belt-and-suspenders: the assertWeekUnlocked check above is the primary
+    // defense, but map the DB backstop trigger's own PERIOD_LOCKED error
+    // (errcode P0011) to the same clean 422 in case of a TOCTOU race.
+    if (isPeriodLockedError(error)) {
+      throw new RuleError(
+        "This week's timesheet is approved and locked — reopen the submission before changing time entries.",
+        "period_locked",
+      );
+    }
+    throw new Error(`Time entry insert failed: ${error.message}`);
+  }
+  if (!row) {
+    throw new Error("Time entry insert failed: no row returned");
   }
 
   await writeAudit({

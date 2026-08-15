@@ -271,6 +271,7 @@ export default async function TimesheetsPage({
                   weekDates={dates}
                   rows={gridRows}
                   capacityHoursPerWeek={selectedMember?.capacity_hours_per_week ?? null}
+                  locked={submissionStatus === "approved"}
                   emptyMessage={
                     selectedMember
                       ? `No time logged for ${selectedMember.name} in the week of ${weekStart}.`

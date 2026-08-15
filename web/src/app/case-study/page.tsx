@@ -192,10 +192,13 @@ created_at            actor_label     action        target
               Clash engine — schedule, resource, and dependency conflicts (cross-project)
             </ModuleRow>
             <ModuleRow>
-              Resource, allocation, timesheets, cost-rate, and capacity
+              Resource, allocation, timesheets (four-eyes submit/approve/reopen), cost-rate, and capacity
             </ModuleRow>
             <ModuleRow>
               Budget: planned / committed / actual / EVM (CPI, SPI, EAC, VAC)
+            </ModuleRow>
+            <ModuleRow>
+              Sprints — commitment snapshots, burndown, and velocity flow metrics
             </ModuleRow>
           </ul>
           <ul className="space-y-2">
@@ -214,6 +217,9 @@ created_at            actor_label     action        target
             </ModuleRow>
             <ModuleRow>
               Change-control pipeline, notifications, deck export (PDF / PPTX / HTML)
+            </ModuleRow>
+            <ModuleRow>
+              Link invites — role-capped, revocable, audited (no email dependency)
             </ModuleRow>
           </ul>
         </div>

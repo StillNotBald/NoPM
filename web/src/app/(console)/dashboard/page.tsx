@@ -17,6 +17,7 @@ import { DashboardProjectRow } from "@/components/dashboard/dashboard-project-ro
 import { CardFreshness } from "@/components/dashboard/card-freshness";
 import { DashboardFilterBar } from "@/components/dashboard/dashboard-filter-bar";
 import { FirstRunWizard } from "@/components/onboarding/first-run-wizard";
+import { GovernanceTour } from "@/components/onboarding/governance-tour";
 import {
   filterDashboardProjects,
   dashboardFilterLabel,
@@ -188,6 +189,16 @@ export default async function DashboardPage({
     <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <PageHeader title="Command Centre" action={<ExportBoardPack />} />
 
+      {/* ── Governance tour (L-50, R-77) — every role incl. viewers, only
+          once the workspace has at least one project anywhere (the
+          first-run wizard below owns the zero-project empty state; this
+          owns the seeded/demo state). Deliberately keyed off the FULL
+          unfiltered project set, not the dashboard's active filter, so
+          narrowing the filter to an empty slice never hides this card. ── */}
+      {allProjects.length > 0 && (
+        <GovernanceTour firstProjectHref={`/projects/${allProjects[0].id}`} />
+      )}
+
       {/* ── Dashboard-wide filter (L-15) ── */}
       <DashboardFilterBar programs={programOptions} projects={projectOptions} />
 
@@ -232,9 +243,23 @@ export default async function DashboardPage({
               {/* L-45 — first-run wizard replaces the old L-49 static pointer
                   link; the connect-agent link now lives as the wizard's own
                   last step. Viewers never get the wizard (canWrite gate is
-                  computed server-side above via the caller's role) and just
-                  keep seeing the plain empty state. */}
-              {canWrite && <FirstRunWizard />}
+                  computed server-side above via the caller's role) — T3
+                  (F2c-mini) restores the plain one-line pointer link for
+                  them so the connect-agent path stays reachable even
+                  without the wizard. Writers who dismissed/completed the
+                  wizard on a prior visit get the equivalent fallback from
+                  inside FirstRunWizard itself (it knows that state
+                  client-side; the server here only knows role). */}
+              {canWrite ? (
+                <FirstRunWizard />
+              ) : (
+                <p className="mt-4 text-center text-xs text-ink-muted">
+                  Or{" "}
+                  <a href="/tokens#connect-agent" className="text-accent hover:underline">
+                    connect an AI agent →
+                  </a>
+                </p>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">

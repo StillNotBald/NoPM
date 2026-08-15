@@ -10,9 +10,9 @@ export const runtime = "nodejs";
  * GET /api/search?q=<query>
  *
  * Full-workspace record search for the authenticated session user.
- * Searches across: projects, tasks, risks, issues, clashes, documents,
- * change_requests, and decisions — case-insensitive ilike, capped ~6 per
- * type, ~30 total.
+ * Searches across: projects, tasks, programs, sprints, risks, issues,
+ * clashes, documents, change_requests, and decisions — case-insensitive
+ * ilike, capped ~6 per type, ~30 total.
  *
  * Response: { data: SearchResult[] }
  */
@@ -21,6 +21,8 @@ export type SearchResult = {
   type:
     | "project"
     | "task"
+    | "program"
+    | "sprint"
     | "risk"
     | "issue"
     | "clash"
@@ -63,6 +65,8 @@ export const GET = route(async ({ actor, request }) => {
   const [
     projectsRes,
     tasksRes,
+    programsRes,
+    sprintsRes,
     risksRes,
     issuesRes,
     clashesRes,
@@ -82,6 +86,22 @@ export const GET = route(async ({ actor, request }) => {
     db
       .from("tasks")
       .select("id, name, project_id, status_type")
+      .eq("workspace_id", ws)
+      .ilike("name", pattern)
+      .limit(PER_TYPE),
+
+    // programs: name OR code (same shape as projects — migration 0034)
+    db
+      .from("programs")
+      .select("id, name, code, rag_status")
+      .eq("workspace_id", ws)
+      .or(`name.ilike.${pattern},code.ilike.${pattern}`)
+      .limit(PER_TYPE),
+
+    // sprints: name (no code column — migration 0037)
+    db
+      .from("sprints")
+      .select("id, name, project_id, state")
       .eq("workspace_id", ws)
       .ilike("name", pattern)
       .limit(PER_TYPE),
@@ -156,6 +176,28 @@ export const GET = route(async ({ actor, request }) => {
       label: row.name as string,
       sublabel: (row.status_type as string | undefined) ?? undefined,
       href: entityHref("task", { id: row.id as string, projectId: row.project_id as string }),
+    });
+  }
+
+  // Programs
+  for (const row of programsRes.data ?? []) {
+    results.push({
+      type: "program",
+      id: row.id as string,
+      label: row.name as string,
+      sublabel: row.code ? `${row.code} · ${row.rag_status ?? ""}` : (row.rag_status as string | undefined) ?? undefined,
+      href: entityHref("program", { id: row.id as string }),
+    });
+  }
+
+  // Sprints
+  for (const row of sprintsRes.data ?? []) {
+    results.push({
+      type: "sprint",
+      id: row.id as string,
+      label: row.name as string,
+      sublabel: (row.state as string | undefined) ?? undefined,
+      href: entityHref("sprint", { id: row.id as string }),
     });
   }
 

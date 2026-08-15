@@ -1,9 +1,9 @@
 import { route } from "@/lib/api/handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RateLimitError } from "@/lib/api/errors";
+import { RateLimitError } from "@/lib/api/errors";
 import { hashToken } from "@/lib/auth/tokens";
-import { assertInviteAcceptable } from "@/lib/governance/invite-guard";
+import { assertInviteAcceptable, throwInviteNotAcceptable } from "@/lib/governance/invite-guard";
 import { performInviteAccept } from "@/lib/governance/invite-accept";
 import { acceptInviteSchema } from "../_schema";
 
@@ -82,7 +82,10 @@ export const POST = route(
       .eq("token_hash", tokenHash)
       .maybeSingle();
     if (loadError) throw loadError;
-    if (!invite) throw new NotFoundError("Invite not found");
+    // T3 (F2c-mini) anti-enumeration: a missing token throws the exact same
+    // shape as an expired/used/revoked one — see invite-guard.ts's
+    // INVITE_ACCEPT_ERROR_MESSAGE comment for the full rationale.
+    if (!invite) throwInviteNotAcceptable();
 
     assertInviteAcceptable(invite);
 

@@ -106,7 +106,7 @@ DELETE /tokens/{id}                        — admin/manager session — revoke 
 GET    /invites                            — admin/manager session — list link invites (L-47/L-48). status is DERIVED (pending|accepted|revoked|expired), never a stored column. Optional ?status= filter.
 POST   /invites                            — admin/manager session — create a link invite. Role-escalation cap (D5): invite.role must be <= the creator's own rank (viewer<member<manager<admin) — 422 if exceeded. Token prefix npi_. expires_at = now + 7 days. invite_url returned ONCE.
 POST   /invites/{id}/revoke                — admin/manager session — revoke a pending invite (422 if not pending)
-POST   /invites/accept                     — scope:none — public, unauthenticated. Provisions a brand-new login (createUser THEN the atomic nopm_accept_invite RPC — writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). Body: { token, password (>=12 chars), display_name } — NO email field, the invite's own email is always used. Rate-limited 10/min per IP (this endpoint has no actor to key the baseline limiter on). No session is returned — sign in via /login afterwards.
+POST   /invites/accept                     — scope:none — public, unauthenticated. Provisions a brand-new login (createUser THEN the atomic nopm_accept_invite RPC — writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). Body: { token, password (>=12 chars), display_name } — NO email field, the invite's own email is always used. Rate-limited 10/min per IP (this endpoint has no actor to key the baseline limiter on). No session is returned — sign in via /login afterwards. Anti-enumeration (T3, F2c-mini): not-found/already-used/revoked/expired ALL return the same uniform 422 (never a distinct 404) — the /invite/[token] page keeps distinct friendly copy, an intentional asymmetry.
 
 GET    /projects                           — scope:project:read  — list projects in workspace
 POST   /projects                           — scope:project:write — create a project
@@ -186,12 +186,12 @@ PATCH  /allocations/{id}                   — scope:resource:write — update a
 DELETE /allocations/{id}                   — scope:resource:write — delete an allocation
 
 GET    /time-entries                       — scope:time:read  — list time entries (?project_id, ?member_id, ?date_from/?date_to entry_date window, ?billable filters available)
-POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate; billable defaults from the project's default_billable when omitted — L-29)
-DELETE /time-entries/{id}                  — scope:time:write — delete a time entry
+POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate; billable defaults from the project's default_billable when omitted — L-29); 422 if the entry's week is locked (an approved timesheet submission covers it — R-76/L-32)
+DELETE /time-entries/{id}                  — scope:time:write — delete a time entry; 422 if the entry's week is locked (same period-close lock as POST)
 
 GET    /timesheet-submissions              — scope:time:read    — list timesheet submissions. Filters: ?member_id, ?status=submitted|approved|rejected, ?period=YYYY-MM-DD (period_start exact match). Ordered submitted_at desc.
 POST   /timesheet-submissions              — scope:time:submit  — submit a weekly timesheet for a member (four-eyes maker step, L-31); period_start must be a Monday; snapshots hours_total/entry_count from that week's time_entries, never recomputed afterwards; 422 if nothing to submit or an open submission already exists for this member+period
-POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject a timesheet submission (four-eyes checker step, L-31); the decider must differ from the submitter (compound id+type comparison, guard symmetry on BOTH verbs — 403 otherwise); rationale required on reject
+POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject|reopen a timesheet submission (four-eyes checker step, L-31; reopen is the R-76/L-32 period-close-lock unlock verb); the decider must differ from the submitter (compound id+type comparison, guard symmetry on ALL THREE verbs — 403 otherwise); approve/reject require status=submitted, reopen requires the INVERSE (status=approved); rationale required on reject and reopen; reopen reverts to submitted and clears the prior decision
 
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual, variance, burn_pct)
 PUT    /projects/{id}/budget               — scope:budget:write — upsert project budget (planned_amount, committed_amount, currency)
@@ -238,11 +238,11 @@ PATCH  /notifications/{id}                 — scope:notification:read — mark 
 POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
 GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id)
-GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, risks, issues, clashes, documents, change requests, decisions
+GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, programs, sprints, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
-GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries|programs (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id; programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
 
 GET    /reports/deck                       — scope:audit:read — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read — portfolio deck (POST variant)

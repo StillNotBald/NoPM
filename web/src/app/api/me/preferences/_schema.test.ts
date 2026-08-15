@@ -17,6 +17,7 @@ describe("preferencesConfigSchema — whitelist (L-39)", () => {
       dateDisplay: "relative",
       defaultLanding: "/dashboard",
       onboarding: { step: 2, dismissed: false },
+      tour: { dismissed: false, visited: ["trust-center"] },
     });
     expect(parsed.success).toBe(true);
   });
@@ -121,6 +122,72 @@ describe("preferencesConfigSchema — onboarding key (L-45, first-run wizard, D7
   it("a config with only onboarding round-trips without inventing the other keys", () => {
     const parsed = preferencesConfigSchema.parse({ onboarding: { dismissed: true } });
     expect(parsed).toEqual({ onboarding: { dismissed: true } });
+  });
+});
+
+describe("preferencesConfigSchema — tour key (L-50, governance tour, R-77)", () => {
+  it("accepts the full tour shape (dismissed + visited)", () => {
+    const parsed = preferencesConfigSchema.safeParse({
+      tour: { dismissed: false, visited: ["trust-center", "review-queue"] },
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts dismissed-only (the X control persists just this)", () => {
+    const parsed = preferencesConfigSchema.safeParse({ tour: { dismissed: true } });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("accepts visited-only, no dismissed yet", () => {
+    const parsed = preferencesConfigSchema.safeParse({ tour: { visited: ["sprints"] } });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.tour).toEqual({ visited: ["sprints"] });
+  });
+
+  it("accepts an empty tour object", () => {
+    expect(preferencesConfigSchema.safeParse({ tour: {} }).success).toBe(true);
+  });
+
+  it("strips unknown keys NESTED inside tour, not just at the top level", () => {
+    const parsed = preferencesConfigSchema.parse({
+      tour: { dismissed: true, notATourField: "sneaky" },
+    });
+    expect(parsed.tour).toEqual({ dismissed: true });
+    expect(parsed.tour).not.toHaveProperty("notATourField");
+  });
+
+  it("caps visited at 12 item ids", () => {
+    const visited = Array.from({ length: 12 }, (_, i) => `item-${i}`);
+    expect(preferencesConfigSchema.safeParse({ tour: { visited } }).success).toBe(true);
+    const tooMany = [...visited, "item-12"];
+    expect(preferencesConfigSchema.safeParse({ tour: { visited: tooMany } }).success).toBe(false);
+  });
+
+  it("rejects a non-boolean dismissed", () => {
+    expect(preferencesConfigSchema.safeParse({ tour: { dismissed: "yes" } }).success).toBe(false);
+  });
+
+  it("rejects a non-array visited", () => {
+    expect(preferencesConfigSchema.safeParse({ tour: { visited: "trust-center" } }).success).toBe(
+      false,
+    );
+  });
+
+  it("rejects a tour value that isn't an object", () => {
+    expect(preferencesConfigSchema.safeParse({ tour: "dismissed" }).success).toBe(false);
+  });
+
+  it("a config with only tour round-trips without inventing the other keys", () => {
+    const parsed = preferencesConfigSchema.parse({ tour: { dismissed: true } });
+    expect(parsed).toEqual({ tour: { dismissed: true } });
+  });
+
+  it("tour and onboarding coexist independently", () => {
+    const parsed = preferencesConfigSchema.safeParse({
+      onboarding: { step: 2 },
+      tour: { dismissed: true },
+    });
+    expect(parsed.success).toBe(true);
   });
 });
 

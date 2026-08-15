@@ -1,4 +1,4 @@
-import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { RuleError, ScopeError } from "@/lib/api/errors";
 import type { Actor } from "@/lib/auth/guard";
 
 /**
@@ -79,32 +79,65 @@ export function assertRevocable(invite: InviteRow, now: Date = new Date()): void
 }
 
 /**
+ * T3 (F2c-mini) anti-enumeration: not-found, expired, already-accepted, and
+ * revoked ALL collapse into this ONE 422 message on the accept API — a
+ * caller scripting against POST /api/invites/accept can never distinguish
+ * "no such token" from "already used" from "expired" via status code or
+ * message (previously: 404 for not-found, and two distinct 422 messages —
+ * each a usable oracle).
+ *
+ * Deliberate ASYMMETRY, not an oversight: the public /invite/[token] PAGE
+ * (app/invite/[token]/page.tsx) keeps its own distinct friendly per-status
+ * copy ("expired" vs "already used" vs "revoked" vs "not found"). That page
+ * reads the invites table directly, server-side, for the one visitor who
+ * already holds the exact link — it is not a scriptable enumeration surface
+ * the way the JSON API is. Only the API collapses.
+ *
+ * email_exists (invite-accept.ts's isEmailExistsError path) stays a
+ * DISTINCT message on purpose too — the caller reaching that branch already
+ * holds a valid, pending invite token for that email (assertInviteAcceptable
+ * passed), so there is no new information disclosed by naming the conflict.
+ */
+export const INVITE_ACCEPT_ERROR_MESSAGE = "This invite link is not valid or has expired.";
+
+/**
+ * Also called directly by the accept route for its "invite not found"
+ * branch (before an InviteRow even exists to hand to assertInviteAcceptable)
+ * so a missing token throws the exact same shape as an expired/used one.
+ */
+export function throwInviteNotAcceptable(): never {
+  throw new RuleError(INVITE_ACCEPT_ERROR_MESSAGE, "invalid_or_expired");
+}
+
+/**
  * Pre-validation on the invite lookup, BEFORE createUser is attempted — the
  * accept route's "clean error" pass (T7, f2b-specs.md). The RPC re-validates
  * under its own FOR UPDATE lock regardless (TOCTOU-safe, mirrors the
- * deletion-commit precedent), so this is a fast, cheap-to-reach 404/422 for
- * the common cases, not the sole source of truth.
+ * deletion-commit precedent), so this is a fast, cheap-to-reach 422 for the
+ * common cases, not the sole source of truth. See INVITE_ACCEPT_ERROR_MESSAGE
+ * above for why every non-pending status maps to the same message.
  */
 export function assertInviteAcceptable(invite: InviteRow, now: Date = new Date()): void {
   const status = deriveInviteStatus(invite, now);
-  if (status === "accepted" || status === "revoked") {
-    throw new RuleError("This invite has already been used", "already_used");
-  }
-  if (status === "expired") {
-    throw new RuleError("This invite has expired", "expired");
+  if (status !== "pending") {
+    throwInviteNotAcceptable();
   }
 }
 
 /**
  * Maps nopm_accept_invite's typed P-code exceptions (migration 0039) to the
  * API's error contract — same shape as the deletion-commit RPC mapping in
- * api/deletion-requests/[id]/approve/route.ts.
+ * api/deletion-requests/[id]/approve/route.ts. Collapsed to the single
+ * anti-enumeration message (see INVITE_ACCEPT_ERROR_MESSAGE above) rather
+ * than a distinct message/status per P-code.
  */
 export function mapAcceptRpcError(error: { message?: string; code?: string } | null | undefined): Error {
   const m = `${error?.message ?? ""} ${error?.code ?? ""}`;
-  if (m.includes("NOT_FOUND") || error?.code === "P0002") return new NotFoundError("Invite not found");
-  if (m.includes("ALREADY_USED") || error?.code === "P0001")
-    return new RuleError("This invite has already been used", "already_used");
-  if (m.includes("EXPIRED") || error?.code === "P0004") return new RuleError("This invite has expired", "expired");
+  const isNotFound = m.includes("NOT_FOUND") || error?.code === "P0002";
+  const isAlreadyUsed = m.includes("ALREADY_USED") || error?.code === "P0001";
+  const isExpired = m.includes("EXPIRED") || error?.code === "P0004";
+  if (isNotFound || isAlreadyUsed || isExpired) {
+    return new RuleError(INVITE_ACCEPT_ERROR_MESSAGE, "invalid_or_expired");
+  }
   return new Error(error?.message || "Failed to accept invite");
 }

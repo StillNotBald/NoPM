@@ -619,6 +619,20 @@ describe("timesheetDecisionSchema", () => {
     expect(r.success).toBe(false);
     expect(errorPaths(r)).toContain("decision");
   });
+
+  // R-76/L-32: "reopened" — the governed unlock verb for the period-close
+  // lock. Schema-layer shape only; assertReopenable (approved-only
+  // precondition) and assertRationaleOnReject (rationale required, same as
+  // reject) live in lib/governance/timesheet-decision.ts, not here.
+  it("accepts reopened WITH a rationale at the schema layer", () => {
+    expect(
+      timesheetDecisionSchema.parse({ decision: "reopened", rationale: "Hours were logged wrong, need to fix" }),
+    ).toEqual({ decision: "reopened", rationale: "Hours were logged wrong, need to fix" });
+  });
+
+  it("does NOT itself require rationale on reopen — schema only validates shape (route enforces it)", () => {
+    expect(timesheetDecisionSchema.safeParse({ decision: "reopened" }).success).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

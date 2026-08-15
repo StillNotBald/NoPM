@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { RuleError, ScopeError } from "@/lib/api/errors";
 import {
   assertCanManageInvites,
   assertRoleWithinCap,
@@ -7,6 +7,8 @@ import {
   assertInviteAcceptable,
   deriveInviteStatus,
   mapAcceptRpcError,
+  throwInviteNotAcceptable,
+  INVITE_ACCEPT_ERROR_MESSAGE,
   type InviteRow,
 } from "./invite-guard";
 import type { Actor } from "@/lib/auth/guard";
@@ -132,56 +134,111 @@ describe("assertRevocable", () => {
   });
 });
 
-describe("assertInviteAcceptable", () => {
+// ---------------------------------------------------------------------------
+// assertInviteAcceptable / throwInviteNotAcceptable — T3 (F2c-mini)
+// anti-enumeration: not-found, expired, already-used, and revoked ALL
+// collapse into the SAME 422 message (previously distinct per status,
+// which was itself an enumeration oracle for a scripted caller).
+// ---------------------------------------------------------------------------
+describe("assertInviteAcceptable — anti-enumeration (T3, F2c-mini)", () => {
   const now = new Date("2026-08-15T00:00:00Z");
 
   it("passes for a pending invite", () => {
     expect(() => assertInviteAcceptable(invite(), now)).not.toThrow();
   });
 
-  it("422s an already-accepted invite ('already used')", () => {
+  it("422s an already-accepted invite with the uniform message", () => {
     expect(() =>
       assertInviteAcceptable(invite({ accepted_at: "2026-08-01T00:00:00Z" }), now),
     ).toThrow(RuleError);
+    try {
+      assertInviteAcceptable(invite({ accepted_at: "2026-08-01T00:00:00Z" }), now);
+    } catch (e) {
+      expect((e as RuleError).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
+    }
   });
 
-  it("422s a revoked invite ('already used')", () => {
-    expect(() => assertInviteAcceptable(invite({ revoked: true }), now)).toThrow(RuleError);
+  it("422s a revoked invite with the SAME uniform message as already-used", () => {
+    try {
+      assertInviteAcceptable(invite({ revoked: true }), now);
+      throw new Error("expected to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(RuleError);
+      expect((e as RuleError).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
+    }
   });
 
-  it("422s an expired invite with a DISTINCT message from already-used", () => {
+  it("422s an expired invite with the SAME uniform message (no longer distinct — anti-enumeration)", () => {
     try {
       assertInviteAcceptable(invite({ expires_at: "2026-08-01T00:00:00Z" }), now);
       throw new Error("expected assertInviteAcceptable to throw");
     } catch (e) {
       expect(e).toBeInstanceOf(RuleError);
-      expect((e as RuleError).message).toMatch(/expired/i);
+      expect((e as RuleError).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
+    }
+  });
+
+  it("expired/used/revoked are indistinguishable by message (the anti-enumeration guarantee)", () => {
+    const messages = [
+      invite({ accepted_at: "2026-08-01T00:00:00Z" }),
+      invite({ revoked: true }),
+      invite({ expires_at: "2026-08-01T00:00:00Z" }),
+    ].map((row) => {
+      try {
+        assertInviteAcceptable(row, now);
+        return null;
+      } catch (e) {
+        return (e as RuleError).message;
+      }
+    });
+    expect(new Set(messages).size).toBe(1);
+  });
+});
+
+describe("throwInviteNotAcceptable", () => {
+  it("throws a RuleError with the SAME uniform message the accept route uses for a missing token", () => {
+    try {
+      throwInviteNotAcceptable();
+      throw new Error("expected to throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(RuleError);
+      expect((e as RuleError).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// mapAcceptRpcError — P-code mapping (mirrors deletion-commit RPC mapping)
+// mapAcceptRpcError — P-code mapping, collapsed to the uniform anti-
+// enumeration message (T3, F2c-mini). Previously NOT_FOUND mapped to a 404
+// NotFoundError while ALREADY_USED/EXPIRED mapped to two distinct 422
+// messages — all three now map to the SAME RuleError/message so the RPC
+// failure path can never be used to distinguish invite states either.
 // ---------------------------------------------------------------------------
-describe("mapAcceptRpcError", () => {
-  it("maps P0002 / NOT_FOUND to NotFoundError (404)", () => {
-    expect(mapAcceptRpcError({ code: "P0002" })).toBeInstanceOf(NotFoundError);
-    expect(mapAcceptRpcError({ message: "NOT_FOUND" })).toBeInstanceOf(NotFoundError);
+describe("mapAcceptRpcError — anti-enumeration (T3, F2c-mini)", () => {
+  it("maps P0002 / NOT_FOUND to the uniform RuleError (422, not 404)", () => {
+    expect(mapAcceptRpcError({ code: "P0002" })).toBeInstanceOf(RuleError);
+    expect(mapAcceptRpcError({ code: "P0002" }).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
+    expect(mapAcceptRpcError({ message: "NOT_FOUND" }).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
   });
 
-  it("maps P0001 / ALREADY_USED to RuleError (422)", () => {
+  it("maps P0001 / ALREADY_USED to the uniform RuleError (422)", () => {
     expect(mapAcceptRpcError({ code: "P0001" })).toBeInstanceOf(RuleError);
-    expect(mapAcceptRpcError({ message: "ALREADY_USED" })).toBeInstanceOf(RuleError);
+    expect(mapAcceptRpcError({ code: "P0001" }).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
+    expect(mapAcceptRpcError({ message: "ALREADY_USED" }).message).toBe(INVITE_ACCEPT_ERROR_MESSAGE);
   });
 
-  it("maps P0004 / EXPIRED to RuleError (422)", () => {
+  it("maps P0004 / EXPIRED to the uniform RuleError (422) — SAME message as NOT_FOUND/ALREADY_USED", () => {
     expect(mapAcceptRpcError({ code: "P0004" })).toBeInstanceOf(RuleError);
-    expect(mapAcceptRpcError({ message: "EXPIRED" })).toBeInstanceOf(RuleError);
+    const messages = [
+      mapAcceptRpcError({ code: "P0002" }).message,
+      mapAcceptRpcError({ code: "P0001" }).message,
+      mapAcceptRpcError({ code: "P0004" }).message,
+    ];
+    expect(new Set(messages).size).toBe(1);
   });
 
   it("falls back to a generic Error for an unrecognised RPC failure", () => {
     const e = mapAcceptRpcError({ message: "connection reset" });
-    expect(e).not.toBeInstanceOf(NotFoundError);
     expect(e).not.toBeInstanceOf(RuleError);
     expect(e.message).toBe("connection reset");
   });

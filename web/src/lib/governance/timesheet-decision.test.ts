@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ScopeError, RuleError } from "@/lib/api/errors";
 import {
   assertDecidable,
+  assertReopenable,
   assertNotSelfDecision,
   assertRationaleOnReject,
   assertNoOpenDuplicate,
@@ -35,6 +36,42 @@ describe("assertDecidable", () => {
   });
 });
 
+describe("assertReopenable (R-76/L-32)", () => {
+  it("passes for status='approved'", () => {
+    expect(() => assertReopenable("approved")).not.toThrow();
+  });
+
+  it("422s (RuleError) when trying to reopen a 'submitted' submission", () => {
+    expect(() => assertReopenable("submitted")).toThrow(RuleError);
+  });
+
+  it("422s (RuleError) when trying to reopen a 'rejected' submission", () => {
+    expect(() => assertReopenable("rejected")).toThrow(RuleError);
+  });
+
+  it("is the inverse precondition of assertDecidable — the same status never passes both", () => {
+    for (const status of ["submitted", "approved", "rejected"]) {
+      const decidableOk = (() => {
+        try {
+          assertDecidable(status);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      const reopenableOk = (() => {
+        try {
+          assertReopenable(status);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      expect(decidableOk && reopenableOk).toBe(false);
+    }
+  });
+});
+
 describe("assertNotSelfDecision — guard symmetry (D2)", () => {
   it("allows a different user to decide", () => {
     expect(() => assertNotSelfDecision(submission(), APPROVER)).not.toThrow();
@@ -53,6 +90,14 @@ describe("assertNotSelfDecision — guard symmetry (D2)", () => {
     expect(() => assertNotSelfDecision(submission(), SUBMITTER)).toThrow(
       "Self-approval is not allowed (four-eyes)",
     );
+  });
+
+  it("blocks the SUBMITTER from reopening their own approved timesheet too — guard symmetry across ALL THREE decision verbs (403 ScopeError)", () => {
+    // Same guard, same call site pattern, now exercised for 'reopened' too —
+    // the mini-wave spec's explicit "guard symmetry across ALL decision
+    // verbs" requirement (mini-wave-specs.md T1).
+    const approvedSubmission = submission({ status: "approved" });
+    expect(() => assertNotSelfDecision(approvedSubmission, SUBMITTER)).toThrow(ScopeError);
   });
 
   it("COMPOUND guard: same id but a DIFFERENT actor type is not a self-decision", () => {
@@ -84,6 +129,24 @@ describe("assertRationaleOnReject", () => {
 
   it("passes on reject with a non-empty rationale", () => {
     expect(() => assertRationaleOnReject("rejected", "Hours look inflated")).not.toThrow();
+  });
+
+  it("422s (RuleError) on reopen with no rationale — same bar as reject (R-76/L-32)", () => {
+    expect(() => assertRationaleOnReject("reopened", undefined)).toThrow(RuleError);
+  });
+
+  it("422s (RuleError) on reopen with a blank/whitespace-only rationale", () => {
+    expect(() => assertRationaleOnReject("reopened", "   ")).toThrow(RuleError);
+  });
+
+  it("passes on reopen with a non-empty rationale", () => {
+    expect(() => assertRationaleOnReject("reopened", "Entry for Tuesday was wrong, needs correcting")).not.toThrow();
+  });
+
+  it("reopen's error message is distinct from reject's", () => {
+    expect(() => assertRationaleOnReject("reopened", undefined)).toThrow(
+      "A rationale is required when reopening a timesheet submission",
+    );
   });
 });
 

@@ -166,6 +166,25 @@ export function FirstRunWizard() {
     router.refresh();
   }
 
+  // T3 (F2c-mini) — connect-agent pointer restored: once the wizard has
+  // resolved its persisted state and determined it should NOT render (the
+  // visitor dismissed it, or already completed it on a prior visit), fall
+  // back to the old L-49 one-line pointer link rather than rendering
+  // nothing at all. Viewers never reach this component in the first place
+  // (dashboard/page.tsx only mounts it when canWrite is true, server-side)
+  // — their equivalent fallback lives in dashboard/page.tsx itself, right
+  // next to the canWrite gate.
+  if (loaded && !visible) {
+    return (
+      <p className="mt-4 text-center text-xs text-ink-muted">
+        Or{" "}
+        <a href="/tokens#connect-agent" className="text-accent hover:underline">
+          connect an AI agent →
+        </a>
+      </p>
+    );
+  }
+
   if (!loaded || !visible) return null;
 
   return (
