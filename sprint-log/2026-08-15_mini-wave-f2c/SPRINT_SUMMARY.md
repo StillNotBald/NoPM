@@ -25,9 +25,8 @@
 
 ## Land evidence
 
-- Commit: _pending_
-- Migration 040: _pending_
-- Seed run: _pending_
-- Deploy: _pending_
-- auth-smoke: _pending_
-- Live probes: _pending_
+- Commit: `b42a6e1` (feat, 44 files, +2,147/−130) — RTM R-76/R-77 same-commit (`rtm:verify`: 67 R-IDs, 432 paths).
+- Migration 040 applied to live Supabase + PostgREST reload.
+- Seed run (live): 2 closed sprints (29/21, 38/38 committed/completed) + 1 active (55 pts, 8 tasks), 3 back-dated burndown transitions, 14+ time entries across 3 members, submission trio (Priya rejected→resubmitted-pending, Daniel approved→week locked).
+- Deploy: `vercel deploy --prod` READY → stillnotbald.com; health 200; auth-smoke **23/23**.
+- Live probes (**13/13**, demo state restored afterwards): create/delete entry in Daniel's APPROVED week → both **422 (lock live)**; reopen without rationale 422 → reopen with rationale **200** (back to submitted) → entry create then worked (201, rolled back) → **re-approved 200** (lock restored for the demo); accept unknown invite token → **uniform 422** (anti-enumeration live); search returns `sprint` entities; `export?entity=programs` 200 CSV; `/api/sprints` shows the 3 seeded sprints; dashboard renders the governance tour; `/login?email=` 200.
