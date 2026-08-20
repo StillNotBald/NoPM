@@ -10,7 +10,7 @@ Deleting a **task** or a **project** is never a single action. Requesting one (`
 
 If the pending request is yours, the Approvals page offers only **Withdraw** (`POST /api/deletion-requests/[id]/withdraw`) instead of Approve/Reject — since four-eyes would just reject your own decision anyway. Withdrawing is terminal: a withdrawn request can't be withdrawn again, but the same target can be re-requested for deletion afterward.
 
-Milestones, risks, and issues are hard-deleted with an audit row only — they do **not** go through this maker-checker flow. That asymmetry is intentional and documented in `SECURITY.md`; only task and project deletion carry the four-eyes gate as of this build.
+Milestones, risks, and issues are hard-deleted with an audit row only — they do **not** go through this maker-checker flow. That asymmetry is intentional and documented in `docs/SECURITY.md`; only task and project deletion carry the four-eyes gate as of this build.
 
 ## Where you approve/reject
 

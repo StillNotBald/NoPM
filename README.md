@@ -61,8 +61,8 @@ Secrets live in `web/.env.local` (gitignored). See `web/.env.example`.
 
 ## Operations & governance docs
 - Go-live / cutover procedure: [`CUTOVER/`](CUTOVER/README.md) — install, deploy, rollback, backup-restore, go/no-go, dry-run records
-- How the pieces fit together: [`system_architecture.md`](system_architecture.md)
-- What is live right now (the production snapshot): [`PROD_DOOR.md`](PROD_DOOR.md)
+- How the pieces fit together: [`system_architecture.md`](docs/architecture/system_architecture.md)
+- What is live right now (the production snapshot): [`PROD_DOOR.md`](docs/ops/PROD_DOOR.md)
 - Test evidence tree: [`testing-log/`](testing-log/README.md)
 - Console user manual (operator / admin / agents): [`user-manual/README.md`](user-manual/README.md)
 

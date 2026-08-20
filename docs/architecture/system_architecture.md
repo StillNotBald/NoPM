@@ -2,7 +2,7 @@
 
 **Status: ACTIVE**
 
-This is a compiled view, not a new source of truth. Every claim below is traceable to [`README.md`](README.md), [`SECURITY.md`](SECURITY.md), [`CLAUDE.md`](CLAUDE.md), `docs/adr/`, or the live codebase — cited inline. Where a fact can drift (counts, versions, migration head), this file points at the file that owns it instead of restating a number that will go stale.
+This is a compiled view, not a new source of truth. Every claim below is traceable to [`README.md`](../../README.md), [`SECURITY.md`](../SECURITY.md), [`CLAUDE.md`](../../CLAUDE.md), `docs/adr/`, or the live codebase — cited inline. Where a fact can drift (counts, versions, migration head), this file points at the file that owns it instead of restating a number that will go stale.
 
 ## 1. System on one page
 
@@ -205,8 +205,8 @@ All three surfaces — and the assistant — terminate at the identical `route()
 
 ## Links, not copies
 
-- Cutover / go-live procedure: [`CUTOVER/`](CUTOVER/README.md)
-- Test evidence for what's currently proven: [`testing-log/`](testing-log/README.md)
-- What is production right now (the live snapshot table): [`PROD_DOOR.md`](PROD_DOOR.md)
-- Full requirement list + status: [`requirements/REQUIREMENTS.md`](requirements/REQUIREMENTS.md)
-- Architectural decisions (the whys behind every section above): [`docs/adr/`](docs/adr/)
+- Cutover / go-live procedure: [`CUTOVER/`](../../CUTOVER/README.md)
+- Test evidence for what's currently proven: [`testing-log/`](../../testing-log/README.md)
+- What is production right now (the live snapshot table): [`PROD_DOOR.md`](../ops/PROD_DOOR.md)
+- Full requirement list + status: [`requirements/REQUIREMENTS.md`](../../requirements/REQUIREMENTS.md)
+- Architectural decisions (the whys behind every section above): [`docs/adr/`](../adr/)
