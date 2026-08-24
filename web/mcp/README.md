@@ -1,6 +1,11 @@
 # NoPM MCP Server
 
-A native STDIO Model Context Protocol (MCP) server that lets any MCP client — Claude Desktop, Cursor, Continue, or a custom agent — drive NoPM as a governed agent.
+A native Model Context Protocol (MCP) server, in two transports, that lets any MCP client — Claude Desktop, Claude Code, claude.ai Connectors, Cursor, Continue, or a custom agent — drive NoPM as a governed agent:
+
+- **STDIO** (`web/mcp/server.mjs`) — a local process, for local MCP clients (Claude Desktop, Claude Code, Cursor).
+- **Streamable HTTP** (`/api/mcp` on the deployed app) — a remote endpoint, for hosted/remote MCP clients (claude.ai Connectors, or any client that speaks Streamable HTTP).
+
+Both transports share one tool registry (`web/mcp/tools.mjs` — the same registry the in-app BYOK assistant uses) and the same governance posture: neither transport holds privileged credentials of its own. All capability is bounded by whatever scoped `npm_` PAT the caller supplies; the underlying REST API enforces scopes, audit, and maker-checker unchanged.
 
 NoPM bundles no LLM. This server is a thin bridge: it maps MCP tool calls to NoPM REST API calls authenticated with a scoped Bearer PAT. All governance (audit trail, PAT scopes, maker-checker on task and project deletion) is enforced server-side.
 
@@ -38,13 +43,23 @@ A cloned repo already contains `.mcp.json` at the root. Set `NOPM_TOKEN` in your
 
 Replace `/absolute/path/to/NoPM/web/mcp/server.mjs` with the real absolute path on your machine.
 
-#### Cursor / Continue / other MCP clients
+#### Cursor / Continue / other local MCP clients
 
 Use the same `command`, `args`, and `env` block — the format varies by client but the values are identical.
 
+#### claude.ai Connectors (remote, no local process)
+
+`claude.ai` → **Settings → Connectors → Add custom connector**:
+
+- **Name**: `NoPM`
+- **URL**: `https://stillnotbald.com/api/mcp`
+- **Authentication**: send `Authorization: Bearer npm_your_token_here` as a custom header, if your claude.ai connector UI offers a header field. Not every client surfaces a plain-header option for custom connectors — some expect OAuth. If yours doesn't accept a static header, use a local bridge instead (e.g. `npx mcp-remote https://stillnotbald.com/api/mcp --header "Authorization: Bearer npm_your_token_here"`) registered as a normal local MCP server.
+
+There is no separate "local dev" URL config for this transport beyond pointing it at wherever the app is reachable — for local development point it at `http://localhost:3000/api/mcp` (or whatever port `next dev` bound to) instead.
+
 ### 3. Verify
 
-Restart your MCP client. In Claude Desktop you should see the NoPM tools in the tool picker. Ask: *"List my NoPM projects"* — the agent will call `list_projects` and return the results.
+Restart your MCP client. You should see the NoPM tools in its tool picker. Ask: *"List my NoPM projects"* — the agent will call `list_projects` and return the results.
 
 ---
 
@@ -116,15 +131,16 @@ risk:write  issue:write
 
 ---
 
-## Running the smoke test
+## Running the smoke tests
 
 From `web/`:
 
 ```sh
-node scripts/mcp-smoke.mjs
+node scripts/mcp-smoke.mjs        # STDIO transport (spawns mcp/server.mjs)
+node scripts/mcp-http-smoke.mjs   # Streamable HTTP transport (hits /api/mcp)
 ```
 
-The script reads `NOPM_TOKEN` (or `NOPM_MAKER_TOKEN`) and `NEXT_PUBLIC_APP_URL` from `web/.env.local`, spawns the MCP server, runs `tools/list` and `list_projects`, and prints the results.
+Both scripts read `NOPM_TOKEN` (or `NOPM_MAKER_TOKEN`) from `web/.env.local`, run `tools/list` and `tools/call list_projects`, and print the results. `mcp-smoke.mjs` also reads `NEXT_PUBLIC_APP_URL` (the REST API it proxies to). `mcp-http-smoke.mjs` targets `NOPM_HTTP_MCP_URL` (default `http://localhost:3000/api/mcp`) and additionally checks that a request with no `Authorization` header gets a 401 — requires the dev server (`npm run dev`) running first.
 
 ---
 
@@ -132,6 +148,7 @@ The script reads `NOPM_TOKEN` (or `NOPM_MAKER_TOKEN`) and `NEXT_PUBLIC_APP_URL` 
 
 ```sh
 # from web/
-npm run mcp          # start the server (NOPM_TOKEN must be set in env)
+npm run mcp          # start the STDIO server (NOPM_TOKEN must be set in env)
 node --check mcp/server.mjs   # syntax check only
+npm run dev           # Streamable HTTP transport is just src/app/api/mcp/route.ts — runs with the app
 ```

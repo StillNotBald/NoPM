@@ -14,6 +14,19 @@ Ship a standalone **stdio MCP server** (`web/mcp/server.mjs`, `@modelcontextprot
 - **Least privilege** — the tool set mirrors the assistant's (15 read/create/request tools); it deliberately has no approve/admin/token tools (a PAT minted for it should carry only the scopes it needs).
 
 ## Consequences
-- New dependency `@modelcontextprotocol/sdk` (server-only; not imported by the web app).
+- New dependency `@modelcontextprotocol/sdk` (server-only; not imported by the web app, except for the HTTP transport route below).
 - Verified end-to-end: an MCP client → server → live `https://stillnotbald.com` API with a scoped PAT returns the tool list + `list_projects` (6 projects).
-- Future: an SSE/HTTP transport for hosted use; deriving the tool set from the OpenAPI spec (the assistant already has an OpenAPI↔tools drift+least-privilege test that this can share).
+- Future: deriving the tool set from the OpenAPI spec (the assistant already has an OpenAPI↔tools drift+least-privilege test that this can share).
+
+## Update 2026-08-24 — remote Streamable HTTP transport
+
+Added `web/src/app/api/mcp/route.ts`, a second transport for the same `TOOL_REGISTRY` (`web/mcp/tools.mjs`), using the SDK's `WebStandardStreamableHTTPServerTransport` (Fetch-API-native, so it runs as a normal Next.js route handler — no separate server process). This is what makes NoPM addable as a **remote MCP connector** (e.g. `claude.ai` → Settings → Connectors), where a local stdio process isn't an option.
+
+Same governance posture as the stdio server, just per-request instead of per-process:
+- No token is baked into the deployment. Each HTTP request must carry its own `Authorization: Bearer npm_...` PAT, forwarded verbatim to this same origin's REST API for that single request — the route holds no privileged credential of its own.
+- A request with no `Authorization` header at all is rejected with 401 before touching any tool logic. A present-but-invalid/expired/under-scoped token is **not** pre-validated by this route — it flows through to the REST API exactly like the stdio server, and any resulting `{ error }` (401/403/422) is surfaced as a normal tool result, never swallowed.
+- Stateless mode (`sessionIdGenerator: undefined`) — a fresh `Server` + transport is built per HTTP request, matching Vercel's serverless execution model; nothing about a caller's identity is held in memory across requests.
+
+Verified end-to-end against a local dev server: `initialize` handshake, `tools/list` (24 tools), `tools/call list_projects` (live data via a real PAT), and a bare unauthenticated POST returning 401 — see `web/scripts/mcp-http-smoke.mjs`.
+
+Not done as part of this update: OAuth for the connector (some MCP clients require it to auto-discover a remote server rather than accepting a static bearer header) and CORS (not needed for the claude.ai server-to-server call pattern this was verified against).
