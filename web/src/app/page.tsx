@@ -32,30 +32,26 @@ export default function Landing() {
 
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-14 pt-16 lg:grid-cols-[1.05fr_1fr]">
         <div>
-          <p className="rise text-sm font-medium uppercase tracking-widest text-accent">
-            AI-native · governance-grade · lite
-          </p>
-          <h1 className="rise rise-1 mt-4 font-display text-4xl sm:text-5xl xl:text-6xl leading-[1.05] tracking-tight text-ink">
-            Project governance your AI agent can actually operate.
+          <h1 className="rise font-display text-4xl sm:text-5xl xl:text-6xl leading-[1.05] tracking-tight text-ink">
+            Project governance your AI agent can operate.
           </h1>
-          <p className="rise rise-2 mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
-            NoPM is a lite, API-first project-management tool — like the <code className="font-mono text-ink">aws</code> or{" "}
-            <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Your own agent drives it
-            over a documented REST API. Immutable audit, scoped tokens, and four-eyes approval are enforced in the data
-            layer — not bolted onto the UI.
+          <p className="rise rise-1 mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
+            A lite, API-first PM tool your own agent drives — like the <code className="font-mono text-ink">aws</code> or{" "}
+            <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Immutable audit,
+            scoped tokens, and four-eyes approval are enforced in the data layer, not bolted onto the UI.
           </p>
-          <div className="rise rise-3 mt-8 flex flex-wrap gap-3">
+          <div className="rise rise-2 mt-8 flex flex-wrap items-center gap-4">
             <DemoLoginButton />
-            <Link href="/login" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
-              Sign in →
-            </Link>
             <a href="/llms.txt" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
               Read the agent API
             </a>
+            <Link href="/login" className="text-sm font-medium text-ink-secondary hover:text-ink">
+              Sign in →
+            </Link>
           </div>
         </div>
 
-        <div className="rise rise-2">
+        <div className="rise rise-1">
           <TerminalCard title="an agent drives NoPM">
             <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-white/80">
 {`$ nopm tasks rm task_8f3a \\
@@ -74,7 +70,7 @@ created_at   actor_label      action       target
             </pre>
           </TerminalCard>
           <p className="mt-3 text-xs text-ink-muted">
-            The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI, an <code className="font-mono">llms.txt</code> index, and scoped Bearer tokens.
+            The same surface a human uses: {metrics.endpoints} documented endpoints, OpenAPI, <code className="font-mono">llms.txt</code>, scoped Bearer tokens.
           </p>
         </div>
       </section>
