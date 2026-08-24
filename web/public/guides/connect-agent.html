@@ -229,12 +229,12 @@
   </div>
 
   <h1 class="rise">Connecting an AI agent to NoPM</h1>
-  <p class="dek rise rise-1">Two ways to hand NoPM to a real agent — a remote connector for Claude on the web, and a local process for Claude Desktop or Claude Code. Both routes are the same governed REST API behind a scoped token; nothing about the agent surface is a special case.</p>
+  <p class="dek rise rise-1">Two ways to hand NoPM to a real agent: a remote connector for Claude on the web, and a local process for Claude Desktop or Claude Code. Both routes are the same governed REST API behind a scoped token; nothing about the agent surface is a special case.</p>
 
   <div class="callout rise rise-2">
     <span class="callout-label">The line for the room</span>
-    <p>NoPM ships no model. The agent brings its own intelligence and calls the same REST API a human console does, through a permission-scoped Bearer token. Every write still lands one immutable audit row, and deleting a project or task still needs a second, different approver — the agent cannot route around governance, it operates inside it.</p>
-    <p>The claude.ai run is the sharper proof: a foreign, general-purpose agent — not code we wrote for the occasion — reasons over real project data and hits the same guardrails a human would.</p>
+    <p>NoPM ships no model. The agent brings its own intelligence and calls the same REST API a human console does, through a permission-scoped Bearer token. Every write still lands one immutable audit row, and deleting a project or task still needs a second, different approver. The agent cannot route around governance — it operates inside it.</p>
+    <p>The claude.ai run is the sharper proof: a foreign, general-purpose agent (not code we wrote for the occasion) reasons over real project data and hits the same guardrails a human would.</p>
   </div>
 
   <hr class="div">
@@ -254,20 +254,20 @@
       </li>
       <li>
         <strong>Set authentication to "None," then add a header</strong>
-        <span>This isn't unauthenticated — "None" tells claude.ai to skip its own OAuth handshake, since NoPM authenticates via a plain API key instead. Under Request headers: name <span class="field">authorization</span>, value <span class="field">Bearer &lt;token&gt;</span>. Save, then Connect.</span>
+        <span>This isn't unauthenticated: "None" tells claude.ai to skip its own OAuth handshake, since NoPM authenticates via a plain API key instead. Under Request headers: name <span class="field">authorization</span>, value <span class="field">Bearer &lt;token&gt;</span>. Save, then Connect.</span>
       </li>
     </ol>
 
     <div class="script">
       <span class="script-label">Live in the room</span>
       <p>Type: <span class="say">"Use the NoPM connector to list my projects."</span></p>
-      <p>Claude asks permission to call <span class="say">List projects</span> — approve it live. That prompt <em>is</em> a beat: the room watches an external agent get stopped and asked before it touches anything.</p>
-      <p>The response reads real portfolio data and volunteers an insight worth having: which "green" projects are actually just downstream of an amber one that hasn't broken yet. Nobody scripted that line — it's the model reasoning over governed data it was scoped to read.</p>
+      <p>Claude asks permission to call <span class="say">List projects</span>. Approve it live. That prompt <em>is</em> a beat: the room watches an external agent get stopped and asked before it touches anything.</p>
+      <p>The response reads real portfolio data and volunteers an insight worth having: which "green" projects are actually just downstream of an amber one that hasn't broken yet. Nobody scripted that line; it's the model reasoning over governed data it was scoped to read.</p>
     </div>
 
     <div class="trouble">
       <span class="trouble-label">If it 401s</span>
-      <p>claude.ai's header field can mangle a pasted value on a slow paste. Revoke the token in NoPM, mint a fresh one, remove the connector, and re-add it — don't try to edit the header on an existing connector; there's no edit path, only remove and re-add.</p>
+      <p>claude.ai's header field can mangle a pasted value on a slow paste. Revoke the token in NoPM, mint a fresh one, then remove and re-add the connector. There's no edit path for an existing connector's header — only remove and re-add.</p>
     </div>
   </div>
 
@@ -278,11 +278,11 @@
     <ol class="steps">
       <li>
         <strong>Mint a token</strong>
-        <span>Same as above — NoPM → Settings → API Tokens → New Token.</span>
+        <span>Same as above: NoPM → Settings → API Tokens → New Token.</span>
       </li>
       <li>
         <strong>Point the client at it</strong>
-        <span>Claude Code: this repo already ships <span class="field">.mcp.json</span> — set <span class="field">NOPM_TOKEN</span> in your shell and reopen the repo. Claude Desktop: add the block below to <span class="field">claude_desktop_config.json</span>.</span>
+        <span>Claude Code: this repo already ships <span class="field">.mcp.json</span>. Set <span class="field">NOPM_TOKEN</span> in your shell and reopen the repo. Claude Desktop: add the block below to <span class="field">claude_desktop_config.json</span>.</span>
         <div class="term">
           <div class="term-bar">
             <span class="term-dot" style="background:#ff5f57"></span>
@@ -306,7 +306,7 @@
       </li>
       <li>
         <strong>Restart, then ask</strong>
-        <span>Restart the client. 24 tools appear — projects, tasks, risks, issues, budget, clashes, resources, audit. Same prompt as Part A works identically.</span>
+        <span>Restart the client. 24 tools appear: projects, tasks, risks, issues, budget, clashes, resources, audit. Same prompt as Part A works identically.</span>
       </li>
     </ol>
 
