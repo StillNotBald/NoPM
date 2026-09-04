@@ -15,6 +15,15 @@
         "value": "inter",
         "createdAt": "2026-08-24T01:29:23.840Z",
         "reason": "User confirmed Inter is intentional in the investor-guide artifact; matches NoPM's own product font stack (var(--font-inter) in globals.css)"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "web/src/components/layout/sidebar.tsx"
+        ],
+        "createdAt": "2026-09-04T17:02:33.485Z",
+        "reason": "Owner-approved blue retheme (2026-08-13): active nav item uses a 2px accent left border; confirmed intentional 2026-09-05"
       }
     ]
   }
