@@ -30,6 +30,16 @@ describe("buildSecurityHeaders", () => {
     expect(getHeader(headers, "Strict-Transport-Security")).toBeUndefined();
   });
 
+  it("allow-lists the Cloudflare Web Analytics beacon (script) and its RUM endpoint (connect)", () => {
+    const csp = getHeader(buildSecurityHeaders({ isProd: true, supabaseUrl: SUPABASE_URL }), "Content-Security-Policy")!;
+    const scriptSrc = csp.split("; ").find((d) => d.startsWith("script-src"))!;
+    const connectSrc = csp.split("; ").find((d) => d.startsWith("connect-src"))!;
+    expect(scriptSrc).toContain("https://static.cloudflareinsights.com");
+    expect(connectSrc).toContain("https://cloudflareinsights.com");
+    // exact origins only — no wildcard that would admit other Cloudflare hosts
+    expect(csp).not.toContain("*.cloudflareinsights.com");
+  });
+
   it("includes the supabase origin and its wss twin in connect-src (and img-src origin)", () => {
     const headers = buildSecurityHeaders({ isProd: true, supabaseUrl: SUPABASE_URL });
     const csp = getHeader(headers, "Content-Security-Policy")!;

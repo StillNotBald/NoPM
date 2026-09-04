@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { RotateCw } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -21,11 +21,22 @@ export function CardFreshness({ fetchedAt, className }: { fetchedAt: string; cla
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
 
-  const stamp = new Date(fetchedAt).toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  // The stamp is rendered in the VIEWER's locale/timezone, which the server
+  // (Vercel, UTC) cannot know — formatting it during SSR produced a text
+  // hydration mismatch (React #418) for any viewer outside UTC. So the
+  // server renders a neutral placeholder and the client fills the local
+  // time in after mount.
+  const [stamp, setStamp] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setStamp(
+      new Date(fetchedAt).toLocaleTimeString("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    );
+  }, [fetchedAt]);
 
   function refresh() {
     setRefreshing(true);
@@ -38,7 +49,7 @@ export function CardFreshness({ fetchedAt, className }: { fetchedAt: string; cla
   return (
     <div className={cn("flex items-center gap-1.5", className)}>
       <span className="font-mono text-xs text-ink-muted tabular-nums" title={new Date(fetchedAt).toLocaleString("en-US")}>
-        Updated {stamp}
+        Updated {stamp ?? "…"}
       </span>
       <button
         type="button"

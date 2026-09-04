@@ -89,6 +89,8 @@ to embed. `'none'` forbids even same-origin embedding (as does
 `X-Frame-Options: DENY`), which would blank the PDF preview; `'self'` /
 `SAMEORIGIN` still block every cross-site clickjacking frame.
 
+**Cloudflare Web Analytics (added after the first production sweep, 2026-09-05).** stillnotbald.com sits behind Cloudflare, which injects `https://static.cloudflareinsights.com/beacon.min.js` into every HTML response at the edge and the beacon reports to `https://cloudflareinsights.com`. Neither exists in a local build, so the first production deploy blocked the beacon (analytics silently stopped). Both are allow-listed by exact origin in `script-src` / `connect-src`.
+
 **Other origins checked and excluded.** The BYOK assistant's provider
 clients (`src/lib/assistant/providers/{openai,anthropic,google,openrouter}.ts`)
 call OpenAI/Anthropic/Google/OpenRouter's APIs, but only from server-side

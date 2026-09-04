@@ -48,6 +48,14 @@ See the R-78/79/80 rows in `requirements/TRACEABILITY.md`. New ADR: `docs/adr/00
 
 The sweep dismissed one hint and toggled nav on the owner's admin account; those keys were removed from that account's `user_preferences` afterwards (no trace left).
 
+## Live verification (2026-09-05, after the owner's `vercel deploy --prod`)
+- Headers confirmed on `https://stillnotbald.com/` (CSP, HSTS, SAMEORIGIN, referrer policy, no `X-Powered-By`).
+- `auth-smoke.mjs`: 23/23 pages 200. Playwright `console-pages.spec.ts` vs live: 20/20 incl. `/start`.
+- Same-origin iframes OK under the new frame policy: `/email-previews` renders 9 preview iframes with content. (The seeded documents expose no file-backed doc via the register's deep links, so the PDF-viewer iframe was not exercised live; `X-Frame-Options: SAMEORIGIN` on `/api/documents/:id/file` is the same-origin guarantee.)
+- **Two live-only findings, both fixed in the follow-up commit:**
+  1. Cloudflare injects its Web Analytics beacon (`static.cloudflareinsights.com`) at the edge — invisible locally, blocked by the CSP in prod. Allow-listed by exact origin (`script-src` + `connect-src`), ADR 0011 amended.
+  2. React #418 hydration mismatch on `/dashboard` only: `CardFreshness` formatted the "Updated HH:MM:SS" stamp with `toLocaleTimeString` during SSR (Vercel = UTC) and again on the client (viewer = UTC+8). Pre-existing, masked locally because server and client share a clock. Now rendered client-side after mount.
+
 ## Process notes
 - All build work ran on **AI implementation agents** on disjoint file sets (owner's token-spend rule); the shared foundation (`lib/prefs` store, schema keys) was hand-built first. AI-assisted did review, integration, gates.
 - The design hook (`impeccable`) re-flagged the sidebar's pre-existing active-item accent border (`side-tab`). Not introduced here, owner-approved retheme styling; left unchanged and **not suppressed** — owner's call whether to persist an exception.

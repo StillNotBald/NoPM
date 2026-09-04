@@ -64,11 +64,26 @@ export function buildCsp(opts: BuildSecurityHeadersOptions): string {
   const supabaseHttps = supabase?.https ?? "https://*.supabase.co";
   const supabaseWss = supabase?.wss ?? "wss://*.supabase.co";
 
-  const scriptSrc = ["'self'", "'unsafe-inline'", ...(isProd ? [] : ["'unsafe-eval'"])];
+  // Cloudflare Web Analytics: the edge injects
+  // https://static.cloudflareinsights.com/beacon.min.js into every HTML
+  // response on stillnotbald.com and the beacon POSTs to
+  // https://cloudflareinsights.com/cdn-cgi/rum. Neither appears in a local
+  // build, which is how the first cut of this policy blocked them in prod
+  // (browser sweep 2026-09-05). Allow-listed by exact origin.
+  const CF_INSIGHTS_SCRIPT = "https://static.cloudflareinsights.com";
+  const CF_INSIGHTS_CONNECT = "https://cloudflareinsights.com";
+
+  const scriptSrc = [
+    "'self'",
+    "'unsafe-inline'",
+    CF_INSIGHTS_SCRIPT,
+    ...(isProd ? [] : ["'unsafe-eval'"]),
+  ];
   const connectSrc = [
     "'self'",
     supabaseHttps,
     supabaseWss,
+    CF_INSIGHTS_CONNECT,
     ...(isProd ? [] : ["ws://localhost:*", "http://localhost:*"]),
   ];
 
