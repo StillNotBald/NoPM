@@ -17,6 +17,7 @@ Email **hello@stillnotbald.com** with details and reproduction steps. You'll get
 - **Maker-checker**: self-approval of a deletion request must be impossible (scope + API guard + DB CHECK).
 - **Maker-checker scope (documented asymmetry)**: four-eyes deletion extends to projects as well as tasks; milestones/risks/issues remain single-step audit-only hard deletes by owner decision, not by omission (`requirements/devops-wave1/README.md`, Decision 3).
 - **Secrets at rest**: PATs are SHA-256 hashed; BYOK provider keys are AES-256-GCM encrypted and never returned by any endpoint.
+- **Browser hardening (ADR 0011)**: every response carries a CSP (`default-src 'self'`, Supabase-only `connect-src`, `frame-ancestors 'self'`, `object-src 'none'`), HSTS (prod), `nosniff`, `X-Frame-Options: SAMEORIGIN`, a strict referrer policy and a deny-by-default `Permissions-Policy`; `X-Powered-By` is stripped. Built by `web/src/lib/security/headers.ts` (unit-tested). Known step-1 gap: `script-src` still allows `'unsafe-inline'` (Next inline RSC payload) — a nonce-strict CSP is the tracked follow-up.
 
 ## Standing known items
 

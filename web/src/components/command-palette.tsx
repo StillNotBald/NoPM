@@ -26,6 +26,7 @@ import {
   Lightbulb,
   Layers,
   Repeat,
+  Rocket,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -107,6 +108,16 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
       action: () => {
         onClose();
         inspector.open(<ProjectForm mode="create" scaffold />, "New Project");
+      },
+    },
+    {
+      id: "nav-start",
+      icon: <Rocket size={16} />,
+      label: "Getting started",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/start");
       },
     },
     {

@@ -25,8 +25,8 @@
  * and this hook is per-user DISPLAY state, never governance data (ADR 0009).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { apiGet, apiPut } from "@/lib/api-client";
+import { useCallback } from "react";
+import { usePreferences } from "@/lib/prefs/use-preferences";
 import type { PreferencesConfig } from "@/app/api/me/preferences/_schema";
 
 // ── Pure config-patch helpers (unit-testable without mounting anything) ───
@@ -67,57 +67,31 @@ export interface RegisterPreferences {
 }
 
 export function useRegisterPreferences(register: string): RegisterPreferences {
-  const [ready, setReady] = useState(false);
-  const [demo, setDemo] = useState(false);
-  const [columns, setColumnsState] = useState<string[] | null>(null);
-  const [groupBy, setGroupByState] = useState<string | null>(null);
-  const configRef = useRef<PreferencesConfig>({});
-  const canWriteRef = useRef(false);
+  const prefs = usePreferences();
 
-  useEffect(() => {
-    let cancelled = false;
-    apiGet<{ config?: PreferencesConfig; demo?: boolean }>("/api/me/preferences")
-      .then((data) => {
-        if (cancelled || !data) return;
-        const config = data.config ?? {};
-        configRef.current = config;
-        const isDemo = Boolean(data.demo);
-        canWriteRef.current = !isDemo;
-        setDemo(isDemo);
-        setColumnsState(config.columns?.[register] ?? null);
-        setGroupByState(config.groupBy?.[register] ?? null);
-      })
-      .catch(() => {
-        // Anonymous / token caller / offline — ready still flips below so
-        // the caller stops waiting and falls back to its own default.
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [register]);
+  const columns = prefs.config.columns?.[register] ?? null;
+  const groupBy = prefs.config.groupBy?.[register] ?? null;
 
+  // R-78 — sourced from the shared prefs store instead of a private GET.
+  // The PUT partial now only needs THIS register's slice (`{ columns: {
+  // [register]: next } }`) — the server's merge-upsert (mergePreferencesConfig)
+  // merges it into the stored `columns` record one register at a time, so
+  // sibling registers' columns are never clobbered. Demo/anonymous/token
+  // callers get the same no-op-the-PUT behaviour the store already applies
+  // uniformly (updatePreferences), matching every other prefs consumer.
   const setColumns = useCallback(
     (next: string[]) => {
-      if (!canWriteRef.current) return;
-      const nextConfig = patchConfigColumns(configRef.current, register, next);
-      configRef.current = nextConfig;
-      apiPut("/api/me/preferences", { config: nextConfig }).catch(() => {});
+      void prefs.update(patchConfigColumns({}, register, next));
     },
-    [register],
+    [register, prefs],
   );
 
   const setGroupBy = useCallback(
     (next: string | null) => {
-      if (!canWriteRef.current) return;
-      const nextConfig = patchConfigGroupBy(configRef.current, register, next);
-      configRef.current = nextConfig;
-      apiPut("/api/me/preferences", { config: nextConfig }).catch(() => {});
+      void prefs.update(patchConfigGroupBy({}, register, next));
     },
-    [register],
+    [register, prefs],
   );
 
-  return { ready, demo, columns, groupBy, setColumns, setGroupBy };
+  return { ready: prefs.ready, demo: prefs.demo, columns, groupBy, setColumns, setGroupBy };
 }

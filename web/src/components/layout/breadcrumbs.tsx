@@ -12,6 +12,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   "my-work": "My Work",
   "my-tasks": "My Tasks",
   dashboard: "Dashboard",
+  start: "Getting started",
   projects: "Projects",
   portfolio: "Portfolio",
   documents: "Documents",

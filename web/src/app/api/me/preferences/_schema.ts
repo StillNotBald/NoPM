@@ -71,6 +71,35 @@ const tourSchema = z.object({
   visited: z.array(z.string().min(1).max(64)).max(12).optional(),
 });
 
+/**
+ * Navigation mode (R-78, progressive disclosure — sprint 2026-09-04).
+ *   { mode?: "essentials" | "all" }
+ * "essentials" shows the 7-item core sidebar; "all" shows every module.
+ * The cookie (per device) is the first-paint source of truth; this DB
+ * mirror lets a signed-in non-demo user's choice follow the account.
+ */
+const navSchema = z.object({
+  mode: z.enum(["essentials", "all"]).optional(),
+});
+
+/**
+ * Page hints (R-78) — one-line "what is this page for" strips, dismissed
+ * per page id. Capped at 40 ids (there are ~25 console pages).
+ */
+const hintsSchema = z.object({
+  dismissed: z.array(z.string().min(1).max(64)).max(40).optional(),
+});
+
+/**
+ * Getting-started checklist (R-78) — the /start page's dismiss flag plus
+ * the ids of read-only steps the user has clicked through (steps that can't
+ * be derived from workspace data, e.g. "read the audit trail").
+ */
+const startSchema = z.object({
+  dismissed: z.boolean().optional(),
+  visited: z.array(z.string().min(1).max(64)).max(12).optional(),
+});
+
 export const preferencesConfigSchema = z.object({
   columns: columnsSchema.optional(),
   groupBy: groupBySchema.optional(),
@@ -79,6 +108,9 @@ export const preferencesConfigSchema = z.object({
   defaultLanding: z.string().min(1).max(200).optional(),
   onboarding: onboardingSchema.optional(),
   tour: tourSchema.optional(),
+  nav: navSchema.optional(),
+  hints: hintsSchema.optional(),
+  start: startSchema.optional(),
 });
 
 export type PreferencesConfig = z.infer<typeof preferencesConfigSchema>;
@@ -112,6 +144,49 @@ export function configSizeBytes(config: unknown): number {
 
 export function isConfigWithinSizeCap(config: unknown): boolean {
   return configSizeBytes(config) <= MAX_CONFIG_BYTES;
+}
+
+/**
+ * Merge an incoming (partial) config onto the existing stored config for a
+ * merge-upsert PUT (L-39). Two callers — first-run-wizard.tsx and
+ * governance-tour.tsx — legitimately PUT only ONE top-level key each
+ * (`{ config: { onboarding } }` / `{ config: { tour } }`); a naive
+ * verbatim-replace upsert (the old behaviour) silently wiped every other
+ * saved key (columns, groupBy, density, dateDisplay, defaultLanding) any
+ * time either component dismissed. Semantics:
+ *
+ *   - top-level keys present in `incoming` OVERRIDE the same key in
+ *     `existing`; a key absent from `incoming` is PRESERVED from `existing`.
+ *   - `columns` and `groupBy` are record-shaped (per-register), so they
+ *     merge one level deeper: a register key present in the incoming record
+ *     overrides that register's value, other registers already saved on
+ *     `existing` are preserved untouched.
+ *   - every other key (`density`, `dateDisplay`, `defaultLanding`,
+ *     `onboarding`, `tour`) is replaced whole when present in `incoming` —
+ *     no deeper merge (e.g. a partial `{ onboarding: { step: 3 } }` REPLACES
+ *     the whole stored `onboarding` object, it does not merge into it; each
+ *     caller already sends its own complete object for the key it owns).
+ *
+ * There is deliberately no protocol for DELETING a previously-saved key
+ * (e.g. clearing `defaultLanding` back to "unset") — every current caller
+ * only ever adds/replaces keys, never removes one. An explicit-null /
+ * tombstone convention for deletion is out of scope for this fix; add one
+ * if a future caller needs it.
+ */
+export function mergePreferencesConfig(
+  existing: PreferencesConfig,
+  incoming: PreferencesConfig,
+): PreferencesConfig {
+  const merged: PreferencesConfig = { ...existing, ...incoming };
+
+  if (existing.columns || incoming.columns) {
+    merged.columns = { ...existing.columns, ...incoming.columns };
+  }
+  if (existing.groupBy || incoming.groupBy) {
+    merged.groupBy = { ...existing.groupBy, ...incoming.groupBy };
+  }
+
+  return merged;
 }
 
 /**

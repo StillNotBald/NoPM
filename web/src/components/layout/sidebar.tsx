@@ -1,99 +1,58 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Inbox,
-  ListTodo,
-  LayoutDashboard,
-  FolderKanban,
-  Map,
-  Route,
-  FileText,
-  Layers,
-  AlertTriangle,
-  CircleAlert,
-  Zap,
-  Users,
-  Wallet,
-  Clock,
-  ListChecks,
-  GitPullRequest,
-  Gavel,
-  ClipboardCheck,
-  ShieldCheck,
-  KeyRound,
-  Mail,
-  type LucideIcon,
-} from "lucide-react";
+import { LayoutGrid, Minimize2, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ProjectSwitcher } from "./project-switcher";
-
-type NavItem = { href: string; label: string; icon: LucideIcon };
-
-type NavSection = {
-  label: string;
-  items: NavItem[];
-};
-
-const NAV_SECTIONS: NavSection[] = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/my-work", label: "My Work", icon: Inbox },
-      { href: "/my-tasks", label: "My Tasks", icon: ListTodo },
-      { href: "/tasks", label: "Tasks", icon: ListChecks },
-      { href: "/sprints", label: "Sprints", icon: Layers },
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    ],
-  },
-  {
-    label: "Delivery",
-    items: [
-      { href: "/projects", label: "Projects", icon: FolderKanban },
-      { href: "/portfolio", label: "Portfolio", icon: Map },
-      { href: "/mainline", label: "Mainline", icon: Route },
-      { href: "/documents", label: "Documents", icon: FileText },
-    ],
-  },
-  {
-    label: "Registers",
-    items: [
-      { href: "/risks", label: "Risks", icon: AlertTriangle },
-      { href: "/issues", label: "Issues", icon: CircleAlert },
-      { href: "/clashes", label: "Clashes", icon: Zap },
-    ],
-  },
-  {
-    label: "Capacity",
-    items: [
-      { href: "/resources", label: "Resources", icon: Users },
-      { href: "/budget", label: "Budget", icon: Wallet },
-      { href: "/timesheets", label: "Timesheets", icon: Clock },
-    ],
-  },
-  {
-    label: "Governance",
-    items: [
-      { href: "/review", label: "Review", icon: ListChecks },
-      { href: "/change-control", label: "Change Control", icon: GitPullRequest },
-      { href: "/decisions", label: "Decisions", icon: Gavel },
-      { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
-      { href: "/trust", label: "Trust Center", icon: ShieldCheck },
-      { href: "/tokens", label: "Tokens", icon: KeyRound },
-      { href: "/email-previews", label: "Email previews", icon: Mail },
-    ],
-  },
-];
+import { NAV_SECTIONS, visibleSections, hiddenCount, type NavItem } from "@/lib/nav/nav-config";
+import {
+  type NavMode,
+  readNavModeCookie,
+  buildNavModeCookieHeader,
+} from "@/lib/nav/nav-mode";
+import { usePreferences } from "@/lib/prefs/use-preferences";
 
 export function Sidebar({
   collapsed = false,
   onNavigate,
+  initialNavMode = "all",
 }: {
   collapsed?: boolean;
   onNavigate?: () => void;
+  /** Server-resolved first-paint mode (R-78) — see nav-mode.ts's resolveInitialNavMode. */
+  initialNavMode?: NavMode;
 }) {
   const pathname = usePathname();
+  const [mode, setMode] = useState<NavMode>(initialNavMode);
+  const prefs = usePreferences();
+
+  // Reconcile with the account's saved mode once preferences load — but
+  // ONLY when this device has no explicit cookie of its own. An explicit
+  // cookie (set by this toggle, on this device) always wins; a bare account
+  // preference is meant to follow the user to a NEW device, not silently
+  // override one that's already made its own choice.
+  useEffect(() => {
+    if (!prefs.ready) return;
+    if (readNavModeCookie(document.cookie)) return;
+    const dbMode = prefs.config.nav?.mode;
+    if (dbMode && dbMode !== mode) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setMode(dbMode);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.ready, prefs.config.nav?.mode]);
+
+  const sections = visibleSections(NAV_SECTIONS, mode, pathname);
+  const hidden = hiddenCount(NAV_SECTIONS, mode, pathname);
+
+  function toggleMode() {
+    const next: NavMode = mode === "essentials" ? "all" : "essentials";
+    setMode(next);
+    document.cookie = buildNavModeCookieHeader(next);
+    void prefs.update({ nav: { mode: next } });
+  }
 
   const Item = ({ href, label, icon: Icon }: NavItem) => {
     const active = pathname?.startsWith(href);
@@ -117,7 +76,10 @@ export function Sidebar({
   };
 
   return (
-    <aside className="flex h-full flex-col border-r border-border-subtle bg-sunken">
+    <aside
+      data-nav-mode={mode}
+      className="flex h-full flex-col border-r border-border-subtle bg-sunken"
+    >
       {/* Brand */}
       <div className={cn("flex h-14 shrink-0 items-center gap-2 px-4", collapsed && "justify-center px-0")}>
         {collapsed ? (
@@ -139,7 +101,7 @@ export function Sidebar({
 
       {/* Nav sections */}
       <nav className="flex-1 overflow-y-auto px-2 py-1">
-        {NAV_SECTIONS.map((section, sectionIdx) => (
+        {sections.map((section, sectionIdx) => (
           <div key={section.label}>
             {/* Section divider / label */}
             {sectionIdx > 0 && (
@@ -168,9 +130,48 @@ export function Sidebar({
         ))}
       </nav>
 
+      {/* Essentials/all toggle */}
+      <div className={cn("shrink-0 px-2 pt-1", collapsed && "flex justify-center px-0")}>
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={toggleMode}
+            data-testid="nav-mode-toggle"
+            title={mode === "essentials" ? "Show all modules" : "Show essentials"}
+            aria-label={mode === "essentials" ? "Show all modules" : "Show essentials"}
+            className="grid h-9 w-9 place-items-center rounded-lg text-ink-secondary hover:bg-canvas/60"
+          >
+            {mode === "essentials" ? <LayoutGrid size={16} /> : <Minimize2 size={16} />}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={toggleMode}
+            data-testid="nav-mode-toggle"
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-[13px] text-ink-secondary hover:bg-canvas/60"
+          >
+            {mode === "essentials" ? <LayoutGrid size={16} className="text-ink-muted" /> : <Minimize2 size={16} className="text-ink-muted" />}
+            <span>
+              {mode === "essentials" ? "Show all modules" : "Show essentials"}
+              {mode === "essentials" && hidden > 0 && (
+                <span className="text-ink-muted"> · {hidden} more</span>
+              )}
+            </span>
+          </button>
+        )}
+      </div>
+
       {!collapsed && (
-        <div className="shrink-0 border-t border-border-subtle px-4 py-3 text-xs text-ink-muted">
-          stillnotbald.com
+        <div className="flex shrink-0 items-center justify-between border-t border-border-subtle px-4 py-3 text-xs text-ink-muted">
+          <Link
+            href="/start"
+            onClick={onNavigate}
+            className="flex items-center gap-1.5 hover:text-ink"
+          >
+            <Rocket size={12} aria-hidden="true" />
+            Getting started
+          </Link>
+          <span>stillnotbald.com</span>
         </div>
       )}
     </aside>

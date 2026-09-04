@@ -10,7 +10,7 @@ NoPM has three distinct audiences, each with its own entry point below:
 
 | Audience | Who | Start here |
 |---|---|---|
-| **Console operator** | A person doing day-to-day project work in the browser — creating tasks, moving the board, requesting deletions, reading the audit trail. | [`operator/01-getting-started.md`](operator/01-getting-started.md) |
+| **Console operator** | A person doing day-to-day project work in the browser — creating tasks, moving the board, requesting deletions, reading the audit trail. | [`operator/00-first-ten-minutes.md`](operator/00-first-ten-minutes.md) |
 | **Workspace admin** | A person who provisions the workspace itself — roles, PATs, MFA, seats. | [`admin/01-workspace-admin.md`](admin/01-workspace-admin.md) |
 | **Agent surfaces** | An AI agent (or the human configuring one) driving NoPM over the REST API — CLI, MCP, or the in-app BYOK assistant. | [`agents/README.md`](agents/README.md) |
 
@@ -18,6 +18,7 @@ NoPM has three distinct audiences, each with its own entry point below:
 
 | Doc | Status | Covers |
 |---|---|---|
+| [`operator/00-first-ten-minutes.md`](operator/00-first-ten-minutes.md) | ACTIVE | The 5-step getting-started checklist (also live at `/start`), the Essentials sidebar, the CLI/curl quickstart |
 | [`operator/01-getting-started.md`](operator/01-getting-started.md) | ACTIVE | Login (incl. demo funnel), the console shell/nav, My Work |
 | [`operator/02-projects-and-tasks.md`](operator/02-projects-and-tasks.md) | ACTIVE | Creating a project, Kanban drag-is-audited, task fields (checklist, acceptance criteria, etc.) |
 | [`operator/03-schedule-and-lock.md`](operator/03-schedule-and-lock.md) | ACTIVE | Gantt, dependency types + lag, lock semantics, rebaseline flow |

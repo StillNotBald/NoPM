@@ -1,16 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { CheckCircle2, X } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
-import { apiGet, apiPut } from "@/lib/api-client";
+import { usePreferences } from "@/lib/prefs/use-preferences";
 import {
   tourItems,
   shouldShowTour,
   isVisited,
   markVisited,
   dismissTour,
-  type TourState,
 } from "@/lib/onboarding/tour";
 
 /**
@@ -31,48 +29,22 @@ import {
  * GET/PUT /api/me/preferences pair via the new whitelisted `tour` config key.
  */
 
-interface PreferencesGetResponse {
-  config?: { tour?: TourState };
-  demo: boolean;
-}
-
 export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string }) {
-  const [loaded, setLoaded] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [demo, setDemo] = useState(false);
-  const [tour, setTour] = useState<TourState | undefined>(undefined);
+  const prefs = usePreferences();
 
-  useEffect(() => {
-    let cancelled = false;
-    apiGet<PreferencesGetResponse>("/api/me/preferences")
-      .then((res) => {
-        if (cancelled) return;
-        const state = res.config?.tour;
-        setDemo(res.demo);
-        setTour(state);
-        setVisible(shouldShowTour(state));
-      })
-      .catch(() => {
-        // Fail-soft (GET failure is non-critical here) — show the tour by
-        // default rather than silently hiding a discovery surface.
-        if (!cancelled) setVisible(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  // Derived from the shared prefs store (R-78) — see first-run-wizard.tsx's
+  // matching comment. A failed GET yields an empty config (tour undefined),
+  // and `shouldShowTour(undefined)` is already `true`, reproducing the old
+  // catch block's "show the tour by default" fallback for free.
+  const loaded = prefs.ready;
+  const tour = prefs.config.tour;
+  const visible = shouldShowTour(tour);
 
-  function persist(next: TourState) {
-    setTour(next);
-    // Demo identity never persists preferences; local state only (see the
-    // component doc comment above — mirrors D7's wizard carve-out).
-    if (demo) return;
-    void apiPut("/api/me/preferences", { config: { tour: next } }).catch(() => {
-      // non-critical — the card still works for the rest of this visit
-    });
+  function persist(next: typeof tour) {
+    // Demo identity never persists preferences; the store already no-ops
+    // the PUT for it (see the component doc comment above — mirrors D7's
+    // wizard carve-out) and keeps the merge local for the rest of this visit.
+    void prefs.update({ tour: next });
   }
 
   function handleVisit(itemId: string) {
@@ -80,7 +52,6 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
   }
 
   function handleDismiss() {
-    setVisible(false);
     persist(dismissTour(tour));
   }
 

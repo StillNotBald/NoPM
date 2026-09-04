@@ -14,6 +14,8 @@ import { RightPushPanel, PUSH_MARGIN, PUSH_MARGIN_NONE } from "@/components/ui/r
 import { AssistantPanel } from "@/components/assistant/panel";
 import { TrafficLights } from "@/components/ui/terminal-card";
 import { ToastProvider } from "@/components/ui/toast";
+import type { NavMode } from "@/lib/nav/nav-mode";
+import { PageHint } from "@/components/onboarding/page-hint";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
 
@@ -33,7 +35,14 @@ export const useInspector = () => useContext(InspectorCtx);
  *    via `lg:mr-[28rem]` — no backdrop, no overlay on desktop.
  *  - mobile/tablet (<lg): NO sidebar — bottom tab bar; panel becomes a full-screen sheet.
  */
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell({
+  children,
+  initialNavMode = "all",
+}: {
+  children: ReactNode;
+  /** Server-resolved sidebar mode (R-78) — defaults to "all" so any other caller is unaffected. */
+  initialNavMode?: NavMode;
+}) {
   const [collapsed, setCollapsed] = useState(false);
   const [inspector, setInspector] = useState<InspectorPayload | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -63,7 +72,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             collapsed ? "lg:w-[64px]" : "lg:w-60",
           )}
         >
-          <Sidebar collapsed={collapsed} />
+          <Sidebar collapsed={collapsed} initialNavMode={initialNavMode} />
         </div>
 
         {/* main column — margin pushed right when panel is open on desktop */}
@@ -123,6 +132,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 
           {/* wayfinding breadcrumbs — slim bar between header and content */}
           <Breadcrumbs />
+
+          {/* R-78 — one-line dismissible "what is this page for" strip; renders
+              nothing on pages without a registry entry (dashboard/start). */}
+          <PageHint />
 
           {/* content — grouped grey bg so white cards lift off it (iOS layering);
               pad bottom on mobile so the bottom nav never covers it */}

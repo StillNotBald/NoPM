@@ -1,21 +1,21 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
-import { apiGet, apiPost, apiPut, type ApiError } from "@/lib/api-client";
+import { apiPost, type ApiError } from "@/lib/api-client";
 import { FieldError } from "@/components/forms/project-form";
+import { usePreferences } from "@/lib/prefs/use-preferences";
 import {
   clampStep,
   shouldShowWizard,
   dismissedState,
   advancedState,
   completedState,
-  type OnboardingState,
 } from "@/lib/onboarding/steps";
 
 /**
@@ -39,22 +39,25 @@ import {
  * first render, not continuously).
  */
 
-interface PreferencesGetResponse {
-  config?: { onboarding?: OnboardingState };
-  demo: boolean;
-}
-
 type CreatedProject = { id: string; code: string; name: string };
 
 export function FirstRunWizard() {
   const router = useRouter();
   const toast = useToast();
+  const prefs = usePreferences();
 
-  const [loaded, setLoaded] = useState(false);
-  const [visible, setVisible] = useState(false);
-  const [demo, setDemo] = useState(false);
-  const [onboarding, setOnboarding] = useState<OnboardingState | undefined>(undefined);
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  // Derived straight from the shared prefs store (R-78) rather than local
+  // state — `prefs.update()` merges optimistically and re-renders every
+  // subscriber synchronously, so `visible`/`step` stay correct across
+  // dismiss/advance/complete without a parallel copy to keep in sync. The
+  // store's own fail-soft (a failed GET yields an empty config, `ready`
+  // still flips true) reproduces the exact same "show the wizard from the
+  // top" fallback the old catch block wrote by hand — `shouldShowWizard`/
+  // `clampStep` already treat `undefined` that way.
+  const loaded = prefs.ready;
+  const onboarding = prefs.config.onboarding;
+  const visible = shouldShowWizard(onboarding);
+  const step = clampStep(onboarding?.step);
 
   const [projectCode, setProjectCode] = useState("");
   const [projectName, setProjectName] = useState("");
@@ -65,41 +68,14 @@ export function FirstRunWizard() {
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    let cancelled = false;
-    apiGet<PreferencesGetResponse>("/api/me/preferences")
-      .then((res) => {
-        if (cancelled) return;
-        const state = res.config?.onboarding;
-        setDemo(res.demo);
-        setOnboarding(state);
-        setVisible(shouldShowWizard(state));
-        setStep(clampStep(state?.step));
-      })
-      .catch(() => {
-        // Fail-soft (GET failure is non-critical here) — show the wizard
-        // from the top rather than blank the empty state entirely.
-        if (!cancelled) setVisible(true);
-      })
-      .finally(() => {
-        if (!cancelled) setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  function persist(next: OnboardingState) {
-    setOnboarding(next);
-    // D7 — demo identity never persists preferences; local state only.
-    if (demo) return;
-    void apiPut("/api/me/preferences", { config: { onboarding: next } }).catch(() => {
-      // non-critical — the wizard still works for the rest of this visit
-    });
+  // D7 — demo identity never persists preferences; the store already
+  // no-ops the PUT for it (local-only, fresh per visit) so this is just a
+  // merge into the shared config.
+  function persist(next: typeof onboarding) {
+    void prefs.update({ onboarding: next });
   }
 
   function dismiss() {
-    setVisible(false);
     persist(dismissedState(onboarding));
   }
 
@@ -127,7 +103,6 @@ export function FirstRunWizard() {
         name: projectName.trim(),
       });
       setProject(created);
-      setStep(3);
       persist(advancedState(onboarding, 3));
       toast.success("Project created");
     } catch (err) {
@@ -144,7 +119,6 @@ export function FirstRunWizard() {
     setSaving(true);
     try {
       await apiPost(`/api/projects/${project.id}/tasks`, { name: taskName.trim() });
-      setStep(4);
       persist(completedState(onboarding));
       toast.success("Task created");
     } catch (err) {
@@ -158,7 +132,6 @@ export function FirstRunWizard() {
     // Abandoning here is valid — a project without a task is a valid state
     // (register acceptance criterion). Still marks the wizard done so it
     // doesn't reappear once a project already exists.
-    setStep(4);
     persist(completedState(onboarding));
   }
 
@@ -222,10 +195,7 @@ export function FirstRunWizard() {
               type="button"
               variant="primary"
               className="h-11 w-full sm:h-10"
-              onClick={() => {
-                setStep(2);
-                persist(advancedState(onboarding, 2));
-              }}
+              onClick={() => persist(advancedState(onboarding, 2))}
             >
               Get started
             </Button>
@@ -333,6 +303,13 @@ export function FirstRunWizard() {
                 className="text-center text-xs text-accent hover:underline"
               >
                 Or connect an AI agent to drive NoPM for you →
+              </a>
+              <a
+                href="/start"
+                onClick={finish}
+                className="text-center text-xs text-accent hover:underline"
+              >
+                See your next steps →
               </a>
             </div>
           </>

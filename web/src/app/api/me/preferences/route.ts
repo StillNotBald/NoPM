@@ -8,6 +8,7 @@ import {
   decodePreferencesConfig,
   emptyPreferencesConfig,
   isConfigWithinSizeCap,
+  mergePreferencesConfig,
   MAX_CONFIG_BYTES,
 } from "./_schema";
 
@@ -71,14 +72,35 @@ export const PUT = route(async ({ actor, request }) => {
     );
   }
 
-  if (!isConfigWithinSizeCap(parsed.data)) {
+  const db = createAdminClient();
+  const now = new Date().toISOString();
+
+  // Merge-upsert (L-39): PUT is a partial update, not a verbatim replace —
+  // some callers (first-run-wizard.tsx, governance-tour.tsx) legitimately
+  // send only ONE top-level key. Read the existing row first so unrelated
+  // keys survive. See mergePreferencesConfig's docstring for exact semantics.
+  const { data: existingRow, error: existingError } = await db
+    .from("user_preferences")
+    .select("config")
+    .eq("user_id", actor.id)
+    .eq("workspace_id", actor.workspaceId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  const merged = mergePreferencesConfig(
+    existingRow ? decodePreferencesConfig(existingRow.config) : emptyPreferencesConfig(),
+    parsed.data,
+  );
+
+  // The size cap is applied to the MERGED result, not just the incoming
+  // partial — a small partial PUT could otherwise push an already-large
+  // stored config over the cap.
+  if (!isConfigWithinSizeCap(merged)) {
     return validationError(`config exceeds the ${MAX_CONFIG_BYTES}-byte size cap`, [
       { field: "config", message: `Serialized config must be at most ${MAX_CONFIG_BYTES} bytes` },
     ]);
   }
-
-  const db = createAdminClient();
-  const now = new Date().toISOString();
 
   const { data, error } = await db
     .from("user_preferences")
@@ -86,7 +108,7 @@ export const PUT = route(async ({ actor, request }) => {
       {
         user_id: actor.id,
         workspace_id: actor.workspaceId,
-        config: parsed.data,
+        config: merged,
         updated_at: now,
       },
       { onConflict: "user_id,workspace_id" },

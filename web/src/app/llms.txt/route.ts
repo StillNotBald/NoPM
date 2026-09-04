@@ -90,7 +90,7 @@ GET    /health                             — scope:none — liveness probe, pu
 GET    /me                                 — scope:any  — resolve the current actor (type, id, workspaceId, scopes)
 PATCH  /me                                 — user session only — update own profile
 GET    /me/preferences                     — user session only — get DB-persisted display config (columns/groupBy per register, density, dateDisplay, defaultLanding) — L-39, unaudited (ADR 0009). Response includes demo (true for the shared demo login — treat as cookie-only, never write DB prefs for it).
-PUT    /me/preferences                     — user session only — upsert display config. Body { config }; unknown keys stripped (not rejected), 10KB serialized-size cap, 422 on an unrecognised value for a whitelisted key or over the size cap.
+PUT    /me/preferences                     — user session only — merge display config onto the existing stored config (not a verbatim replace). Body { config }; unknown keys stripped (not rejected); top-level keys in the body override, keys omitted from the body are preserved; columns/groupBy merge per register key; no way to delete a saved key. 10KB serialized-size cap checked against the merged result, 422 on an unrecognised value for a whitelisted key or over the size cap.
 
 POST   /auth/demo-login                    — public — start a demo viewer session
 POST   /auth/signout                       — user session — end the session

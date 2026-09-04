@@ -27,7 +27,6 @@ export default async function ProjectDetailPage({
     { data: tasks },
     { data: risks },
     { data: issues },
-    { data: dependencies },
     { data: charterDocs },
     { data: timeEntryRows },
   ] = await Promise.all([
@@ -61,9 +60,6 @@ export default async function ProjectDetailPage({
       .eq("project_id", id)
       .order("raised_at", { ascending: false }),
     db
-      .from("task_dependencies")
-      .select("id, predecessor_id, successor_id, type, lag_days"),
-    db
       .from("documents")
       .select("id, workspace_id, project_id, reference_id, folder, title, doc_type, status, version, summary, body, external_url, owner_id, created_at")
       .eq("project_id", id)
@@ -89,12 +85,37 @@ export default async function ProjectDetailPage({
   };
 
   // ── L-23 status-aging — ONE batched audit_log query for every task on
-  // this board, derived from the LAST real status_type transition. ──────────
+  // this board, derived from the LAST real status_type transition. Fetched
+  // in parallel with the R-33 Gantt/CPM dependency-graph query below (both
+  // need `taskRows`/`taskIds`, so neither can join the first Promise.all). ──
   const taskRows = tasks ?? [];
-  const statusAges = await fetchTaskStatusAges(
-    db,
-    taskRows.map((t) => ({ id: t.id, created_at: t.created_at })),
-  );
+  const taskIds = taskRows.map((t) => t.id);
+
+  // task_dependencies has no project_id column, so it can't be scoped with
+  // `.eq("project_id", id)` — it must be scoped through the task ids
+  // instead. Both consumers of `dependencies` (cpm.ts's calculateCriticalPath
+  // and gantt.tsx's arrow-drawing) only ever use a dependency edge when
+  // BOTH predecessor_id and successor_id resolve inside THIS project's task
+  // set (gantt.tsx looks both up in `taskRowIndex`, built solely from this
+  // project's `tasks`; cpm.ts's `validDeps` filter requires `taskSet.has()`
+  // on both ends). Since a dependency can only match that requirement if its
+  // successor_id is one of this project's task ids, filtering on
+  // `successor_id IN taskIds` alone already returns every edge either
+  // consumer could use — a cross-project edge (predecessor here, successor
+  // elsewhere, or vice versa) is filtered out downstream either way, so no
+  // `.or(...)` on predecessor_id is needed.
+  const [statusAges, { data: dependencies }] = await Promise.all([
+    fetchTaskStatusAges(
+      db,
+      taskRows.map((t) => ({ id: t.id, created_at: t.created_at })),
+    ),
+    taskIds.length === 0
+      ? Promise.resolve({ data: [] as { id: string; predecessor_id: string; successor_id: string; type: string; lag_days: number }[] })
+      : db
+          .from("task_dependencies")
+          .select("id, predecessor_id, successor_id, type, lag_days")
+          .in("successor_id", taskIds),
+  ]);
 
   // ── L-33 estimate variance — actual hours per task, batched from the
   // time_entries fetch above (Σ hours per task_id). ─────────────────────────

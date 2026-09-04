@@ -16,6 +16,12 @@ const PAGES: Array<{ path: string; probe: (page: import("@playwright/test").Page
       await expect(page.getByRole("button", { name: /export board pack/i })).toBeVisible();
     },
   },
+  {
+    path: "/start",
+    probe: async (page) => {
+      await expect(page.getByRole("heading", { name: /getting started/i })).toBeVisible();
+    },
+  },
   { path: "/my-work", probe: async () => {} },
   {
     path: "/my-tasks",

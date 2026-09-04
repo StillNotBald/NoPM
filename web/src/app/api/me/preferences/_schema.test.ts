@@ -5,7 +5,9 @@ import {
   emptyPreferencesConfig,
   isConfigWithinSizeCap,
   configSizeBytes,
+  mergePreferencesConfig,
   MAX_CONFIG_BYTES,
+  type PreferencesConfig,
 } from "./_schema";
 
 describe("preferencesConfigSchema — whitelist (L-39)", () => {
@@ -207,6 +209,138 @@ describe("decodePreferencesConfig — read-time defensive decode (never throws, 
   it("round-trips a valid config", () => {
     const config = { density: "compact" as const, dateDisplay: "relative" as const };
     expect(decodePreferencesConfig(config)).toEqual(config);
+  });
+});
+
+describe("mergePreferencesConfig — merge-upsert semantics (stability fix: PUT no longer clobbers other keys)", () => {
+  it("preserves an untouched top-level key not present in the incoming partial", () => {
+    const existing: PreferencesConfig = { density: "compact", defaultLanding: "/dashboard" };
+    const incoming: PreferencesConfig = { tour: { dismissed: true } };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(merged).toEqual({
+      density: "compact",
+      defaultLanding: "/dashboard",
+      tour: { dismissed: true },
+    });
+  });
+
+  it("the exact regression this fixes: dismissing the governance tour must not wipe columns/groupBy/density saved earlier", () => {
+    const existing: PreferencesConfig = {
+      columns: { tasks: ["name", "status_type"] },
+      groupBy: { tasks: "priority" },
+      density: "compact",
+      dateDisplay: "relative",
+      defaultLanding: "/tasks",
+      onboarding: { dismissed: true },
+    };
+    const incoming: PreferencesConfig = { tour: { dismissed: true } };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(merged).toEqual({ ...existing, tour: { dismissed: true } });
+  });
+
+  it("an incoming top-level scalar/object key overrides the same key on existing", () => {
+    const existing: PreferencesConfig = { density: "compact", onboarding: { step: 2 } };
+    const incoming: PreferencesConfig = { density: "comfortable", onboarding: { step: 3 } };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(merged.density).toBe("comfortable");
+    // onboarding is replaced whole, not deep-merged — incoming already sends
+    // its own complete object for the key it owns (see the docstring).
+    expect(merged.onboarding).toEqual({ step: 3 });
+  });
+
+  it("merges columns per-register: incoming register overrides, other registers are preserved", () => {
+    const existing: PreferencesConfig = {
+      columns: { tasks: ["name", "status_type"], risks: ["title", "severity"] },
+    };
+    const incoming: PreferencesConfig = { columns: { tasks: ["name"] } };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(merged.columns).toEqual({ tasks: ["name"], risks: ["title", "severity"] });
+  });
+
+  it("merges groupBy per-register: incoming register overrides, other registers are preserved", () => {
+    const existing: PreferencesConfig = { groupBy: { tasks: "priority", risks: "severity" } };
+    const incoming: PreferencesConfig = { groupBy: { tasks: null } };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(merged.groupBy).toEqual({ tasks: null, risks: "severity" });
+  });
+
+  it("columns/groupBy merge adds a new register key alongside existing ones", () => {
+    const existing: PreferencesConfig = { columns: { tasks: ["name"] } };
+    const incoming: PreferencesConfig = { columns: { risks: ["title"] } };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(merged.columns).toEqual({ tasks: ["name"], risks: ["title"] });
+  });
+
+  it("merging with an empty existing config is the identity of incoming", () => {
+    const incoming: PreferencesConfig = { density: "compact", tour: { dismissed: true } };
+    expect(mergePreferencesConfig(emptyPreferencesConfig(), incoming)).toEqual(incoming);
+  });
+
+  it("merging with an empty incoming config is the identity of existing", () => {
+    const existing: PreferencesConfig = { density: "compact", tour: { dismissed: true } };
+    expect(mergePreferencesConfig(existing, emptyPreferencesConfig())).toEqual(existing);
+  });
+
+  it("merging two empty configs yields an empty config", () => {
+    expect(mergePreferencesConfig(emptyPreferencesConfig(), emptyPreferencesConfig())).toEqual({});
+  });
+
+  it("the merged result always still passes preferencesConfigSchema", () => {
+    const existing: PreferencesConfig = {
+      columns: { tasks: ["name"] },
+      groupBy: { tasks: "priority" },
+      density: "compact",
+      dateDisplay: "relative",
+      defaultLanding: "/tasks",
+      onboarding: { dismissed: true },
+      tour: { visited: ["trust-center"] },
+    };
+    const incoming: PreferencesConfig = {
+      columns: { risks: ["title"] },
+      tour: { dismissed: true, visited: ["trust-center", "sprints"] },
+    };
+    const merged = mergePreferencesConfig(existing, incoming);
+    expect(preferencesConfigSchema.safeParse(merged).success).toBe(true);
+  });
+});
+
+describe("preferencesConfigSchema — nav / hints / start keys (R-78, progressive-disclosure onboarding)", () => {
+  it("accepts nav.mode essentials|all and rejects anything else", () => {
+    expect(preferencesConfigSchema.safeParse({ nav: { mode: "essentials" } }).success).toBe(true);
+    expect(preferencesConfigSchema.safeParse({ nav: { mode: "all" } }).success).toBe(true);
+    expect(preferencesConfigSchema.safeParse({ nav: { mode: "compact" } }).success).toBe(false);
+  });
+
+  it("accepts hints.dismissed up to 40 ids and rejects 41", () => {
+    const ids = (n: number) => Array.from({ length: n }, (_, i) => `page-${i}`);
+    expect(preferencesConfigSchema.safeParse({ hints: { dismissed: ids(40) } }).success).toBe(true);
+    expect(preferencesConfigSchema.safeParse({ hints: { dismissed: ids(41) } }).success).toBe(false);
+  });
+
+  it("accepts start.dismissed + start.visited (max 12) and strips unknown nested keys", () => {
+    const parsed = preferencesConfigSchema.safeParse({
+      start: { dismissed: true, visited: ["trust"], bogus: 1 },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.start).toEqual({ dismissed: true, visited: ["trust"] });
+    expect(
+      preferencesConfigSchema.safeParse({ start: { visited: Array.from({ length: 13 }, (_, i) => `s${i}`) } })
+        .success,
+    ).toBe(false);
+  });
+
+  it("the three keys coexist with every other key and survive a merge untouched", () => {
+    const merged = mergePreferencesConfig(
+      { columns: { tasks: ["name"] }, nav: { mode: "all" } },
+      { hints: { dismissed: ["risks"] }, start: { visited: ["trust"] } },
+    );
+    expect(merged).toEqual({
+      columns: { tasks: ["name"] },
+      nav: { mode: "all" },
+      hints: { dismissed: ["risks"] },
+      start: { visited: ["trust"] },
+    });
+    expect(preferencesConfigSchema.safeParse(merged).success).toBe(true);
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, Keyboard, LifeBuoy, LogOut, User } from "lucide-react";
+import { Settings, Keyboard, LifeBuoy, LogOut, User, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { KeyboardShortcuts } from "./keyboard-shortcuts";
 import { createClient } from "@/lib/supabase/client";
@@ -161,6 +161,14 @@ export function AccountMenu() {
                 onClick={() => {
                   setOpen(false);
                   setShortcutsOpen(true);
+                }}
+              />
+              <MenuItem
+                icon={<Rocket size={14} />}
+                label="Getting started"
+                onClick={() => {
+                  setOpen(false);
+                  router.push("/start");
                 }}
               />
               <MenuItem

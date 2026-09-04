@@ -68,6 +68,24 @@ test("theme toggle switches theme", async ({ page }) => {
     .not.toBe(before);
 });
 
+test("sidebar nav-mode toggle switches between Essentials and all modules (R-78)", async ({ page }) => {
+  const aside = page.locator("aside[data-nav-mode]");
+  await expect(aside).toBeVisible();
+  const before = await aside.getAttribute("data-nav-mode");
+  const linksBefore = await page.locator("aside nav a").count();
+
+  await page.locator('[data-testid="nav-mode-toggle"]').click();
+  await expect
+    .poll(async () => aside.getAttribute("data-nav-mode"))
+    .not.toBe(before);
+  const linksAfter = await page.locator("aside nav a").count();
+  expect(linksAfter).not.toBe(linksBefore);
+
+  // toggle back
+  await page.locator('[data-testid="nav-mode-toggle"]').click();
+  await expect.poll(async () => aside.getAttribute("data-nav-mode")).toBe(before);
+});
+
 test("AI assistant panel opens and closes", async ({ page }) => {
   await page.locator('button[aria-label="Open AI assistant"]').click();
   // Panel stays mounted and slides off-screen; aria-hidden is the open signal

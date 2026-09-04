@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -26,10 +26,15 @@ import {
   type Density,
   type DateDisplay,
 } from "@/lib/theme/appearance";
-import type { PreferencesConfig } from "@/app/api/me/preferences/_schema";
-import { apiGet, apiPut } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 import { InvitesCard } from "@/components/invite/invites-card";
+import { usePreferences } from "@/lib/prefs/use-preferences";
+import {
+  type NavMode,
+  readNavModeCookie,
+  buildNavModeCookieHeader,
+  resolveInitialNavMode,
+} from "@/lib/nav/nav-mode";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -291,14 +296,13 @@ function SegmentedControl<T extends string | number>({
 
 function AppearanceSection() {
   const [prefs, setPrefs] = useState<AppearancePrefs>(DEFAULT_APPEARANCE);
-  // True once GET /api/me/preferences has confirmed this is a signed-in,
-  // NON-demo user — only then does `update()` PUT density/dateDisplay back
-  // to the account (L-39). Stays false for the demo identity (shared login
-  // — ADR 0009) or if the fetch never resolves; either way `update()` keeps
+  const dbPrefs = usePreferences();
+  // True once the shared store has resolved this as a signed-in, NON-demo
+  // user — only then does `update()` PUT density/dateDisplay back to the
+  // account (L-39). Stays false for the demo identity (shared login — ADR
+  // 0009) or while the store is still loading; either way `update()` keeps
   // behaving exactly as before (cookie/live DOM only, nothing new to break).
-  const [dbSynced, setDbSynced] = useState(false);
-  const isDemoRef = useRef(false);
-  const dbConfigRef = useRef<PreferencesConfig>({});
+  const dbSynced = dbPrefs.ready && !dbPrefs.demo;
 
   useEffect(() => {
     // Two-pass read (SSR-safe default first, real cookie after mount) —
@@ -306,35 +310,26 @@ function AppearanceSection() {
     const cookiePrefs = readAppearanceCookie(document.cookie);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setPrefs(cookiePrefs);
+  }, []);
 
+  useEffect(() => {
     // L-39 follow-through: merge in the account's DB density/dateDisplay
     // (DB wins for a signed-in non-demo user) — same precedence layout.tsx
     // already applies server-side and use-appearance.ts applies for the
-    // date-display hook. Best-effort: any failure (network, 401, demo actor
-    // rejecting later) just leaves the cookie-only behavior in place.
-    let cancelled = false;
-    apiGet<{ config?: PreferencesConfig; demo?: boolean }>("/api/me/preferences")
-      .then((data) => {
-        if (cancelled || !data) return;
-        dbConfigRef.current = data.config ?? {};
-        isDemoRef.current = Boolean(data.demo);
-        setDbSynced(!isDemoRef.current);
-        const merged = mergeAppearanceWithDb(cookiePrefs, data.config ?? null, {
-          isDemo: isDemoRef.current,
-        });
-        if (merged.density !== cookiePrefs.density || merged.dateDisplay !== cookiePrefs.dateDisplay) {
-          setPrefs(merged);
-          document.cookie = buildAppearanceCookieHeader(merged);
-          applyAppearanceLive(merged);
-        }
-      })
-      .catch(() => {
-        // Not signed in / token caller / offline — stay cookie-only.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    // date-display hook. R-78: sourced from the shared prefs store instead
+    // of a private GET. Best-effort: the store's own fail-soft (empty
+    // config on error/anonymous/demo) leaves the cookie-only behavior in
+    // place, same as before.
+    if (!dbPrefs.ready) return;
+    const cookiePrefs = readAppearanceCookie(document.cookie);
+    const merged = mergeAppearanceWithDb(cookiePrefs, dbPrefs.config, { isDemo: dbPrefs.demo });
+    if (merged.density !== cookiePrefs.density || merged.dateDisplay !== cookiePrefs.dateDisplay) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setPrefs(merged);
+      document.cookie = buildAppearanceCookieHeader(merged);
+      applyAppearanceLive(merged);
+    }
+  }, [dbPrefs.ready, dbPrefs.config, dbPrefs.demo]);
 
   function update<K extends keyof AppearancePrefs>(key: K, val: AppearancePrefs[K]) {
     const next = { ...prefs, [key]: val };
@@ -346,17 +341,7 @@ function AppearanceSection() {
     // a signed-in non-demo user across devices — mode/fontScale stay
     // cookie/per-device only (outside user_preferences' whitelist, L-39).
     if ((key === "density" || key === "dateDisplay") && dbSynced) {
-      const nextConfig: PreferencesConfig = {
-        ...dbConfigRef.current,
-        density: next.density,
-        dateDisplay: next.dateDisplay,
-      };
-      dbConfigRef.current = nextConfig;
-      apiPut("/api/me/preferences", { config: nextConfig }).catch(() => {
-        // Best-effort — a failed PUT never rolls back the already-applied
-        // cookie/live change (same fail-soft posture as the rest of this
-        // section; preferences are display-only, never governance data).
-      });
+      void dbPrefs.update({ density: next.density, dateDisplay: next.dateDisplay });
     }
   }
 
@@ -426,6 +411,116 @@ function AppearanceSection() {
           <p className="text-xs text-ink-muted">
             Relative dates (&quot;In 3d&quot;) always show the exact date on hover.
           </p>
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+// ── Navigation & help section (R-78) ───────────────────────────────────────────
+//
+// Sidebar mode (Essentials/all) writes the SAME cookie + prefs-store path
+// as the sidebar's own footer toggle. Page hints and the getting-started
+// checklist are display-only bookkeeping (which strips/steps have been
+// dismissed) — resetting them never touches governance data.
+
+const NAV_MODE_LABEL: Record<NavMode, string> = {
+  essentials: "Essentials (7 core modules)",
+  all: "All modules",
+};
+
+function NavigationSection() {
+  const prefs = usePreferences();
+  const [mode, setMode] = useState<NavMode | null>(null);
+  const [resetHintsDone, setResetHintsDone] = useState(false);
+  const [showStartDone, setShowStartDone] = useState(false);
+
+  useEffect(() => {
+    if (!prefs.ready) return;
+    const cookieMode = readNavModeCookie(document.cookie);
+    const resolved = resolveInitialNavMode({
+      cookie: cookieMode,
+      dbMode: prefs.config.nav?.mode,
+      hasPrefsRow: Boolean(prefs.updatedAt),
+      isDemo: prefs.demo,
+    });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMode(resolved);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefs.ready]);
+
+  function chooseMode(next: NavMode) {
+    setMode(next);
+    document.cookie = buildNavModeCookieHeader(next);
+    void prefs.update({ nav: { mode: next } });
+  }
+
+  function resetHints() {
+    void prefs.update({ hints: { dismissed: [] } });
+    setResetHintsDone(true);
+    setTimeout(() => setResetHintsDone(false), 2000);
+  }
+
+  function showStartAgain() {
+    void prefs.update({ start: { dismissed: false, visited: prefs.config.start?.visited ?? [] } });
+    setShowStartDone(true);
+    setTimeout(() => setShowStartDone(false), 2000);
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Navigation &amp; help</CardTitle>
+      </CardHeader>
+      <CardBody className="space-y-6">
+        <p className="text-sm text-ink-secondary">
+          Sidebar mode and hint dismissals are display preferences — not governance data, no audit row.
+          {prefs.demo
+            ? " Saved on this device only — you're on the shared demo login."
+            : " Your choice follows this account across devices."}
+        </p>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Sidebar
+          </label>
+          {mode ? (
+            <SegmentedControl
+              options={["essentials", "all"] as const}
+              labels={NAV_MODE_LABEL}
+              value={mode}
+              onChange={chooseMode}
+              columns={2}
+            />
+          ) : (
+            <div className="h-11 animate-pulse rounded-md bg-sunken" />
+          )}
+        </div>
+
+        <div className="flex items-center justify-between gap-4 border-t border-border-subtle pt-5">
+          <div>
+            <p className="text-sm text-ink">Page hints</p>
+            <p className="text-xs text-ink-muted">Bring back the dismissed &quot;what is this page for&quot; strips.</p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={resetHints}>
+            {resetHintsDone ? "Reset" : "Reset hints"}
+          </Button>
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm text-ink">Getting started</p>
+            <p className="text-xs text-ink-muted">
+              Revisit the{" "}
+              <a href="/start" className="text-accent hover:underline">
+                getting-started checklist
+              </a>
+              .
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={showStartAgain}>
+            {showStartDone ? "Shown" : "Show again"}
+          </Button>
         </div>
       </CardBody>
     </Card>
@@ -548,6 +643,9 @@ export default function SettingsPage() {
 
         {/* ── Appearance (L-37/L-38/L-42 — display-only, unaudited) ───────────── */}
         <AppearanceSection />
+
+        {/* ── Navigation & help (R-78 — display-only, unaudited) ───────────────── */}
+        <NavigationSection />
 
         {/* ── Invites (L-47/L-48) — admin/manager only ─────────────────────────── */}
         <InvitesCard />

@@ -2130,11 +2130,16 @@ const spec = {
       },
       put: {
         tags: ["auth"],
-        summary: "Upsert the current user's DB-persisted display preferences (L-39)",
+        summary: "Merge-upsert the current user's DB-persisted display preferences (L-39)",
         description:
           "scope: user session only (token actors 403). Body { config: {...} } validated against a " +
-          "closed key whitelist (unknown keys stripped, not rejected) and a 10KB serialized-size cap. " +
-          "No audit row is written — per-user display state, not governance data (ADR 0009).",
+          "closed key whitelist (unknown keys stripped, not rejected) then MERGED onto the existing " +
+          "stored config: top-level keys present in the body override the same key on the existing " +
+          "row, top-level keys absent from the body are preserved; `columns` and `groupBy` merge one " +
+          "level deeper (per-register keys from the body override, other registers are preserved). " +
+          "There is no way to delete a previously-saved key via this endpoint. The 10KB serialized-" +
+          "size cap is checked against the MERGED result, not the raw body. No audit row is written " +
+          "— per-user display state, not governance data (ADR 0009).",
         operationId: "putMyPreferences",
         requestBody: zodBody(putPreferencesBodySchema),
         responses: {
