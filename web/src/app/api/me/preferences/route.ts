@@ -79,6 +79,21 @@ export const PUT = route(async ({ actor, request }) => {
   // some callers (first-run-wizard.tsx, governance-tour.tsx) legitimately
   // send only ONE top-level key. Read the existing row first so unrelated
   // keys survive. See mergePreferencesConfig's docstring for exact semantics.
+  //
+  // NOTE — this read-merge-write is NOT atomic. Two concurrent partial PUTs
+  // from the same user (e.g. two open tabs) can interleave: both reads
+  // happen before either write lands, so the second write's merge is based
+  // on stale `existingRow` data and clobbers whatever the first write just
+  // saved (last-writer-wins on the merged object, not a true field-level
+  // merge across requests). This is acceptable here because `user_preferences`
+  // holds per-user DISPLAY state only — not governance data (ADR 0009) — and
+  // each client also merges optimistically in its own local store before
+  // calling PUT (lib/prefs/store.ts), so a lost write just means one tab's
+  // change is superseded, not silently corrupted data. If this ever needs to
+  // be race-safe, the fix is either a single SQL `jsonb` merge done inside an
+  // RPC (so Postgres does the read+merge+write atomically), or optimistic
+  // concurrency keyed on `updated_at` (reject/retry the PUT if the row's
+  // `updated_at` moved since the client last read it).
   const { data: existingRow, error: existingError } = await db
     .from("user_preferences")
     .select("config")

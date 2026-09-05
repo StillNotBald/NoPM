@@ -26,16 +26,27 @@ export function CardFreshness({ fetchedAt, className }: { fetchedAt: string; cla
   // hydration mismatch (React #418) for any viewer outside UTC. So the
   // server renders a neutral placeholder and the client fills the local
   // time in after mount.
+  //
+  // The `title` tooltip (full date/time string) has the exact same problem:
+  // it's also formatted from `fetchedAt` in the viewer's locale/timezone, so
+  // computing it during SSR would render a server-timezone string that
+  // differs from the client's on hydration — an ATTRIBUTE mismatch (no #418
+  // console error since `title` isn't checked as strictly, but a dev-mode
+  // hydration warning and a wrong tooltip until React reconciles it). Fix:
+  // compute it in the same effect and render no `title` at all until mount.
   const [stamp, setStamp] = useState<string | null>(null);
+  const [titleStr, setTitleStr] = useState<string | undefined>(undefined);
   useEffect(() => {
+    const date = new Date(fetchedAt);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStamp(
-      new Date(fetchedAt).toLocaleTimeString("en-US", {
+      date.toLocaleTimeString("en-US", {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
       }),
     );
+    setTitleStr(date.toLocaleString("en-US"));
   }, [fetchedAt]);
 
   function refresh() {
@@ -48,7 +59,7 @@ export function CardFreshness({ fetchedAt, className }: { fetchedAt: string; cla
 
   return (
     <div className={cn("flex items-center gap-1.5", className)}>
-      <span className="font-mono text-xs text-ink-muted tabular-nums" title={new Date(fetchedAt).toLocaleString("en-US")}>
+      <span className="font-mono text-xs text-ink-muted tabular-nums" title={titleStr}>
         Updated {stamp ?? "…"}
       </span>
       <button

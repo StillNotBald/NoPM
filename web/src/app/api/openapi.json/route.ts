@@ -2139,7 +2139,8 @@ const spec = {
           "level deeper (per-register keys from the body override, other registers are preserved). " +
           "There is no way to delete a previously-saved key via this endpoint. The 10KB serialized-" +
           "size cap is checked against the MERGED result, not the raw body. No audit row is written " +
-          "— per-user display state, not governance data (ADR 0009).",
+          "— per-user display state, not governance data (ADR 0009). Concurrent partial PUTs are " +
+          "last-writer-wins on the merged object.",
         operationId: "putMyPreferences",
         requestBody: zodBody(putPreferencesBodySchema),
         responses: {
