@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import { z } from "zod";
+import { validateFields } from "@/lib/forms/validate";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
@@ -103,11 +103,6 @@ export function TextareaInput({
   );
 }
 
-// ── Client-side validation schema ────────────────────────────────────────────
-const projectClientSchema = z.object({
-  name: z.string().min(1, "Project name is required"),
-});
-
 // ── Date helper ───────────────────────────────────────────────────────────────
 function addDays(days: number): string {
   const d = new Date();
@@ -175,14 +170,11 @@ export function ProjectForm({
     setFieldErrors({});
 
     // Client-side validation — immediate feedback before the network round-trip.
-    const clientResult = projectClientSchema.safeParse({ name });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "name", value: name, message: "Project name is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

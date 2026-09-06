@@ -13,7 +13,7 @@ Email **hello@stillnotbald.com** with details and reproduction steps. You'll get
 
 - **Workspace isolation**: token callers use the admin client, so every query must filter by the actor's workspace — a missing filter is a cross-tenant read. (`web/src/lib/auth/guard.ts`, workspace-isolation tests.)
 - **Scope enforcement**: every endpoint requires a `resource:action` scope; the assistant's ephemeral token must never hold approve/admin/token scopes (machine-checked).
-- **Audit immutability**: `audit_log` is append-only via Postgres triggers; a bypass is a high-severity finding.
+- **Audit immutability**: `audit_log` is append-only via Postgres triggers; a bypass is a high-severity finding. Rows written directly by a Postgres RPC (`nopm_commit_task_deletion`, `nopm_commit_project_deletion`, `nopm_accept_invite`) carry the same `channel`/`request_id` provenance as rows written through `writeAudit` (R-84, migration `20260906000044_rpc_audit_provenance.sql`).
 - **Maker-checker**: self-approval of a deletion request must be impossible (scope + API guard + DB CHECK).
 - **Maker-checker scope (documented asymmetry)**: four-eyes deletion extends to projects as well as tasks; milestones/risks/issues remain single-step audit-only hard deletes by owner decision, not by omission (`requirements/devops-wave1/README.md`, Decision 3).
 - **Secrets at rest**: PATs are SHA-256 hashed; BYOK provider keys are AES-256-GCM encrypted and never returned by any endpoint.

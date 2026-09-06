@@ -8,6 +8,8 @@
  *              excluding the openapi.json route itself — the OpenAPI coverage
  *              test guarantees every one of these is documented in the spec)
  *   tests      vitest test count (run with --reporter=json)
+ *   deps       runtime dependency count, web/package.json "dependencies"
+ *   cliDeps    runtime dependency count, cli/package.json "dependencies"
  *
  * Output: src/lib/metrics.gen.json — imported by the landing page, the case
  * study, and the PDF one-pager. Checked in; CI runs `--check` to fail the
@@ -69,6 +71,17 @@ function countTests() {
   return { tests: report.numTotalTests, testFiles: report.numTotalTestSuites };
 }
 
+// ── Dependency counts ─────────────────────────────────────────────────────────
+
+function countDeps(packageJsonPath) {
+  try {
+    const pkg = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    return Object.keys(pkg.dependencies ?? {}).length;
+  } catch {
+    return 0;
+  }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const { tests } = countTests();
@@ -76,6 +89,8 @@ const metrics = {
   rids: countRids(),
   endpoints: countEndpoints(),
   tests,
+  deps: countDeps(path.join(WEB, "package.json")),
+  cliDeps: countDeps(path.join(REPO, "cli", "package.json")),
 };
 
 const next = JSON.stringify(metrics, null, 2) + "\n";

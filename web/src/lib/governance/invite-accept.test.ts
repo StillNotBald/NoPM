@@ -62,6 +62,30 @@ describe("performInviteAccept — happy path", () => {
       expect.objectContaining({ p_email: INPUT.email, p_token_hash: INPUT.tokenHash }),
     );
   });
+
+  it("R-84: passes p_channel/p_correlation_id through to the rpc when given on the input", async () => {
+    const rpc = vi.fn(async () => ({ data: {}, error: null }));
+    const db = fakeClient({ rpc });
+
+    await performInviteAccept(db, { ...INPUT, channel: "ui", requestId: "req-123" });
+
+    expect(rpc).toHaveBeenCalledWith(
+      "nopm_accept_invite",
+      expect.objectContaining({ p_channel: "ui", p_correlation_id: "req-123" }),
+    );
+  });
+
+  it("R-84: defaults p_channel/p_correlation_id to null when the input omits them", async () => {
+    const rpc = vi.fn(async () => ({ data: {}, error: null }));
+    const db = fakeClient({ rpc });
+
+    await performInviteAccept(db, INPUT);
+
+    expect(rpc).toHaveBeenCalledWith(
+      "nopm_accept_invite",
+      expect.objectContaining({ p_channel: null, p_correlation_id: null }),
+    );
+  });
 });
 
 describe("performInviteAccept — createUser failure (never reaches the rpc)", () => {

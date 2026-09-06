@@ -24,6 +24,8 @@ Milestones, risks, and issues are hard-deleted with an audit row only — they d
 
 Every mutation in NoPM writes exactly one audit row — including drag-to-move on the Kanban board (see [`02-projects-and-tasks.md`](../operator/02-projects-and-tasks.md)) and every deletion-request lifecycle transition (create/approve/reject/withdraw).
 
+A filter bar above the timeline narrows it by channel, action, or (via `?target_type=&target_id=`) a single object — every task, risk, issue, and project detail view carries a "History" link that jumps straight into its own filtered slice, and the CSV export always mirrors whatever filter is active on screen. A "What this proves" card states the four claims a governance reviewer usually asks about up front: retention (rows are kept for the workspace's life and can't be updated or deleted, enforced by database triggers on every role), provenance (actor, declared channel, and request id on every row), fail-closed honesty (deletion and invite commits write their audit row in the same transaction as the change; other writes persist first and error out if the audit row can't be written), and that the export itself is audited.
+
 ## Blocked-attempt rows
 
 Not every audit row records a successful write. Two categories of **rejected** attempt are also audited, fail-soft (a broken audit write never masks the rejection itself, nor lets the mutation through):

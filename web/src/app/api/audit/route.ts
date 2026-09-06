@@ -1,5 +1,6 @@
 import { route } from "@/lib/api/handler";
 import { okList, validationError } from "@/lib/api/response";
+import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
@@ -18,6 +19,23 @@ const querySchema = z.object({
     .optional()
     .transform((v) => (v !== undefined ? parseInt(v, 10) : 1))
     .pipe(z.number().int().min(1)),
+  // R-85 (audit cursor): `since` and `order` get STRICT validation here
+  // (422 on a bad value) — unlike parseAuditFilters's lenient extraction,
+  // which the export route also relies on and which just drops a bad value
+  // instead of failing the whole request. This route is the interactive/
+  // agent-facing "tail the log" surface, so a typo'd timestamp or order
+  // should come back as a loud 422, not a silently-ignored filter.
+  since: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || !Number.isNaN(Date.parse(v)), {
+      message: "since must be a parsable ISO 8601 timestamp",
+    }),
+  order: z.enum(["asc", "desc"]).optional(),
+  // Format-checked here (422 on a non-UUID); existence within the
+  // workspace is checked below with a DB read (404 if absent) since that
+  // needs the actor's workspaceId, which zod has no access to.
+  after_id: z.string().uuid().optional(),
 });
 
 export const GET = route(async ({ actor, request }) => {
@@ -32,11 +50,30 @@ export const GET = route(async ({ actor, request }) => {
     );
   }
 
-  const { limit, page } = parsed.data;
+  const { limit, page, after_id } = parsed.data;
   const offset = (page - 1) * limit;
   const filters = parseAuditFilters(searchParams);
+  const ascending = filters.order === "asc";
 
   const db = createAdminClient();
+
+  // R-85: after_id is a cursor into THIS workspace's audit log — resolve
+  // its created_at first (404 if it doesn't exist, or belongs to another
+  // workspace, which must look identical to "doesn't exist" — never leak
+  // cross-workspace row existence) so the main query can filter strictly
+  // after it.
+  let afterCreatedAt: string | undefined;
+  if (after_id) {
+    const { data: afterRow, error: afterError } = await db
+      .from("audit_log")
+      .select("created_at")
+      .eq("id", after_id)
+      .eq("workspace_id", actor.workspaceId)
+      .maybeSingle();
+    if (afterError) throw afterError;
+    if (!afterRow) throw new NotFoundError("after_id not found");
+    afterCreatedAt = afterRow.created_at as string;
+  }
 
   let query = db
     .from("audit_log")
@@ -55,9 +92,13 @@ export const GET = route(async ({ actor, request }) => {
   if (filters.action !== undefined) query = query.eq("action", filters.action);
   if (filters.actor_id !== undefined) query = query.eq("actor_id", filters.actor_id);
   if (filters.channel !== undefined) query = query.eq("channel", filters.channel);
+  // since and after_id may be combined — both filters are ANDed (Postgrest
+  // chains .gte()/.gt() as AND), so the more restrictive one simply wins.
+  if (filters.since !== undefined) query = query.gte("created_at", filters.since);
+  if (afterCreatedAt !== undefined) query = query.gt("created_at", afterCreatedAt);
 
   const { data, error, count } = await query
-    .order("created_at", { ascending: false })
+    .order("created_at", { ascending })
     .range(offset, offset + limit - 1);
 
   if (error) throw error;

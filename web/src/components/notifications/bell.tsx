@@ -5,7 +5,13 @@ import { Bell } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
-import { createClient } from "@/lib/supabase/client";
+// @supabase/ssr + supabase-js are loaded lazily inside the realtime effect
+// below (not at module scope) so they leave the shared shell's initial chunk —
+// this component mounts on every page via app-shell.tsx, but only the bell's
+// own Realtime subscription needs the Supabase client.
+import type { createClient } from "@/lib/supabase/client";
+
+type SupabaseBrowserClient = ReturnType<typeof createClient>;
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -115,78 +121,84 @@ export function NotificationBell() {
 
   // ── Supabase Realtime subscription ────────────────────────────────────────
   useEffect(() => {
-    const supabase = createClient();
-    let channelRef: ReturnType<typeof supabase.channel> | null = null;
-    // Guards the async gap: if the effect is cleaned up (unmount or StrictMode
-    // re-run) before getUser resolves, we must neither subscribe a zombie
-    // channel nor re-use the client's already-subscribed channel instance.
+    let supabase: SupabaseBrowserClient | null = null;
+    let channelRef: ReturnType<SupabaseBrowserClient["channel"]> | null = null;
+    // Guards the async gaps: if the effect is cleaned up (unmount or StrictMode
+    // re-run) before the dynamic import or getUser resolves, we must neither
+    // subscribe a zombie channel nor re-use the client's already-subscribed
+    // channel instance.
     let cancelled = false;
 
-    supabase.auth
-      .getUser()
-      .then(({ data: { user } }) => {
-        if (!user || cancelled) return; // unauthenticated or effect torn down
+    import("@/lib/supabase/client")
+      .then(({ createClient }) => {
+        if (cancelled) return; // effect torn down before the module loaded
+        const client = createClient();
+        supabase = client;
 
-        const channel = supabase
-          .channel("notifications-bell")
-          .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "notifications",
-            filter: `recipient_id=eq.${user.id}`,
-          },
-          (payload) => {
-            const newRow = payload.new as DbNotification;
-            const newItem = dbToUi(newRow);
+        return client.auth.getUser().then(({ data: { user } }) => {
+          if (!user || cancelled) return; // unauthenticated or effect torn down
 
-            // Dedupe: skip if already in state (e.g. from a concurrent fetchAll)
-            setNotifications((prev) => {
-              if (prev.some((n) => n.id === newItem.id)) return prev;
-              return [newItem, ...prev];
+          const channel = client
+            .channel("notifications-bell")
+            .on(
+              "postgres_changes",
+              {
+                event: "INSERT",
+                schema: "public",
+                table: "notifications",
+                filter: `recipient_id=eq.${user.id}`,
+              },
+              (payload) => {
+                const newRow = payload.new as DbNotification;
+                const newItem = dbToUi(newRow);
+
+                // Dedupe: skip if already in state (e.g. from a concurrent fetchAll)
+                setNotifications((prev) => {
+                  if (prev.some((n) => n.id === newItem.id)) return prev;
+                  return [newItem, ...prev];
+                });
+
+                // Always bump the badge for new unread items
+                if (!newItem.read) {
+                  setUnreadCount((c) => c + 1);
+                }
+              },
+            )
+            .on(
+              "postgres_changes",
+              {
+                event: "UPDATE",
+                schema: "public",
+                table: "notifications",
+                filter: `recipient_id=eq.${user.id}`,
+              },
+              (payload) => {
+                const updatedRow = payload.new as DbNotification;
+                const wasRead = updatedRow.read_at !== null;
+
+                setNotifications((prev) =>
+                  prev.map((n) =>
+                    n.id === updatedRow.id ? { ...n, read: wasRead } : n,
+                  ),
+                );
+
+                // Reconcile unread badge from local state after this update
+                setNotifications((prev) => {
+                  const count = prev.filter((n) => !n.read).length;
+                  setUnreadCount(count);
+                  return prev;
+                });
+              },
+            )
+            .subscribe((status) => {
+              // Fail-soft: subscription errors don't break the existing fetch path
+              if (status === "CHANNEL_ERROR") {
+                // existing fetch-on-focus path remains active; nothing to do
+              }
             });
 
-            // Always bump the badge for new unread items
-            if (!newItem.read) {
-              setUnreadCount((c) => c + 1);
-            }
-          },
-          )
-          .on(
-          "postgres_changes",
-          {
-            event: "UPDATE",
-            schema: "public",
-            table: "notifications",
-            filter: `recipient_id=eq.${user.id}`,
-          },
-          (payload) => {
-            const updatedRow = payload.new as DbNotification;
-            const wasRead = updatedRow.read_at !== null;
-
-            setNotifications((prev) =>
-              prev.map((n) =>
-                n.id === updatedRow.id ? { ...n, read: wasRead } : n,
-              ),
-            );
-
-            // Reconcile unread badge from local state after this update
-            setNotifications((prev) => {
-              const count = prev.filter((n) => !n.read).length;
-              setUnreadCount(count);
-              return prev;
-            });
-          },
-          )
-          .subscribe((status) => {
-          // Fail-soft: subscription errors don't break the existing fetch path
-          if (status === "CHANNEL_ERROR") {
-            // existing fetch-on-focus path remains active; nothing to do
-          }
-          });
-
-        channelRef = channel;
+          channelRef = channel;
+        });
       })
       .catch(() => {
         // Fail-soft: realtime is a convenience layer; fetch-on-focus still works
@@ -194,7 +206,7 @@ export function NotificationBell() {
 
     return () => {
       cancelled = true;
-      if (channelRef) {
+      if (channelRef && supabase) {
         // removeChannel (vs unsubscribe) also drops the topic from the client
         // registry so a remount can recreate "notifications-bell" cleanly
         supabase.removeChannel(channelRef);

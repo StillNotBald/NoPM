@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiGet, type ApiError } from "@/lib/api-client";
-import { z } from "zod";
+import { validateFields } from "@/lib/forms/validate";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 
@@ -18,13 +18,6 @@ interface ProjectOption {
   code: string | null;
   name: string;
 }
-
-const sprintClientSchema = z.object({
-  project_id: z.string().min(1, "Project is required"),
-  name: z.string().min(1, "Sprint name is required"),
-  start_date: z.string().min(1, "Start date is required"),
-  end_date: z.string().min(1, "End date is required"),
-});
 
 /**
  * Create-only sprint form (L-17). Sprints are created `state: 'planned'` via
@@ -67,19 +60,14 @@ export function SprintForm({ defaultProjectId }: { defaultProjectId?: string }) 
     setTopError(null);
     setFieldErrors({});
 
-    const clientResult = sprintClientSchema.safeParse({
-      project_id: projectId,
-      name,
-      start_date: startDate,
-      end_date: endDate,
-    });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "project_id", value: projectId, message: "Project is required" },
+      { key: "name", value: name, message: "Sprint name is required" },
+      { key: "start_date", value: startDate, message: "Start date is required" },
+      { key: "end_date", value: endDate, message: "End date is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

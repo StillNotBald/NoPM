@@ -18,7 +18,7 @@ import {
   FormGrid,
   FormActions,
 } from "@/components/forms/form-shell";
-import { z } from "zod";
+import { validateFields } from "@/lib/forms/validate";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface MemberOption {
@@ -32,11 +32,6 @@ interface ProjectOption {
   name: string;
   code: string | null;
 }
-
-// ── Client-side validation schema ─────────────────────────────────────────────
-const allocationClientSchema = z.object({
-  member_id: z.string().uuid("Please select a team member"),
-});
 
 // ── AllocationForm ─────────────────────────────────────────────────────────────
 export function AllocationForm({
@@ -104,14 +99,11 @@ export function AllocationForm({
     setTopError(null);
     setFieldErrors({});
 
-    const clientResult = allocationClientSchema.safeParse({ member_id: memberId });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "member_id", value: memberId, message: "Please select a team member", kind: "uuid" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

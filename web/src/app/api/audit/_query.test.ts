@@ -39,6 +39,42 @@ describe("parseAuditFilters", () => {
   it("ignores an empty channel value", () => {
     expect(parseAuditFilters(new URLSearchParams({ channel: "" }))).toEqual({});
   });
+
+  it("extracts a valid since timestamp", () => {
+    expect(parseAuditFilters(new URLSearchParams({ since: "2026-09-01T00:00:00Z" }))).toEqual({
+      since: "2026-09-01T00:00:00Z",
+    });
+  });
+
+  it("ignores an unparsable since value", () => {
+    expect(parseAuditFilters(new URLSearchParams({ since: "not-a-date" }))).toEqual({});
+  });
+
+  it("ignores an empty since value", () => {
+    expect(parseAuditFilters(new URLSearchParams({ since: "" }))).toEqual({});
+  });
+
+  it("extracts a valid order", () => {
+    expect(parseAuditFilters(new URLSearchParams({ order: "asc" }))).toEqual({ order: "asc" });
+    expect(parseAuditFilters(new URLSearchParams({ order: "desc" }))).toEqual({ order: "desc" });
+  });
+
+  it("ignores an unrecognized order value", () => {
+    expect(parseAuditFilters(new URLSearchParams({ order: "ascending" }))).toEqual({});
+  });
+
+  it("combines since, channel, and order", () => {
+    const params = new URLSearchParams({
+      since: "2026-09-01T00:00:00Z",
+      channel: "cli",
+      order: "asc",
+    });
+    expect(parseAuditFilters(params)).toEqual({
+      since: "2026-09-01T00:00:00Z",
+      channel: "cli",
+      order: "asc",
+    });
+  });
 });
 
 describe("applyAuditFilters", () => {

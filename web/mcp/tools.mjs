@@ -28,6 +28,9 @@ export const RISK_STATUSES = ["open", "mitigating", "closed", "accepted"];
 export const ISSUE_PRIORITIES = ["low", "medium", "high", "urgent"];
 export const ISSUE_STATUSES = ["open", "in_progress", "resolved", "closed"];
 export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"];
+// Mirrors AuditChannel in web/src/lib/audit/channel.ts (R-82/R-85) — the
+// five channel values audit_log's DB check constraint accepts.
+export const AUDIT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant"];
 
 const DATE = "ISO date, YYYY-MM-DD";
 const DATETIME = "ISO 8601 datetime with timezone, e.g. 2026-09-30T00:00:00Z";
@@ -535,8 +538,9 @@ export const TOOL_REGISTRY = [
   {
     name: "query_audit",
     description:
-      "Query the immutable audit log. Filter by target_type, target_id, action, or actor_id. " +
-      "Every write in NoPM produces exactly one audit row.",
+      "Query the immutable audit log. Filter by target_type, target_id, action, actor_id, or " +
+      "channel. Every write in NoPM produces exactly one audit row. To tail the log, pass " +
+      "since=<last seen created_at> and order=asc.",
     parameters: {
       type: "object",
       properties: {
@@ -547,6 +551,9 @@ export const TOOL_REGISTRY = [
         target_id: { type: "string", description: "UUID of the target entity" },
         action: { type: "string", description: "e.g. task.create | task.update" },
         actor_id: { type: "string", description: "UUID of the actor" },
+        channel: { type: "string", enum: AUDIT_CHANNELS, description: "Declared client that wrote the row (R-82)" },
+        since: { type: "string", format: "date-time", description: "ISO 8601 timestamp; only rows at or after this time (R-85)" },
+        order: { type: "string", enum: ["asc", "desc"], description: "Sort direction by created_at, default desc (R-85)" },
         page,
         limit,
       },
@@ -559,6 +566,9 @@ export const TOOL_REGISTRY = [
       if (args.target_id) params.set("target_id", String(args.target_id));
       if (args.action) params.set("action", String(args.action));
       if (args.actor_id) params.set("actor_id", String(args.actor_id));
+      if (args.channel) params.set("channel", String(args.channel));
+      if (args.since) params.set("since", String(args.since));
+      if (args.order) params.set("order", String(args.order));
       params.set("page", String(args.page ?? 1));
       params.set("limit", String(args.limit ?? 20));
       return { path: `/api/audit?${params.toString()}`, method: "GET" };

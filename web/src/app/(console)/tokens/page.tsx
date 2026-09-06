@@ -11,24 +11,14 @@ import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/cn";
 import { useRequireSession } from "@/lib/auth/use-require-session";
-import { AGENT_PRESET_SCOPES } from "@/lib/auth/scopes";
+import { AGENT_PRESET_SCOPES, scopeChoices } from "@/lib/auth/scopes";
 
-const ALL_SCOPES = [
-  "project:*",
-  "task:read",
-  "task:write",
-  "task:delete:request",
-  "task:delete:approve",
-  "risk:*",
-  "issue:*",
-  "clash:*",
-  "resource:*",
-  "budget:*",
-  "time:*",
-  "audit:read",
-] as const;
+// Derived from the SCOPES registry (see scopeChoices' own doc comment) so a
+// newly registered resource/scope shows up here automatically instead of
+// requiring a second hand-maintained list that can silently drift stale.
+const ALL_SCOPES = scopeChoices();
 
-type Scope = (typeof ALL_SCOPES)[number];
+type Scope = string;
 
 interface ApiToken {
   id: string;

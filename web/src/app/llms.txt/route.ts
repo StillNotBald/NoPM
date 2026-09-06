@@ -90,6 +90,14 @@ authorization input (token identity stays authoritative); omitted it defaults to
 to correlate a request with its audit row (request_id); the server echoes it back
 as the X-Request-Id response header, generating one for you when you don't send it.
 
+Tail the log (R-85): GET /audit accepts ?since (ISO 8601 timestamp, 422 if unparsable),
+?after_id (uuid of a row you already saw — its created_at becomes a strict lower
+bound; 404 if that id doesn't exist in your workspace), and ?order (asc|desc, default
+desc; 422 otherwise). since and after_id may be combined. To poll forward in time:
+  GET /api/audit?since=<iso>&order=asc&limit=100
+then remember the created_at (or id, as after_id) of the last row you saw and use it
+as the next poll's cursor.
+
 ---
 
 ## Endpoint index
@@ -245,12 +253,12 @@ GET    /notifications                      — scope:notification:read — list 
 PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
 POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
-GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant — R-82, unrecognized values ignored). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql.
+GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant — R-82, unrecognized values ignored; ?since ISO 8601 timestamp — 422 if unparsable, ?after_id uuid of a row already seen — 404 if absent from this workspace, ?order asc|desc default desc — 422 otherwise; since/after_id combine — R-85). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql.
 GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, programs, sprints, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
-GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries|programs (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id/channel (R-82); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel and request_id. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries|programs (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, lenient — bad value dropped, not 422; after_id NOT supported here); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel and request_id. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
 
 GET    /reports/deck                       — scope:audit:read — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read — portfolio deck (POST variant)

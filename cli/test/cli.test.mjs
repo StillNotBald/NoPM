@@ -208,6 +208,36 @@ test("decisions create includes source/external-ref/external-url when supplied",
   ]);
 });
 
+// ── audit command contracts (R-85 cursor params) ────────────────────────────
+
+test("audit ls builds a GET with default limit/page and no cursor params", async () => {
+  const audit = await import("../commands/audit.mjs");
+  const ctx = makeCtx({ _: [] });
+  await audit.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "GET", path: "/api/audit?limit=20&page=1", body: undefined },
+  ]);
+});
+
+test("audit ls passes --since/--after-id/--order/--channel through as query params", async () => {
+  const audit = await import("../commands/audit.mjs");
+  const ctx = makeCtx({
+    _: [],
+    since: "2026-09-01T00:00:00Z",
+    "after-id": "aud_1",
+    order: "asc",
+    channel: "cli",
+  });
+  await audit.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    {
+      method: "GET",
+      path: "/api/audit?limit=20&page=1&channel=cli&since=2026-09-01T00%3A00%3A00Z&after_id=aud_1&order=asc",
+      body: undefined,
+    },
+  ]);
+});
+
 // ── approve command contracts ───────────────────────────────────────────────
 
 test("approve reject without an id dies BEFORE calling the API", async () => {

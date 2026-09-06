@@ -15,12 +15,7 @@ import {
   TextareaInput,
 } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
-import { z } from "zod";
-
-// ── Client-side validation schema ────────────────────────────────────────────
-const milestoneClientSchema = z.object({
-  name: z.string().min(1, "Milestone name is required"),
-});
+import { validateFields } from "@/lib/forms/validate";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 export interface Milestone {
@@ -87,14 +82,11 @@ export function MilestoneForm({
     setFieldErrors({});
 
     // Client-side validation — immediate feedback before the network round-trip.
-    const clientResult = milestoneClientSchema.safeParse({ name });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "name", value: name, message: "Milestone name is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

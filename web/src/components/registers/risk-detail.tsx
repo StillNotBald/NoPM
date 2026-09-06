@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { History } from "lucide-react";
 import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -130,9 +132,18 @@ export function RiskDetail({ risk, projectName, ownerName }: RiskDetailProps) {
             {risk.title}
           </h2>
         </div>
-        <Button variant="ghost" onClick={openEdit} className="shrink-0 h-9 px-3 text-xs">
-          Edit
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Link
+            href={`/trust?target_type=risk&target_id=${risk.id}`}
+            className="inline-flex h-9 items-center gap-1 rounded-md px-2 text-xs text-ink-secondary hover:bg-sunken hover:text-ink"
+          >
+            <History size={13} />
+            History
+          </Link>
+          <Button variant="ghost" onClick={openEdit} className="h-9 px-3 text-xs">
+            Edit
+          </Button>
+        </div>
       </div>
 
       {/* Status / severity chips */}

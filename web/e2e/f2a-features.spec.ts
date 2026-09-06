@@ -125,9 +125,19 @@ test.describe("admin-authenticated journeys", () => {
       await expect(page.locator("thead").getByText("Priority", { exact: true })).toBeVisible();
 
       await page.getByRole("button", { name: /^columns$/i }).click();
-      await page.getByLabel("Priority", { exact: true }).uncheck();
+      try {
+        await page.getByLabel("Priority", { exact: true }).uncheck();
 
-      await expect(page.locator("thead").getByText("Priority", { exact: true })).toHaveCount(0);
+        await expect(page.locator("thead").getByText("Priority", { exact: true })).toHaveCount(0);
+      } finally {
+        // The chooser persists to the account's user_preferences row
+        // (merge-upsert, keys are never removed) — re-check so the shared
+        // admin identity does not leak a hidden column into later runs.
+        await page.getByLabel("Priority", { exact: true }).check().catch(() => {});
+        await expect(page.locator("thead").getByText("Priority", { exact: true }))
+          .toBeVisible()
+          .catch(() => {});
+      }
     });
 
     test("aggregate footer renders a row count for the current page (view-aggregate-row)", async ({

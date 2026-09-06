@@ -4,7 +4,10 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { ExportCsvButton } from "@/components/export-csv-button";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { parseAuditFilters } from "@/app/api/audit/_query";
 
 export const metadata = { title: "Trust Center — NoPM" };
 
@@ -83,20 +86,69 @@ function shortId(id: string | null): string {
   return id.length > 8 ? id.slice(0, 8) : id;
 }
 
-export default async function TrustPage() {
+/** Build a `/trust`- or `/api/export`-relative href, dropping any param whose value is falsy. */
+function hrefWithParams(base: string, params: Record<string, string | undefined>): string {
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) usp.set(key, value);
+  }
+  const qs = usp.toString();
+  return qs ? `${base}?${qs}` : base;
+}
+
+const CHANNEL_OPTIONS = ["ui", "api", "cli", "mcp", "assistant"] as const;
+
+export default async function TrustPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const db = await createClient();
   const {
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: rows, error } = await db
-    .from("audit_log")
-    .select("*")
+  // Reuses the SAME filter-parsing single source of truth as GET /audit and
+  // GET /api/export?entity=audit — an unrecognized channel (or any other
+  // stray param) is silently dropped rather than passed to a .eq() that
+  // would just match zero rows.
+  const rawParams = await searchParams;
+  const parseInput = new URLSearchParams();
+  if (rawParams.target_type) parseInput.set("target_type", rawParams.target_type);
+  if (rawParams.target_id) parseInput.set("target_id", rawParams.target_id);
+  if (rawParams.action) parseInput.set("action", rawParams.action);
+  if (rawParams.channel) parseInput.set("channel", rawParams.channel);
+  const filters = parseAuditFilters(parseInput);
+  const hasAnyFilter = !!(filters.target_type || filters.target_id || filters.action || filters.channel);
+  const hasTargetFilter = !!(filters.target_type && filters.target_id);
+
+  let query = db.from("audit_log").select("*");
+  if (filters.target_type) query = query.eq("target_type", filters.target_type);
+  if (filters.target_id) query = query.eq("target_id", filters.target_id);
+  if (filters.action) query = query.eq("action", filters.action);
+  if (filters.channel) query = query.eq("channel", filters.channel);
+  const { data: rows, error } = await query
     .order("created_at", { ascending: false })
     .limit(50);
 
   const entries: AuditRow[] = rows ?? [];
+
+  // The CSV export mirrors whatever filters narrowed the view above, so the
+  // downloaded file always matches what's on screen.
+  const exportHref = hrefWithParams("/api/export", {
+    entity: "audit",
+    target_type: filters.target_type,
+    target_id: filters.target_id,
+    action: filters.action,
+    channel: filters.channel,
+  });
+  // The object-history chip's own Clear drops just target_type/target_id,
+  // keeping any action/channel filter the buyer already set.
+  const clearTargetHref = hrefWithParams("/trust", {
+    action: filters.action,
+    channel: filters.channel,
+  });
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -105,7 +157,7 @@ export default async function TrustPage() {
         title="Trust Center"
         action={
           <>
-            <ExportCsvButton href="/api/export?entity=audit" />
+            <ExportCsvButton href={exportHref} />
             <Badge tone="accent">Immutable</Badge>
           </>
         }
@@ -117,6 +169,71 @@ export default async function TrustPage() {
           Failed to load audit log: {error.message}
         </div>
       )}
+
+      {/* Object-history chip — set by the "History" links on task/risk/issue/
+          project detail views (?target_type=&target_id=). */}
+      {hasTargetFilter && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+            History for {filters.target_type} <code className="font-mono">{shortId(filters.target_id ?? null)}</code>
+          </span>
+          <a href={clearTargetHref} className="text-xs text-ink-muted hover:text-ink hover:underline">
+            Clear
+          </a>
+        </div>
+      )}
+
+      {/* Filter bar — plain GET form, no client JS. */}
+      <form
+        method="get"
+        className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface px-4 py-3 sm:flex-row sm:flex-wrap sm:items-end"
+      >
+        {filters.target_type && <input type="hidden" name="target_type" value={filters.target_type} />}
+        {filters.target_id && <input type="hidden" name="target_id" value={filters.target_id} />}
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="trust-channel" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+            Channel
+          </label>
+          <select
+            id="trust-channel"
+            name="channel"
+            defaultValue={filters.channel ?? ""}
+            className="h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30"
+          >
+            <option value="">All</option>
+            {CHANNEL_OPTIONS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label htmlFor="trust-action" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+            Action
+          </label>
+          <Input
+            id="trust-action"
+            name="action"
+            defaultValue={filters.action ?? ""}
+            placeholder="e.g. task.create"
+            className="h-10 sm:w-56"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button type="submit" variant="secondary" size="sm">
+            Filter
+          </Button>
+          {hasAnyFilter && (
+            <a href="/trust" className="text-xs text-ink-muted hover:text-ink hover:underline">
+              Clear
+            </a>
+          )}
+        </div>
+      </form>
 
       {/* Main content row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
@@ -269,6 +386,43 @@ export default async function TrustPage() {
                 <p className="text-xs text-ink-muted">
                   declared client — which surface (ui/api/cli/mcp/assistant) said it made the
                   call. Token identity is authoritative; the channel is caller-asserted.
+                </p>
+              </div>
+            </CardBody>
+          </Card>
+
+          {/* What this proves — the four claims a governance buyer will ask about. */}
+          <Card>
+            <CardHeader>
+              <CardTitle>What this proves</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-3">
+              <div>
+                <p className="text-xs font-medium text-ink">Retention</p>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Rows are kept for the life of the workspace and are never updated or deleted;
+                  two database triggers reject both, for every role including the service key.
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-ink">Provenance</p>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Each row names the actor, the declared client, and a request id echoed on the
+                  API response.
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-ink">Fail-closed honesty</p>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Deletion and invite commits write their audit rows in the same database
+                  transaction as the change. Other writes persist first and return an error if the
+                  audit row cannot be written.
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-ink">Export</p>
+                <p className="mt-0.5 text-xs text-ink-muted">
+                  Export the current view as CSV at any time; the export itself is audited.
                 </p>
               </div>
             </CardBody>

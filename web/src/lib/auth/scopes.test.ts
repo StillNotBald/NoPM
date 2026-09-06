@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SCOPES, isValidScope, AGENT_PRESET_SCOPES } from "./scopes";
+import { SCOPES, isValidScope, AGENT_PRESET_SCOPES, scopeChoices } from "./scopes";
 import { TOOL_SCOPES } from "@/lib/assistant/tools";
 
 describe("scope registry", () => {
@@ -115,6 +115,49 @@ describe("scope registry", () => {
         SCOPES.filter((s) => s.endsWith(":read")).map((s) => s.split(":")[0]),
       );
       expect(presetResources).toEqual(readResources);
+    });
+  });
+
+  // The token-mint UI's checkbox list (tokens/page.tsx) is DERIVED from
+  // SCOPES via scopeChoices() rather than a second hand-curated list — these
+  // tests are the one place that would catch a future registry addition
+  // silently failing to show up as a mintable choice.
+  describe("scopeChoices (tokens page checkbox list)", () => {
+    it("covers every registered scope, directly or via its resource wildcard", () => {
+      const choices = new Set(scopeChoices());
+      for (const s of SCOPES) {
+        const resource = s.split(":")[0];
+        expect(choices.has(s) || choices.has(`${resource}:*`)).toBe(true);
+      }
+    });
+
+    it("offers a wildcard only for a resource with more than one scope", () => {
+      const choices = new Set(scopeChoices());
+      const counts = new Map<string, number>();
+      for (const s of SCOPES) {
+        const resource = s.split(":")[0];
+        counts.set(resource, (counts.get(resource) ?? 0) + 1);
+      }
+      for (const [resource, count] of counts) {
+        expect(choices.has(`${resource}:*`)).toBe(count > 1);
+      }
+    });
+
+    it("has no duplicate choices", () => {
+      const choices = scopeChoices();
+      expect(new Set(choices).size).toBe(choices.length);
+    });
+
+    it("every choice is itself a valid, mintable scope", () => {
+      for (const c of scopeChoices()) expect(isValidScope(c)).toBe(true);
+    });
+
+    it("keeps task:delete:request/approve and project:delete:request/approve as explicit entries", () => {
+      const choices = new Set(scopeChoices());
+      expect(choices.has("task:delete:request")).toBe(true);
+      expect(choices.has("task:delete:approve")).toBe(true);
+      expect(choices.has("project:delete:request")).toBe(true);
+      expect(choices.has("project:delete:approve")).toBe(true);
     });
   });
 });

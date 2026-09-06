@@ -5,6 +5,7 @@ import { RateLimitError } from "@/lib/api/errors";
 import { hashToken } from "@/lib/auth/tokens";
 import { assertInviteAcceptable, throwInviteNotAcceptable } from "@/lib/governance/invite-guard";
 import { performInviteAccept } from "@/lib/governance/invite-accept";
+import { resolveClientMeta } from "@/lib/audit/channel";
 import { acceptInviteSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -89,11 +90,19 @@ export const POST = route(
 
     assertInviteAcceptable(invite);
 
+    // R-84: this route runs with { auth: false } (anonymous acceptor) — no
+    // session/token Actor exists yet to read channel/requestId off, so they
+    // are resolved directly from the request headers, same inputs
+    // resolveClientMeta uses inside requireAuth for every other route.
+    const { channel, requestId } = resolveClientMeta(request.headers, "user");
+
     const result = await performInviteAccept(db, {
       tokenHash,
       email: invite.email, // ALWAYS the invite's own email (D6) — never client-supplied
       password: parsed.data.password,
       displayName: parsed.data.display_name,
+      channel,
+      requestId,
     });
 
     const { data: workspace } = await db

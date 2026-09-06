@@ -17,12 +17,7 @@ import {
   FormGrid,
   FormActions,
 } from "@/components/forms/form-shell";
-import { z } from "zod";
-
-// ── Client-side validation schema ─────────────────────────────────────────────
-const resourceClientSchema = z.object({
-  name: z.string().min(1, "Name is required"),
-});
+import { validateFields } from "@/lib/forms/validate";
 
 // ── ResourceForm ───────────────────────────────────────────────────────────────
 export function ResourceForm() {
@@ -52,14 +47,11 @@ export function ResourceForm() {
     setTopError(null);
     setFieldErrors({});
 
-    const clientResult = resourceClientSchema.safeParse({ name });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "name", value: name, message: "Name is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

@@ -3,6 +3,21 @@
  * GET /api/export?entity=audit (L-27/L-36) reuses the exact same filter
  * application as the list API — a single source of truth so export filters
  * can never drift from list filters.
+ *
+ * R-85 (audit cursor): `since` and `order` are extracted here the same
+ * lenient way as `channel` — an unparsable/unrecognized value is silently
+ * dropped rather than thrown, so this function stays usable by BOTH
+ * surfaces. GET /audit layers its OWN strict zod validation on top (422 on
+ * an unparsable `since` or an `order` outside asc|desc) — appropriate for an
+ * interactive/agent-facing list endpoint; GET /api/export?entity=audit has
+ * no such layer and simply ignores a malformed value, exactly like it
+ * already does for an unrecognized `channel` — so a bad export query param
+ * degrades to "filter not applied" rather than a failed download. Both
+ * valid values ARE applied to the export query (see fetchAuditRows in
+ * export/route.ts) — export stays consistent with the list API rather than
+ * silently dropping a filter that would otherwise work everywhere else.
+ * `after_id` is NOT part of this type: it needs a DB read (looking up the
+ * referenced row's created_at) that only the /audit route performs.
  */
 
 export type AuditFilters = {
@@ -11,10 +26,14 @@ export type AuditFilters = {
   action?: string;
   actor_id?: string;
   channel?: string;
+  since?: string;
+  order?: "asc" | "desc";
 };
 
 /** The only channel values the DB check constraint accepts (R-82). */
 const VALID_CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant"]);
+
+const VALID_ORDERS = new Set(["asc", "desc"]);
 
 /** Map query params → a filter descriptor. Unknown params are ignored. */
 export function parseAuditFilters(searchParams: URLSearchParams): AuditFilters {
@@ -32,6 +51,13 @@ export function parseAuditFilters(searchParams: URLSearchParams): AuditFilters {
   // ignored rather than passed through to a .eq() that would just return
   // zero rows silently.
   if (channel && VALID_CHANNELS.has(channel)) filters.channel = channel;
+  const since = searchParams.get("since");
+  // Date.parse rejects garbage but accepts any Date-parseable ISO 8601
+  // string; an empty string or unparsable value is dropped rather than
+  // passed through to a .gte() that would either error or match nothing.
+  if (since && !Number.isNaN(Date.parse(since))) filters.since = since;
+  const order = searchParams.get("order");
+  if (order && VALID_ORDERS.has(order)) filters.order = order as "asc" | "desc";
   return filters;
 }
 

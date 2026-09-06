@@ -1,23 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext,
-  useSortable,
-  arrayMove,
-  horizontalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import {
   LayoutDashboard,
   FolderKanban,
@@ -38,7 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-type Item = { href: string; label: string; icon: LucideIcon };
+export type Item = { href: string; label: string; icon: LucideIcon };
 
 // Every destination available to the shortcut bar.
 const ALL_ITEMS: Item[] = [
@@ -62,34 +48,23 @@ const STORAGE_KEY = "nopm.bottomnav.shortcuts";
 
 const byHref = (href: string) => ALL_ITEMS.find((i) => i.href === href);
 
-/** A pinned shortcut tile that can be dragged to reorder (Edit mode only). */
-function SortableShortcut({ item, onRemove }: { item: Item; onRemove: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: item.href,
-  });
-  const Icon = item.icon;
+// dnd-kit only loads when a viewer opens Edit mode — see bottom-nav-sortable.tsx.
+// The loading fallback is a plain (non-draggable) skeleton grid so there is no
+// layout jump while the chunk streams in; it swaps for the real drag UI once
+// mounted (which receives the live items/handlers as normal props).
+const BottomNavSortable = dynamic(() => import("./bottom-nav-sortable"), {
+  ssr: false,
+  loading: () => <StaticShortcutSkeleton />,
+});
+
+function StaticShortcutSkeleton() {
   return (
-    <div
-      ref={setNodeRef}
-      style={{ transform: CSS.Transform.toString(transform), transition }}
-      {...attributes}
-      {...listeners}
-      className={cn(
-        "relative flex touch-none cursor-grab select-none flex-col items-center gap-1.5 rounded-xl bg-accent/10 py-3 text-[11px] text-accent",
-        isDragging && "z-10 cursor-grabbing opacity-80 shadow-md",
-      )}
-    >
-      <button
-        type="button"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={onRemove}
-        className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-ink/60 text-canvas"
-        aria-label={`Remove ${item.label}`}
-      >
-        <X size={11} strokeWidth={3} />
-      </button>
-      <Icon size={22} />
-      <span className="max-w-full truncate px-1">{item.label}</span>
+    <div className="grid grid-cols-4 gap-1 px-1 sm:grid-cols-5" aria-hidden="true">
+      {Array.from({ length: MAX_SHORTCUTS }).map((_, i) => (
+        <div key={i} className="animate-pulse rounded-xl bg-accent/10 py-3">
+          <div className="mx-auto h-[22px] w-[22px] rounded bg-accent/20" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -133,16 +108,6 @@ export function BottomNav() {
     if (!shortcuts.includes(href) && shortcuts.length < MAX_SHORTCUTS) save([...shortcuts, href]);
   };
   const unpin = (href: string) => save(shortcuts.filter((h) => h !== href));
-
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const onDragEnd = (e: DragEndEvent) => {
-    const { active, over } = e;
-    if (over && active.id !== over.id) {
-      const from = shortcuts.indexOf(String(active.id));
-      const to = shortcuts.indexOf(String(over.id));
-      if (from !== -1 && to !== -1) save(arrayMove(shortcuts, from, to));
-    }
-  };
 
   const barItems = shortcuts.map(byHref).filter(Boolean) as Item[];
   const unpinned = ALL_ITEMS.filter((i) => !shortcuts.includes(i.href));
@@ -200,15 +165,12 @@ export function BottomNav() {
                   </p>
                 </div>
                 {barItems.length > 0 ? (
-                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                    <SortableContext items={shortcuts} strategy={horizontalListSortingStrategy}>
-                      <div className="grid grid-cols-4 gap-1 px-1 sm:grid-cols-5">
-                        {barItems.map((item) => (
-                          <SortableShortcut key={item.href} item={item} onRemove={() => unpin(item.href)} />
-                        ))}
-                      </div>
-                    </SortableContext>
-                  </DndContext>
+                  <BottomNavSortable
+                    items={barItems}
+                    order={shortcuts}
+                    onReorder={save}
+                    onRemove={unpin}
+                  />
                 ) : (
                   <p className="px-3 py-4 text-center text-xs text-ink-muted">
                     No shortcuts pinned — add some below.

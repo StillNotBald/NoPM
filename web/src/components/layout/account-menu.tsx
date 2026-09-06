@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Settings, Keyboard, LifeBuoy, LogOut, User, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { KeyboardShortcuts } from "./keyboard-shortcuts";
-import { createClient } from "@/lib/supabase/client";
+// @supabase/ssr + supabase-js load lazily inside the sign-out handler below —
+// this menu mounts on every page via app-shell.tsx, and only sign-out needs
+// the Supabase client.
 
 interface Identity {
   label: string;
@@ -88,7 +90,10 @@ export function AccountMenu() {
   const handleSignOut = useCallback(async () => {
     setSigningOut(true);
     try {
-      // Use the browser Supabase client for sign-out — simplest correct approach
+      // Use the browser Supabase client for sign-out — simplest correct approach.
+      // Loaded on demand so @supabase/ssr + supabase-js aren't in the shell's
+      // initial chunk.
+      const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       await supabase.auth.signOut();
       router.push("/login");

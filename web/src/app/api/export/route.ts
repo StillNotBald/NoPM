@@ -250,8 +250,19 @@ async function fetchAuditRows(sp: URLSearchParams, workspaceId: string, db: Db):
   if (filters.action !== undefined) query = query.eq("action", filters.action);
   if (filters.actor_id !== undefined) query = query.eq("actor_id", filters.actor_id);
   if (filters.channel !== undefined) query = query.eq("channel", filters.channel);
+  // R-85 (audit cursor): `since`/`order` are applied here too — a
+  // DELIBERATE decision to keep this export consistent with GET /audit
+  // rather than "unchanged" meaning "these two params do nothing here".
+  // parseAuditFilters is lenient (an unparsable `since` or unrecognized
+  // `order` is silently dropped, same as an unrecognized `channel` already
+  // is) rather than 422ing, since a CSV download has no per-field error
+  // channel to report through — a bad value just fails to narrow/reorder
+  // the export instead of failing the download. `after_id` is
+  // deliberately NOT supported here: it requires the row-lookup that only
+  // the interactive /audit route performs.
+  if (filters.since !== undefined) query = query.gte("created_at", filters.since);
   const { data, error, count } = await query
-    .order("created_at", { ascending: false })
+    .order("created_at", { ascending: filters.order === "asc" })
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
   return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters };

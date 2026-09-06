@@ -3,6 +3,7 @@ import { type Actor, requireAuth } from "@/lib/auth/guard";
 import { toErrorResponse } from "@/lib/api/errors";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolveRequestId } from "@/lib/audit/channel";
 
 export type RouteCtx = {
   request: NextRequest;
@@ -43,27 +44,37 @@ export function route(
         await checkRateLimit(createAdminClient(), actor, request);
       }
       const response = await handler({ request, actor: actor as Actor, params });
-      stampRequestId(response, actor);
+      if (actor?.requestId) stampRequestId(response, actor.requestId);
       return response;
     } catch (error) {
       const response = toErrorResponse(error);
-      stampRequestId(response, actor);
+      if (actor?.requestId) {
+        stampRequestId(response, actor.requestId);
+      } else if (opts.auth !== false) {
+        // R-84: auth failed (requireAuth threw) before an Actor ever
+        // resolved, so there is no actor.requestId to stamp — but the
+        // failure is still one HTTP request and deserves one correlation
+        // id. Resolve it straight from the incoming headers (same echo-or-
+        // generate rule resolveClientMeta uses) so a 401 is just as
+        // traceable as any successful call. Skipped for auth:false routes,
+        // which never had an actor to correlate in the first place and
+        // stamp nothing today by design.
+        stampRequestId(response, resolveRequestId(request.headers));
+      }
       return response;
     }
   };
 }
 
 /**
- * Stamp X-Request-Id on a response from the resolved actor's correlation id
- * (R-82) — best-effort: some Response shapes (e.g. a Response built from a
- * ReadableStream body, or one whose headers were frozen by the runtime)
- * throw on `.headers.set`, so this never lets a header-stamping failure
- * mask the real response.
+ * Stamp X-Request-Id on a response — best-effort: some Response shapes (e.g.
+ * a Response built from a ReadableStream body, or one whose headers were
+ * frozen by the runtime) throw on `.headers.set`, so this never lets a
+ * header-stamping failure mask the real response.
  */
-function stampRequestId(response: Response, actor: Actor | undefined): void {
-  if (!actor?.requestId) return;
+function stampRequestId(response: Response, requestId: string): void {
   try {
-    response.headers.set("X-Request-Id", actor.requestId);
+    response.headers.set("X-Request-Id", requestId);
   } catch {
     // Immutable headers (e.g. some streamed responses) — not fatal.
   }

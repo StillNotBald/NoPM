@@ -540,8 +540,20 @@ test("PUT /api/me/preferences round-trips density/dateDisplay/columns with zero 
     // Reset to the pre-test config so this real per-account row doesn't leak
     // state into a later run (same "reset so the shared session doesn't
     // leak state" idiom f1-features.spec.ts's density-toggle test uses).
+    // PUT is a merge-upsert (R-80): keys are never removed, so restoring the
+    // pre-test config alone would leave the test's `columns.tasks` in place
+    // and hide Priority for every later run on this identity. Put the
+    // previous task columns back explicitly, or the register's defaults.
+    const beforeConfig = beforeJson.data.config ?? {};
+    const beforeTaskColumns: string[] | undefined = beforeConfig.columns?.tasks;
+    const restoreTaskColumns =
+      beforeTaskColumns && beforeTaskColumns.length > 0
+        ? beforeTaskColumns
+        : ["name", "status_type", "priority", "due_date", "completion_pct"];
     await page.request
-      .put("/api/me/preferences", { data: { config: beforeJson.data.config ?? {} } })
+      .put("/api/me/preferences", {
+        data: { config: { ...beforeConfig, columns: { ...(beforeConfig.columns ?? {}), tasks: restoreTaskColumns } } },
+      })
       .catch(() => {});
   }
 });

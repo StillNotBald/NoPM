@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, apiGet, type ApiError } from "@/lib/api-client";
-import { z } from "zod";
+import { validateFields } from "@/lib/forms/validate";
 import {
   FieldLabel,
   FieldError,
@@ -34,11 +34,6 @@ interface WorkspaceMember {
   name: string;
   role_title?: string | null;
 }
-
-// ── Client-side validation schema ────────────────────────────────────────────
-const programClientSchema = z.object({
-  name: z.string().min(1, "Program name is required"),
-});
 
 // ── ProgramForm ───────────────────────────────────────────────────────────────
 export function ProgramForm({
@@ -86,14 +81,11 @@ export function ProgramForm({
     setTopError(null);
     setFieldErrors({});
 
-    const clientResult = programClientSchema.safeParse({ name });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "name", value: name, message: "Program name is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

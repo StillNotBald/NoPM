@@ -142,6 +142,17 @@ NoPM's MCP server ships no `create_decision` tool (the tool catalogue above is d
 3. Have it call `POST /api/projects/:id/decisions` (or run `nopm decisions create --project <id> --title <t> --decision <d> --rationale <r> --context <c> --source slack --external-ref <permalink-id> --external-url <permalink>`) with the thread's permalink as `external_ref`/`external_url` and `source: slack` (R-81).
 4. The resulting `decision.create` audit row carries `channel: mcp` if the write went through this server, or `channel: cli` if it went through the CLI (R-82) — either way the decision is traceable back to the exact Slack message that prompted it.
 
+## Recipe: tail the audit log into Slack
+
+Turn NoPM's audit trail into a running feed in a Slack channel — no webhooks, no polling infra, just an agent that wakes up on an interval. This is the outbound story R-85's cursor params exist for.
+
+1. Attach both the NoPM MCP server and a Slack MCP server to one Claude session (or a scheduled/cron-driven agent — see the `/schedule` or `/loop` workflow if you're running this from Claude Code).
+2. Every N minutes, ask the agent to call `query_audit` with `since` set to the `created_at` of the last row it posted last time (start with "5 minutes ago" on the first run), `order: "asc"` so rows come back oldest-first, and an optional `channel` filter if you only care about one surface (e.g. `channel: "cli"` to watch agent-driven writes only).
+3. Have it post one line per returned row to the Slack channel — e.g. `[created_at] actor_label action target_type/target_id` — and remember the `created_at` (or `id`, to pass as `after_id` next time instead of `since`) of the last row for the next poll.
+4. The `request_id` on each row lets a reader correlate every row from a single agent turn or CLI invocation — useful when one write cascades into several audit rows (e.g. a maker-checker commit) and you want to group them in the Slack thread.
+
+This is read-only (scope `audit:read` is enough) and produces no new writes of its own — the audit log stays the single source of truth; Slack is just a mirror.
+
 ## Running the smoke tests
 
 From `web/`:

@@ -68,6 +68,12 @@ export const POST = route(async ({ actor, params }) => {
     p_approver_type: actor.type,
     p_approver_id: actor.id,
     p_approver_label: actor.label,
+    // R-84: provenance on the RPC-written audit rows. Named p_correlation_id
+    // on the RPC side (migration 20260906000044) — NOT p_request_id — because
+    // that name is already taken here by the deletion_requests row id above;
+    // reusing it would collide on this same object key.
+    p_channel: actor.channel ?? null,
+    p_correlation_id: actor.requestId ?? null,
   });
 
   if (error) {

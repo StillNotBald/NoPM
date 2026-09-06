@@ -1360,6 +1360,11 @@ const spec = {
         description:
           "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id, " +
           "?channel (R-82: one of ui|api|cli|mcp|assistant, unrecognized values ignored). " +
+          "R-85 cursor params for tailing the log: ?since (ISO 8601 timestamp, rows with " +
+          "created_at >= since; 422 if unparsable), ?after_id (uuid of a row already seen; " +
+          "looked up within the caller's workspace and its created_at used as a strict lower " +
+          "bound — 404 if the id doesn't exist in this workspace; combine with ?since and both " +
+          "are applied), ?order (asc|desc, default desc; 422 otherwise). " +
           "Each row also carries `channel` (the declared/caller-asserted client — provenance " +
           "only, never an authorization input) and `request_id` (a per-request correlation id, " +
           "also echoed on this response as the X-Request-Id header) — both nullable for rows " +
@@ -1373,9 +1378,14 @@ const spec = {
           { name: "action", in: "query", schema: { type: "string" } },
           { name: "actor_id", in: "query", schema: { type: "string" } },
           { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant"] } },
+          { name: "since", in: "query", schema: { type: "string", format: "date-time" }, description: "R-85: rows with created_at >= since; 422 if unparsable" },
+          { name: "after_id", in: "query", schema: { type: "string", format: "uuid" }, description: "R-85: rows with created_at strictly greater than this row's created_at; 404 if the row doesn't exist in this workspace" },
+          { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "R-85: 422 if not asc|desc" },
         ],
         responses: {
           "200": { description: "Paginated audit log entries", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "404": { description: "after_id not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Unparsable since, invalid order, or malformed after_id", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1394,7 +1404,10 @@ const spec = {
           "project-scoped) plus status/severity(/priority for issues)/sort; clashes take no " +
           "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
           "project_id/member_id/date_from/date_to/billable; audit accepts " +
-          "target_type/target_id/action/actor_id/channel (R-82); programs take no filters (fixed name asc, " +
+          "target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, leniently: an " +
+          "unparsable since or unrecognized order is dropped rather than 422ing, unlike GET /audit — " +
+          "after_id is NOT supported here, it needs a row lookup only the list route performs); " +
+          "programs take no filters (fixed name asc, " +
           "T3 F2c-mini). Capped " +
           "at 10,000 rows — if the true match count exceeds the cap, a final CSV row notes the " +
           "truncation and the server logs it. The export is a governed read but still writes " +
@@ -1424,6 +1437,8 @@ const spec = {
           { name: "action", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "actor_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant"] }, description: "entity=audit (R-82)" },
+          { name: "since", in: "query", schema: { type: "string", format: "date-time" }, description: "entity=audit (R-85, lenient — a bad value is dropped, not 422)" },
+          { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"] }, description: "entity=audit (R-85, lenient — an unrecognized value is dropped, not 422)" },
         ],
         responses: {
           "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present)", content: { "text/csv": { schema: { type: "string" } } } },

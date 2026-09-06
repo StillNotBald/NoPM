@@ -67,3 +67,40 @@ export function isValidScope(scope: string): boolean {
 export const AGENT_PRESET_SCOPES: readonly Scope[] = SCOPES.filter((s) =>
   s.endsWith(":read"),
 ).concat(["task:write"]);
+
+/**
+ * Full scope choice list for the manual token-mint UI (tokens/page.tsx),
+ * DERIVED from SCOPES — replaces a hand-curated list that silently drifted
+ * out of sync as new resources (change/document/saved_view/assistant/
+ * decision/program/sprint/milestone/notification, rebaseline:approve) were
+ * added to the registry without a matching checkbox ever appearing.
+ *
+ * Grouped by resource, in registry order. A resource with MORE than one
+ * concrete scope gets a `<resource>:*` wildcard choice first, followed by
+ * every concrete scope for that resource; a resource with exactly one scope
+ * (e.g. `notification:read`, `audit:read`, `rebaseline:approve`) gets no
+ * wildcard — one scope already IS the whole resource, so a wildcard would
+ * just be a second name for the same grant. `task:delete:request`/`approve`
+ * and `project:delete:request`/`approve` fall out of this naturally as
+ * explicit entries (they're concrete scopes on the `task`/`project`
+ * resources, always listed alongside that resource's wildcard).
+ *
+ * scopes.test.ts asserts this covers every SCOPES entry either directly or
+ * via its resource wildcard, so a future scope addition can never silently
+ * fail to show up in the mint UI again.
+ */
+export function scopeChoices(): string[] {
+  const byResource = new Map<string, Scope[]>();
+  for (const scope of SCOPES) {
+    const resource = scope.split(":")[0];
+    const list = byResource.get(resource);
+    if (list) list.push(scope);
+    else byResource.set(resource, [scope]);
+  }
+  const choices: string[] = [];
+  for (const scopesForResource of byResource.values()) {
+    if (scopesForResource.length > 1) choices.push(`${scopesForResource[0].split(":")[0]}:*`);
+    choices.push(...scopesForResource);
+  }
+  return choices;
+}

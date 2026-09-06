@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, Pencil, AlertTriangle, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Lock, Pencil, AlertTriangle, Trash2, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useInspector } from "@/components/layout/app-shell";
@@ -327,6 +328,15 @@ export function ProjectActions({ project }: ProjectActionsProps) {
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
+        {/* History — the project's own audit trail */}
+        <Link
+          href={`/trust?target_type=project&target_id=${project.id}`}
+          className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm text-ink-secondary hover:bg-sunken hover:text-ink"
+        >
+          <History size={14} />
+          History
+        </Link>
+
         {/* Edit */}
         <Button
           variant="secondary"

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { Pencil, Trash2, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -385,6 +386,15 @@ export function TaskDetailPanel({
             )}
           </DetailRow>
         )}
+        <DetailRow label="Audit">
+          <Link
+            href={`/trust?target_type=task&target_id=${task.id}`}
+            className="inline-flex items-center gap-1 text-accent hover:underline"
+          >
+            <History size={12} />
+            History
+          </Link>
+        </DetailRow>
       </div>
 
       {/* Acceptance criteria */}

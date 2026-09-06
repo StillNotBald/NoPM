@@ -74,6 +74,9 @@ created_at   actor_label      action       target
           <p className="mt-3 text-xs text-ink-muted">
             The same surface a human uses: {metrics.endpoints} documented endpoints, OpenAPI, <code className="font-mono">llms.txt</code>, scoped Bearer tokens.
           </p>
+          <p className="mt-1 text-xs text-ink-muted">
+            {metrics.deps} runtime dependencies, {metrics.cliDeps}-dependency CLI.
+          </p>
         </div>
       </section>
 

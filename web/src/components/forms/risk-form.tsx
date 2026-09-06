@@ -10,12 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
-import { z } from "zod";
-
-// ── Client-side validation schema ────────────────────────────────────────────
-const riskClientSchema = z.object({
-  title: z.string().min(1, "Risk title is required"),
-});
+import { validateFields } from "@/lib/forms/validate";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 
@@ -157,14 +152,11 @@ export function RiskForm({
     setFieldErrors({});
 
     // Client-side validation — immediate feedback before the network round-trip.
-    const clientResult = riskClientSchema.safeParse({ title });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    const clientResult = validateFields([
+      { key: "title", value: title, message: "Risk title is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
       return;
     }
 

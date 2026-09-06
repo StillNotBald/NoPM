@@ -42,6 +42,13 @@ export type AcceptInviteInput = {
   email: string; // ALWAYS the invite's own email — never client-supplied (D6)
   password: string;
   displayName: string;
+  /** R-84 provenance, threaded through to nopm_accept_invite's p_channel /
+   *  p_correlation_id (migration 20260906000044). This route runs with
+   *  { auth: false } (anonymous acceptor, no session/token Actor to read
+   *  these off) — the caller resolves them directly via
+   *  resolveClientMeta(request.headers, 'user'). */
+  channel?: string | null;
+  requestId?: string | null;
 };
 
 export type AcceptInviteResult = {
@@ -92,6 +99,8 @@ export async function performInviteAccept(
     p_auth_user_id: userId,
     p_email: input.email,
     p_display_name: input.displayName,
+    p_channel: input.channel ?? null,
+    p_correlation_id: input.requestId ?? null,
   });
 
   if (rpcError) {
