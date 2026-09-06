@@ -1,6 +1,6 @@
 # Sprint Summary — 2026-09-06_sprint1-complement-thesis
 
-**TL;DR:** The "complement, not replace" thesis now has a schema seam (external references), provable audit provenance (client channel + request id), uniform governance (audit-coverage invariant, BYOK key audit, immutability regression test, `change:decide` split, governed unlock), public copy that says it, and a Baselines nav page. No deploy, no migration applied, no commit in this receipt — owner lands it.
+**TL;DR:** The "complement, not replace" thesis now has a schema seam (external references), provable audit provenance (client channel + request id), uniform governance (audit-coverage invariant, BYOK key audit, immutability regression test, `change:decide` split, governed unlock), public copy that says it, and a Baselines nav page. **Landed 2026-09-06:** committed a0ce060, migrations 0041–0043 applied to the live DB, deployed to stillnotbald.com (<deployment>), live-verified.
 
 ## Origin
 A six-lens multi-agent positioning review on 2026-09-06 (`docs/research/POSITIONING-REVIEW-2026-09-06.md`) found the thesis "NoPM is the lite governance layer beside Jira/Slack/Teams, anti-ClickUp" was stated nowhere public and had no schema footing, while governance was strong but uneven. Sprint 1 = the five ranked fixes that make the thesis true.
@@ -34,7 +34,7 @@ independent reviewer claims dismissed after checking code: `assistant_credential
 - R-78 → DONE (amended: Baselines nav, email previews relocated)
 
 ## Files
-- Migrations (NOT applied to the live DB): `web/supabase/migrations/20260906000041_external_refs.sql`, `20260906000042_audit_channel.sql`, `20260906000043_change_request_actor_identity.sql`
+- Migrations (applied to the live DB 2026-09-06): `web/supabase/migrations/20260906000041_external_refs.sql`, `20260906000042_audit_channel.sql`, `20260906000043_change_request_actor_identity.sql`
 - Provenance: `web/src/lib/audit/channel.ts`, `write.ts`, `web/src/lib/auth/guard.ts`, `web/src/lib/api/handler.ts`, `web/src/app/api/mcp/route.ts`, `cli/lib/api.mjs`, `web/mcp/server.mjs`, `web/src/lib/assistant/{index,fallback}.ts`, Trust Center + audit query/export
 - Governance: `web/src/lib/audit/{coverage,immutability}.test.ts`, `web/src/app/api/assistant/credentials/route.ts`, `web/src/lib/auth/scopes.ts`, change-request raise/decision routes, `web/src/app/api/projects/[id]/unlock/route.ts`, `web/src/app/api/rebaselines/_schema.ts`, `web/src/components/tracking/project-actions.tsx`, `cli/commands/{projects,changes}.mjs`, `web/scripts/seed-change-control.mjs`
 - External refs: 5 `_schema.ts`, 3 `_query.ts`, 9 routes, `web/mcp/tools.mjs`, 5 CLI command files, `web/src/components/tracking/{detail-panel,activity-table}.tsx`, OpenAPI + llms.txt
@@ -48,10 +48,15 @@ independent reviewer claims dismissed after checking code: `assistant_credential
 - `cd web && npm run rtm:verify` → 73 R-IDs status-matched, 540 code paths on disk
 - `cd web && npm run lint` → 0 errors (1 pre-existing warning)
 - `cd cli && npm test` → 21/21 (6 new contract tests for the external-ref flags)
-- Not run: Playwright e2e (`/baselines` added to the swept list), live DB migration, deploy
+- Playwright tier 1 vs local production build: 80 passed, 12 skipped (one register-filter test fails only under the dev server: pre-hydration timing, passes on `next start`)
+- Playwright tier 2 (`E2E_WRITES=1`) vs local production build + migrated live DB: 91 passed, 1 skipped
+- Live DB: `node scripts/migrate.mjs` applied 0041–0043; `notify pgrst` reload; columns + 5 partial unique indexes verified
+- Deploy: `vercel deploy --prod --yes` (owner-run), aliased to stillnotbald.com
+- Live: `/api/health` ok; `auth-smoke.mjs` 23/23 (now 24 with `/baselines`); Playwright console-pages + public + navigation vs live: 38 passed; landing/login/case-study carry the complement copy; OpenAPI exposes `external_ref` and `change:decide`; audit rows from the write tier carry `channel` + `request_id`
 
 ## Follow-ups
-- **Owner to land**: commit (RTM in the same commit), `npm run migrate` against the live DB (0041–0043 are additive), deploy, live sweep (`/baselines`, Trust Center channel chip, `X-Request-Id` on a curl).
+- Audit rows written inside Postgres RPCs (deletion commit, invite accept) have NULL `channel`/`request_id` — the RPC signatures need the two values passed through (observed live: `project.delete` + `deletion_request.approved` pair).
+- Unauthenticated (401) responses carry no `X-Request-Id` because no actor is resolved; stamp a generated id there too if correlation of auth failures is wanted.
 - Tokens page `ALL_SCOPES` is hand-curated and has never listed `change:*`, `document:*`, `saved_view:*`, `assistant:*` — a UI-minted PAT cannot hold `change:decide`. Derive it from the `SCOPES` registry (pre-existing gap).
 - `query_audit` MCP tool and `nopm audit` CLI have no `--channel` filter yet (REST does).
 - Pitch assets still carry a few old figures in body text (objection bank items 4/6/12/13, linkedin line 4 route/ADR counts).
