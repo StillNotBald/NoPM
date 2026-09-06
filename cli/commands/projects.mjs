@@ -20,13 +20,14 @@
 export const describe = "List, create, inspect, update, lock, unlock, or delete projects";
 
 export const usage = [
-  "nopm projects ls                                         list all projects",
+  "nopm projects ls                                         list all projects [--external-ref <ref>]",
   "nopm projects get <id>                                   fetch a single project",
-  "nopm projects create --name <n> --code <c> [--program <p>] [--rag <status>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--currency <USD>]",
-  "nopm projects update <id> [--name <n>] [--code <c>] [--rag <status>] [--pct <0-100>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>]",
+  "nopm projects create --name <n> --code <c> [--program <p>] [--rag <status>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--currency <USD>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm projects update <id> [--name <n>] [--code <c>] [--rag <status>] [--pct <0-100>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
   "nopm projects lock   <id> [--reason <why>]               lock project timeline",
-  "nopm projects unlock <id>                                unlock project timeline",
+  "nopm projects unlock <id> --reason <text>                unlock project timeline (--reason required, R-83)",
   "nopm projects rm     <id>                                hard-delete a project (project:write)",
+  "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this project mirrors, e.g. --source jira --external-ref PROJ-123",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -44,7 +45,9 @@ export async function run(rest, ctx) {
     case undefined: {
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      const { data } = await ctx.api("GET", `/api/projects?page=${page}&limit=${limit}`);
+      let url = `/api/projects?page=${page}&limit=${limit}`;
+      if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
+      const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);
       break;
     }
@@ -69,6 +72,9 @@ export async function run(rest, ctx) {
         ...(f.start       && { start_date: f.start }),
         ...(f.target      && { target_date: f.target }),
         ...(f.currency    && { currency: f.currency }),
+        ...(f.source            && { source: f.source }),
+        ...(f["external-ref"]   && { external_ref: f["external-ref"] }),
+        ...(f["external-url"]   && { external_url: f["external-url"] }),
       };
       const { data } = await ctx.api("POST", "/api/projects", body);
       console.log("✓ created project", data.id);
@@ -89,6 +95,9 @@ export async function run(rest, ctx) {
       if (f.phase)       body.phase       = f.phase;
       if (f.start)       body.start_date  = f.start;
       if (f.target)      body.target_date = f.target;
+      if (f.source)              body.source       = f.source;
+      if (f["external-ref"])     body.external_ref = f["external-ref"];
+      if (f["external-url"])     body.external_url = f["external-url"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --name, --rag, --pct, etc.");
       const { data } = await ctx.api("PATCH", `/api/projects/${id}`, body);
       console.log("✓ updated project", id);
@@ -108,8 +117,9 @@ export async function run(rest, ctx) {
 
     case "unlock": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm projects unlock <id>");
-      const { data } = await ctx.api("POST", `/api/projects/${id}/unlock`);
+      if (!id) ctx.die("usage: nopm projects unlock <id> --reason <text>");
+      if (!f.reason) ctx.die("usage: nopm projects unlock <id> --reason <text> (--reason is required)");
+      const { data } = await ctx.api("POST", `/api/projects/${id}/unlock`, { reason: f.reason });
       console.log("✓ unlocked project", id);
       ctx.out(data, ctx, ROW_COLS);
       break;

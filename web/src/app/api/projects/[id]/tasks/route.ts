@@ -33,11 +33,22 @@ export const GET = route(async ({ actor, params, request }) => {
   const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
   const offset = (page - 1) * limit;
 
-  const { data: items, error, count } = await db
+  // Complement-seam filters (R-81): exact match on the source system / its
+  // reference id, so an agent can find "the NoPM task that mirrors PROJ-123"
+  // within a project. Same params as GET /api/tasks; the CLI's
+  // `nopm tasks ls --external-ref` targets this route.
+  const source = url.searchParams.get("source");
+  const externalRef = url.searchParams.get("external_ref");
+
+  let query = db
     .from("tasks")
     .select("*", { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
-    .eq("project_id", projectId)
+    .eq("project_id", projectId);
+  if (source) query = query.eq("source", source);
+  if (externalRef) query = query.eq("external_ref", externalRef);
+
+  const { data: items, error, count } = await query
     .order("sort_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .range(offset, offset + limit - 1);
@@ -116,6 +127,10 @@ export const POST = route(async ({ actor, params, request }) => {
       story_points: input.story_points ?? null,
       labels: input.labels ?? [], // NOT NULL default '{}' — never insert null
       checklist: input.checklist ?? [], // NOT NULL default '[]' — never insert null
+      // ── complement seam (0041, R-81) ─────────────────────────────────────────
+      source: input.source ?? null,
+      external_ref: input.external_ref ?? null,
+      external_url: input.external_url ?? null,
     })
     .select()
     .single();

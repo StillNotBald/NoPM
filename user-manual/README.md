@@ -21,7 +21,7 @@ NoPM has three distinct audiences, each with its own entry point below:
 | [`operator/00-first-ten-minutes.md`](operator/00-first-ten-minutes.md) | ACTIVE | The 5-step getting-started checklist (also live at `/start`), the Essentials sidebar, the CLI/curl quickstart |
 | [`operator/01-getting-started.md`](operator/01-getting-started.md) | ACTIVE | Login (incl. demo funnel), the console shell/nav, My Work |
 | [`operator/02-projects-and-tasks.md`](operator/02-projects-and-tasks.md) | ACTIVE | Creating a project, Kanban drag-is-audited, task fields (checklist, acceptance criteria, etc.) |
-| [`operator/03-schedule-and-lock.md`](operator/03-schedule-and-lock.md) | ACTIVE | Gantt, dependency types + lag, lock semantics, rebaseline flow |
+| [`operator/03-schedule-and-lock.md`](operator/03-schedule-and-lock.md) | ACTIVE | Gantt, dependency types + lag, lock semantics, rebaseline flow, the `/baselines` nav page |
 | [`operator/04-approvals-and-trust.md`](operator/04-approvals-and-trust.md) | ACTIVE | Four-eyes deletion requests (incl. withdraw), Approvals page, Trust Center, blocked-attempt rows, 429 |
 | [`admin/01-workspace-admin.md`](admin/01-workspace-admin.md) | ACTIVE | Roles, PAT minting/revoking + scopes, MFA, seat provisioning pointer |
 | [`agents/README.md`](agents/README.md) | ACTIVE (pointer only) | CLI, MCP server, `/llms.txt`, BYOK assistant — orientation + links, not copies |

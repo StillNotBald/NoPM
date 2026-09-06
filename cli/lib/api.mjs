@@ -64,7 +64,11 @@ export async function api(method, p, body, opts = {}) {
   }
   const res = await fetch(cfg.url + p, {
     method,
-    headers: { Authorization: `Bearer ${cfg.token}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${cfg.token}`,
+      "Content-Type": "application/json",
+      "X-NoPM-Client": "cli",
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = await res.json().catch(() => ({}));

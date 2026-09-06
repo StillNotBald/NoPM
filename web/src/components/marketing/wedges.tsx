@@ -31,9 +31,11 @@ export function WedgeGrid() {
         <code className="font-mono text-xs text-ink">CHECK</code> constraint. Even a service key
         can&apos;t rewrite history.
       </Field>
-      <Field k="whole triangle">
-        Timeline, resource, and budget in one governed model. Over-allocation surfaces as a
-        clash, spend rolls into EVM variance, a locked timeline forces a rebaseline sign-off.
+      <Field k="governed triangle">
+        Timeline, resource and budget changes pass one audit and sign-off gate. Over-allocation
+        surfaces as a clash, spend rolls into EVM variance, a locked timeline forces a rebaseline
+        sign-off. NoPM records who changed what and who approved it; it is not a scheduler, a
+        timesheet system or an ERP.
       </Field>
     </dl>
   );

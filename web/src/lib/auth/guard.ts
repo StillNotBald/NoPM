@@ -2,6 +2,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { hashToken, hasScope } from "@/lib/auth/tokens";
 import { AuthError, ScopeError } from "@/lib/api/errors";
+import { resolveClientMeta, type AuditChannel } from "@/lib/audit/channel";
+
+export type { AuditChannel };
 
 /**
  * The resolved caller. Either a human (Supabase session) or an agent
@@ -17,14 +20,21 @@ export type Actor = {
   role?: string; // member_role for users
   scopes?: string[]; // for tokens
   tokenId?: string;
+  /** Declared client (caller-asserted via X-NoPM-Client; provenance only —
+   *  never an authorization input). See @/lib/audit/channel. */
+  channel?: AuditChannel;
+  /** Per-request correlation id (X-Request-Id, echoed on the response). */
+  requestId?: string;
 };
 
 export async function requireAuth(request: Request): Promise<Actor> {
   const authz = request.headers.get("authorization");
   if (authz?.toLowerCase().startsWith("bearer ")) {
-    return verifyBearer(authz.slice(7).trim());
+    const actor = await verifyBearer(authz.slice(7).trim());
+    return { ...actor, ...resolveClientMeta(request.headers, "token") };
   }
-  return verifySession();
+  const actor = await verifySession();
+  return { ...actor, ...resolveClientMeta(request.headers, "user") };
 }
 
 async function verifyBearer(raw: string): Promise<Actor> {

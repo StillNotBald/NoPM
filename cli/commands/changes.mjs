@@ -6,7 +6,7 @@
 //   GET    /api/change-requests/:id                    change:read   (get)
 //   PATCH  /api/change-requests/:id                    change:write  (update)
 //   DELETE /api/change-requests/:id                    change:write  (delete)
-//   POST   /api/change-requests/:id/decision           change:write  (decide)
+//   POST   /api/change-requests/:id/decision           change:decide (decide) — decision requires change:decide (split from change:write, R-83)
 
 export const describe = "List, create, inspect, update, decide, or delete change requests";
 

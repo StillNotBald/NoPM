@@ -127,9 +127,20 @@ risk:write  issue:write
 
 - **Every write produces an immutable audit log row.** You can inspect the trail at any time with the `query_audit` tool.
 
+- **Every write is tagged with its declared client.** Both transports send `X-NoPM-Client: mcp`, so the resulting audit_log rows carry `channel: mcp` (R-82, filterable via `GET /audit?channel=mcp`) — provenance only, never an authorization input; token identity stays authoritative.
+
 - **Task deletion AND project deletion are maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`; `request_project_deletion` calls `DELETE /api/projects/:id`. Both create a `deletion_request` (`status=pending`, `target_type=task` or `target_type=project`) and return 202 Accepted — the target is NOT deleted. A second, different token with the scope matching the request's `target_type` (`task:delete:approve` for tasks, `project:delete:approve` for projects) must call `POST /api/deletion-requests/:id/approve`, which dispatches by `target_type` to the matching commit path. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side for both entity types; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly. Maker-checker is owner-locked to PROJECTS ONLY beyond tasks — milestones/risks/issues stay single-step hard deletes and are not part of this flow.
 
 ---
+
+## Recipe: Slack thread to governed decision
+
+NoPM's MCP server ships no `create_decision` tool (the tool catalogue above is deliberately read-heavy plus the maker side of task/project deletion). To turn a Slack thread into a governed decision record, drive the REST API directly, either from your agent or with the `nopm` CLI:
+
+1. Attach a Slack MCP server and the NoPM MCP server (or just a scoped NoPM PAT) to one Claude session.
+2. Ask it to summarise the thread: title, context, and rationale for the call that was made.
+3. Have it call `POST /api/projects/:id/decisions` (or run `nopm decisions create --project <id> --title <t> --decision <d> --rationale <r> --context <c> --source slack --external-ref <permalink-id> --external-url <permalink>`) with the thread's permalink as `external_ref`/`external_url` and `source: slack` (R-81).
+4. The resulting `decision.create` audit row carries `channel: mcp` if the write went through this server, or `channel: cli` if it went through the CLI (R-82) — either way the decision is traceable back to the exact Slack message that prompted it.
 
 ## Running the smoke tests
 

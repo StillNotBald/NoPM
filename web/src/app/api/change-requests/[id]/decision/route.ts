@@ -14,14 +14,22 @@ export const runtime = "nodejs";
  * Four-eyes: record an approve / reject / defer decision on a change request.
  * Guards:
  *   - Change request must be in status 'raised' or 'under_review' (else RuleError 422)
- *   - Deciding actor MUST differ from the requested_by profile (ScopeError 403)
+ *   - Deciding actor MUST differ from the requester, checked on BOTH the
+ *     legacy requested_by (profile-id) column and the actor-typed
+ *     requested_by_type/requested_by_id pair added in 0043 (ScopeError 403)
  * Effect:
- *   1. Update status → approved | rejected | deferred; set decided_by, decided_by_label, decided_at, decision_rationale
+ *   1. Update status → approved | rejected | deferred; set decided_by,
+ *      decided_by_label, decided_by_type, decided_by_id, decided_at,
+ *      decision_rationale
  *   2. writeAudit change_request.decide (before/after)
  *   3. notify requester — fail-soft, type 'change.decided'
+ *
+ * Scope: change:decide (split from change:write in R-83 — raising and
+ * deciding a change request are different privilege levels; the assistant's
+ * scope ceiling and every PAT preset never carry change:decide).
  */
 export const POST = route(async ({ actor, params, request }) => {
-  requireScope(actor, "change:write");
+  requireScope(actor, "change:decide");
 
   const db = createAdminClient();
 
@@ -40,8 +48,20 @@ export const POST = route(async ({ actor, params, request }) => {
     throw new RuleError(`Change request already decided (status: ${cr.status})`);
   }
 
-  // Four-eyes: deciding actor cannot be the same as the requester
+  // Four-eyes: deciding actor cannot be the same as the requester.
+  // Keep the legacy requested_by (profile-id) check for pre-0043 rows /
+  // user-only comparisons, and add the actor-typed check (requested_by_id +
+  // requested_by_type) so a TOKEN or ASSISTANT actor can't self-approve its
+  // own request either — the legacy check alone is inert for non-user actors
+  // (requested_by is only ever set when actor.type === "user").
   if (cr.requested_by && actor.id === cr.requested_by) {
+    throw new ScopeError("Self-approval is not allowed (four-eyes)");
+  }
+  if (
+    cr.requested_by_id &&
+    cr.requested_by_id === actor.id &&
+    cr.requested_by_type === actor.type
+  ) {
     throw new ScopeError("Self-approval is not allowed (four-eyes)");
   }
 
@@ -71,6 +91,8 @@ export const POST = route(async ({ actor, params, request }) => {
       status: newStatus,
       decided_by: actor.type === "user" ? actor.id : null,
       decided_by_label: actor.label,
+      decided_by_type: actor.type,
+      decided_by_id: actor.id,
       decision_rationale: input.rationale,
       decided_at: now,
     })

@@ -59,6 +59,8 @@ export const GET = route(async ({ actor, params, request }) => {
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.severity) query = query.eq("severity", filters.severity);
   if (filters.priority) query = query.eq("priority", filters.priority);
+  if (filters.source) query = query.eq("source", filters.source);
+  if (filters.external_ref) query = query.eq("external_ref", filters.external_ref);
   query = query.order(sort.field, orderOptions(sort));
   query = query.range(offset, offset + limit - 1);
 
@@ -113,6 +115,10 @@ export const POST = route(async ({ actor, params, request }) => {
       status: input.status,
       raised_at: input.raised_at ?? new Date().toISOString().slice(0, 10), // NOT NULL date — default to today
       due_date: input.due_date ?? null,
+      // ── complement seam (0041, R-81) ─────────────────────────────────────────
+      source: input.source ?? null,
+      external_ref: input.external_ref ?? null,
+      external_url: input.external_url ?? null,
     })
     .select()
     .single();

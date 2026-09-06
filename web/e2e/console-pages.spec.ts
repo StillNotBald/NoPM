@@ -76,6 +76,7 @@ const PAGES: Array<{ path: string; probe: (page: import("@playwright/test").Page
     },
   },
   { path: "/review", probe: async () => {} },
+  { path: "/baselines", probe: async () => {} },
   { path: "/approvals", probe: async () => {} },
   { path: "/trust", probe: async () => {} },
   { path: "/email-previews", probe: async () => {} },

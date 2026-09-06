@@ -116,6 +116,98 @@ test("tasks update builds a PATCH with only the supplied fields", async () => {
   ]);
 });
 
+// ── complement seam (0041, R-81) — --source/--external-ref/--external-url ──
+
+test("tasks create includes source/external-ref/external-url when supplied", async () => {
+  const tasks = await import("../commands/tasks.mjs");
+  const ctx = makeCtx(
+    { _: ["create"], project: "proj_1", name: "Wire up billing", source: "jira", "external-ref": "PROJ-123", "external-url": "https://example.atlassian.net/browse/PROJ-123" },
+    { data: { id: "task_1" } },
+  );
+  await tasks.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    {
+      method: "POST",
+      path: "/api/projects/proj_1/tasks",
+      body: {
+        name: "Wire up billing",
+        source: "jira",
+        external_ref: "PROJ-123",
+        external_url: "https://example.atlassian.net/browse/PROJ-123",
+      },
+    },
+  ]);
+});
+
+test("tasks ls passes --external-ref through as a query filter", async () => {
+  const tasks = await import("../commands/tasks.mjs");
+  const ctx = makeCtx({ _: ["ls"], project: "proj_1", "external-ref": "PROJ-123" });
+  await tasks.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "GET", path: "/api/projects/proj_1/tasks?page=1&limit=100&external_ref=PROJ-123", body: undefined },
+  ]);
+});
+
+test("projects create includes source/external-ref/external-url when supplied", async () => {
+  const projects = await import("../commands/projects.mjs");
+  const ctx = makeCtx(
+    { _: ["create"], name: "Apollo", code: "APOLLO", source: "jira", "external-ref": "APOLLO-EPIC" },
+    { data: { id: "proj_1" } },
+  );
+  await projects.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    {
+      method: "POST",
+      path: "/api/projects",
+      body: { name: "Apollo", code: "APOLLO", source: "jira", external_ref: "APOLLO-EPIC" },
+    },
+  ]);
+});
+
+test("risks update includes source/external-ref/external-url when supplied", async () => {
+  const risks = await import("../commands/risks.mjs");
+  const ctx = makeCtx(
+    { _: ["update", "risk_1"], source: "jira", "external-ref": "RISK-9" },
+    { data: { id: "risk_1" } },
+  );
+  await risks.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/risks/risk_1", body: { source: "jira", external_ref: "RISK-9" } },
+  ]);
+});
+
+test("issues create includes source/external-ref/external-url when supplied", async () => {
+  const issues = await import("../commands/issues.mjs");
+  const ctx = makeCtx(
+    { _: ["create"], project: "proj_1", title: "Bug", priority: "high", source: "jira", "external-ref": "BUG-9" },
+    { data: { id: "issue_1" } },
+  );
+  await issues.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    {
+      method: "POST",
+      path: "/api/projects/proj_1/issues",
+      body: { title: "Bug", priority: "high", source: "jira", external_ref: "BUG-9" },
+    },
+  ]);
+});
+
+test("decisions create includes source/external-ref/external-url when supplied", async () => {
+  const decisions = await import("../commands/decisions.mjs");
+  const ctx = makeCtx(
+    { _: ["create"], project: "proj_1", title: "Use Postgres", decision: "Use PostgreSQL", source: "slack", "external-ref": "C123/p456" },
+    { data: { id: "dec_1" } },
+  );
+  await decisions.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    {
+      method: "POST",
+      path: "/api/projects/proj_1/decisions",
+      body: { title: "Use Postgres", decision: "Use PostgreSQL", source: "slack", external_ref: "C123/p456" },
+    },
+  ]);
+});
+
 // ── approve command contracts ───────────────────────────────────────────────
 
 test("approve reject without an id dies BEFORE calling the API", async () => {

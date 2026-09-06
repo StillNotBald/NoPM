@@ -10,6 +10,11 @@ describe("parseIssueFilters", () => {
     const params = new URLSearchParams({ status: "open", severity: "high", priority: "urgent" });
     expect(parseIssueFilters(params)).toEqual({ status: "open", severity: "high", priority: "urgent" });
   });
+
+  it("extracts source and external_ref (complement seam, R-81)", () => {
+    const params = new URLSearchParams({ source: "jira", external_ref: "PROJ-123" });
+    expect(parseIssueFilters(params)).toEqual({ source: "jira", external_ref: "PROJ-123" });
+  });
 });
 
 describe("applyIssueFilters", () => {
@@ -38,6 +43,15 @@ describe("applyIssueFilters", () => {
     const { q, calls } = mockQuery();
     applyIssueFilters(q, {});
     expect(calls).toEqual([]);
+  });
+
+  it("applies source and external_ref filters (complement seam, R-81)", () => {
+    const { q, calls } = mockQuery();
+    applyIssueFilters(q, { source: "jira", external_ref: "PROJ-123" });
+    expect(calls).toEqual([
+      ["source", "jira"],
+      ["external_ref", "PROJ-123"],
+    ]);
   });
 });
 

@@ -10,7 +10,11 @@ export type AuditFilters = {
   target_id?: string;
   action?: string;
   actor_id?: string;
+  channel?: string;
 };
+
+/** The only channel values the DB check constraint accepts (R-82). */
+const VALID_CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant"]);
 
 /** Map query params → a filter descriptor. Unknown params are ignored. */
 export function parseAuditFilters(searchParams: URLSearchParams): AuditFilters {
@@ -23,6 +27,11 @@ export function parseAuditFilters(searchParams: URLSearchParams): AuditFilters {
   if (action) filters.action = action;
   const actorId = searchParams.get("actor_id");
   if (actorId) filters.actor_id = actorId;
+  const channel = searchParams.get("channel");
+  // Validated against the five known channels — an unrecognized value is
+  // ignored rather than passed through to a .eq() that would just return
+  // zero rows silently.
+  if (channel && VALID_CHANNELS.has(channel)) filters.channel = channel;
   return filters;
 }
 
@@ -35,5 +44,6 @@ export function applyAuditFilters<Q>(query: Q & FilterableAuditQuery<Q>, filters
   if (filters.target_id) q = q.eq("target_id", filters.target_id) as Q & FilterableAuditQuery<Q>;
   if (filters.action) q = q.eq("action", filters.action) as Q & FilterableAuditQuery<Q>;
   if (filters.actor_id) q = q.eq("actor_id", filters.actor_id) as Q & FilterableAuditQuery<Q>;
+  if (filters.channel) q = q.eq("channel", filters.channel) as Q & FilterableAuditQuery<Q>;
   return q;
 }

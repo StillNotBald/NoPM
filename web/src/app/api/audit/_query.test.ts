@@ -25,6 +25,20 @@ describe("parseAuditFilters", () => {
     const params = new URLSearchParams({ page: "2", limit: "50", bogus: "x" });
     expect(parseAuditFilters(params)).toEqual({});
   });
+
+  it("extracts a valid channel", () => {
+    for (const channel of ["ui", "api", "cli", "mcp", "assistant"]) {
+      expect(parseAuditFilters(new URLSearchParams({ channel }))).toEqual({ channel });
+    }
+  });
+
+  it("ignores an unrecognized channel value", () => {
+    expect(parseAuditFilters(new URLSearchParams({ channel: "webhook" }))).toEqual({});
+  });
+
+  it("ignores an empty channel value", () => {
+    expect(parseAuditFilters(new URLSearchParams({ channel: "" }))).toEqual({});
+  });
 });
 
 describe("applyAuditFilters", () => {
@@ -52,6 +66,18 @@ describe("applyAuditFilters", () => {
       ["target_id", "t1"],
       ["action", "task.create"],
       ["actor_id", "u1"],
+    ]);
+  });
+
+  it("applies the channel filter after the other four", () => {
+    const { q, calls } = mockQuery();
+    applyAuditFilters(q, {
+      target_type: "task",
+      channel: "cli",
+    });
+    expect(calls).toEqual([
+      ["target_type", "task"],
+      ["channel", "cli"],
     ]);
   });
 

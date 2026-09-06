@@ -23,7 +23,7 @@ export const SCOPES = [
   "time:read", "time:write", "time:submit", "time:approve",
   "budget:read", "budget:write",
   "document:read", "document:write",
-  "change:read", "change:write",
+  "change:read", "change:write", "change:decide",
   "rebaseline:approve",
   "decision:read", "decision:write",
   "notification:read",

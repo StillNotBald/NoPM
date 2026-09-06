@@ -39,6 +39,8 @@ export default function Landing() {
             A lite, API-first PM tool your own agent drives — like the <code className="font-mono text-ink">aws</code> or{" "}
             <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Immutable audit,
             scoped tokens, and four-eyes approval are enforced in the data layer, not bolted onto the UI.
+            It sits beside the tools you already run, Jira, Slack, Teams, and adds what they do not enforce:
+            an immutable audit trail, change control, and four-eyes approval.
           </p>
           <div className="rise rise-2 mt-8 flex flex-wrap items-center gap-4">
             <DemoLoginButton />

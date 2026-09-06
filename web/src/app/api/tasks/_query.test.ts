@@ -55,6 +55,8 @@ describe("parseTaskFilters", () => {
         due_after: "2026-08-01",
         overdue: "true",
         q: "migration",
+        source: "jira",
+        external_ref: "PROJ-123",
       }),
     );
     expect(f).toEqual({
@@ -66,6 +68,8 @@ describe("parseTaskFilters", () => {
       due_after: "2026-08-01",
       overdue: true,
       q: "migration",
+      source: "jira",
+      external_ref: "PROJ-123",
     });
   });
 
@@ -98,6 +102,15 @@ describe("applyTaskFilters", () => {
     const chain = mockChain();
     applyTaskFilters(chain, {}, "2026-08-15");
     expect(chain.calls).toEqual([]);
+  });
+
+  it("source and external_ref apply as exact-match eq (complement seam, R-81)", () => {
+    const chain = mockChain();
+    applyTaskFilters(chain, { source: "jira", external_ref: "PROJ-123" }, "2026-08-15");
+    expect(chain.calls).toEqual([
+      ["eq", "source", "jira"],
+      ["eq", "external_ref", "PROJ-123"],
+    ]);
   });
 });
 

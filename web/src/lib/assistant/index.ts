@@ -180,8 +180,12 @@ export async function runAssistant(opts: {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
   origin: string;
+  /** Incoming X-Request-Id from the chat request, forwarded into the
+   *  internal tool-call fetches so their audit rows correlate back to this
+   *  request rather than each minting its own id (R-82). */
+  requestId?: string;
 }): Promise<AssistantResult> {
-  const { actor, message, history, origin } = opts;
+  const { actor, message, history, origin, requestId } = opts;
 
   const { provider, apiKey, model, usedDemoKey } = await resolveProvider(actor);
 
@@ -263,6 +267,8 @@ export async function runAssistant(opts: {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${ephemeral.raw}`,
+              "X-NoPM-Client": "assistant",
+              ...(requestId ? { "X-Request-Id": requestId } : {}),
             },
           };
           if (body !== undefined && method !== "GET") {
@@ -355,12 +361,14 @@ export async function runAssistantStream(opts: {
   message: string;
   history: { role: "user" | "assistant"; content: string }[];
   origin: string;
+  /** See runAssistant's requestId — same forwarding, streaming variant. */
+  requestId?: string;
 }): Promise<{
   actions: Action[];
   usedDemoKey: boolean;
   textChunks: AsyncIterable<string>;
 }> {
-  const { actor, message, history, origin } = opts;
+  const { actor, message, history, origin, requestId } = opts;
 
   const { provider, apiKey, model, usedDemoKey } = await resolveProvider(actor);
 
@@ -437,6 +445,8 @@ export async function runAssistantStream(opts: {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${ephemeral.raw}`,
+              "X-NoPM-Client": "assistant",
+              ...(requestId ? { "X-Request-Id": requestId } : {}),
             },
           };
           if (body !== undefined && method !== "GET") {

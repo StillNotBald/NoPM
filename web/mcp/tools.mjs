@@ -35,6 +35,27 @@ const DATETIME = "ISO 8601 datetime with timezone, e.g. 2026-09-30T00:00:00Z";
 const page = { type: "number", description: "Page number (default 1)" };
 const limit = { type: "number", description: "Results per page (default 20, max 100)" };
 
+// ── Complement seam (0041, R-81) — mirrors the create/update Zod validators
+// exactly (source pattern, external_ref maxLength 200, external_url uri). NoPM
+// does not replace Jira/Slack/Teams; it is the governed record beside them.
+const source = {
+  type: "string",
+  pattern: "^[a-z0-9][a-z0-9_-]{0,39}$",
+  description: "System of work this record mirrors, e.g. jira, slack, teams",
+};
+const externalRef = {
+  type: "string",
+  minLength: 1,
+  maxLength: 200,
+  description: "The id/key of this record in the external system (e.g. a Jira issue key)",
+};
+const externalUrl = {
+  type: "string",
+  format: "uri",
+  maxLength: 2000,
+  description: "Optional link to the record in the external system",
+};
+
 /**
  * @typedef {{ path: string, method: string, body?: unknown }} ToolRequest
  * @typedef {{
@@ -86,6 +107,9 @@ export const TOOL_REGISTRY = [
         start_date: { type: "string", description: DATE },
         target_date: { type: "string", description: DATE },
         currency: { type: "string", description: "3-letter ISO currency code, e.g. USD" },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["code", "name"],
       additionalProperties: false,
@@ -105,6 +129,9 @@ export const TOOL_REGISTRY = [
         completion_pct: { type: "number", description: "0-100" },
         start_date: { type: "string", description: DATE },
         target_date: { type: "string", description: DATE },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["project_id"],
       additionalProperties: false,
@@ -242,6 +269,9 @@ export const TOOL_REGISTRY = [
         estimate_hours: { type: "number" },
         story_points: { type: "number" },
         acceptance_criteria: { type: "string" },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["project_id", "name"],
       additionalProperties: false,
@@ -267,6 +297,9 @@ export const TOOL_REGISTRY = [
         milestone_id: { type: "string", description: "Milestone UUID" },
         due_date: { type: "string", description: DATE },
         completion_pct: { type: "number", description: "0-100 integer" },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["task_id"],
       additionalProperties: false,
@@ -328,6 +361,9 @@ export const TOOL_REGISTRY = [
         mitigation: { type: "string", description: "Mitigation plan" },
         owner_id: { type: "string", description: "Profile UUID of owner" },
         due_date: { type: "string", description: DATETIME },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["project_id", "title", "severity", "likelihood"],
       additionalProperties: false,
@@ -351,6 +387,9 @@ export const TOOL_REGISTRY = [
         status: { type: "string", enum: RISK_STATUSES },
         mitigation: { type: "string" },
         owner_id: { type: "string", description: "Profile UUID of owner" },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["risk_id"],
       additionalProperties: false,
@@ -390,6 +429,9 @@ export const TOOL_REGISTRY = [
         status: { type: "string", enum: ISSUE_STATUSES },
         owner_id: { type: "string", description: "Profile UUID of owner" },
         resolution: { type: "string", description: "How the issue was/will be resolved" },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["project_id", "title", "priority"],
       additionalProperties: false,
@@ -413,6 +455,9 @@ export const TOOL_REGISTRY = [
         status: { type: "string", enum: ISSUE_STATUSES },
         owner_id: { type: "string", description: "Profile UUID of owner" },
         resolution: { type: "string" },
+        source,
+        external_ref: externalRef,
+        external_url: externalUrl,
       },
       required: ["issue_id"],
       additionalProperties: false,

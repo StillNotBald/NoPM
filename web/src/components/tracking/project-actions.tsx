@@ -24,11 +24,9 @@ interface ProjectActionsProps {
 // ── Inline confirmation dialog rendered inside the modal ──────────────────────
 
 function LockConfirmDialog({
-  isLocked,
   onConfirm,
   onCancel,
 }: {
-  isLocked: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -46,13 +44,10 @@ function LockConfirmDialog({
           <AlertTriangle size={18} className="text-warning" />
         </div>
         <div>
-          <p className="text-sm font-medium text-ink">
-            {isLocked ? "Unlock this project?" : "Lock this project?"}
-          </p>
+          <p className="text-sm font-medium text-ink">Lock this project?</p>
           <p className="mt-1 text-sm text-ink-secondary">
-            {isLocked
-              ? "Unlocking will allow edits and mutations again. The action is recorded in the audit log."
-              : "Locking freezes the baseline — no further mutations until unlocked. This is recorded in the audit log."}
+            Locking freezes the baseline — no further mutations until unlocked. This is recorded
+            in the audit log.
           </p>
         </div>
       </div>
@@ -62,14 +57,86 @@ function LockConfirmDialog({
           Cancel
         </Button>
         <Button
-          variant={isLocked ? "secondary" : "primary"}
+          variant="primary"
           size="sm"
           onClick={handleConfirm}
           disabled={busy}
-          className={!isLocked ? "bg-warning text-white hover:bg-warning/90 border-warning" : ""}
+          className="bg-warning text-white hover:bg-warning/90 border-warning"
         >
           {busy ? <Spinner size="sm" className="mr-1.5" /> : null}
-          {isLocked ? "Unlock" : "Lock baseline"}
+          Lock baseline
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ── Unlock confirmation dialog — reason REQUIRED (R-83 governed unlock) ───────
+//
+// Unlocking a frozen baseline is the more consequential half of the lock/
+// unlock pair — it reopens dates the lock froze — so, unlike lock's optional
+// reason, the API now REQUIRES one (POST /api/projects/[id]/unlock,
+// unlockProjectSchema). Mirrors RequestDeletionDialog's reason-collection
+// shape.
+
+function UnlockConfirmDialog({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [fieldError, setFieldError] = useState<string | undefined>(undefined);
+
+  function handleConfirm() {
+    if (!reason.trim()) {
+      setFieldError("A reason is required — it is recorded on the audit trail.");
+      return;
+    }
+    setFieldError(undefined);
+    setBusy(true);
+    onConfirm(reason.trim());
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 shrink-0 rounded-full bg-warning/15 p-2">
+          <AlertTriangle size={18} className="text-warning" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-ink">Unlock this project?</p>
+          <p className="mt-1 text-sm text-ink-secondary">
+            Unlocking will allow edits and mutations again. This is recorded in the audit log.
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <FieldLabel required>Reason</FieldLabel>
+        <TextareaInput
+          value={reason}
+          onChange={(e) => {
+            setReason(e.target.value);
+            if (fieldError) setFieldError(undefined);
+          }}
+          placeholder="Why is this project being unlocked?"
+          rows={3}
+          disabled={busy}
+          aria-required="true"
+        />
+        <FieldError message={fieldError} />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleConfirm} disabled={busy}>
+          {busy ? <Spinner size="sm" className="mr-1.5" /> : null}
+          Unlock
         </Button>
       </div>
     </div>
@@ -163,21 +230,31 @@ export function ProjectActions({ project }: ProjectActionsProps) {
   const [deleteRequesting, setDeleteRequesting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  async function executeLockToggle() {
+  async function executeLock() {
     setLocking(true);
     setLockError(null);
     try {
-      if (project.is_locked) {
-        await apiPost(`/api/projects/${project.id}/unlock`);
-      } else {
-        await apiPost(`/api/projects/${project.id}/lock`, {
-          reason: "Baseline frozen",
-        });
-      }
+      await apiPost(`/api/projects/${project.id}/lock`, {
+        reason: "Baseline frozen",
+      });
       router.refresh();
     } catch (err) {
       const apiErr = err as ApiError;
-      setLockError(apiErr.message ?? "Failed to toggle lock");
+      setLockError(apiErr.message ?? "Failed to lock project");
+    } finally {
+      setLocking(false);
+    }
+  }
+
+  async function executeUnlock(reason: string) {
+    setLocking(true);
+    setLockError(null);
+    try {
+      await apiPost(`/api/projects/${project.id}/unlock`, { reason });
+      router.refresh();
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setLockError(apiErr.message ?? "Failed to unlock project");
     } finally {
       setLocking(false);
     }
@@ -185,18 +262,32 @@ export function ProjectActions({ project }: ProjectActionsProps) {
 
   function handleLockToggle() {
     setLockError(null);
+    if (project.is_locked) {
+      modal.open(
+        <UnlockConfirmDialog
+          onConfirm={(reason) => {
+            modal.close();
+            void executeUnlock(reason);
+          }}
+          onCancel={() => {
+            modal.close();
+          }}
+        />,
+        { title: "Unlock project", size: "sm" },
+      );
+      return;
+    }
     modal.open(
       <LockConfirmDialog
-        isLocked={project.is_locked}
         onConfirm={() => {
           modal.close();
-          void executeLockToggle();
+          void executeLock();
         }}
         onCancel={() => {
           modal.close();
         }}
       />,
-      { title: project.is_locked ? "Unlock project" : "Lock project", size: "sm" },
+      { title: "Lock project", size: "sm" },
     );
   }
 

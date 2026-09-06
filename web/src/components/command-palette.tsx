@@ -27,6 +27,7 @@ import {
   Layers,
   Repeat,
   Rocket,
+  Lock,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -188,6 +189,16 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
       action: () => {
         onClose();
         router.push("/budget");
+      },
+    },
+    {
+      id: "nav-baselines",
+      icon: <Lock size={16} />,
+      label: "Baselines",
+      hint: "Go to",
+      action: () => {
+        onClose();
+        router.push("/baselines");
       },
     },
     {

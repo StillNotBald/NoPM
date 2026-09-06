@@ -87,6 +87,10 @@ describe("TOOL_SCOPES — forbidden scopes are absent", () => {
     expect(scopes).not.toContain("*");
   });
 
+  it("does NOT include change:decide (checker role denied to assistant — R-83 change-control four-eyes)", () => {
+    expect(scopes).not.toContain("change:decide");
+  });
+
   it("does NOT include any resource-level wildcard (e.g. 'task:*')", () => {
     const wildcards = scopes.filter((s) => s.endsWith(":*"));
     expect(wildcards).toHaveLength(0);

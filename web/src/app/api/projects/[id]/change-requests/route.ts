@@ -120,6 +120,8 @@ export const POST = route(async ({ actor, params, request }) => {
       raised_at: input.raised_at ?? null,
       requested_by: actor.type === "user" ? actor.id : null,
       requested_by_label: actor.label,
+      requested_by_type: actor.type,
+      requested_by_id: actor.id,
     })
     .select()
     .single();

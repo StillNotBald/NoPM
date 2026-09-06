@@ -24,6 +24,9 @@ export type TaskFilters = {
   due_after?: string;
   overdue?: boolean;
   q?: string;
+  // ── complement seam (0041, R-81) — exact-match filters ───────────────────────
+  source?: string;
+  external_ref?: string;
 };
 
 /** Map GET /api/tasks query params → a filter descriptor. Unknown params are ignored. */
@@ -52,6 +55,12 @@ export function parseTaskFilters(searchParams: URLSearchParams): TaskFilters {
 
   const q = searchParams.get("q");
   if (q) filters.q = q;
+
+  const source = searchParams.get("source");
+  if (source) filters.source = source;
+
+  const externalRef = searchParams.get("external_ref");
+  if (externalRef) filters.external_ref = externalRef;
 
   return filters;
 }
@@ -89,5 +98,7 @@ export function applyTaskFilters<Q>(
     q = q.not("status_type", "in", '("completed","canceled")') as Q & FilterableTaskQuery<Q>;
   }
   if (filters.q) q = q.ilike("name", `%${filters.q}%`) as Q & FilterableTaskQuery<Q>;
+  if (filters.source) q = q.eq("source", filters.source) as Q & FilterableTaskQuery<Q>;
+  if (filters.external_ref) q = q.eq("external_ref", filters.external_ref) as Q & FilterableTaskQuery<Q>;
   return q;
 }

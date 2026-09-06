@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, noContent, safeJson } from "@/lib/api/response";
 import { encrypt } from "@/lib/crypto";
 import { isDemoActor } from "@/lib/auth/demo";
+import { writeAudit } from "@/lib/audit/write";
 
 export const runtime = "nodejs";
 
@@ -75,19 +76,45 @@ export const PUT = route(async ({ actor, request }) => {
 
   const db = createAdminClient();
 
-  const { error } = await db.from("assistant_credentials").upsert(
-    {
-      workspace_id: actor.workspaceId,
-      user_id: actor.id,
-      provider,
-      api_key_enc,
-      model,
-      updated_at: now,
-    },
-    { onConflict: "user_id" },
-  );
+  // Read the existing row FIRST — before/after audit payloads carry only
+  // {provider, model}, NEVER apiKey/api_key_enc (the encrypted secret must
+  // never reach the audit_log).
+  const { data: before, error: beforeError } = await db
+    .from("assistant_credentials")
+    .select("provider, model")
+    .eq("user_id", actor.id)
+    .eq("workspace_id", actor.workspaceId)
+    .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  if (beforeError) throw new Error(beforeError.message);
+
+  const { data: row, error } = await db
+    .from("assistant_credentials")
+    .upsert(
+      {
+        workspace_id: actor.workspaceId,
+        user_id: actor.id,
+        provider,
+        api_key_enc,
+        model,
+        updated_at: now,
+      },
+      { onConflict: "user_id" },
+    )
+    .select("id, provider, model")
+    .single();
+
+  if (error || !row) throw new Error(error?.message ?? "Upsert failed");
+
+  await writeAudit({
+    workspaceId: actor.workspaceId,
+    actor,
+    action: "assistant.credential.set",
+    targetType: "assistant_credential",
+    targetId: row.id,
+    before: before ? { provider: before.provider, model: before.model } : null,
+    after: { provider: row.provider, model: row.model },
+  });
 
   return ok({ connected: true as const, provider, model });
 });
@@ -107,6 +134,19 @@ export const DELETE = route(async ({ actor }) => {
 
   const db = createAdminClient();
 
+  const { data: existing, error: fetchError } = await db
+    .from("assistant_credentials")
+    .select("id, provider, model")
+    .eq("user_id", actor.id)
+    .eq("workspace_id", actor.workspaceId)
+    .maybeSingle();
+
+  if (fetchError) throw new Error(fetchError.message);
+
+  // No row to revoke: keep current 204 semantics, no audit row (nothing
+  // happened — writeAudit is fail-closed for actual mutations only).
+  if (!existing) return noContent();
+
   const { error } = await db
     .from("assistant_credentials")
     .delete()
@@ -114,6 +154,16 @@ export const DELETE = route(async ({ actor }) => {
     .eq("workspace_id", actor.workspaceId);
 
   if (error) throw new Error(error.message);
+
+  await writeAudit({
+    workspaceId: actor.workspaceId,
+    actor,
+    action: "assistant.credential.revoke",
+    targetType: "assistant_credential",
+    targetId: existing.id,
+    before: { provider: existing.provider, model: existing.model },
+    after: null,
+  });
 
   return noContent();
 });

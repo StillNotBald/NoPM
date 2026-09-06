@@ -10,12 +10,13 @@
 export const describe = "List, create, inspect, update, or delete decision log entries";
 
 export const usage = [
-  "nopm decisions ls --project <id>                              list decisions for a project",
+  "nopm decisions ls --project <id>                              list decisions for a project [--external-ref <ref>]",
   "nopm decisions get <id>                                       fetch a single decision",
-  "nopm decisions create --project <id> --title <t> --decision <d>  [--rationale <r>] [--context <c>] [--status <s>]",
-  "nopm decisions update <id> [--title <t>] [--decision <d>] [--rationale <r>] [--status <s>]",
+  "nopm decisions create --project <id> --title <t> --decision <d>  [--rationale <r>] [--context <c>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm decisions update <id> [--title <t>] [--decision <d>] [--rationale <r>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
   "nopm decisions rm <id>                                        delete a decision",
   "  status: proposed | accepted | superseded | rejected",
+  "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this decision mirrors, e.g. --source jira --external-ref PROJ-123",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -36,7 +37,9 @@ export async function run(rest, ctx) {
       if (!projectId) ctx.die("usage: nopm decisions ls --project <project-id>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      const { data } = await ctx.api("GET", `/api/projects/${projectId}/decisions?page=${page}&limit=${limit}`);
+      let url = `/api/projects/${projectId}/decisions?page=${page}&limit=${limit}`;
+      if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
+      const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);
       break;
     }
@@ -63,6 +66,9 @@ export async function run(rest, ctx) {
         ...(f.status    && { status:    f.status }),
         ...(f.at        && { decided_at: f.at }),
         ...(f.supersedes && { supersedes: f.supersedes }),
+        ...(f.source            && { source: f.source }),
+        ...(f["external-ref"]   && { external_ref: f["external-ref"] }),
+        ...(f["external-url"]   && { external_url: f["external-url"] }),
       };
       const { data } = await ctx.api("POST", `/api/projects/${projectId}/decisions`, body);
       console.log("✓ created decision", data.id, `(${data.reference_id})`);
@@ -82,6 +88,9 @@ export async function run(rest, ctx) {
       if (f.status)     body.status     = f.status;
       if (f.at)         body.decided_at = f.at;
       if (f.supersedes) body.supersedes = f.supersedes;
+      if (f.source)              body.source       = f.source;
+      if (f["external-ref"])     body.external_ref = f["external-ref"];
+      if (f["external-url"])     body.external_url = f["external-url"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --title, --decision, --status, etc.");
       const { data } = await ctx.api("PATCH", `/api/decisions/${id}`, body);
       console.log("✓ updated decision", id);

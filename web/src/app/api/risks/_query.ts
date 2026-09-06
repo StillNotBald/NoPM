@@ -11,6 +11,9 @@ export const RISK_SORT_FIELDS = ["due_date", "severity", "likelihood", "status",
 export type RiskFilters = {
   status?: string;
   severity?: string;
+  // ── complement seam (0041, R-81) — exact-match filters ───────────────────────
+  source?: string;
+  external_ref?: string;
 };
 
 /** Map query params → a filter descriptor. Unknown params are ignored. */
@@ -20,6 +23,10 @@ export function parseRiskFilters(searchParams: URLSearchParams): RiskFilters {
   if (status) filters.status = status;
   const severity = searchParams.get("severity");
   if (severity) filters.severity = severity;
+  const source = searchParams.get("source");
+  if (source) filters.source = source;
+  const externalRef = searchParams.get("external_ref");
+  if (externalRef) filters.external_ref = externalRef;
   return filters;
 }
 
@@ -30,5 +37,7 @@ export function applyRiskFilters<Q>(query: Q & FilterableRiskQuery<Q>, filters: 
   let q: Q & FilterableRiskQuery<Q> = query;
   if (filters.status) q = q.eq("status", filters.status) as Q & FilterableRiskQuery<Q>;
   if (filters.severity) q = q.eq("severity", filters.severity) as Q & FilterableRiskQuery<Q>;
+  if (filters.source) q = q.eq("source", filters.source) as Q & FilterableRiskQuery<Q>;
+  if (filters.external_ref) q = q.eq("external_ref", filters.external_ref) as Q & FilterableRiskQuery<Q>;
   return q;
 }

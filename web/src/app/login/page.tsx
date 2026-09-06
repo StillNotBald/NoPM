@@ -72,7 +72,7 @@ function LoginForm() {
           <Link href="/" className="text-2xl font-semibold tracking-tight text-ink">
             No<span className="text-accent">PM</span>
           </Link>
-          <p className="mt-1 text-sm text-ink-muted">Project intelligence for operators</p>
+          <p className="mt-1 text-sm text-ink-muted">The governance layer your existing tools skip</p>
         </div>
 
         <Card className="mb-4">

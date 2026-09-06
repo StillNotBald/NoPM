@@ -109,4 +109,15 @@ describe("NAV_SECTIONS shape sanity", () => {
     const empty = NAV_SECTIONS.filter((s: NavSection) => s.items.length === 0);
     expect(empty).toEqual([]);
   });
+
+  it("Governance contains /baselines (the lock → rebaseline flow's nav home)", () => {
+    const governance = NAV_SECTIONS.find((s) => s.label === "Governance");
+    expect(governance?.items.map((i) => i.href)).toContain("/baselines");
+  });
+
+  it("no section contains /email-previews (moved to the My Work header)", () => {
+    for (const section of NAV_SECTIONS) {
+      expect(section.items.map((i) => i.href)).not.toContain("/email-previews");
+    }
+  });
 });

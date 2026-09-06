@@ -12,6 +12,9 @@ export type IssueFilters = {
   status?: string;
   severity?: string;
   priority?: string;
+  // ── complement seam (0041, R-81) — exact-match filters ───────────────────────
+  source?: string;
+  external_ref?: string;
 };
 
 /** Map query params → a filter descriptor. Unknown params are ignored. */
@@ -23,6 +26,10 @@ export function parseIssueFilters(searchParams: URLSearchParams): IssueFilters {
   if (severity) filters.severity = severity;
   const priority = searchParams.get("priority");
   if (priority) filters.priority = priority;
+  const source = searchParams.get("source");
+  if (source) filters.source = source;
+  const externalRef = searchParams.get("external_ref");
+  if (externalRef) filters.external_ref = externalRef;
   return filters;
 }
 
@@ -34,5 +41,7 @@ export function applyIssueFilters<Q>(query: Q & FilterableIssueQuery<Q>, filters
   if (filters.status) q = q.eq("status", filters.status) as Q & FilterableIssueQuery<Q>;
   if (filters.severity) q = q.eq("severity", filters.severity) as Q & FilterableIssueQuery<Q>;
   if (filters.priority) q = q.eq("priority", filters.priority) as Q & FilterableIssueQuery<Q>;
+  if (filters.source) q = q.eq("source", filters.source) as Q & FilterableIssueQuery<Q>;
+  if (filters.external_ref) q = q.eq("external_ref", filters.external_ref) as Q & FilterableIssueQuery<Q>;
   return q;
 }

@@ -32,16 +32,39 @@ export function route(
     request: NextRequest,
     context: { params?: Promise<Record<string, string>> },
   ): Promise<Response> => {
+    // Resolved outside the try so a thrown error AFTER auth (e.g. the
+    // handler body, or a rate-limit RuleError) can still stamp the
+    // request-id correlation header on the error response below.
+    let actor: Actor | undefined;
     try {
       const params = context?.params ? await context.params : {};
-      const actor =
-        opts.auth === false ? (undefined as unknown as Actor) : await requireAuth(request);
-      if (opts.auth !== false) {
+      actor = opts.auth === false ? undefined : await requireAuth(request);
+      if (opts.auth !== false && actor) {
         await checkRateLimit(createAdminClient(), actor, request);
       }
-      return await handler({ request, actor, params });
+      const response = await handler({ request, actor: actor as Actor, params });
+      stampRequestId(response, actor);
+      return response;
     } catch (error) {
-      return toErrorResponse(error);
+      const response = toErrorResponse(error);
+      stampRequestId(response, actor);
+      return response;
     }
   };
+}
+
+/**
+ * Stamp X-Request-Id on a response from the resolved actor's correlation id
+ * (R-82) — best-effort: some Response shapes (e.g. a Response built from a
+ * ReadableStream body, or one whose headers were frozen by the runtime)
+ * throw on `.headers.set`, so this never lets a header-stamping failure
+ * mask the real response.
+ */
+function stampRequestId(response: Response, actor: Actor | undefined): void {
+  if (!actor?.requestId) return;
+  try {
+    response.headers.set("X-Request-Id", actor.requestId);
+  } catch {
+    // Immutable headers (e.g. some streamed responses) — not fatal.
+  }
 }

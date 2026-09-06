@@ -42,6 +42,7 @@ async function callApi(path, method, body) {
   const headers = {
     Authorization: `Bearer ${TOKEN}`,
     "Content-Type": "application/json",
+    "X-NoPM-Client": "mcp",
   };
   const res = await fetch(url, {
     method,

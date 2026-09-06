@@ -44,7 +44,11 @@ const spec = {
       "creates a deletion_request the same way — milestones/risks/issues remain single-step hard " +
       "deletes and are never routed through deletion_requests. " +
       "Every authenticated request is subject to a baseline workspace+actor-class rate limit " +
-      "(fixed 60s window; defaults 600/min read, 120/min write) — see components.responses.RateLimited.",
+      "(fixed 60s window; defaults 600/min read, 120/min write) — see components.responses.RateLimited. " +
+      "R-82: send X-NoPM-Client (ui|api|cli|mcp|assistant) to declare which surface made a call — " +
+      "recorded on the audit row as channel, provenance only, never an authorization input; send " +
+      "X-Request-Id to correlate a request with its audit row (request_id), echoed back as the " +
+      "X-Request-Id response header (server-generated when omitted).",
   },
   servers: [{ url: "https://stillnotbald.com/api", description: "Production" }],
   components: {
@@ -241,11 +245,13 @@ const spec = {
       get: {
         tags: ["projects"],
         summary: "List projects",
-        description: "scope: project:read",
+        description: "scope: project:read. Filters: source, external_ref (complement seam, R-81 — both exact-match).",
         operationId: "listProjects",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this project mirrors (e.g. jira)" },
+          { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
         ],
         responses: {
           "200": { description: "Paginated project list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -772,7 +778,7 @@ const spec = {
       get: {
         tags: ["tasks"],
         summary: "Cross-project task list (L-04)",
-        description: "scope: task:read. Workspace-scoped (not per-project). Filters: project_id, assignee_id, status_type, priority, due_before, due_after, overdue=true, q (name ilike). Sort (L-10): ?sort=field:asc|desc against a whitelist (due_date|priority|status_type|name|created_at|completion_pct) — an unknown field or direction 422s. Reused verbatim by GET /export?entity=tasks.",
+        description: "scope: task:read. Workspace-scoped (not per-project). Filters: project_id, assignee_id, status_type, priority, due_before, due_after, overdue=true, q (name ilike), source, external_ref (complement seam, R-81 — both exact-match). Sort (L-10): ?sort=field:asc|desc against a whitelist (due_date|priority|status_type|name|created_at|completion_pct) — an unknown field or direction 422s. Reused verbatim by GET /export?entity=tasks.",
         operationId: "listTasks",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -786,6 +792,8 @@ const spec = {
           { name: "due_after", in: "query", schema: { type: "string", format: "date" } },
           { name: "overdue", in: "query", schema: { type: "boolean" } },
           { name: "q", in: "query", schema: { type: "string" }, description: "Case-insensitive substring match against task name" },
+          { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this task mirrors (e.g. jira)" },
+          { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
         ],
         responses: {
           "200": { description: "Paginated cross-project task list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -835,12 +843,14 @@ const spec = {
       get: {
         tags: ["risks"],
         summary: "List risks for a project",
-        description: "scope: risk:read",
+        description: "scope: risk:read. Filters: source, external_ref (complement seam, R-81 — both exact-match).",
         operationId: "listProjectRisks",
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this risk mirrors (e.g. jira)" },
+          { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
         ],
         responses: {
           "200": { description: "Paginated risk list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -899,12 +909,14 @@ const spec = {
       get: {
         tags: ["issues"],
         summary: "List issues for a project",
-        description: "scope: issue:read",
+        description: "scope: issue:read. Filters: source, external_ref (complement seam, R-81 — both exact-match).",
         operationId: "listProjectIssues",
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this issue mirrors (e.g. jira)" },
+          { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
         ],
         responses: {
           "200": { description: "Paginated issue list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1345,7 +1357,13 @@ const spec = {
       get: {
         tags: ["audit"],
         summary: "Query the immutable audit log",
-        description: "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id.",
+        description:
+          "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id, " +
+          "?channel (R-82: one of ui|api|cli|mcp|assistant, unrecognized values ignored). " +
+          "Each row also carries `channel` (the declared/caller-asserted client — provenance " +
+          "only, never an authorization input) and `request_id` (a per-request correlation id, " +
+          "also echoed on this response as the X-Request-Id header) — both nullable for rows " +
+          "written before migration 20260906000042_audit_channel.sql.",
         operationId: "listAuditLog",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -1354,6 +1372,7 @@ const spec = {
           { name: "target_id", in: "query", schema: { type: "string", format: "uuid" } },
           { name: "action", in: "query", schema: { type: "string" } },
           { name: "actor_id", in: "query", schema: { type: "string" } },
+          { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant"] } },
         ],
         responses: {
           "200": { description: "Paginated audit log entries", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1375,7 +1394,7 @@ const spec = {
           "project-scoped) plus status/severity(/priority for issues)/sort; clashes take no " +
           "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
           "project_id/member_id/date_from/date_to/billable; audit accepts " +
-          "target_type/target_id/action/actor_id; programs take no filters (fixed name asc, " +
+          "target_type/target_id/action/actor_id/channel (R-82); programs take no filters (fixed name asc, " +
           "T3 F2c-mini). Capped " +
           "at 10,000 rows — if the true match count exceeds the cap, a final CSV row notes the " +
           "truncation and the server logs it. The export is a governed read but still writes " +
@@ -1404,6 +1423,7 @@ const spec = {
           { name: "target_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "action", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "actor_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
+          { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant"] }, description: "entity=audit (R-82)" },
         ],
         responses: {
           "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present)", content: { "text/csv": { schema: { type: "string" } } } },
@@ -1833,7 +1853,7 @@ const spec = {
       post: {
         tags: ["change-requests"],
         summary: "Record an approve / reject / defer decision (four-eyes)",
-        description: "scope: change:write. The deciding actor must differ from the requester (four-eyes). Status must be raised or under_review.",
+        description: "scope: change:decide. The deciding actor must differ from the requester (four-eyes). Status must be raised or under_review.",
         operationId: "decideChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["decision"], properties: { decision: { type: "string", enum: ["approve", "reject", "defer"] }, rationale: { type: "string" } } } } } },
@@ -1848,12 +1868,14 @@ const spec = {
       get: {
         tags: ["decisions"],
         summary: "List decisions for a project",
-        description: "scope: decision:read",
+        description: "scope: decision:read. Filters: source, external_ref (complement seam, R-81 — both exact-match).",
         operationId: "listProjectDecisions",
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this decision mirrors (e.g. jira)" },
+          { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
         ],
         responses: {
           "200": { description: "Paginated decision list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1865,7 +1887,7 @@ const spec = {
         description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id.",
         operationId: "createDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
         responses: {
           "201": { description: "Decision created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1890,7 +1912,7 @@ const spec = {
         description: "scope: decision:write",
         operationId: "updateDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
         responses: {
           "200": { description: "Updated decision", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1926,9 +1948,10 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Unlock a project timeline",
-        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason.",
+        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row.",
         operationId: "unlockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", minLength: 1, maxLength: 1000 } } } } } },
         responses: {
           "200": { description: "Unlocked project", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },

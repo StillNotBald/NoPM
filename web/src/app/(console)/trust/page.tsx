@@ -17,6 +17,12 @@ interface AuditRow {
   target_id: string | null;
   created_at: string;
   meta?: Record<string, unknown> | null;
+  /** Declared client (R-82) — caller-asserted via X-NoPM-Client, defaulted
+   *  server-side when absent. NOT an authorization input — see the "Actor
+   *  types" glossary card below. Nullable: rows written before this column
+   *  existed have no channel on file. */
+  channel?: "ui" | "api" | "cli" | "mcp" | "assistant" | string | null;
+  request_id?: string | null;
 }
 
 const COMMON_ACTIONS: { action: string; description: string }[] = [
@@ -174,6 +180,14 @@ export default async function TrustPage() {
                           >
                             {entry.actor_type === "token" ? "token" : "user"}
                           </span>
+                          {entry.channel && (
+                            <span
+                              title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
+                              className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
+                            >
+                              {entry.channel}
+                            </span>
+                          )}
                         </div>
 
                         {/* Target */}
@@ -246,6 +260,15 @@ export default async function TrustPage() {
                 </span>
                 <p className="text-xs text-ink-muted">
                   A scoped PAT (Personal Access Token) used by an automated agent or the CLI.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary shrink-0">
+                  cli
+                </span>
+                <p className="text-xs text-ink-muted">
+                  declared client — which surface (ui/api/cli/mcp/assistant) said it made the
+                  call. Token identity is authoritative; the channel is caller-asserted.
                 </p>
               </div>
             </CardBody>

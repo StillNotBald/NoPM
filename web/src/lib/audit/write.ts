@@ -29,6 +29,8 @@ export async function writeAudit(input: AuditInput): Promise<void> {
     target_id: input.targetId ?? null,
     before: (input.before as object) ?? null,
     after: (input.after as object) ?? null,
+    channel: input.actor.channel ?? null,
+    request_id: input.actor.requestId ?? null,
   });
   if (error) {
     throw new Error(`Fail-closed audit write failed: ${error.message}`);

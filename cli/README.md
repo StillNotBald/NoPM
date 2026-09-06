@@ -65,6 +65,8 @@ nopm openapi                                 # operation index from the live spe
 
 Every module (risks, issues, clashes, resources, allocations, time, budget, expenses, documents, decisions, changes, rebaselines, notifications, reports, tokens) has its own command group — run `nopm help` for the full catalogue.
 
+Every request sends `X-NoPM-Client: cli`, so the resulting audit_log rows are tagged `channel: cli` (R-82, `GET /audit?channel=cli`) — provenance only, never an authorization input; token identity stays authoritative.
+
 ## Global flags
 
 | Flag | Effect |

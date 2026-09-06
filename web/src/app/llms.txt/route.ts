@@ -58,6 +58,7 @@ Sprints:     project_id, name, start_date, end_date REQUIRED on create (goal opt
              — never recomputed by a later task edit.
 Task deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
 Project deletion: body { "reason": "<why>" } is REQUIRED (it becomes the audit trail).
+Project unlock: body { "reason": "<why>" } is REQUIRED (R-83 — lock's reason stays optional; unlock's is not).
 Change requests: title, category, priority, status REQUIRED on create; priority = low | medium | high | critical
              decision endpoint takes { "decision": "approve" | "reject" | "defer", "rationale": "..." }.
 Task dependencies: type = FS | SS | FF | SF (default FS), lag_days integer (default 0).
@@ -81,6 +82,13 @@ deletion_request row.
 ## Audit log
 Every mutation writes exactly one immutable row to the audit_log table.
 Read it at GET /audit (scope: audit:read).
+
+Provenance (R-82): send X-NoPM-Client: cli|mcp|assistant|api|ui to declare which
+surface made the call — it is recorded on the audit row as channel but is NOT an
+authorization input (token identity stays authoritative); omitted it defaults to
+'api' for a Bearer/token caller. Send X-Request-Id: <up to 64 chars, [A-Za-z0-9._-]>
+to correlate a request with its audit row (request_id); the server echoes it back
+as the X-Request-Id response header, generating one for you when you don't send it.
 
 ---
 
@@ -108,13 +116,13 @@ POST   /invites                            — admin/manager session — create 
 POST   /invites/{id}/revoke                — admin/manager session — revoke a pending invite (422 if not pending)
 POST   /invites/accept                     — scope:none — public, unauthenticated. Provisions a brand-new login (createUser THEN the atomic nopm_accept_invite RPC — writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). Body: { token, password (>=12 chars), display_name } — NO email field, the invite's own email is always used. Rate-limited 10/min per IP (this endpoint has no actor to key the baseline limiter on). No session is returned — sign in via /login afterwards. Anti-enumeration (T3, F2c-mini): not-found/already-used/revoked/expired ALL return the same uniform 422 (never a distinct 404) — the /invite/[token] page keeps distinct friendly copy, an intentional asymmetry.
 
-GET    /projects                           — scope:project:read  — list projects in workspace
+GET    /projects                           — scope:project:read  — list projects in workspace. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match; NoPM is the governed record beside Jira/Slack/Teams, not a replacement for them).
 POST   /projects                           — scope:project:write — create a project
 GET    /projects/{id}                      — scope:project:read  — get a project
 PATCH  /projects/{id}                      — scope:project:write — update a project
 DELETE /projects/{id}                      — scope:project:delete:request — request project deletion (maker step, returns 202, creates deletion_request)
 POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only)
-POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline
+POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline; body { "reason": "<why>" } is REQUIRED (R-83 — recorded in the audit trail's after.unlock_reason, not stored on the row)
 
 GET    /programs                           — scope:program:read  — list programs in workspace
 POST   /programs                           — scope:program:write — create a program (a named, ownable container above projects — L-01)
@@ -145,7 +153,7 @@ GET    /milestones/{id}                    — scope:milestone:read  — get a m
 PATCH  /milestones/{id}                    — scope:milestone:write — update a milestone
 DELETE /milestones/{id}                    — scope:milestone:write — delete a milestone
 
-GET    /tasks                              — scope:task:read  — cross-project task list (L-04), workspace-scoped not per-project. Filters: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q. Sort (L-10): ?sort=field:asc|desc against due_date|priority|status_type|name|created_at|completion_pct — unknown field/direction 422s. Reused by GET /export?entity=tasks.
+GET    /tasks                              — scope:task:read  — cross-project task list (L-04), workspace-scoped not per-project. Filters: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/source/external_ref (source/external_ref: complement seam, R-81 — both exact-match). Sort (L-10): ?sort=field:asc|desc against due_date|priority|status_type|name|created_at|completion_pct — unknown field/direction 422s. Reused by GET /export?entity=tasks.
 GET    /projects/{id}/tasks                — scope:task:read  — list tasks for a project
 POST   /projects/{id}/tasks                — scope:task:write — create a task in a project
 GET    /tasks/{id}                         — scope:task:read  — get a task
@@ -155,13 +163,13 @@ GET    /tasks/{id}/dependencies            — scope:task:read  — list a task'
 POST   /tasks/{id}/dependencies            — scope:task:write — add a dependency (predecessor_id, type FS|SS|FF|SF, lag_days)
 DELETE /tasks/{id}/dependencies            — scope:task:write — remove a dependency (predecessor_id in body)
 
-GET    /projects/{id}/risks                — scope:risk:read  — list risks for a project
+GET    /projects/{id}/risks                — scope:risk:read  — list risks for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
 POST   /projects/{id}/risks                — scope:risk:write — create a risk under a project
 GET    /risks/{id}                         — scope:risk:read  — get a risk
 PATCH  /risks/{id}                         — scope:risk:write — update a risk
 DELETE /risks/{id}                         — scope:risk:write — delete a risk
 
-GET    /projects/{id}/issues               — scope:issue:read  — list issues for a project
+GET    /projects/{id}/issues               — scope:issue:read  — list issues for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
 POST   /projects/{id}/issues               — scope:issue:write — create an issue under a project
 GET    /issues/{id}                        — scope:issue:read  — get an issue
 PATCH  /issues/{id}                        — scope:issue:write — update an issue
@@ -210,7 +218,7 @@ POST   /documents/{id}/file                — scope:document:write — attach a
 DELETE /documents/{id}/file                — scope:document:write — detach the file
 POST   /documents/{id}/file/sign           — scope:document:write — get a signed upload URL (max 25 MiB)
 
-GET    /projects/{id}/decisions            — scope:decision:read  — list decisions for a project
+GET    /projects/{id}/decisions            — scope:decision:read  — list decisions for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
 POST   /projects/{id}/decisions            — scope:decision:write — record a decision
 GET    /decisions/{id}                     — scope:decision:read  — get a decision
 PATCH  /decisions/{id}                     — scope:decision:write — update a decision
@@ -221,7 +229,7 @@ POST   /projects/{id}/change-requests      — scope:change:write — raise a ch
 GET    /change-requests/{id}               — scope:change:read  — get a change request
 PATCH  /change-requests/{id}               — scope:change:write — update a change request
 DELETE /change-requests/{id}               — scope:change:write — delete a change request
-POST   /change-requests/{id}/decision      — scope:change:write — decide a change request (approve | reject | defer + rationale, audited)
+POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (approve | reject | defer + rationale, audited); the deciding actor must differ from the requester on BOTH id and type (four-eyes) — 403 otherwise
 
 GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
 POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required)
@@ -237,12 +245,12 @@ GET    /notifications                      — scope:notification:read — list 
 PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
 POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
-GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id)
+GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant — R-82, unrecognized values ignored). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql.
 GET    /search                             — scope:project:read — full-workspace search (?q=) across projects, tasks, programs, sprints, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
-GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries|programs (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id; programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|time_entries|programs (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id REQUIRED + status/severity(/priority for issues)/sort; clashes: none; time_entries: project_id/member_id/date_from/date_to/billable; audit: target_type/target_id/action/actor_id/channel (R-82); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel and request_id. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
 
 GET    /reports/deck                       — scope:audit:read — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read — portfolio deck (POST variant)

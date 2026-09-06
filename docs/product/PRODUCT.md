@@ -19,7 +19,11 @@ A lite, API-first project-management tool that a user's own AI agent operates �
 
 ## Positioning
 
-Three properties competitors can't truthfully claim simultaneously: (1) **agent-operable** — every action is a documented REST endpoint with scoped `resource:action` tokens, OpenAPI, llms.txt, CLI, and MCP; (2) **institutional governance in the data layer** — exactly one immutable audit row per mutation (fail-closed), four-eyes deletion enforced in scope + API + DB CHECK, even the service key can't rewrite history; (3) **the whole triangle** — timeline, resource, and budget in one governed model (over-allocation → clash; spend → EVM variance; locked timeline → rebaseline sign-off).
+Three properties competitors can't truthfully claim simultaneously: (1) **agent-operable** — every action is a documented REST endpoint with scoped `resource:action` tokens, OpenAPI, llms.txt, CLI, and MCP; (2) **institutional governance in the data layer** — exactly one immutable audit row per mutation (fail-closed), four-eyes deletion enforced in scope + API + DB CHECK, even the service key can't rewrite history; (3) **the governed triangle** — timeline, resource, and budget changes pass one audit and sign-off gate in a single governed model (over-allocation → clash; spend → EVM variance; locked timeline → rebaseline sign-off); it is not a scheduler, a timesheet system, or an ERP.
+
+### Complement, not replace
+
+NoPM does not ask a team to give up Jira, Slack, or Teams. It is the governed record beside them: every change writes an immutable audit row, deletions require a second approver (four-eyes), and agents act only through scoped, ephemeral tokens. Feature parity with those tools is deliberately not the goal.
 
 ## Operating Context
 

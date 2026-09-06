@@ -38,10 +38,11 @@ const WEDGES: [string, string][] = [
       "Postgres triggers and constraints; a service key cannot rewrite history.",
   ],
   [
-    "The whole PM triangle",
+    "The governed triangle",
     "Timeline, resource, and budget in one governed model. Budget variance and EVM " +
       "roll up from actuals; schedule slip surfaces as a forced rebaseline sign-off; " +
-      "over-allocation appears as a governed clash — the gap most lite PM tools miss.",
+      "over-allocation appears as a governed clash — the layer the tools you already " +
+      "run do not enforce.",
   ],
 ];
 

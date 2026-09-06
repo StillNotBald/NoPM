@@ -1,6 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { resolveRequestId } from "@/lib/audit/channel";
 // mcp/tools.mjs is the single tool registry shared with the stdio server
 // (web/mcp/server.mjs) and the in-app BYOK assistant — kept outside src/ on
 // purpose so it stays a plain-Node, no-build-step artifact for the CLI.
@@ -33,13 +34,27 @@ type ToolRegistryEntry = {
 
 const REGISTRY = TOOL_REGISTRY as ToolRegistryEntry[];
 
-async function callApi(origin: string, token: string, path: string, method: string, body?: unknown) {
+async function callApi(
+  origin: string,
+  token: string,
+  path: string,
+  method: string,
+  body: unknown,
+  requestId: string | null,
+) {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    "X-NoPM-Client": "mcp",
+  };
+  // Forward the caller's own X-Request-Id (if present) so the eventual
+  // audit_log row correlates back to this MCP request rather than getting
+  // a freshly generated id at the internal REST hop (R-82).
+  if (requestId) headers["X-Request-Id"] = requestId;
+
   const res = await fetch(new URL(path, origin), {
     method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
+    headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   try {
@@ -49,7 +64,7 @@ async function callApi(origin: string, token: string, path: string, method: stri
   }
 }
 
-function buildServer(origin: string, token: string): Server {
+function buildServer(origin: string, token: string, requestId: string | null): Server {
   const server = new Server({ name: "nopm", version: "1.0.0" }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -82,7 +97,7 @@ function buildServer(origin: string, token: string): Server {
       };
     }
 
-    const result = await callApi(origin, token, req.path, req.method, req.body);
+    const result = await callApi(origin, token, req.path, req.method, req.body, requestId);
     const isError = typeof (result as { error?: unknown }).error === "string";
     return {
       content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -106,14 +121,24 @@ async function handle(request: Request): Promise<Response> {
   }
   const token = authz.slice(7).trim();
   const origin = new URL(request.url).origin;
+  // R-82: one correlation id per MCP request — the caller's X-Request-Id when
+  // it is a safe token, else generated here — forwarded to every internal
+  // tool-call fetch and echoed on the response, exactly like route() does.
+  const requestId = resolveRequestId(request.headers);
 
-  const server = buildServer(origin, token);
+  const server = buildServer(origin, token, requestId);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
   });
   await server.connect(transport);
-  return transport.handleRequest(request);
+  const response = await transport.handleRequest(request);
+  try {
+    response.headers.set("X-Request-Id", requestId);
+  } catch {
+    // Immutable headers on some streamed responses — not fatal.
+  }
+  return response;
 }
 
 export { handle as GET, handle as POST, handle as DELETE };

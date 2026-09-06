@@ -367,6 +367,24 @@ export function TaskDetailPanel({
             </span>
           </DetailRow>
         )}
+        {task.external_ref && (
+          <DetailRow label="Complement">
+            {task.external_url ? (
+              <a
+                href={task.external_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-sunken px-2 py-0.5 text-xs text-accent hover:underline"
+              >
+                {task.source ? `${task.source}: ${task.external_ref}` : task.external_ref}
+              </a>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border-subtle bg-sunken px-2 py-0.5 text-xs text-ink-secondary">
+                {task.source ? `${task.source}: ${task.external_ref}` : task.external_ref}
+              </span>
+            )}
+          </DetailRow>
+        )}
       </div>
 
       {/* Acceptance criteria */}

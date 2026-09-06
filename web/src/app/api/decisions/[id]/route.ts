@@ -63,6 +63,10 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.status !== undefined) updates.status = input.status;
   if (input.decided_at !== undefined) updates.decided_at = input.decided_at;
   if (input.supersedes !== undefined) updates.supersedes = input.supersedes;
+  // ── complement seam (0041, R-81) ────────────────────────────────────────────
+  if (input.source !== undefined) updates.source = input.source;
+  if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
+  if (input.external_url !== undefined) updates.external_url = input.external_url;
 
   const { data: updated, error: updateError } = await db
     .from("decisions")

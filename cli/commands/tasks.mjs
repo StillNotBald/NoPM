@@ -10,11 +10,12 @@
 export const describe = "List, get, create, update, or request deletion of tasks";
 
 export const usage = [
-  "nopm tasks ls     --project <projectId> [--page <n>] [--limit <n>]",
+  "nopm tasks ls     --project <projectId> [--page <n>] [--limit <n>] [--external-ref <ref>]",
   "nopm tasks get    <taskId>",
-  "nopm tasks create --project <id> --name <n> [--priority low|medium|high|urgent] [--status-type backlog|unstarted|started|completed|canceled] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>]",
-  "nopm tasks update <taskId> [--name <n>] [--priority <p>] [--status-type <t>] [--pct <0-100>] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>]",
+  "nopm tasks create --project <id> --name <n> [--priority low|medium|high|urgent] [--status-type backlog|unstarted|started|completed|canceled] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm tasks update <taskId> [--name <n>] [--priority <p>] [--status-type <t>] [--pct <0-100>] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
   "nopm tasks rm     <taskId> --reason <why>      (MAKER — creates a pending deletion request)",
+  "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this task mirrors, e.g. --source jira --external-ref PROJ-123",
   "  flags: --json",
 ];
 
@@ -30,7 +31,9 @@ export async function run(rest, ctx) {
       if (!f.project) ctx.die("usage: nopm tasks ls --project <projectId>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      const { data } = await ctx.api("GET", `/api/projects/${f.project}/tasks?page=${page}&limit=${limit}`);
+      let url = `/api/projects/${f.project}/tasks?page=${page}&limit=${limit}`;
+      if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
+      const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);
       break;
     }
@@ -55,6 +58,9 @@ export async function run(rest, ctx) {
         ...(f.start           && { start_date: f.start }),
         ...(f.points  != null && { story_points: Number(f.points) }),
         ...(f.hours   != null && { estimate_hours: Number(f.hours) }),
+        ...(f.source            && { source: f.source }),
+        ...(f["external-ref"]   && { external_ref: f["external-ref"] }),
+        ...(f["external-url"]   && { external_url: f["external-url"] }),
       };
       const { data } = await ctx.api("POST", `/api/projects/${f.project}/tasks`, body);
       console.log("✓ created task", data.id);
@@ -76,6 +82,9 @@ export async function run(rest, ctx) {
       if (f.start)                 body.start_date   = f.start;
       if (f.points != null)        body.story_points = Number(f.points);
       if (f.hours  != null)        body.estimate_hours = Number(f.hours);
+      if (f.source)                body.source       = f.source;
+      if (f["external-ref"])       body.external_ref = f["external-ref"];
+      if (f["external-url"])       body.external_url = f["external-url"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied.");
       const { data } = await ctx.api("PATCH", `/api/tasks/${id}`, body);
       console.log("✓ updated task", id);

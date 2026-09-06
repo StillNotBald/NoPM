@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
+import { Mail } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
@@ -230,7 +232,18 @@ export default async function MyWorkPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <PageHeader title="My Work" />
+      <PageHeader
+        title="My Work"
+        action={
+          <Link
+            href="/email-previews"
+            className="inline-flex items-center gap-1.5 rounded text-xs text-ink-muted transition-colors hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+          >
+            <Mail size={14} />
+            Email previews
+          </Link>
+        }
+      />
 
       {/* Hot Now strip */}
       <Card>

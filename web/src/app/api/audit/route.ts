@@ -54,6 +54,7 @@ export const GET = route(async ({ actor, request }) => {
   if (filters.target_id !== undefined) query = query.eq("target_id", filters.target_id);
   if (filters.action !== undefined) query = query.eq("action", filters.action);
   if (filters.actor_id !== undefined) query = query.eq("actor_id", filters.actor_id);
+  if (filters.channel !== undefined) query = query.eq("channel", filters.channel);
 
   const { data, error, count } = await query
     .order("created_at", { ascending: false })

@@ -2,13 +2,16 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { ok } from "@/lib/api/response";
+import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
+import { unlockProjectSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
 
 // POST /api/projects/[id]/unlock — unlock project timeline (project:write)
-export const POST = route(async ({ actor, params }) => {
+// Body: { reason: string } REQUIRED (R-83 — governed unlock: unlike lock's
+// optional reason, unlocking a frozen baseline must always say why).
+export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "project:write");
 
   const db = createAdminClient();
@@ -22,6 +25,20 @@ export const POST = route(async ({ actor, params }) => {
 
   if (fetchError) throw fetchError;
   if (!before) throw new NotFoundError("Project not found");
+
+  const body = await safeJson(request);
+  const parsed = unlockProjectSchema.safeParse(body ?? {});
+  if (!parsed.success) {
+    return validationError(
+      "Validation failed",
+      parsed.error.issues.map((e) => ({
+        field: e.path.join("."),
+        message: e.message,
+      })),
+    );
+  }
+
+  const { reason } = parsed.data;
 
   const { data: after, error: updateError } = await db
     .from("projects")
@@ -38,6 +55,8 @@ export const POST = route(async ({ actor, params }) => {
 
   if (updateError) throw updateError;
 
+  // lock_reason is nulled on the row itself (nothing new is stored there) —
+  // the WHY the unlock happened lives only in the audit trail's `after`.
   await writeAudit({
     workspaceId: actor.workspaceId,
     actor,
@@ -45,7 +64,7 @@ export const POST = route(async ({ actor, params }) => {
     targetType: "project",
     targetId: params.id,
     before,
-    after,
+    after: { ...after, unlock_reason: reason },
   });
 
   return ok(after);

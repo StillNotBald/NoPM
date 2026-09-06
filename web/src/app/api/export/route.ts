@@ -76,7 +76,8 @@ const ENTITY_COLUMNS: Record<Entity, string[]> = {
   ],
   audit: [
     "id", "workspace_id", "actor_type", "actor_id", "actor_label", "action",
-    "target_type", "target_id", "before", "after", "created_at",
+    "target_type", "target_id", "before", "after", "channel", "request_id",
+    "created_at",
   ],
   programs: [
     "id", "workspace_id", "code", "name", "rag_status", "owner_id", "created_at",
@@ -248,6 +249,7 @@ async function fetchAuditRows(sp: URLSearchParams, workspaceId: string, db: Db):
   if (filters.target_id !== undefined) query = query.eq("target_id", filters.target_id);
   if (filters.action !== undefined) query = query.eq("action", filters.action);
   if (filters.actor_id !== undefined) query = query.eq("actor_id", filters.actor_id);
+  if (filters.channel !== undefined) query = query.eq("channel", filters.channel);
   const { data, error, count } = await query
     .order("created_at", { ascending: false })
     .range(0, MAX_EXPORT_ROWS - 1);

@@ -241,6 +241,16 @@ const crRows = [
   },
 ];
 
+// R-83: every row is raised/decided by a real profile (a "user" actor) —
+// backfill the actor-typed pair alongside the legacy profile-id columns so
+// this seed matches what the API writes from 0043 on.
+for (const cr of crRows) {
+  cr.requested_by_type = "user";
+  cr.requested_by_id = cr.requested_by;
+  cr.decided_by_type = cr.decided_by ? "user" : null;
+  cr.decided_by_id = cr.decided_by;
+}
+
 for (const cr of crRows) {
   const { error } = await db.from("change_requests").insert(cr);
   if (error) throw new Error(`change_requests: ${error.message}`);

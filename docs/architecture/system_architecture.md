@@ -22,7 +22,7 @@ flowchart LR
     Auth["1. auth\nrequireAuth — session or Bearer PAT"]
     RateLimit["2. rate limit\ncheckRateLimit — DB-backed, fail-open+audited"]
     Handler["3. handler\nzod-validated body, business logic"]
-    Audit["4. audit\nwriteAudit — fail-closed"]
+    Audit["4. audit\nwriteAudit — fail-closed, channel + request_id"]
     Route --> Auth --> RateLimit --> Handler --> Audit
   end
 
@@ -69,6 +69,31 @@ A locked project's schedule shape is frozen — enforced three ways at once (sch
 
 ### Rate limiting — fail-open, fail-closed, and audited, deliberately different ways
 A DB-backed fixed-window counter (`nopm_rate_check` RPC, migration `20260814000029_rate_limiting.sql`) keyed by `workspace_id + actor type + read/write bucket`, defaults 600 reads/min and 120 writes/min (`web/src/lib/api/rate-limit.ts`). Two different failure philosophies apply on purpose: **fail-open + loud** (`console.error`) if the limiter's own RPC errors — a rate-limiter outage must never take the API down; and **fail-closed** (`429 RateLimitError`) on an actual limit hit, with a fail-soft (`try`/`catch`, never blocking the response) `rate.limited` audit row. This is the opposite trade-off from the audit path above — audit failures abort the mutation; rate-limiter failures never do (see memory: fail-closed audit, fail-soft notify — the same discipline applied to a different mechanism).
+
+## 2b. Beside Jira and Slack (complement topology)
+
+NoPM does not compete with Jira, Slack, or Teams for where conversations and day-to-day work happen; those stay the systems of record for chat and ticket flow. The user's own agent, Claude, Cursor, or any MCP client, sits in the middle: it reads threads and tickets in those tools, then writes governed facts into NoPM through the same scoped REST API every other caller uses. NoPM is the system of record for decisions, risks, change, and approvals: every write lands as one immutable audit row, tagged with the caller's channel and, where the source item lives elsewhere, an `external_ref`/`external_url` pointer back to it. This keeps the two worlds cleanly split: conversation and work stay where teams already are, while the governed record of what was decided and who approved it lives in one place (R-81, R-82).
+
+```mermaid
+flowchart LR
+  subgraph Conversation["Systems of conversation and work"]
+    Jira["Jira"]
+    Slack["Slack"]
+    Teams["Teams"]
+  end
+
+  Agent["Your agent\n(Claude, Cursor, any MCP client)"]
+
+  subgraph Record["NoPM"]
+    Decisions["System of record for\ndecisions, risks, change and approvals"]
+  end
+
+  Jira --> Agent
+  Slack --> Agent
+  Teams --> Agent
+  Agent -- "external_ref / external_url (R-81)" --> Decisions
+  Agent -- "X-NoPM-Client channel on every audit row (R-82)" --> Decisions
+```
 
 ## 3. Data model overview
 

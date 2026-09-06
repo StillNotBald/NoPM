@@ -19,7 +19,7 @@ import {
   ClipboardCheck,
   ShieldCheck,
   KeyRound,
-  Mail,
+  Lock,
   type LucideIcon,
 } from "lucide-react";
 import type { NavMode } from "./nav-mode";
@@ -34,8 +34,13 @@ export type NavSection = {
 /**
  * The full console sidebar — 22 items across 5 sections. Moved out of
  * sidebar.tsx (R-78) so the pure filtering logic below can be unit-tested
- * without mounting a component. Same items, same order, same icons as
- * before this change.
+ * without mounting a component.
+ *
+ * Sprint 1 (2026-09-06): "Baselines" added to Governance (a nav home for
+ * the lock → rebaseline → sign-off → apply flow); "Email previews" moved
+ * out of the sidebar to a header link on /my-work (it's a demo artefact,
+ * not a governance surface — still routable, just not nav real-estate).
+ * Total item count stays 22.
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
@@ -78,11 +83,11 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/review", label: "Review", icon: ListChecks },
       { href: "/change-control", label: "Change Control", icon: GitPullRequest },
+      { href: "/baselines", label: "Baselines", icon: Lock },
       { href: "/decisions", label: "Decisions", icon: Gavel },
       { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
       { href: "/trust", label: "Trust Center", icon: ShieldCheck },
       { href: "/tokens", label: "Tokens", icon: KeyRound },
-      { href: "/email-previews", label: "Email previews", icon: Mail },
     ],
   },
 ];

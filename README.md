@@ -2,6 +2,8 @@
 
 **A lite, API-first project-management tool your AI agent operates** — like the `aws` / `supabase` / `hubspot` CLIs, but for project governance. NoPM bundles no LLM; *your* agent (Claude Code, Cursor, Copilot, any MCP client) drives it over a documented REST API + scoped token.
 
+**Positioning:** NoPM does not replace Jira, Slack, or Teams; it is the governed record beside them. Lite and fast, not ClickUp.
+
 The differentiator is **institutional governance built into the data layer**: an immutable audit log, scoped Bearer tokens, and maker-checker (four-eyes) approval on destructive actions — enforced by the database, not bolted onto the UI.
 
 > Portfolio proof-piece. Live at **stillnotbald.com** · [Case study](https://stillnotbald.com/case-study) · [OpenAPI](https://stillnotbald.com/api/openapi.json) · [llms.txt](https://stillnotbald.com/llms.txt)
@@ -10,9 +12,9 @@ The differentiator is **institutional governance built into the data layer**: an
 
 | Surface | Where | What it gives an agent |
 |---|---|---|
-| **REST API** | 61 documented endpoints, [OpenAPI 3.1](https://stillnotbald.com/api/openapi.json) + [llms.txt](https://stillnotbald.com/llms.txt) (both spec-coverage drift-tested) | Everything — every mutation audited, scopes enforced per request |
+| **REST API** | 82 documented endpoints, [OpenAPI 3.1](https://stillnotbald.com/api/openapi.json) + [llms.txt](https://stillnotbald.com/llms.txt) (both spec-coverage drift-tested) | Everything — every mutation audited, scopes enforced per request |
 | **`nopm` CLI** | [`cli/`](cli/) — zero dependencies, contract-tested | 26 command groups, `--json` machine output, `--curl` dry-run |
-| **MCP server** | [`web/mcp/`](web/mcp/) + root [`.mcp.json`](.mcp.json) | 23 tools over stdio; schemas lock-tested against the API's Zod validators |
+| **MCP server** | [`web/mcp/`](web/mcp/) + root [`.mcp.json`](.mcp.json) | 24 tools over stdio and Streamable HTTP; schemas lock-tested against the API's Zod validators |
 
 The in-app **BYOK assistant** uses the same registry as the MCP server: your own OpenAI/Anthropic/Google/OpenRouter key (AES-256-GCM at rest) drives NoPM through an ephemeral scoped token — audited as a token actor, structurally unable to hold an approve/admin scope.
 

@@ -42,3 +42,7 @@ To change the schedule shape of a locked project, the governed path is: **unlock
 3. Sign-off and apply (`POST /api/rebaselines/[id]/signoff`, `POST /api/rebaselines/[id]/apply`) are, as of this writing, **API/agent-driven** — the console surfaces the pending item for visibility but does not yet expose an in-console sign-off button. If you need to sign off from the browser today, do it through the BYOK assistant panel or a scoped PAT via the CLI (see [`agents/README.md`](../agents/README.md)).
 
 Applying a rebaseline is the one legitimate way dates get written to a locked project — the apply path runs inside a transaction-local bypass of the lock guard, not a general exception.
+
+## Baselines page
+
+`/baselines` (Governance section of the sidebar) is the console's read-only nav home for this flow: a **Locked baselines** table (every locked project, who locked it, when, and why) and a **Rebaselines** table (every rebaseline, its status, when it was requested, and its sign-off count). It exists so the lock → rebaseline → sign-off → apply story doesn't require opening an individual project or the Review Queue to see. The write actions themselves stay exactly where step 1–3 above describe them — this page is a register, not a form.

@@ -159,8 +159,11 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>What was built</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          8 modules + governed infrastructure — shipped solo in 8 waves.
+          A governance spine and the minimum registers it needs.
         </h2>
+        <p className="mt-2 text-sm leading-relaxed text-ink-secondary">
+          NoPM is the governed record beside Jira, Slack and Teams, not a replacement for them.
+        </p>
 
         {/* terminal card */}
         <TerminalCard
@@ -183,11 +186,25 @@ created_at            actor_label     action        target
         <div className="mt-8 grid gap-x-8 gap-y-2 sm:grid-cols-2">
           <ul className="space-y-2">
             <ModuleRow>
+              Governed Kanban (drag = audited mutation) + read-mostly Gantt with rebaseline gate
+            </ModuleRow>
+            <ModuleRow>
+              Trust Center — immutable audit stream, provenance, PAT management
+            </ModuleRow>
+            <ModuleRow>
+              Change-control pipeline, notifications, deck export (PDF / PPTX / HTML)
+            </ModuleRow>
+            <ModuleRow>
+              Link invites — role-capped, revocable, audited (no email dependency)
+            </ModuleRow>
+            <ModuleRow>
               Workspace → Project → Milestone → Task (typed statuses, maker-checker delete)
             </ModuleRow>
             <ModuleRow>
               Risk &amp; Issue registers with severity/likelihood scoring
             </ModuleRow>
+          </ul>
+          <ul className="space-y-2">
             <ModuleRow>
               Clash engine — schedule, resource, and dependency conflicts (cross-project)
             </ModuleRow>
@@ -200,26 +217,12 @@ created_at            actor_label     action        target
             <ModuleRow>
               Sprints — commitment snapshots, burndown, and velocity flow metrics
             </ModuleRow>
-          </ul>
-          <ul className="space-y-2">
-            <ModuleRow>
-              Governed Kanban (drag = audited mutation) + read-mostly Gantt with rebaseline gate
-            </ModuleRow>
-            <ModuleRow>
-              Trust Center — immutable audit stream, provenance, PAT management
-            </ModuleRow>
             <ModuleRow>
               BYOK governed assistant (user&apos;s own API key, AES-256-GCM at rest,
               ephemeral scoped token — NoPM ships no model key)
             </ModuleRow>
             <ModuleRow>
               Documents &amp; charter management with versioning and status workflow
-            </ModuleRow>
-            <ModuleRow>
-              Change-control pipeline, notifications, deck export (PDF / PPTX / HTML)
-            </ModuleRow>
-            <ModuleRow>
-              Link invites — role-capped, revocable, audited (no email dependency)
             </ModuleRow>
           </ul>
         </div>

@@ -10,13 +10,14 @@
 export const describe = "List, create, inspect, update, or delete issues";
 
 export const usage = [
-  "nopm issues ls --project <id>                                 list issues for a project",
+  "nopm issues ls --project <id>                                 list issues for a project [--external-ref <ref>]",
   "nopm issues get <id>                                          fetch a single issue",
-  "nopm issues create --project <id> --title <t> --priority <p>  [--description <d>] [--status <s>]",
-  "nopm issues update <id> [--title <t>] [--priority <p>] [--status <s>] [--resolution <r>]",
+  "nopm issues create --project <id> --title <t> --priority <p>  [--description <d>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm issues update <id> [--title <t>] [--priority <p>] [--status <s>] [--resolution <r>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
   "nopm issues rm <id>                                           delete an issue",
   "  priority: low | medium | high | urgent",
   "  status:   open | in_progress | resolved | closed",
+  "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this issue mirrors, e.g. --source jira --external-ref PROJ-123",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -34,7 +35,9 @@ export async function run(rest, ctx) {
       if (!projectId) ctx.die("usage: nopm issues ls --project <project-id>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      const { data } = await ctx.api("GET", `/api/projects/${projectId}/issues?page=${page}&limit=${limit}`);
+      let url = `/api/projects/${projectId}/issues?page=${page}&limit=${limit}`;
+      if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
+      const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);
       break;
     }
@@ -60,6 +63,9 @@ export async function run(rest, ctx) {
         ...(f.resolution  && { resolution:  f.resolution }),
         ...(f.due         && { due_date:    f.due }),
         ...(f.severity    && { severity:    f.severity }),
+        ...(f.source            && { source: f.source }),
+        ...(f["external-ref"]   && { external_ref: f["external-ref"] }),
+        ...(f["external-url"]   && { external_url: f["external-url"] }),
       };
       const { data } = await ctx.api("POST", `/api/projects/${projectId}/issues`, body);
       console.log("✓ created issue", data.id, `(${data.reference_id})`);
@@ -78,6 +84,9 @@ export async function run(rest, ctx) {
       if (f.resolution)  body.resolution  = f.resolution;
       if (f.due)         body.due_date    = f.due;
       if (f.severity)    body.severity    = f.severity;
+      if (f.source)              body.source       = f.source;
+      if (f["external-ref"])     body.external_ref = f["external-ref"];
+      if (f["external-url"])     body.external_url = f["external-url"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --title, --priority, --status, etc.");
       const { data } = await ctx.api("PATCH", `/api/issues/${id}`, body);
       console.log("✓ updated issue", id);

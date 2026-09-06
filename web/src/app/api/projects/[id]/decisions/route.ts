@@ -37,7 +37,10 @@ async function nextDecRefId(
   return `DEC-${String(maxNum + 1).padStart(3, "0")}`;
 }
 
-/** GET /api/projects/:id/decisions — list decisions for a project */
+/**
+ * GET /api/projects/:id/decisions — list decisions for a project.
+ * Filters: source, external_ref (complement seam, R-81 — both exact-match).
+ */
 export const GET = route(async ({ actor, params, request }) => {
   requireScope(actor, "decision:read");
 
@@ -59,14 +62,19 @@ export const GET = route(async ({ actor, params, request }) => {
   const limit = Math.min(100, Math.max(1, isNaN(rawLimit) ? 20 : rawLimit));
   const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
   const offset = (page - 1) * limit;
+  const source = url.searchParams.get("source");
+  const externalRef = url.searchParams.get("external_ref");
 
-  const { data: items, error, count } = await db
+  let query = db
     .from("decisions")
     .select("*", { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
-    .eq("project_id", projectId)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .eq("project_id", projectId);
+  if (source) query = query.eq("source", source);
+  if (externalRef) query = query.eq("external_ref", externalRef);
+  query = query.order("created_at", { ascending: false }).range(offset, offset + limit - 1);
+
+  const { data: items, error, count } = await query;
 
   if (error) throw new Error(error.message);
 
@@ -117,6 +125,10 @@ export const POST = route(async ({ actor, params, request }) => {
       decided_by_label: actor.label,
       decided_at: input.decided_at ?? new Date().toISOString(),
       supersedes: input.supersedes ?? null,
+      // ── complement seam (0041, R-81) ─────────────────────────────────────────
+      source: input.source ?? null,
+      external_ref: input.external_ref ?? null,
+      external_url: input.external_url ?? null,
     })
     .select()
     .single();

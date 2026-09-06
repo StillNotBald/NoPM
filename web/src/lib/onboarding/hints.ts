@@ -146,6 +146,12 @@ export const PAGE_HINTS: PageHint[] = [
     text: "Change Control tracks formal change requests raised against a project's locked baseline.",
   },
   {
+    id: "baselines",
+    match: "/baselines",
+    text: "Baselines lists every locked project and the rebaselines that reopen them under sign-off.",
+    docHref: "/user-manual/operator/03-schedule-and-lock.md",
+  },
+  {
     id: "decisions",
     match: "/decisions",
     text: "Decisions is a log of project decisions, so the reasoning behind a call stays traceable later.",

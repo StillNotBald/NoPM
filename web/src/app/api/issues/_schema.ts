@@ -33,6 +33,16 @@ export const createIssueSchema = z.object({
   impact: z.string().optional().nullable(),
   resolution_eta: z.string().date().optional().nullable(),
   resolved_at: z.string().date().optional().nullable(),
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
+  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
+  external_ref: z.string().min(1).max(200).nullable().optional(),
+  external_url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
+    .nullable()
+    .optional(),
 });
 
 export const updateIssueSchema = z.object({
@@ -50,6 +60,16 @@ export const updateIssueSchema = z.object({
   impact: z.string().optional().nullable(),
   resolution_eta: z.string().date().optional().nullable(),
   resolved_at: z.string().date().optional().nullable(),
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
+  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
+  external_ref: z.string().min(1).max(200).nullable().optional(),
+  external_url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
+    .nullable()
+    .optional(),
 });
 
 export type CreateIssueInput = z.infer<typeof createIssueSchema>;

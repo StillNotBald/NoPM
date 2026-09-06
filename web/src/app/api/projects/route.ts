@@ -8,6 +8,7 @@ import { createProjectSchema } from "./_schema";
 export const runtime = "nodejs";
 
 // GET /api/projects — list projects in the actor's workspace (project:read)
+// Filters: source, external_ref (complement seam, R-81 — both exact-match).
 export const GET = route(async ({ actor, request }) => {
   requireScope(actor, "project:read");
 
@@ -15,22 +16,31 @@ export const GET = route(async ({ actor, request }) => {
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1", 10));
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") ?? "20", 10)));
   const offset = (page - 1) * limit;
+  const source = searchParams.get("source");
+  const externalRef = searchParams.get("external_ref");
 
   const db = createAdminClient();
 
-  const { count, error: countError } = await db
+  let countQuery = db
     .from("projects")
     .select("id", { count: "exact", head: true })
     .eq("workspace_id", actor.workspaceId);
+  if (source) countQuery = countQuery.eq("source", source);
+  if (externalRef) countQuery = countQuery.eq("external_ref", externalRef);
+
+  const { count, error: countError } = await countQuery;
 
   if (countError) throw countError;
 
-  const { data, error } = await db
+  let query = db
     .from("projects")
     .select("*")
-    .eq("workspace_id", actor.workspaceId)
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .eq("workspace_id", actor.workspaceId);
+  if (source) query = query.eq("source", source);
+  if (externalRef) query = query.eq("external_ref", externalRef);
+  query = query.order("created_at", { ascending: false }).range(offset, offset + limit - 1);
+
+  const { data, error } = await query;
 
   if (error) throw error;
 

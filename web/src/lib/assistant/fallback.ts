@@ -54,6 +54,7 @@ async function callReadTool(
   ephemeralRaw: string,
   origin: string,
   actions: Action[],
+  requestId?: string,
 ): Promise<ToolCallResult> {
   const spec = TOOLS.find((t) => t.definition.name === name);
   if (!spec || !FALLBACK_READ_ONLY_TOOLS.has(name)) {
@@ -70,7 +71,11 @@ async function callReadTool(
   try {
     const res = await fetch(`${origin}${path}`, {
       method,
-      headers: { Authorization: `Bearer ${ephemeralRaw}` },
+      headers: {
+        Authorization: `Bearer ${ephemeralRaw}`,
+        "X-NoPM-Client": "assistant",
+        ...(requestId ? { "X-Request-Id": requestId } : {}),
+      },
     });
     ok = res.status >= 200 && res.status < 300;
     const text = await res.text();
@@ -103,8 +108,8 @@ function asListEnvelope(data: unknown): ListEnvelope {
   return (data ?? {}) as ListEnvelope;
 }
 
-async function buildPortfolioReply(ephemeralRaw: string, origin: string, actions: Action[]): Promise<string> {
-  const { ok, data } = await callReadTool("list_projects", { page: 1, limit: 50 }, ephemeralRaw, origin, actions);
+async function buildPortfolioReply(ephemeralRaw: string, origin: string, actions: Action[], requestId?: string): Promise<string> {
+  const { ok, data } = await callReadTool("list_projects", { page: 1, limit: 50 }, ephemeralRaw, origin, actions, requestId);
   if (!ok) {
     return `I'm running in limited fallback mode right now and couldn't reach the projects list. Please try again shortly.\n\n${CAPABILITY_HINT}`;
   }
@@ -124,8 +129,8 @@ async function buildPortfolioReply(ephemeralRaw: string, origin: string, actions
   return `The workspace has ${total} project${total === 1 ? "" : "s"} in total. Status breakdown across the ${projects.length} most recently updated: ${breakdown}.`;
 }
 
-async function buildRisksReply(ephemeralRaw: string, origin: string, actions: Action[]): Promise<string> {
-  const projResult = await callReadTool("list_projects", { page: 1, limit: 5 }, ephemeralRaw, origin, actions);
+async function buildRisksReply(ephemeralRaw: string, origin: string, actions: Action[], requestId?: string): Promise<string> {
+  const projResult = await callReadTool("list_projects", { page: 1, limit: 5 }, ephemeralRaw, origin, actions, requestId);
   if (!projResult.ok) {
     return `I'm running in limited fallback mode right now and couldn't reach the projects list to look up risks. Please try again shortly.\n\n${CAPABILITY_HINT}`;
   }
@@ -146,6 +151,7 @@ async function buildRisksReply(ephemeralRaw: string, origin: string, actions: Ac
       ephemeralRaw,
       origin,
       actions,
+      requestId,
     );
     if (!riskResult.ok) continue;
     const risks = asListEnvelope(riskResult.data).data ?? [];
@@ -171,8 +177,8 @@ async function buildRisksReply(ephemeralRaw: string, origin: string, actions: Ac
   return `Top open risks across ${projects.length} recent project${projects.length === 1 ? "" : "s"}:\n${lines}`;
 }
 
-async function buildAuditReply(ephemeralRaw: string, origin: string, actions: Action[]): Promise<string> {
-  const { ok, data } = await callReadTool("query_audit", { page: 1, limit: 5 }, ephemeralRaw, origin, actions);
+async function buildAuditReply(ephemeralRaw: string, origin: string, actions: Action[], requestId?: string): Promise<string> {
+  const { ok, data } = await callReadTool("query_audit", { page: 1, limit: 5 }, ephemeralRaw, origin, actions, requestId);
   if (!ok) {
     return `I'm running in limited fallback mode right now and couldn't reach the audit trail. Please try again shortly.\n\n${CAPABILITY_HINT}`;
   }
@@ -188,8 +194,8 @@ async function buildAuditReply(ephemeralRaw: string, origin: string, actions: Ac
   return `Recent activity (${total ?? entries.length} audit entries total). Most recent:\n${lines}`;
 }
 
-async function buildDefaultReply(ephemeralRaw: string, origin: string, actions: Action[]): Promise<string> {
-  const { ok, data } = await callReadTool("list_projects", { page: 1, limit: 5 }, ephemeralRaw, origin, actions);
+async function buildDefaultReply(ephemeralRaw: string, origin: string, actions: Action[], requestId?: string): Promise<string> {
+  const { ok, data } = await callReadTool("list_projects", { page: 1, limit: 5 }, ephemeralRaw, origin, actions, requestId);
   const prefix = "The AI assistant is running in limited fallback mode right now.";
   if (!ok) {
     return `${prefix} I couldn't reach the workspace data just now.\n\n${CAPABILITY_HINT}`;
@@ -214,8 +220,11 @@ export async function runAssistantFallback(opts: {
   /** The caller's real rate-limit check. Called FIRST, before any token is
    *  minted or any tool is executed — the fallback can never bypass it. */
   rateCheck: () => Promise<void>;
+  /** Incoming X-Request-Id from the chat request, forwarded into the
+   *  fallback's own tool-call fetches (R-82). */
+  requestId?: string;
 }): Promise<FallbackResult> {
-  const { actor, message, origin, rateCheck } = opts;
+  const { actor, message, origin, rateCheck, requestId } = opts;
 
   await rateCheck();
 
@@ -230,16 +239,16 @@ export async function runAssistantFallback(opts: {
 
     switch (intent) {
       case "risks":
-        reply = await buildRisksReply(ephemeral.raw, origin, actions);
+        reply = await buildRisksReply(ephemeral.raw, origin, actions, requestId);
         break;
       case "audit":
-        reply = await buildAuditReply(ephemeral.raw, origin, actions);
+        reply = await buildAuditReply(ephemeral.raw, origin, actions, requestId);
         break;
       case "portfolio":
-        reply = await buildPortfolioReply(ephemeral.raw, origin, actions);
+        reply = await buildPortfolioReply(ephemeral.raw, origin, actions, requestId);
         break;
       default:
-        reply = await buildDefaultReply(ephemeral.raw, origin, actions);
+        reply = await buildDefaultReply(ephemeral.raw, origin, actions, requestId);
         break;
     }
 

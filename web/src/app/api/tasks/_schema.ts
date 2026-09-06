@@ -39,6 +39,16 @@ export const TaskCreateSchema = z.object({
   labels: z.array(z.string()).optional(),
   blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
   checklist: z.array(ChecklistItemSchema).nullable().optional(),
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
+  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
+  external_ref: z.string().min(1).max(200).nullable().optional(),
+  external_url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
+    .nullable()
+    .optional(),
 });
 
 export const TaskUpdateSchema = z.object({
@@ -60,6 +70,16 @@ export const TaskUpdateSchema = z.object({
   labels: z.array(z.string()).optional(),
   blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
   checklist: z.array(ChecklistItemSchema).nullable().optional(),
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
+  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
+  external_ref: z.string().min(1).max(200).nullable().optional(),
+  external_url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
+    .nullable()
+    .optional(),
 }).strict();
 
 export const TaskDeleteRequestSchema = z.object({

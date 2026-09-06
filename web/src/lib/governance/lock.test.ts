@@ -167,6 +167,11 @@ const ALLOWED_TASK_FIELDS = [
   "sort_order",
   "story_points",
   "blocked_by",
+  // complement seam (0041, R-81) — the external system a task mirrors is
+  // metadata, not schedule shape; editable live under a locked baseline.
+  "source",
+  "external_ref",
+  "external_url",
 ] as const;
 
 describe("TaskUpdateSchema field classification (schedule-shape vs allowed)", () => {

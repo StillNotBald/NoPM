@@ -33,6 +33,16 @@ export const createProjectSchema = z.object({
   health_commentary: z.string().nullish(),
   baseline_start_date: z.string().nullish(), // ISO date string
   baseline_target_date: z.string().nullish(), // ISO date string
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
+  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
+  external_ref: z.string().min(1).max(200).nullable().optional(),
+  external_url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
+    .nullable()
+    .optional(),
 });
 
 export const updateProjectSchema = z.object({
@@ -61,6 +71,16 @@ export const updateProjectSchema = z.object({
   health_commentary: z.string().nullish(),
   baseline_start_date: z.string().nullish(),
   baseline_target_date: z.string().nullish(),
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
+  source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
+  external_ref: z.string().min(1).max(200).nullable().optional(),
+  external_url: z
+    .string()
+    .url()
+    .max(2000)
+    .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
+    .nullable()
+    .optional(),
 });
 
 // Maker step for project deletion (four-eyes, Decision 3 devops-wave1) — mirrors

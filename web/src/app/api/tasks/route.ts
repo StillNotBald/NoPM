@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 /**
  * GET /api/tasks — cross-project task list (L-04), scoped to the whole
  * workspace rather than one project. Filters: project_id, assignee_id,
- * status_type, priority, due_before, due_after, overdue=true, q (name ilike).
+ * status_type, priority, due_before, due_after, overdue=true, q (name ilike),
+ * source, external_ref (complement seam, R-81 — both exact-match).
  * Sort: ?sort=field:asc|desc against a whitelist (L-10) — anything else 422s.
  * Paginated (default 20, max 100).
  */
@@ -55,6 +56,8 @@ export const GET = route(async ({ actor, request }) => {
     query = query.not("status_type", "in", '("completed","canceled")');
   }
   if (filters.q) query = query.ilike("name", `%${filters.q}%`);
+  if (filters.source) query = query.eq("source", filters.source);
+  if (filters.external_ref) query = query.eq("external_ref", filters.external_ref);
   query = query.order(sort.field, orderOptions(sort));
   query = query.range(offset, offset + limit - 1);
 

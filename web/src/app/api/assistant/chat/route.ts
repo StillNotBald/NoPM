@@ -145,6 +145,10 @@ export const POST = route(async ({ actor, request }) => {
   const origin = new URL(request.url).origin;
   const wantsStream = body.stream === true;
   const rateCheck = () => checkDemoRateLimit(db, actor.id);
+  // Forward the caller's own X-Request-Id (if any) into the assistant's
+  // internal tool-call fetches so those audit_log rows correlate back to
+  // this chat request rather than each minting its own id (R-82).
+  const requestId = actor.requestId;
 
   if (wantsStream) {
     // ── Streaming path ────────────────────────────────────────────────────────
@@ -170,7 +174,7 @@ export const POST = route(async ({ actor, request }) => {
 
           try {
             const { actions: streamActions, usedDemoKey: streamUsedDemoKey, textChunks } =
-              await runAssistantStream({ actor, message, history, origin });
+              await runAssistantStream({ actor, message, history, origin, requestId });
             actions = streamActions;
             usedDemoKey = streamUsedDemoKey;
 
@@ -198,6 +202,7 @@ export const POST = route(async ({ actor, request }) => {
                 message,
                 origin,
                 rateCheck,
+                requestId,
               });
               actions = fallbackResult.actions;
               usedDemoKey = fallbackResult.usedDemoKey;
@@ -268,11 +273,11 @@ export const POST = route(async ({ actor, request }) => {
   let result: AssistantResult | FallbackResult;
   let usedFallback = false;
   try {
-    result = await runAssistant({ actor, message, history, origin });
+    result = await runAssistant({ actor, message, history, origin, requestId });
   } catch {
     // Never surface the raw provider/upstream error to the client — answer
     // with the grounded, rate-limited fallback instead.
-    result = await runAssistantFallback({ actor, message, origin, rateCheck });
+    result = await runAssistantFallback({ actor, message, origin, rateCheck, requestId });
     usedFallback = true;
   }
 

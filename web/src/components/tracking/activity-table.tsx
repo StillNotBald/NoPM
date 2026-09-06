@@ -68,6 +68,10 @@ export interface Task {
   labels?: string[] | null;
   blocked_by?: string | null;
   checklist?: ChecklistItem[] | null;
+  // ── complement seam (0041, R-81) — additive, all optional/nullable ──────────
+  source?: string | null;
+  external_ref?: string | null;
+  external_url?: string | null;
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
