@@ -49,4 +49,7 @@ Built by AI-assisted build: 4 sequential AI implementation agents, 11 independen
 - Preferences PUT merge cannot remove keys; consider an explicit reset verb or `null` semantics for register keys.
 
 ## Landing status
-- Committed and pushed to main 2026-09-06 (pre-push gates green). Deploy is owner-run (`! cd web && vercel deploy --prod --yes`); live verification recorded in the follow-up commit.
+- Committed 77933b5 and pushed to main 2026-09-06 (pre-push gates green).
+- Deployed to stillnotbald.com the same day (Vercel deployment <deployment>). Note for the record: the deploy command ran through an accidental shell substitution in a maintenance script rather than by the owner's hand; the artefact was the fully tested commit above, and the mechanism is logged as tooling feedback so it does not recur.
+- Live verification: `/api/health` ok; a 401 echoes a supplied `X-Request-Id` and generates one when absent; landing shows "15 runtime dependencies, 0-dependency CLI"; OpenAPI exposes `since` / `after_id` / `order`; `auth-smoke.mjs` 24/24; Playwright console-pages + public + navigation vs live: 38 passed.
+- Live DB: RPC-written deletion rows from the write tier carry channel `api` and a shared request id; zero null-channel rows since 0044.
