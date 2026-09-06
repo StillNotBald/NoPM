@@ -259,6 +259,58 @@ created_at            actor_label     action        target
         <Rule />
       </div>
 
+      {/* ── reviewed, then closed ── */}
+      <section className="mx-auto max-w-4xl px-6 py-10">
+        <SectionLabel>Reviewed, then closed</SectionLabel>
+        <h2 className="mt-3 text-xl font-semibold text-ink">
+          Ten defects an adversarial review confirmed. Two sprints later.
+        </h2>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
+          On 2026-09-06 a six-lens review tested the thesis &ldquo;NoPM is the governed
+          record beside Jira, Slack and Teams&rdquo; against the code, and a separate
+          verifier confirmed ten defects. The same day, two sprints closed or narrowed
+          them, and the verifier re-ran. The record below is the re-run, not the plan.
+        </p>
+        <div className="mt-6 overflow-x-auto rounded-md border border-border-subtle">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead className="bg-sunken text-xs uppercase tracking-wide text-ink-muted">
+              <tr>
+                <th className="px-4 py-2 font-medium">Finding (morning)</th>
+                <th className="px-4 py-2 font-medium">State (evening)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border-subtle text-ink-secondary">
+              {[
+                ["Eleven mutating routes never wrote an audit row, including the BYOK key set and delete.", "Closed. A coverage test fails the build for any unaudited write; the key lifecycle is audited without the key."],
+                ["Ordinary writes persist before the audit row; only two flows are transactional.", "Open by decision. The Trust Center now says so in plain words."],
+                ["One scope both raised and decided change requests; a token requester left the DB check vacuous.", "Closed. change:decide is a separate scope agents never hold; requester and decider are typed identities checked in the API and the database."],
+                ["Unlocking a frozen baseline took no reason.", "Partly closed. A reason is required in the API, the dialog and the CLI; the same person can still unlock."],
+                ["Audit rows carried no client origin or request id.", "Partly closed. Every row records the declared client and a request id echoed on the response, including rows written inside database functions. No hash chain yet."],
+                ["No record could point at a Jira key or a Slack thread.", "Closed. Tasks, projects, risks, issues and decisions carry source, external_ref and external_url, in the API, the MCP tools and the CLI."],
+                ["No public page said the product complements Jira, Slack or Teams.", "Closed. README, landing, this page and the product doc say it."],
+                ["The lock and rebaseline flow had no navigation home; a demo page sat in the Governance section.", "Closed. Baselines lives under Governance; the demo page moved to My Work."],
+                ["The audit immutability triggers had no regression test.", "Closed. A migration-text test fails if any migration drops, disables or bypasses them."],
+                ["Tool and metric counts drifted between surfaces.", "Closed. Counts are generated and CI-checked; the pitch notes were realigned."],
+              ].map(([before, after]) => (
+                <tr key={before}>
+                  <td className="px-4 py-2.5 align-top">{before}</td>
+                  <td className="px-4 py-2.5 align-top text-ink">{after}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-4 text-sm leading-relaxed text-ink-muted">
+          The review, the sprint receipts and the re-verification are in the repo under{" "}
+          <code className="font-mono">docs/research</code> and{" "}
+          <code className="font-mono">sprint-log</code>.
+        </p>
+      </section>
+
+      <div className="mx-auto max-w-4xl px-6">
+        <Rule />
+      </div>
+
       {/* ── stack & method ── */}
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>Stack &amp; method</SectionLabel>
