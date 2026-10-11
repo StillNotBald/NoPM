@@ -45,6 +45,9 @@ export interface Project {
   health_commentary?: string | null;
   baseline_start_date?: string | null;
   baseline_target_date?: string | null;
+  // Optimistic concurrency (R-90) — present on any record loaded from the
+  // API; carried back on PATCH as expected_updated_at when editing.
+  updated_at?: string | null;
 }
 
 // ── Shared field helpers ──────────────────────────────────────────────────────
@@ -198,6 +201,11 @@ export function ProjectForm({
       health_commentary: healthCommentary || null,
       baseline_start_date: baselineStartDate || null,
       baseline_target_date: baselineTargetDate || null,
+      // Optimistic concurrency (R-90) — only meaningful (and only sent) on
+      // an edit of an existing record; a create has nothing to be stale.
+      ...(mode === "edit" && project?.updated_at
+        ? { expected_updated_at: project.updated_at }
+        : {}),
     };
 
     try {
@@ -229,8 +237,14 @@ export function ProjectForm({
         inspector.close();
       }
     } catch (err) {
-      applyApiError(err as ApiError);
-      toast.error((err as ApiError).message ?? "Failed to save project");
+      const apiErr = err as ApiError;
+      if (apiErr.status === 412) {
+        setTopError("This record changed since you opened it. Reload to see the latest.");
+        toast.error("This record changed since you opened it. Reload to see the latest.");
+      } else {
+        applyApiError(apiErr);
+        toast.error(apiErr.message ?? "Failed to save project");
+      }
       setSaving(false);
     }
   }

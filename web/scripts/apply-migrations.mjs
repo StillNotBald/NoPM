@@ -4,13 +4,16 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
+import { loadEnv, requireEnv } from "./lib/env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.join(here, "..", "supabase", "migrations");
 
-const url = process.env.DB_URL;
-if (!url) {
-  console.error("Set DB_URL env var to the Postgres connection string.");
+let url;
+try {
+  url = requireEnv(["DB_URL"], loadEnv()).DB_URL;
+} catch (e) {
+  console.error(e.message);
   process.exit(1);
 }
 

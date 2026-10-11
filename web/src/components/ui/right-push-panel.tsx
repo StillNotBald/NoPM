@@ -7,13 +7,18 @@
  *  - Slides in from the right edge; NO backdrop/overlay on desktop.
  *  - On desktop (lg+) the caller's <main> gets a right-margin via the exported
  *    PUSH_MARGIN / PUSH_MARGIN_NONE helpers so the columns sit side-by-side.
- *  - Mobile: full-screen sheet with a light backdrop (matches existing AppShell pattern).
- *  - Escape closes; close button receives focus on open; focus returns to
- *    returnFocusRef on close.  No focus-trap — Tab may leave the panel.
+ *  - Below lg the panel becomes a takeover sheet: full-screen below md,
+ *    bottom-sheet (top radius) between md and lg. Body scroll is locked and
+ *    the app shell is marked `inert` while open (useBodyScrollLock /
+ *    useInertShell) — background content is unreachable, not just covered.
+ *  - Escape closes; focus moves to the close button on open and returns to
+ *    the opener on close (useReturnFocus). No focus-trap — Tab may leave the
+ *    panel at lg+, where it isn't modal.
  *  - Expand/collapse toggle is shown when onToggleExpand is provided.
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, type ReactNode } from "react";
+import { useBodyScrollLock, useInertShell, useReturnFocus } from "@/lib/hooks/use-sheet";
 
 // ── Public margin helpers ─────────────────────────────────────────────────────
 
@@ -35,10 +40,12 @@ export interface RightPushPanelProps {
   title: string;
   expanded?: boolean;
   onToggleExpand?: () => void;
-  /** Tailwind width class when NOT expanded. Default: `"lg:w-[28rem]"`. */
+  /** Tailwind width class when NOT expanded, applied at lg+ only. Default: `"lg:w-[28rem]"`. */
   widthClass?: string;
   children: React.ReactNode;
   returnFocusRef?: React.RefObject<HTMLElement | null>;
+  /** Sticky footer slot for a primary action (e.g. "Apply" in a FilterSheet). */
+  footer?: ReactNode;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -52,52 +59,38 @@ export function RightPushPanel({
   widthClass = "lg:w-[28rem]",
   children,
   returnFocusRef,
+  footer,
 }: RightPushPanelProps) {
-  const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const closeBtnRef = React.useRef<HTMLButtonElement | null>(null);
 
-  // Focus the close button when the panel opens.
-  useEffect(() => {
-    if (!open) return;
-    const id = requestAnimationFrame(() => {
-      closeBtnRef.current?.focus();
-    });
-    return () => cancelAnimationFrame(id);
-  }, [open]);
+  useBodyScrollLock(open);
+  useInertShell(open);
+  useReturnFocus(open, closeBtnRef, returnFocusRef);
 
-  // Escape closes and returns focus to the trigger element.
+  // Escape closes.
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        handleClose();
+        onClose();
       }
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, onClose]);
 
-  function handleClose() {
-    onClose();
-    const target = returnFocusRef?.current ?? null;
-    if (target) {
-      requestAnimationFrame(() => target.focus());
-    }
-  }
-
-  // Width / position — expanded fills the full viewport width.
-  const sizeClasses = expanded
-    ? "left-0 w-auto"
-    : `w-full lg:left-auto ${widthClass}`;
+  // Width / position — expanded fills the full viewport width at lg+; below
+  // lg the panel is always full-width (full-screen or bottom-sheet).
+  const sizeClasses = expanded ? "lg:left-0 lg:w-auto" : `w-full ${widthClass}`;
 
   return (
     <>
-      {/* Mobile backdrop — hidden on lg+ */}
+      {/* Backdrop below lg (full-screen sheet / bottom-sheet) — no backdrop at lg+ (push-column). */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
-          onClick={handleClose}
+          onClick={onClose}
           aria-hidden="true"
         />
       )}
@@ -108,15 +101,23 @@ export function RightPushPanel({
         aria-label={title}
         aria-hidden={!open}
         className={[
-          "fixed inset-y-0 right-0 z-50 flex flex-col",
-          "border-l border-border-subtle bg-surface shadow-2xl",
+          "fixed z-50 flex flex-col",
+          "bg-surface shadow-2xl",
           "transition-all duration-300",
-          open ? "translate-x-0" : "translate-x-full pointer-events-none",
+          // <md: full-screen sheet
+          "inset-0 border-0",
+          // md–lg: bottom sheet with top radius
+          "md:inset-x-0 md:inset-y-auto md:top-auto md:bottom-0 md:max-h-[88vh] md:rounded-t-2xl md:border-t md:border-border-subtle",
+          // ≥lg: right push-column (unchanged)
+          "lg:inset-y-0 lg:right-0 lg:left-auto lg:top-auto lg:bottom-auto lg:max-h-none lg:rounded-none lg:border-l lg:border-t-0 lg:border-border-subtle",
+          open
+            ? "translate-x-0 translate-y-0"
+            : "translate-y-full pointer-events-none lg:translate-y-0 lg:translate-x-full",
           sizeClasses,
         ].join(" ")}
       >
         {/* ── Header ──────────────────────────────────────────────────────────── */}
-        <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4">
+        <div className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border-subtle px-4 pt-[env(safe-area-inset-top)]">
           <span className="truncate text-sm font-semibold text-ink">
             {title}
           </span>
@@ -156,16 +157,16 @@ export function RightPushPanel({
               </button>
             )}
 
-            {/* Close — always visible; receives focus on open */}
+            {/* Close — always visible; receives focus on open; 44px hit area */}
             <button
               ref={closeBtnRef}
               type="button"
-              onClick={handleClose}
+              onClick={onClose}
               aria-label="Close panel"
-              className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+              className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
             >
               <svg
-                className="h-4 w-4"
+                className="h-5 w-5"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth={1.5}
@@ -183,9 +184,21 @@ export function RightPushPanel({
         </div>
 
         {/* ── Body ────────────────────────────────────────────────────────────── */}
-        <div className="min-h-0 flex-1 overflow-auto p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div
+          className={[
+            "min-h-0 flex-1 overflow-auto p-4",
+            footer ? "" : "pb-[max(1rem,env(safe-area-inset-bottom))]",
+          ].join(" ")}
+        >
           {children}
         </div>
+
+        {/* ── Footer (optional, sticky primary action) ───────────────────────── */}
+        {footer && (
+          <div className="shrink-0 border-t border-border-subtle p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {footer}
+          </div>
+        )}
       </div>
     </>
   );

@@ -75,7 +75,7 @@ function bodyPreview(body: string | null, maxLen = 200): string | null {
 function MetaRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -149,7 +149,7 @@ export function CharterSection({
               <FileText size={14} className="text-ink-muted shrink-0" />
               <CardTitle>Charter document</CardTitle>
               {charterDoc.reference_id && (
-                <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+                <span className="font-mono text-2xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
                   {charterDoc.reference_id}
                 </span>
               )}
@@ -162,7 +162,7 @@ export function CharterSection({
                 </Badge>
               )}
               {charterDoc.version != null && (
-                <span className="font-mono text-[10px] text-ink-muted">
+                <span className="font-mono text-2xs text-ink-muted">
                   v{charterDoc.version}
                 </span>
               )}
@@ -173,7 +173,7 @@ export function CharterSection({
             {/* Title */}
             <div>
               <h3 className="text-base font-semibold text-ink">{charterDoc.title}</h3>
-              <p className="mt-0.5 font-mono text-[10px] text-ink-muted">
+              <p className="mt-0.5 font-mono text-2xs text-ink-muted">
                 Created {fmtDate(charterDoc.created_at)}
               </p>
             </div>
@@ -181,7 +181,7 @@ export function CharterSection({
             {/* Summary */}
             {charterDoc.summary && charterDoc.summary.trim() !== "" && (
               <div className="rounded-lg bg-sunken border border-border-subtle px-4 py-3">
-                <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted mb-1">
+                <p className="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-1">
                   Summary
                 </p>
                 <p className="text-sm text-ink-secondary leading-relaxed">

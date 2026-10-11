@@ -1,6 +1,6 @@
 # Sprint summary — working demo assistant · friendly onboarding · mobile-usable console
 
-Dates: 2026-07-11 → 2026-07-12 · Method: AI-assisted build (plan → ask → build×3 waves → harden → land)
+Dates: 2026-07-11 → 2026-07-12 · Method: an AI-assisted plan → ask → build×3 waves → harden → land pipeline
 Owner asks: (1) AI assistance must actually work (mirror the demo-site pattern), (2) onboarding
 is very unfriendly, (3) fully usable on a mobile phone.
 

@@ -16,6 +16,15 @@ import { cn } from "@/lib/cn";
  * zero-hour entry (unusual but valid) renders "0"; a day with NO entry at
  * all renders "—" — a report reader must be able to tell "logged nothing"
  * apart from "logged, zero hours".
+ *
+ * Mobile pass (R-94, F5): below `md` the 9-column grid (task/project + 7
+ * days + total) is unreadable at phone widths even with horizontal scroll,
+ * so it renders as one card per day instead — this component has no
+ * inputs to begin with (hours are entered through the separate LogTimeForm
+ * above it on the page, one entry at a time; this table is a read-only
+ * weekly summary), so the day cards are read-only too, listing that day's
+ * logged task/project rows and hours rather than fabricating inline edit
+ * fields that don't exist in the desktop table either.
  */
 
 export interface WeekGridRow {
@@ -77,7 +86,57 @@ export function WeekGrid({
   const weekTotal = columnTotals.reduce((sum, v) => sum + v, 0);
 
   return (
-    <div className="overflow-x-auto">
+    <>
+      {lockedCaption}
+
+      {/* <md: one card per day */}
+      <ul className="divide-y divide-border-subtle md:hidden">
+        {weekDates.map((date, i) => {
+          const dayRows = rows.filter((row) => row.loggedDates.has(date));
+          const dayTotal = columnTotals[i];
+          return (
+            <li key={date} className="px-4 py-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-medium text-ink">
+                  {DAY_LABELS[i]} <span className="font-mono text-xs font-normal text-ink-muted">{date.slice(5)}</span>
+                </span>
+                <span className="font-mono text-sm font-medium tabular-nums text-ink">{fmtHours(dayTotal)}h</span>
+              </div>
+              {dayRows.length === 0 ? (
+                <p className="mt-1 text-xs text-ink-muted">No time logged.</p>
+              ) : (
+                <ul className="mt-1.5 space-y-1">
+                  {dayRows.map((row) => (
+                    <li key={row.key} className="flex items-baseline justify-between gap-2 text-xs">
+                      <span className="min-w-0 truncate text-ink-secondary">{row.label}</span>
+                      <span className="shrink-0 font-mono tabular-nums text-ink">
+                        {fmtHours(row.hoursByDate[date] ?? 0)}h
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+        <li className="flex items-center justify-between gap-2 bg-sunken px-4 py-3 text-sm font-medium">
+          <span className="text-ink">Week total</span>
+          <span
+            className={cn(
+              "font-mono tabular-nums",
+              capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning" : "text-ink",
+            )}
+          >
+            {fmtHours(weekTotal)}
+            {capacityHoursPerWeek != null && (
+              <span className="ml-1 font-normal text-ink-muted">/ {fmtHours(capacityHoursPerWeek)}h cap</span>
+            )}
+          </span>
+        </li>
+      </ul>
+
+      {/* ≥md: full grid */}
+      <div className="hidden overflow-x-auto md:block">
       <table className="w-full min-w-[760px] text-sm">
         <thead>
           <tr className="border-b border-border-subtle bg-sunken text-left">
@@ -144,6 +203,7 @@ export function WeekGrid({
           </tr>
         </tfoot>
       </table>
-    </div>
+      </div>
+    </>
   );
 }

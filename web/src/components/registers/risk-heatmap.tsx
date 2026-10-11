@@ -108,7 +108,7 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
       <div className="mx-auto flex items-stretch gap-3 max-w-[460px] w-full min-w-[420px]">
         {/* Y axis label */}
         <div className="flex items-center">
-          <span className="rotate-180 text-[10px] font-medium uppercase tracking-wide text-ink-muted [writing-mode:vertical-rl]">
+          <span className="rotate-180 text-2xs font-medium uppercase tracking-wide text-ink-muted [writing-mode:vertical-rl]">
             Impact (1–5)
           </span>
         </div>
@@ -150,14 +150,14 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
             {probAxis.map((label) => (
               <div
                 key={label}
-                className="pt-1 text-center text-[9px] font-medium text-ink-muted tabular-nums leading-tight"
+                className="pt-1 text-center text-2xs font-medium text-ink-muted tabular-nums leading-tight"
               >
                 {label}
               </div>
             ))}
           </div>
 
-          <div className="mt-1 text-center text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+          <div className="mt-1 text-center text-2xs font-medium uppercase tracking-wide text-ink-muted">
             Probability
           </div>
         </div>
@@ -170,7 +170,7 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
               {BAND_LABEL[band]}
             </span>
           ))}
-          <span className="mt-1 text-[10px] text-ink-muted whitespace-nowrap">
+          <span className="mt-1 text-2xs text-ink-muted whitespace-nowrap">
             {scored} scored
           </span>
         </div>

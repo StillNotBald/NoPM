@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { cn } from "@/lib/cn";
 import { computeEvm, type EvmResult } from "@/lib/evm";
+import { EvmTable, BudgetTable, type EvmTableRow, type BudgetTableRow } from "@/components/budget/budget-tables";
 
 interface ProjectBudget {
   project_id: string;
@@ -223,6 +224,60 @@ export default async function BudgetPage() {
     (r) => r.burnPct >= 80 && r.burnPct <= 100,
   ).length;
 
+  // Flatten to plain serializable rows for the (client) EvmTable/BudgetTable
+  // DataList wrappers — DataList's column `cell` closures can't be passed
+  // from this server component across the RSC boundary, so all display
+  // formatting/tone decisions happen here.
+  const evmTableRows: EvmTableRow[] = rows.map((row) => {
+    const { cpi, spi, eac, vac } = row.evm;
+    const worst = Math.min(cpi ?? 1, spi ?? 1);
+    const dotToneClass =
+      cpi === null && spi === null ? "bg-ink-muted" : worst < 0.9 ? "bg-danger" : worst < 1 ? "bg-warning" : "bg-success";
+    return {
+      projectId: row.projectId,
+      projectName: row.projectName,
+      completionPct: row.completionPct,
+      dotToneClass,
+      cpiDisplay: fmtIndex(cpi),
+      cpiToneClass: indexTone(cpi),
+      spiDisplay: fmtIndex(spi),
+      spiToneClass: indexTone(spi),
+      eacDisplay: eac === null ? "—" : fmt(eac, row.currency),
+      vacDisplay: vac === null ? "—" : fmt(Math.abs(vac), row.currency),
+      vacToneClass: vacTone(vac),
+    };
+  });
+  // fmtVariance/fmt render JSX with the sign baked in for the page's own
+  // table; the DataList row needs a plain string, so VAC/variance signs are
+  // reapplied here to match fmtVariance's "+"/"-" convention exactly.
+  for (let i = 0; i < rows.length; i++) {
+    const vac = rows[i].evm.vac;
+    if (vac !== null) {
+      evmTableRows[i].vacDisplay = `${vac < 0 ? "-" : "+"}${evmTableRows[i].vacDisplay}`;
+    }
+  }
+
+  const budgetTableRows: BudgetTableRow[] = rows.map((row) => {
+    const clamped = Math.min(row.burnPct, 100);
+    const isOver = row.burnPct > 100;
+    const isNear = row.burnPct >= 80 && !isOver;
+    return {
+      projectId: row.projectId,
+      projectName: row.projectName,
+      currency: row.currency,
+      plannedDisplay: fmt(row.planned, row.currency),
+      committedDisplay: fmt(row.committed, row.currency),
+      actualDisplay: fmt(row.actual, row.currency),
+      varianceDisplay:
+        row.planned === 0 ? null : `${row.variance < 0 ? "-" : "+"}${fmt(Math.abs(row.variance), row.currency)}`,
+      varianceIsNegative: row.variance < 0,
+      burnPct: row.burnPct,
+      burnClampedPct: clamped,
+      isOver,
+      isNear,
+    };
+  });
+
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -238,8 +293,10 @@ export default async function BudgetPage() {
         }
       />
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      {/* Summary cards — 2-col on phones, 1-col below 360px (long currency
+          amounts wrap awkwardly in a ~140px cell on the smallest Android
+          widths), 4-col at lg+ */}
+      <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 sm:gap-4 lg:grid-cols-4">
         <Card>
           <CardBody className="py-4">
             <p className="text-xs text-ink-muted uppercase tracking-wide">Total Planned</p>
@@ -294,7 +351,7 @@ export default async function BudgetPage() {
 
         {/* Portfolio roll-up */}
         {allSameCurrency && (
-          <div className="grid grid-cols-2 gap-3 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4">
             <div>
               <p className="text-xs text-ink-muted uppercase tracking-wide">Portfolio CPI</p>
               <p className={cn("mt-1 text-lg font-semibold tabular-nums", indexTone(portfolioEvm.cpi))}>
@@ -323,85 +380,7 @@ export default async function BudgetPage() {
         )}
 
         {/* Per-project EVM */}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-border-subtle">
-                <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Project
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  CPI
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  SPI
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  EAC
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  VAC
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-subtle">
-              {rows.map((row) => {
-                const { cpi, spi, eac, vac } = row.evm;
-                // Overall health: red if either index < 0.9, amber if either < 1, else green.
-                const worst = Math.min(cpi ?? 1, spi ?? 1);
-                const dotTone =
-                  cpi === null && spi === null
-                    ? "bg-ink-muted"
-                    : worst < 0.9
-                    ? "bg-danger"
-                    : worst < 1
-                    ? "bg-warning"
-                    : "bg-success";
-
-                return (
-                  <tr
-                    key={row.projectId}
-                    className="hover:bg-sunken transition-colors duration-100"
-                  >
-                    <td className="px-5 py-4">
-                      <span
-                        className={cn(
-                          "mr-2 inline-block h-2 w-2 rounded-full align-middle",
-                          dotTone,
-                        )}
-                        aria-hidden
-                      />
-                      <span className="font-medium text-ink align-middle">{row.projectName}</span>
-                      <span className="ml-2 text-xs text-ink-muted align-middle">
-                        {row.completionPct.toFixed(0)}% done
-                      </span>
-                    </td>
-                    <td className={cn("px-5 py-4 text-right tabular-nums font-medium", indexTone(cpi))}>
-                      {fmtIndex(cpi)}
-                    </td>
-                    <td className={cn("px-5 py-4 text-right tabular-nums font-medium", indexTone(spi))}>
-                      {fmtIndex(spi)}
-                    </td>
-                    <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
-                      {eac === null ? (
-                        <span className="text-ink-muted">—</span>
-                      ) : (
-                        fmt(eac, row.currency)
-                      )}
-                    </td>
-                    <td className={cn("px-5 py-4 text-right tabular-nums font-medium", vacTone(vac))}>
-                      {vac === null ? (
-                        <span className="text-ink-muted">—</span>
-                      ) : (
-                        fmtVariance(vac, row.currency)
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <EvmTable rows={evmTableRows} />
       </Card>
 
       {/* Budget table */}
@@ -412,171 +391,22 @@ export default async function BudgetPage() {
             <span className="text-xs text-ink-muted">Multiple currencies — totals not shown</span>
           )}
         </CardHeader>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-border-subtle">
-                <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Project
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Planned
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Committed
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Actual
-                </th>
-                <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                  Variance
-                </th>
-                <th className="px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide min-w-[160px]">
-                  Burn %
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-subtle">
-              {rows.map((row) => {
-                const clamped = Math.min(row.burnPct, 100);
-                const isOver = row.burnPct > 100;
-                const isNear = row.burnPct >= 80 && !isOver;
-
-                return (
-                  <tr
-                    key={row.projectId}
-                    className="hover:bg-sunken transition-colors duration-100"
-                  >
-                    {/* Project name */}
-                    <td className="px-5 py-4">
-                      <span className="font-medium text-ink">{row.projectName}</span>
-                      <span className="ml-2 text-xs text-ink-muted">{row.currency}</span>
-                    </td>
-
-                    {/* Planned */}
-                    <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
-                      {fmt(row.planned, row.currency)}
-                    </td>
-
-                    {/* Committed */}
-                    <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">
-                      {fmt(row.committed, row.currency)}
-                    </td>
-
-                    {/* Actual */}
-                    <td className="px-5 py-4 text-right tabular-nums text-ink">
-                      {fmt(row.actual, row.currency)}
-                    </td>
-
-                    {/* Variance */}
-                    <td className="px-5 py-4 text-right tabular-nums font-medium">
-                      {row.planned === 0 ? (
-                        <span className="text-ink-muted">—</span>
-                      ) : (
-                        fmtVariance(row.variance, row.currency)
-                      )}
-                    </td>
-
-                    {/* Burn % with bar */}
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        {/* Bar track */}
-                        <div className="flex-1 h-2 rounded-full bg-sunken overflow-visible relative min-w-[80px]">
-                          {/* Fill — capped at 100% visually */}
-                          <div
-                            className={cn(
-                              "h-full rounded-full transition-all",
-                              isOver
-                                ? "bg-danger"
-                                : isNear
-                                ? "bg-warning"
-                                : "bg-accent",
-                            )}
-                            style={{ width: `${clamped}%` }}
-                          />
-                          {/* Over-budget overflow indicator */}
-                          {isOver && (
-                            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-3 rounded-sm bg-danger opacity-70" />
-                          )}
-                        </div>
-                        {/* Label */}
-                        <span
-                          className={cn(
-                            "tabular-nums text-xs font-medium w-12 text-right shrink-0",
-                            isOver
-                              ? "text-danger"
-                              : isNear
-                              ? "text-warning"
-                              : "text-ink-secondary",
-                          )}
-                        >
-                          {row.burnPct.toFixed(1)}%
-                        </span>
-                        {isOver && (
-                          <Badge tone="danger" className="shrink-0">
-                            Over
-                          </Badge>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-
-            {/* Totals footer */}
-            {allSameCurrency && rows.length > 1 && (
-              <tfoot>
-                <tr className="border-t-2 border-border-subtle bg-sunken">
-                  <td className="px-5 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">
-                    Totals
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums font-semibold text-ink">
-                    {fmt(totalPlanned, totalCurrency)}
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums font-semibold text-ink">
-                    {fmt(totalCommitted, totalCurrency)}
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums font-semibold text-ink">
-                    {fmt(totalActual, totalCurrency)}
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums font-semibold">
-                    {fmtVariance(totalVariance, totalCurrency)}
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 h-2 rounded-full bg-canvas overflow-hidden min-w-[80px]">
-                        <div
-                          className={cn(
-                            "h-full rounded-full",
-                            totalBurnPct > 100
-                              ? "bg-danger"
-                              : totalBurnPct >= 80
-                              ? "bg-warning"
-                              : "bg-accent",
-                          )}
-                          style={{ width: `${Math.min(totalBurnPct, 100)}%` }}
-                        />
-                      </div>
-                      <span
-                        className={cn(
-                          "tabular-nums text-xs font-semibold w-12 text-right shrink-0",
-                          totalBurnPct > 100
-                            ? "text-danger"
-                            : totalBurnPct >= 80
-                            ? "text-warning"
-                            : "text-accent",
-                        )}
-                      >
-                        {totalBurnPct.toFixed(1)}%
-                      </span>
-                    </div>
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
+        <BudgetTable
+          rows={budgetTableRows}
+          totals={
+            allSameCurrency && rows.length > 1
+              ? {
+                  plannedDisplay: fmt(totalPlanned, totalCurrency),
+                  committedDisplay: fmt(totalCommitted, totalCurrency),
+                  actualDisplay: fmt(totalActual, totalCurrency),
+                  varianceDisplay: `${totalVariance < 0 ? "-" : "+"}${fmt(Math.abs(totalVariance), totalCurrency)}`,
+                  varianceIsNegative: totalVariance < 0,
+                  burnPct: totalBurnPct,
+                  burnClampedPct: Math.min(totalBurnPct, 100),
+                }
+              : null
+          }
+        />
       </Card>
       </div>
     </div>

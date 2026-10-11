@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Bell } from "lucide-react";
+import { Bell, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
+import { useBodyScrollLock, useInertShell, useReturnFocus } from "@/lib/hooks/use-sheet";
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 // @supabase/ssr + supabase-js are loaded lazily inside the realtime effect
 // below (not at module scope) so they leave the shared shell's initial chunk —
@@ -76,7 +77,15 @@ export function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const mobileCloseBtnRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
+
+  // F1/F2 — the mobile sheet used to have no lock/inert and no close button
+  // (backdrop-tap only). Scoped to below lg by the hooks themselves; the
+  // desktop popover (no backdrop) is unaffected.
+  useBodyScrollLock(open);
+  useInertShell(open);
+  useReturnFocus(open, mobileCloseBtnRef, buttonRef);
 
   // ── Fetch unread count only (lightweight) ─────────────────────────────────
   const fetchCount = useCallback(async () => {
@@ -287,7 +296,7 @@ export function NotificationBell() {
           <span
             aria-hidden
             className={cn(
-              "absolute right-1.5 top-1.5 flex items-center justify-center rounded-full bg-accent font-mono text-[9px] font-semibold leading-none text-accent-ink",
+              "absolute right-1.5 top-1.5 flex items-center justify-center rounded-full bg-accent font-mono text-2xs font-semibold leading-none text-accent-ink",
               unreadCount < 10 ? "h-[14px] w-[14px]" : "h-[14px] min-w-[18px] px-1",
             )}
           >
@@ -328,19 +337,35 @@ export function NotificationBell() {
 
           {/* Mobile: bottom sheet */}
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Notifications"
             className={cn(
               "fixed inset-x-0 bottom-0 z-50 lg:hidden",
               "rounded-t-2xl border-t border-border-subtle bg-canvas shadow-lg",
-              "max-h-[75dvh] overflow-hidden",
+              "flex max-h-[75dvh] flex-col overflow-hidden",
             )}
           >
-            <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-border-strong" aria-hidden />
-            <PopoverContent
-              notifications={notifications}
-              loading={loading}
-              onMarkRead={markRead}
-              onMarkAllRead={markAllRead}
-            />
+            <div className="relative shrink-0">
+              <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-border-strong" aria-hidden />
+              <button
+                ref={mobileCloseBtnRef}
+                type="button"
+                onClick={() => setOpen(false)}
+                aria-label="Close notifications"
+                className="absolute right-1 top-1 grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <PopoverContent
+                notifications={notifications}
+                loading={loading}
+                onMarkRead={markRead}
+                onMarkAllRead={markAllRead}
+              />
+            </div>
           </div>
         </>
       )}
@@ -439,7 +464,7 @@ function NotificationRow({
             {n.body && (
               <p className="mt-0.5 line-clamp-2 text-xs text-ink-muted">{n.body}</p>
             )}
-            <p className="mt-1 font-mono text-[10px] text-ink-muted">
+            <p className="mt-1 font-mono text-2xs text-ink-muted">
               {relativeTime(n.created_at)}
             </p>
           </div>

@@ -194,3 +194,56 @@ describe("validateStoragePath — workspace/document prefix enforcement", () => 
     expect(validateStoragePath(path, "ws-a", docId)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MIME normalization + magic-byte verification (2026-09-07 OSS release, F3)
+// ---------------------------------------------------------------------------
+import { normalizeMimeType, matchesMagicBytes, INLINE_MIME_TYPES } from "./storage";
+
+describe("normalizeMimeType", () => {
+  it("lower-cases and strips parameters", () => {
+    expect(normalizeMimeType("Application/PDF; charset=binary")).toBe("application/pdf");
+  });
+  it("coerces browser-executable types to octet-stream", () => {
+    for (const t of ["text/html", "image/svg+xml", "application/xhtml+xml", "text/javascript", "application/javascript", "text/xml"]) {
+      expect(normalizeMimeType(t)).toBe("application/octet-stream");
+    }
+  });
+  it("coerces malformed values to octet-stream", () => {
+    expect(normalizeMimeType("")).toBe("application/octet-stream");
+    expect(normalizeMimeType("pdf")).toBe("application/octet-stream");
+    expect(normalizeMimeType("application/pdf\n<script>")).toBe("application/octet-stream");
+  });
+  it("keeps ordinary types", () => {
+    expect(normalizeMimeType("image/png")).toBe("image/png");
+    expect(normalizeMimeType("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+  });
+});
+
+describe("matchesMagicBytes", () => {
+  const bytes = (s: string) => new TextEncoder().encode(s);
+  it("accepts a real PDF header, including junk-prefixed", () => {
+    expect(matchesMagicBytes("application/pdf", bytes("%PDF-1.7\n"))).toBe(true);
+    expect(matchesMagicBytes("application/pdf", bytes("junkjunk%PDF-1.4"))).toBe(true);
+  });
+  it("rejects HTML labeled as PDF (the spoof case)", () => {
+    expect(matchesMagicBytes("application/pdf", bytes("<!doctype html><script>alert(1)</script>"))).toBe(false);
+  });
+  it("verifies image signatures", () => {
+    expect(matchesMagicBytes("image/png", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]))).toBe(true);
+    expect(matchesMagicBytes("image/png", bytes("<svg>"))).toBe(false);
+    expect(matchesMagicBytes("image/jpeg", new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe(true);
+    expect(matchesMagicBytes("image/gif", bytes("GIF89a"))).toBe(true);
+    expect(matchesMagicBytes("image/webp", bytes("RIFF....WEBPVP8 "))).toBe(true);
+    expect(matchesMagicBytes("image/webp", bytes("RIFF....WAVEfmt "))).toBe(false);
+  });
+  it("passes non-inline types through (they are downloads, not rendered)", () => {
+    expect(matchesMagicBytes("application/octet-stream", bytes("<html>"))).toBe(true);
+    expect(matchesMagicBytes("application/zip", new Uint8Array(0))).toBe(true);
+  });
+  it("every inline type has a signature check", () => {
+    for (const t of INLINE_MIME_TYPES) expect(matchesMagicBytes(t, new Uint8Array(0))).toBe(false);
+  });
+});

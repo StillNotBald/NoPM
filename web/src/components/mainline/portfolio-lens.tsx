@@ -96,14 +96,14 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
                 return (
                   <div key={d} className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: x }}>
                     <div className="absolute top-0 bottom-0 w-px bg-warning/40" />
-                    <span className="ml-1 whitespace-nowrap text-[9px] font-medium text-warning">SteerCo</span>
+                    <span className="ml-1 whitespace-nowrap text-2xs font-medium text-warning">SteerCo</span>
                   </div>
                 );
               })}
               {todayVisible && (
                 <div className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: todayX }}>
                   <div className="rounded-full bg-accent px-1.5 py-0.5">
-                    <span className="text-[9px] font-bold text-white whitespace-nowrap select-none">Today</span>
+                    <span className="text-2xs font-bold text-white whitespace-nowrap select-none">Today</span>
                   </div>
                 </div>
               )}
@@ -154,7 +154,7 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
                             style={{ background: critical ? "var(--color-danger)" : p.color }}
                           />
                           {showLabel[i] && (
-                            <span className="max-w-[90px] truncate text-[9px] text-ink-muted select-none">
+                            <span className="max-w-[90px] truncate text-2xs text-ink-muted select-none">
                               {n.label}
                             </span>
                           )}

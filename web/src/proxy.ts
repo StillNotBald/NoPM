@@ -1,9 +1,56 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { buildCsp } from "@/lib/security/headers";
 
-/** Refresh the Supabase auth session on navigation (keeps cookies fresh). */
+/**
+ * Refreshes the Supabase auth session on navigation (keeps cookies fresh)
+ * AND generates a fresh per-request CSP nonce (Amendment 2026-09-07, ADR
+ * 0011) — see `web/src/lib/security/headers.ts` for why the nonce has to be
+ * minted here rather than in `next.config.ts`'s `headers()`.
+ *
+ * The nonce is forwarded to the app as the `x-nonce` REQUEST header (Server
+ * Components read it via `(await headers()).get("x-nonce")` to pass to any
+ * inline `<Script nonce={...}>`) and stamped directly onto the
+ * `Content-Security-Policy` RESPONSE header; Next.js parses the nonce back
+ * out of that response header during SSR and auto-attaches it to its own
+ * framework-emitted inline scripts (RSC payload, runtime).
+ *
+ * `/api/**` routes are matched too (see `config.matcher` below — the CSP
+ * must apply everywhere, and the "no unsafe-inline anywhere" verification
+ * checks `/api/health`) but SKIP the Supabase session-refresh work: that
+ * refresh exists for page navigation, API routes don't need it, and running
+ * an extra `getUser()` round-trip on every API call would be a needless
+ * latency regression unrelated to this change.
+ */
 export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const isProd = process.env.NODE_ENV === "production";
+  const csp = buildCsp({
+    isProd,
+    supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    nonce,
+  });
+
+  // Built fresh each call (not hoisted) so it always reflects the CURRENT
+  // state of `request` — in particular the Supabase cookie mutations made
+  // below via `request.cookies.set(...)`, which is why this can't just be
+  // one `requestHeaders` object built once up front.
+  function nextWithNonce() {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-nonce", nonce);
+    // Also on the request, per the documented Next.js recipe, so the nonce
+    // reaches framework scripts even if proxy and render ever split runtimes.
+    requestHeaders.set("Content-Security-Policy", csp);
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  if (request.nextUrl.pathname.startsWith("/api")) {
+    const response = nextWithNonce();
+    response.headers.set("Content-Security-Policy", csp);
+    return response;
+  }
+
+  let response = nextWithNonce();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -15,7 +62,7 @@ export async function proxy(request: NextRequest) {
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          response = NextResponse.next({ request });
+          response = nextWithNonce();
           cookiesToSet.forEach(({ name, value, options }) =>
             response.cookies.set(name, value, {
               ...options,
@@ -30,12 +77,15 @@ export async function proxy(request: NextRequest) {
 
   // IMPORTANT: do not run logic between client creation and getUser().
   await supabase.auth.getUser();
+  response.headers.set("Content-Security-Policy", csp);
   return response;
 }
 
 export const config = {
-  // Skip static assets; run on app + api routes.
+  // Skip true static assets only (they never execute a document-level CSP);
+  // everything else — pages AND /api/** — is matched so the nonce CSP
+  // applies everywhere.
   matcher: [
-    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

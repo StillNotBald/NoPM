@@ -75,7 +75,7 @@ function formatCurrency(val: number | null | undefined) {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2.5 border-b border-border-subtle last:border-0">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -350,37 +350,3 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
   );
 }
 
-// ── ChangeRowButton — clickable <tr> wrapper ──────────────────────────────────
-
-export function ChangeRowButton({
-  cr,
-  projectName,
-  projects,
-  children,
-}: ChangeDetailProps & { children: React.ReactNode }) {
-  const inspector = useInspector();
-
-  function open() {
-    inspector.open(
-      <ChangeDetail cr={cr} projectName={projectName} projects={projects} />,
-      cr.reference_id ? `CR ${cr.reference_id}` : "Change Request",
-    );
-  }
-
-  return (
-    <tr
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-      className="hover:bg-sunken transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-    >
-      {children}
-    </tr>
-  );
-}

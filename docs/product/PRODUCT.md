@@ -1,5 +1,7 @@
 # Product
 
+*Working product brief in planning voice. For reader-facing documentation see `docs/guide/`.*
+
 <!-- impeccable:product-schema 1 -->
 
 ## Platform
@@ -9,7 +11,6 @@ web
 ## Users
 
 - **Primary: employers / technical evaluators** — a hiring manager, staff engineer, or investor assessing the builder through the artifact. They arrive cold at the landing or case study, decide within minutes whether the governance thesis is real, and may clone the repo to check the claims. (Confirmed 2026-08-13.)
-- **First real operators (pilot, confirmed 2026-08-13):** the CTO and PMO head of a first pilot client, who will genuinely run projects in the console day-to-day. Their name is a real client name and must never appear in tracked files (enforced by the hashed leak gate).
 - **AI agents** — Claude Code / Cursor / any MCP client driving the product through the REST API, CLI, or MCP server with a scoped token. Agents are first-class operators, not a gimmick.
 - Secondary: investors/grant evaluators (e.g. a startup-grant pitch) and OSS developers reading the public repo.
 

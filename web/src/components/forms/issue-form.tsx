@@ -57,6 +57,9 @@ export interface Issue {
   impact?: string | null;
   resolution_eta?: string | null;
   resolved_at?: string | null;
+  // Optimistic concurrency (R-90) — present on any record loaded from the
+  // API; carried back on PATCH as expected_updated_at when editing.
+  updated_at?: string | null;
 }
 
 // ── IssueForm ─────────────────────────────────────────────────────────────────
@@ -147,6 +150,9 @@ export function IssueForm({
       impact: impact.trim() || null,
       resolution_eta: resolutionEta || null,
       resolved_at: resolvedAt || null,
+      // Optimistic concurrency (R-90) — only meaningful (and only sent) on
+      // an edit of an existing record; a create has nothing to be stale.
+      ...(issue?.updated_at ? { expected_updated_at: issue.updated_at } : {}),
     };
 
     try {
@@ -160,8 +166,14 @@ export function IssueForm({
       router.refresh();
       inspector.close();
     } catch (err) {
-      applyApiError(err as ApiError);
-      toast.error((err as ApiError).message ?? "Failed to save issue");
+      const apiErr = err as ApiError;
+      if (apiErr.status === 412) {
+        setTopError("This record changed since you opened it. Reload to see the latest.");
+        toast.error("This record changed since you opened it. Reload to see the latest.");
+      } else {
+        applyApiError(apiErr);
+        toast.error(apiErr.message ?? "Failed to save issue");
+      }
       setSaving(false);
     }
   }

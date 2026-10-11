@@ -45,6 +45,10 @@ const spec = {
       "deletes and are never routed through deletion_requests. " +
       "Every authenticated request is subject to a baseline workspace+actor-class rate limit " +
       "(fixed 60s window; defaults 600/min read, 120/min write) — see components.responses.RateLimited. " +
+      "R-90: PATCH /projects/{id}, /tasks/{id}, /milestones/{id}, /risks/{id} and /issues/{id} accept " +
+      "an optional expected_updated_at in the body for optimistic concurrency — omit it for today's " +
+      "last-write-wins behavior, or send the value you last read to get a 412 (see " +
+      "components.responses.PreconditionFailed) instead of silently overwriting a concurrent edit. " +
       "R-82: send X-NoPM-Client (ui|api|cli|mcp|assistant) to declare which surface made a call — " +
       "recorded on the audit row as channel, provenance only, never an authorization input; send " +
       "X-Request-Id to correlate a request with its audit row (request_id), echoed back as the " +
@@ -106,6 +110,19 @@ const spec = {
           "defaults 600/min read, 120/min write; configurable via NOPM_RATE_READ_PER_MIN / " +
           "NOPM_RATE_WRITE_PER_MIN). Applies to every authenticated route in this API — " +
           "documented once here rather than per-path. code: rate_limited.",
+        content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+      },
+      PreconditionFailed: {
+        description:
+          "412 — optimistic concurrency conflict (R-90). Returned only when the PATCH body " +
+          "included expected_updated_at and the row's current updated_at no longer matches it " +
+          "(someone else wrote it first). code: precondition_failed. The response body also " +
+          "carries current_updated_at (the row's actual updated_at) when known, so the caller " +
+          "can show/refresh the latest value and retry deliberately instead of blindly " +
+          "overwriting it. Never returned when expected_updated_at is omitted from the body — " +
+          "the field is opt-in and today's last-write-wins semantics are unchanged when absent. " +
+          "Documented once here rather than per-path (applies to PATCH /projects/{id}, " +
+          "/tasks/{id}, /milestones/{id}, /risks/{id}, /issues/{id}).",
         content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
       },
     },
@@ -291,6 +308,7 @@ const spec = {
         responses: {
           "200": { description: "Updated project", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { $ref: "#/components/responses/PreconditionFailed" },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -730,6 +748,7 @@ const spec = {
         responses: {
           "200": { description: "Updated milestone", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { $ref: "#/components/responses/PreconditionFailed" },
           "422": { description: "project_locked — the patch touches a schedule-shape field and the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -823,6 +842,7 @@ const spec = {
         responses: {
           "200": { description: "Updated task", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { $ref: "#/components/responses/PreconditionFailed" },
           "422": { description: "project_locked — the patch touches a schedule-shape field and the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -891,6 +911,7 @@ const spec = {
         responses: {
           "200": { description: "Updated risk", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { $ref: "#/components/responses/PreconditionFailed" },
         },
       },
       delete: {
@@ -957,6 +978,7 @@ const spec = {
         responses: {
           "200": { description: "Updated issue", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { $ref: "#/components/responses/PreconditionFailed" },
         },
       },
       delete: {
@@ -1452,11 +1474,25 @@ const spec = {
       get: {
         tags: ["auth"],
         summary: "Get MFA status for the current user",
-        description: "scope: user session only",
+        description: "scope: user session only. Returns { enabled, enrolled, satisfied }; satisfied is true once the MFA challenge cookie for this session is valid (R-91).",
         operationId: "getMfaStatus",
         responses: {
           "200": { description: "MFA status", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "401": { description: "Not a user session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/auth/mfa/challenge": {
+      post: {
+        tags: ["auth"],
+        summary: "Verify a TOTP code or backup code after password sign-in (R-91)",
+        description: "scope: user session only. Exempt from the MFA-challenge gate itself. Rate-limited: 5 failed attempts / 10 min / user. On success sets the signed HttpOnly nopm_mfa cookie (max 12h, never outliving the session).",
+        operationId: "challengeMfa",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", description: "6-digit TOTP code, or a 32-char backup code (consumed on use)" } } } } } },
+        responses: {
+          "200": { description: "Challenge passed; nopm_mfa cookie set", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Invalid code, or MFA not enabled for this account", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Too many attempts (5 / 10 min)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1768,7 +1804,7 @@ const spec = {
         description: "scope: document:write. Call after the browser uploads bytes to the signed upload URL. Body: { path, file_name, mime_type, file_size }.",
         operationId: "attachDocumentFile",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["path", "file_name", "mime_type", "file_size"], properties: { path: { type: "string" }, file_name: { type: "string" }, mime_type: { type: "string" }, file_size: { type: "integer" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["path", "file_name", "mime_type", "file_size"], properties: { path: { type: "string" }, file_name: { type: "string" }, mime_type: { type: "string", description: "Declared type. Browser-executable types (html, svg, xml, js) are stored as application/octet-stream; inline-rendered types (pdf, png, jpeg, gif, webp) are verified against the uploaded bytes on attach (422 on mismatch); other types are served as downloads." }, file_size: { type: "integer" } } } } } },
         responses: {
           "200": { description: "Document with file metadata", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation / path error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1793,7 +1829,7 @@ const spec = {
         description: "scope: document:write. Returns a short-lived Supabase Storage signed upload URL. Max file size 25 MiB.",
         operationId: "signDocumentFileUpload",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["file_name", "mime_type", "file_size"], properties: { file_name: { type: "string" }, mime_type: { type: "string" }, file_size: { type: "integer", description: "Bytes, max 26214400 (25 MiB)" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["file_name", "mime_type", "file_size"], properties: { file_name: { type: "string" }, mime_type: { type: "string", description: "Declared type. Browser-executable types (html, svg, xml, js) are stored as application/octet-stream; inline-rendered types (pdf, png, jpeg, gif, webp) are verified against the uploaded bytes on attach (422 on mismatch); other types are served as downloads." }, file_size: { type: "integer", description: "Bytes, max 26214400 (25 MiB)" } } } } } },
         responses: {
           "200": { description: "{ signedUrl, token, path }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error or file too large", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },

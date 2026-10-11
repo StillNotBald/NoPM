@@ -1,15 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Lock, Pencil, AlertTriangle, Trash2, History } from "lucide-react";
+import { Lock, Pencil, AlertTriangle, Trash2, History, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useInspector } from "@/components/layout/app-shell";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiDelete, type ApiError } from "@/lib/api-client";
+import { cn } from "@/lib/cn";
 import {
   ProjectForm,
   FieldLabel,
@@ -231,6 +232,31 @@ export function ProjectActions({ project }: ProjectActionsProps) {
   const [deleteRequesting, setDeleteRequesting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  // F9 — History/Lock/Request-deletion collapse into a 44px overflow menu
+  // below sm, so "Request deletion" no longer wraps onto its own line
+  // beside three other actions; Edit stays the one always-inline action.
+  // Same collapse pattern as PageHeader's secondaryActions (page-header.tsx)
+  // reimplemented here since this page's rich title row (code/name/program/
+  // RAG+lock badges) doesn't fit PageHeader's title-string shape.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocMouseDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
   async function executeLock() {
     setLocking(true);
     setLockError(null);
@@ -325,22 +351,71 @@ export function ProjectActions({ project }: ProjectActionsProps) {
     );
   }
 
+  // History — the project's own audit trail
+  const historyLink = (
+    <Link
+      href={`/trust?target_type=project&target_id=${project.id}`}
+      onClick={() => setMenuOpen(false)}
+      className="flex min-h-[44px] items-center gap-1.5 rounded-md px-3 text-sm text-ink-secondary hover:bg-sunken hover:text-ink sm:inline-flex sm:h-9 sm:min-h-0"
+    >
+      <History size={14} />
+      History
+    </Link>
+  );
+
+  // Lock / Unlock
+  const lockButton = (
+    <Button
+      variant={project.is_locked ? "ghost" : "secondary"}
+      size="sm"
+      onClick={() => {
+        setMenuOpen(false);
+        handleLockToggle();
+      }}
+      disabled={locking}
+      className={cn(
+        "min-h-[44px] w-full justify-start sm:w-auto sm:min-h-0 sm:justify-center",
+        project.is_locked ? "text-warning hover:text-warning/80" : "",
+      )}
+    >
+      {locking ? (
+        <Spinner size="sm" className="mr-1.5" />
+      ) : (
+        <Lock size={14} className="mr-1.5" />
+      )}
+      {project.is_locked ? "Unlock" : "Lock"}
+    </Button>
+  );
+
+  // Request deletion — four-eyes maker step; does not delete immediately
+  const deleteButton = (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => {
+        setMenuOpen(false);
+        handleDeleteRequest();
+      }}
+      disabled={deleteRequesting}
+      className="min-h-[44px] w-full justify-start text-danger hover:bg-danger/10 sm:w-auto sm:min-h-0 sm:justify-center"
+    >
+      {deleteRequesting ? (
+        <Spinner size="sm" className="mr-1.5" />
+      ) : (
+        <Trash2 size={14} className="mr-1.5" />
+      )}
+      Request deletion
+    </Button>
+  );
+
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-2">
-        {/* History — the project's own audit trail */}
-        <Link
-          href={`/trust?target_type=project&target_id=${project.id}`}
-          className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-sm text-ink-secondary hover:bg-sunken hover:text-ink"
-        >
-          <History size={14} />
-          History
-        </Link>
-
-        {/* Edit */}
+        {/* Edit — the one action that always stays inline */}
         <Button
           variant="secondary"
           size="sm"
+          className="min-h-[44px] sm:min-h-0"
           onClick={() =>
             inspector.open(
               <ProjectForm mode="edit" project={project} />,
@@ -352,37 +427,43 @@ export function ProjectActions({ project }: ProjectActionsProps) {
           Edit
         </Button>
 
-        {/* Lock / Unlock */}
-        <Button
-          variant={project.is_locked ? "ghost" : "secondary"}
-          size="sm"
-          onClick={handleLockToggle}
-          disabled={locking}
-          className={project.is_locked ? "text-warning hover:text-warning/80" : ""}
-        >
-          {locking ? (
-            <Spinner size="sm" className="mr-1.5" />
-          ) : (
-            <Lock size={14} className="mr-1.5" />
-          )}
-          {project.is_locked ? "Unlock" : "Lock"}
-        </Button>
+        {/* sm+: History/Lock/Request deletion render inline, as before */}
+        <div className="hidden items-center gap-2 sm:flex">
+          {historyLink}
+          {lockButton}
+          {deleteButton}
+        </div>
 
-        {/* Request deletion — four-eyes maker step; does not delete immediately */}
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={handleDeleteRequest}
-          disabled={deleteRequesting}
-          className="text-danger hover:bg-danger/10"
-        >
-          {deleteRequesting ? (
-            <Spinner size="sm" className="mr-1.5" />
-          ) : (
-            <Trash2 size={14} className="mr-1.5" />
+        {/* below sm: collapsed into one 44px overflow menu (F9) */}
+        <div className="relative sm:hidden" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+          >
+            <MoreHorizontal size={18} />
+          </button>
+          {menuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-20"
+                onClick={() => setMenuOpen(false)}
+                aria-hidden="true"
+              />
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-30 mt-1.5 min-w-[200px] space-y-1 rounded-lg border border-border-subtle bg-surface p-1.5 shadow-md"
+              >
+                {historyLink}
+                {lockButton}
+                {deleteButton}
+              </div>
+            </>
           )}
-          Request deletion
-        </Button>
+        </div>
       </div>
 
       {/* Inline errors — shown beneath the button row, no browser alert */}

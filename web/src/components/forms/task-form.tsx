@@ -47,6 +47,9 @@ export interface Task {
   labels?: string[] | null;
   blocked_by?: string | null;
   checklist?: ChecklistItem[] | null;
+  // Optimistic concurrency (R-90) — present on any record loaded from the
+  // API; carried back on PATCH as expected_updated_at when editing.
+  updated_at?: string | null;
 }
 
 /** Lightweight shape returned by GET /api/resources */
@@ -194,6 +197,9 @@ export function TaskForm({
       labels: parsedLabels,
       blocked_by: blockedBy || null,
       checklist: checklist.length > 0 ? checklist : null,
+      // Optimistic concurrency (R-90) — only meaningful (and only sent) on
+      // an edit of an existing record; a create has nothing to be stale.
+      ...(task?.updated_at ? { expected_updated_at: task.updated_at } : {}),
     };
 
     try {
@@ -231,8 +237,14 @@ export function TaskForm({
       router.refresh();
       inspector.close();
     } catch (err) {
-      applyApiError(err as ApiError);
-      toast.error((err as ApiError).message ?? "Failed to save task");
+      const apiErr = err as ApiError;
+      if (apiErr.status === 412) {
+        setTopError("This record changed since you opened it. Reload to see the latest.");
+        toast.error("This record changed since you opened it. Reload to see the latest.");
+      } else {
+        applyApiError(apiErr);
+        toast.error(apiErr.message ?? "Failed to save task");
+      }
       setSaving(false);
     }
   }

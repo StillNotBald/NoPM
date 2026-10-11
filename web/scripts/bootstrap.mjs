@@ -3,19 +3,10 @@
 // Usage:  node scripts/bootstrap.mjs
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync, appendFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { loadEnv, requireEnv, ENV_LOCAL_PATH } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const envPath = path.join(here, "..", ".env.local");
-const env = Object.fromEntries(
-  readFileSync(envPath, "utf8")
-    .split(/\r?\n/)
-    .map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/))
-    .filter(Boolean)
-    .map((m) => [m[1], m[2]]),
-);
+const env = requireEnv(["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"], loadEnv());
 
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -41,8 +32,8 @@ if (!ws) {
 console.log("workspace:", ws.id);
 
 // 2) Admin login user + profile
-const ADMIN_EMAIL = "admin@stillnotbald.com";
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const ADMIN_EMAIL = env.ADMIN_EMAIL || "admin@stillnotbald.com";
+const ADMIN_PASSWORD = env.ADMIN_PASSWORD || "";
 let userId;
 const created = await db.auth.admin.createUser({
   email: ADMIN_EMAIL,
@@ -62,7 +53,7 @@ await db.from("profiles").upsert({
   display_name: "Jordan Hale",
   role: "admin",
 });
-console.log("admin user:", ADMIN_EMAIL, "/", ADMIN_PASSWORD);
+console.log("admin user:", ADMIN_EMAIL, "(password from ADMIN_PASSWORD, not printed)");
 
 // 3) Scoped tokens — wipe + re-mint the two demo tokens
 await db.from("api_tokens").delete().eq("workspace_id", ws.id).in("name", ["maker (agent)", "checker (agent)"]);
@@ -89,6 +80,19 @@ console.log("\n=== SCOPED TOKENS (shown once) ===");
 console.log("MAKER  :", maker.raw);
 console.log("CHECKER:", checker.raw);
 
-// stash for local testing (gitignored)
-appendFileSync(envPath, `\n# bootstrap demo tokens (local test only)\nNOPM_MAKER_TOKEN=${maker.raw}\nNOPM_CHECKER_TOKEN=${checker.raw}\nNOPM_WORKSPACE_ID=${ws.id}\n`);
-console.log("\nAppended NOPM_MAKER_TOKEN / NOPM_CHECKER_TOKEN to web/.env.local");
+// Stash for local testing (gitignored). Only when a .env.local already exists
+// (a pure-env self-host never gets a surprise plaintext-secret file), and
+// replace-in-place so reruns do not leave stale duplicate token lines behind.
+if (existsSync(ENV_LOCAL_PATH)) {
+  const keys = ["NOPM_MAKER_TOKEN", "NOPM_CHECKER_TOKEN", "NOPM_WORKSPACE_ID"];
+  const marker = "# bootstrap demo tokens (local test only)";
+  const kept = readFileSync(ENV_LOCAL_PATH, "utf8")
+    .split(/\r?\n/)
+    .filter((line) => !keys.some((k) => line.startsWith(k + "=")) && line.trim() !== marker);
+  while (kept.length && kept[kept.length - 1].trim() === "") kept.pop();
+  kept.push("", marker, `NOPM_MAKER_TOKEN=${maker.raw}`, `NOPM_CHECKER_TOKEN=${checker.raw}`, `NOPM_WORKSPACE_ID=${ws.id}`, "");
+  writeFileSync(ENV_LOCAL_PATH, kept.join("\n"));
+  console.log("\nWrote NOPM_MAKER_TOKEN / NOPM_CHECKER_TOKEN / NOPM_WORKSPACE_ID into web/.env.local (previous values replaced)");
+} else {
+  console.log("\nNo web/.env.local present; the tokens above were shown once and are not stored in plaintext anywhere.");
+}

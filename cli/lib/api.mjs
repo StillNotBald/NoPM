@@ -73,6 +73,18 @@ export async function api(method, p, body, opts = {}) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 412) {
+      // R-90 optimistic concurrency: --expected-updated-at was sent and no
+      // longer matches the row. Friendly message via the normal CliError
+      // path — main()'s catch prints it (or, under --json, the raw body).
+      const cur = json.current_updated_at || "unknown";
+      const err = new CliError(
+        `Precondition failed: the record changed since you loaded it (current updated_at: ${cur}). Re-run with --expected-updated-at ${cur} after reviewing.`,
+        json,
+      );
+      err.status = 412;
+      throw err;
+    }
     const err = new CliError(`HTTP ${res.status}: ${json.error || JSON.stringify(json)}`, json);
     err.status = res.status;
     throw err;

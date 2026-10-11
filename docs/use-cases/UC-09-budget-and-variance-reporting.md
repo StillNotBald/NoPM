@@ -1,0 +1,46 @@
+# UC-09 · Budget tracking and variance reporting
+
+**Goal:** Track planned, committed, and actual cost for a project (labor plus expenses), and see variance and burn against plan without a spreadsheet.
+
+**Actors:** Finance / PMO, Project Manager. AI agent via token with `budget:read`/`budget:write` (read-only in the MCP tool catalogue — `get_budget` only, no write tool shipped).
+
+**Preconditions:** A project exists. Labor actuals depend on logged time entries (UC-08); expense actuals depend on recorded expenses.
+
+**Trigger:** A stakeholder needs to know whether a project is on budget, or PMO needs a portfolio-wide cost picture.
+
+## Main flow
+
+1. Set or update the budget envelope: `PUT /api/projects/{id}/budget` (scope `budget:write`; `PATCH` is an alias for the same operation) with `planned_amount`, `committed_amount`, `currency`.
+2. Record project expenses: `POST /api/projects/{id}/expenses` (scope `budget:write`).
+3. Actual labor cost accrues automatically from time entries (UC-08) — each entry's cost is `hours * member.cost_rate`, snapshotted at log time.
+4. Read the rolled-up summary: `GET /api/projects/{id}/budget` (scope `budget:read`) returns `planned`, `committed`, `actual` (labor + expenses), `variance`, `burn_pct`.
+5. MCP: `get_budget` tool, scope `budget:read` — read-only; there is no MCP write tool for budget, so an agent can report on budget but not set it.
+
+## Alternate and exception flows
+
+- **Missing `budget:write` on a set/expense write, or `budget:read` on the summary read** → `403`.
+- **Invalid `currency`** → not a 3-letter ISO code → `422` (consistent with the project's own currency-field validation rule).
+- **Delete an expense** → `DELETE /api/expenses/{id}` (scope `budget:write`).
+
+## Postconditions
+
+- `budget.upsert` (or equivalent) audit row on `PUT`/`PATCH`; `expense.create`/`expense.delete` rows per expense write.
+- The project's budget summary reflects the change immediately — no separate reconciliation job.
+
+## Reporting and evidence
+
+- The time report (UC-08) states its own reconciliation rule explicitly in its caption: totals match the labor actual exactly when the billable filter is off.
+- Program rollup cards (UC-01, R-71) show budget variance and actual-vs-planned cost per program, aggregating the child projects' budget summaries.
+- No `entity=budget` value is documented on `GET /api/export`'s entity list `[UNVERIFIED]` — board-pack export of budget figures likely goes through the deck export (UC-14) rather than a raw CSV.
+- Deck export (`GET /reports/deck`, `GET /reports/project/{id}`, scope `audit:read`, `?format=pptx|pdf|html`) includes budget figures as part of the portfolio/project report (R-40).
+
+## Traceability
+
+- R-IDs: R-18 (Budget — planned/committed/actual/variance/burn).
+- Key files: `web/src/app/api/projects/[id]/budget/route.ts`, `web/src/app/api/projects/[id]/expenses/route.ts`, `web/src/app/api/expenses/[id]/route.ts`, `web/src/lib/insight/program-rollup.ts`.
+- Tests: EVM math (both SPI modes + divide-by-zero) is covered under R-60's governance-invariant vitest suite.
+
+## Open questions
+
+- `[UNVERIFIED]` Whether `GET /api/export` has any budget-specific entity value; not found in the documented entity list.
+- `[UNVERIFIED]` The exact EVM (earned value management) formulas behind "burn_pct" and "variance" were not read from source in this pass; only their existence and test coverage (R-60) were confirmed.

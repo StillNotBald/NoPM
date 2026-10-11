@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-15
 **Intent:** Owner-locked pivot after F2b: F3 killed as a wave ("does it change what a hiring manager sees?" test — 8 rows deferred, ADR 0010), Wave-3 infra fulfilled as **documentation** not code, and the load-bearing/demo-funnel remainder built as one lean mini-wave. New R-IDs: **R-76** (period-close lock, L-32) + **R-77** (governance tour, L-50, + demo seed extending R-52). Funnel fixes land under existing umbrellas.
-**Mode:** LEAN (now the default): 5 sequential AI implementation agents, adversarial verification ONLY on T1 (the governance task) — **0/3 refuted**.
+**Mode:** LEAN (now the default): 5 sequential AI build passes, adversarial verification ONLY on T1 (the governance task) — **0 of 3 independent review passes disputed the result**.
 
 ## What shipped
 

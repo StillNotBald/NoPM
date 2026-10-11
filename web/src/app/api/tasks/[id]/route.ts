@@ -3,7 +3,8 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
+import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
@@ -63,6 +64,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const input = parsed.data;
 
+  // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
+  // the caller doesn't send it (today's last-write-wins, unchanged).
+  const { expected_updated_at, ...fields } = input;
+  checkOptimisticConcurrency(existing.updated_at, expected_updated_at);
+
   // Schedule-shape changes (dates, estimate, milestone re-assignment) are
   // blocked while the parent project is locked; status/checklist/assignee/etc
   // stay live so day-to-day work continues under a frozen baseline.
@@ -92,18 +98,30 @@ export const PATCH = route(async ({ actor, params, request }) => {
     if (!milestone) throw new NotFoundError("Milestone not found in this project");
   }
 
-  const { data: updated, error: updateError } = await db
+  let query = db
     .from("tasks")
     .update({
-      ...input,
+      ...fields,
       updated_at: new Date().toISOString(),
     })
     .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
+    .eq("workspace_id", actor.workspaceId);
+  // Defense-in-depth: also scope the write itself to the row's pre-check
+  // updated_at, closing the (narrow) race between the fetch above and this
+  // write. On a lost race the row exists but the filter matches zero rows —
+  // maybeSingle() returns null instead of PostgREST's "no rows" error.
+  if (expected_updated_at !== undefined) {
+    query = query.eq("updated_at", existing.updated_at);
+  }
+  const { data: updated, error: updateError } = await query.select().maybeSingle();
 
-  if (updateError || !updated) throw new Error(updateError?.message ?? "Update failed");
+  if (updateError) throw new Error(updateError.message);
+  if (!updated) {
+    if (expected_updated_at !== undefined) {
+      throw new PreconditionFailedError("Record changed since you loaded it");
+    }
+    throw new Error("Update failed");
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

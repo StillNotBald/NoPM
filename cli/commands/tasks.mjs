@@ -13,9 +13,10 @@ export const usage = [
   "nopm tasks ls     --project <projectId> [--page <n>] [--limit <n>] [--external-ref <ref>]",
   "nopm tasks get    <taskId>",
   "nopm tasks create --project <id> --name <n> [--priority low|medium|high|urgent] [--status-type backlog|unstarted|started|completed|canceled] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
-  "nopm tasks update <taskId> [--name <n>] [--priority <p>] [--status-type <t>] [--pct <0-100>] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm tasks update <taskId> [--name <n>] [--priority <p>] [--status-type <t>] [--pct <0-100>] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
   "nopm tasks rm     <taskId> --reason <why>      (MAKER — creates a pending deletion request)",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this task mirrors, e.g. --source jira --external-ref PROJ-123",
+  "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
   "  flags: --json",
 ];
 
@@ -85,6 +86,7 @@ export async function run(rest, ctx) {
       if (f.source)                body.source       = f.source;
       if (f["external-ref"])       body.external_ref = f["external-ref"];
       if (f["external-url"])       body.external_url = f["external-url"];
+      if (f["expected-updated-at"]) body.expected_updated_at = f["expected-updated-at"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied.");
       const { data } = await ctx.api("PATCH", `/api/tasks/${id}`, body);
       console.log("✓ updated task", id);

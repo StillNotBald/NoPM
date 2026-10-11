@@ -1,0 +1,32 @@
+# Dependabot version updates. Security updates (for known vulnerable
+# versions) are handled separately by GitHub once Dependabot alerts are
+# enabled in repo Settings -> Code security -- there is no dependabot.yml
+# key to toggle that on; it is on by default alongside Dependabot alerts.
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/web"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "npm"
+    directory: "/cli"
+    schedule:
+      interval: "weekly"
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

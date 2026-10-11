@@ -4,8 +4,8 @@ Date: 2026-07-11 · Initiative: three workstreams requested by the owner —
 (1) AI assistant must actually work for a visitor (mirror the reference demo-site pattern),
 (2) onboarding is unfriendly, (3) fully usable on a mobile phone.
 
-Method: AI-assisted build — 4 recon agents + synthesis + 4 adversarial critics + 3 completeness rounds
-(12 AI-assisted agents), every load-bearing claim then grep-verified in the final review.
+Method: an AI-assisted plan-ask-build pipeline — 4 recon agents + synthesis + 4 adversarial critics + 3 completeness rounds
+(12 AI agents), every load-bearing claim then grep-verified in a final manual review.
 
 ---
 

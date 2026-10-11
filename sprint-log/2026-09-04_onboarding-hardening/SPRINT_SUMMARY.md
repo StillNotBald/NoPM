@@ -57,7 +57,7 @@ The sweep dismissed one hint and toggled nav on the owner's admin account; those
   2. React #418 hydration mismatch on `/dashboard` only: `CardFreshness` formatted the "Updated HH:MM:SS" stamp with `toLocaleTimeString` during SSR (Vercel = UTC) and again on the client (viewer = UTC+8). Pre-existing, masked locally because server and client share a clock. Now rendered client-side after mount.
 
 ## Process notes
-- All build work ran on **AI implementation agents** on disjoint file sets (owner's token-spend rule); the shared foundation (`lib/prefs` store, schema keys) was hand-built first. AI-assisted did review, integration, gates.
+- All build work ran as parallel AI agents on disjoint file sets, to control iteration cost; the shared foundation (`lib/prefs` store, schema keys) was hand-built first. Final review, integration, and gates were run separately.
 - The design hook (`impeccable`) re-flagged the sidebar's pre-existing active-item accent border (`side-tab`). Not introduced here, owner-approved retheme styling; left unchanged and **not suppressed** — owner's call whether to persist an exception.
 
 ## Follow-ups

@@ -19,13 +19,31 @@
  * regression = failure").
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const COMPONENTS_DIR = join(process.cwd(), "src", "components");
 const COMMAND_PALETTE = readFileSync(join(COMPONENTS_DIR, "command-palette.tsx"), "utf8");
 const APP_SHELL = readFileSync(join(COMPONENTS_DIR, "layout", "app-shell.tsx"), "utf8");
 const TOAST = readFileSync(join(COMPONENTS_DIR, "ui", "toast.tsx"), "utf8");
+const RIGHT_PUSH_PANEL = readFileSync(join(COMPONENTS_DIR, "ui", "right-push-panel.tsx"), "utf8");
+const MODAL = readFileSync(join(COMPONENTS_DIR, "ui", "modal.tsx"), "utf8");
+const FILTER_SHEET_PATH = join(COMPONENTS_DIR, "ui", "filter-sheet.tsx");
+const DATA_LIST_PATH = join(COMPONENTS_DIR, "ui", "data-list.tsx");
+const FILTER_SHEET = readFileSync(FILTER_SHEET_PATH, "utf8");
+const DATA_LIST = readFileSync(DATA_LIST_PATH, "utf8");
+
+/** Recursively collect every .tsx file under `dir`. */
+function collectTsxFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const s = statSync(full);
+    if (s.isDirectory()) out.push(...collectTsxFiles(full));
+    else if (entry.endsWith(".tsx")) out.push(full);
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // 1. Palette mobile entry (locked decision 2)
@@ -152,4 +170,114 @@ describe("app-shell.tsx — header icon buttons hit >=44px below lg, unchanged a
     expect(APP_SHELL).toMatch(/<ThemeToggle \/>/);
     expect(APP_SHELL).toMatch(/<AccountMenu \/>/);
   });
+
+  it("marks a stable data-app-shell region containing the sidebar/header/content/bottom-nav, ahead of the overlay layers (CommandPalette/RightPushPanel/AssistantPanel)", () => {
+    expect(APP_SHELL).toMatch(/data-app-shell/);
+    const shellStart = APP_SHELL.indexOf("data-app-shell");
+    const shellEnd = APP_SHELL.indexOf("<BottomNav");
+    const commandPaletteIdx = APP_SHELL.indexOf("<CommandPalette");
+    const rightPushPanelIdx = APP_SHELL.indexOf("<RightPushPanel");
+    // the overlay components render AFTER the data-app-shell wrapper closes,
+    // i.e. they are siblings of it, not descendants
+    expect(shellEnd).toBeGreaterThan(shellStart);
+    expect(commandPaletteIdx).toBeGreaterThan(shellEnd);
+    expect(rightPushPanelIdx).toBeGreaterThan(shellEnd);
+  });
 });
+
+// ---------------------------------------------------------------------------
+// 4. Mobile shell (R-94) — sheet lock/inert/focus hooks, 44px close buttons,
+//    the text-2xs floor, and the FilterSheet/DataList primitives.
+// ---------------------------------------------------------------------------
+
+describe("right-push-panel.tsx / modal.tsx — shared sheet hooks", () => {
+  it("both import useBodyScrollLock and useInertShell from lib/hooks/use-sheet", () => {
+    for (const src of [RIGHT_PUSH_PANEL, MODAL]) {
+      expect(src).toMatch(/from ["']@\/lib\/hooks\/use-sheet["']/);
+      expect(src).toMatch(/useBodyScrollLock/);
+      expect(src).toMatch(/useInertShell/);
+    }
+  });
+
+  it("both size their close button at h-11 w-11 (44px) — was h-8 w-8 (32px)", () => {
+    const panelCloseIdx = RIGHT_PUSH_PANEL.indexOf('aria-label="Close panel"');
+    expect(RIGHT_PUSH_PANEL.slice(panelCloseIdx - 200, panelCloseIdx + 80)).toMatch(/h-11 w-11/);
+    const modalCloseIdx = MODAL.indexOf('aria-label="Close"');
+    expect(MODAL.slice(modalCloseIdx - 200, modalCloseIdx + 80)).toMatch(/h-11 w-11/);
+  });
+
+  it("right-push-panel keeps the ≥lg push-column contract unchanged (right-0, no border-t, lg width class applied)", () => {
+    expect(RIGHT_PUSH_PANEL).toMatch(/lg:inset-y-0 lg:right-0/);
+    expect(RIGHT_PUSH_PANEL).toMatch(/lg:rounded-none/);
+  });
+
+  it("right-push-panel renders a bottom sheet (top radius) between md and lg", () => {
+    expect(RIGHT_PUSH_PANEL).toMatch(/md:rounded-t-2xl/);
+  });
+
+  it("both support an optional sticky footer slot", () => {
+    expect(RIGHT_PUSH_PANEL).toMatch(/footer\?:\s*ReactNode/);
+    expect(MODAL).toMatch(/footer\?:\s*ReactNode/);
+  });
+});
+
+describe("no literal text-[8px]/[9px]/[10px] in components/ui or components/layout", () => {
+  it("F8 — every literal tiny-text class is replaced by the text-2xs token", () => {
+    const files = [
+      ...collectTsxFiles(join(COMPONENTS_DIR, "ui")),
+      ...collectTsxFiles(join(COMPONENTS_DIR, "layout")),
+    ];
+    const offenders: string[] = [];
+    for (const file of files) {
+      const src = readFileSync(file, "utf8");
+      if (/text-\[(8|9|10)px\]/.test(src)) offenders.push(file);
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
+describe("filter-sheet.tsx — FilterSheet", () => {
+  it("exists and exports the documented props", () => {
+    expect(FILTER_SHEET).toMatch(/export function FilterSheet/);
+    expect(FILTER_SHEET).toMatch(/activeCount/);
+    expect(FILTER_SHEET).toMatch(/onApply/);
+    expect(FILTER_SHEET).toMatch(/onClear/);
+    expect(FILTER_SHEET).toMatch(/children/);
+  });
+
+  it("renders children inline (unchanged) at md+, and a Modal-based sheet below md", () => {
+    expect(FILTER_SHEET).toMatch(/from ["']@\/lib\/hooks\/use-media-query["']/);
+    expect(FILTER_SHEET).toMatch(/return <div className="contents">\{children\}<\/div>/);
+    expect(FILTER_SHEET).toMatch(/from ["']@\/components\/ui\/modal["']/);
+  });
+
+  it("the mobile trigger is a 44px control with an active-count badge", () => {
+    expect(FILTER_SHEET).toMatch(/h-11 w-11/);
+    expect(FILTER_SHEET).toMatch(/activeCount > 0/);
+  });
+});
+
+describe("data-list.tsx — DataList", () => {
+  it("exists and exports the documented column/prop shape", () => {
+    expect(DATA_LIST).toMatch(/export interface DataListColumn/);
+    expect(DATA_LIST).toMatch(/export function DataList/);
+    for (const key of ["key", "header", "cell", "primary", "badge", "hideOnMobile", "align"]) {
+      expect(DATA_LIST).toMatch(new RegExp(key));
+    }
+    for (const prop of ["rows", "rowKey", "onRowClick", "href", "empty", "renderCard"]) {
+      expect(DATA_LIST).toMatch(new RegExp(prop));
+    }
+  });
+
+  it("renders a <table> gated to md+ and a card <ul> gated below md", () => {
+    expect(DATA_LIST).toMatch(/hidden overflow-x-auto md:block/);
+    expect(DATA_LIST).toMatch(/<table/);
+    expect(DATA_LIST).toMatch(/divide-y divide-border-subtle md:hidden/);
+  });
+
+  it("shows a chevron on cards only when the row is clickable (onRowClick or href)", () => {
+    expect(DATA_LIST).toMatch(/const clickable = Boolean\(onRowClick \|\| href\)/);
+    expect(DATA_LIST).toMatch(/ChevronRight/);
+  });
+});
+

@@ -13,9 +13,9 @@ A six-lens multi-agent positioning review on 2026-09-06 (`docs/research/POSITION
 - Baselines page in Governance nav; email previews out of the sidebar (R-78 amended)
 
 ## Actual outcomes
-Built by the AI-assisted build harness: 5 sequential AI implementation agents, 12 independent automated reviewers on the 3 high-risk tasks (no cross-model independent reviewer — no OpenRouter key in the environment), then final manual review of every diff and a re-run of the full gate.
+Built with AI-assisted development: 5 sequential implementation passes by AI agents, 12 independent adversarial review passes over the 3 high-risk tasks (no cross-model reviewer, since no OpenRouter key was available), then a full manual diff review and a re-run of the complete gate.
 
-independent reviewers raised 6 real defects, all fixed in the final review before this receipt:
+Independent adversarial review passes raised 6 real defects, all fixed during review before this receipt:
 1. Partial unique index `(workspace_id, source, external_ref)` admitted duplicates when `source` was NULL (Postgres NULLs are distinct) → index now on `coalesce(source, '')`.
 2. `nopm tasks ls --external-ref` was a silent no-op (`GET /api/projects/{id}/tasks` ignored the param) → filter added to that route.
 3. Task detail chip required both `source` and `external_ref` → renders on `external_ref` alone.
@@ -23,7 +23,7 @@ independent reviewers raised 6 real defects, all fixed in the final review befor
 5. Audit-coverage test regex only saw `export const POST` → now also `export (async) function POST` and `export { h as POST }` (three such routes already existed).
 6. Immutability test missed `FOR ALL` / clause-less policies and table-level grants on `audit_log` → patterns added.
 
-independent reviewer claims dismissed after checking code: `assistant_credentials` has `unique (user_id)` so `onConflict: "user_id"` is correct; `verifyBearer`/`verifySession` are module-private; the rate limiter never reads `channel`; the audit CSV export names its columns explicitly.
+Claims from the review passes dismissed after checking code: `assistant_credentials` has `unique (user_id)` so `onConflict: "user_id"` is correct; `verifyBearer`/`verifySession` are module-private; the rate limiter never reads `channel`; the audit CSV export names its columns explicitly.
 
 ## R-IDs touched
 - R-81 → DONE (new)

@@ -50,7 +50,7 @@ const DOC_TYPE_LABELS: Record<DocType, string> = {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2.5 border-b border-border-subtle last:border-0">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -251,7 +251,7 @@ function FileSection({
 
   return (
     <div className="mt-4 border-t border-border-subtle pt-4">
-      <h3 className="text-[10px] font-medium uppercase tracking-wide text-ink-muted mb-3">
+      <h3 className="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-3">
         File
       </h3>
 
@@ -482,7 +482,7 @@ export function DocumentViewer({
       {/* Body — markdown rendered */}
       {document.body && document.body.trim() !== "" && (
         <div className="mt-4 border-t border-border-subtle pt-4">
-          <h3 className="text-[10px] font-medium uppercase tracking-wide text-ink-muted mb-2">
+          <h3 className="text-2xs font-medium uppercase tracking-wide text-ink-muted mb-2">
             Content
           </h3>
           <div className="space-y-0.5">{renderMarkdown(document.body)}</div>
@@ -504,43 +504,3 @@ export function DocumentViewer({
   );
 }
 
-// ── DocumentRowButton — clickable table row wrapper (client component) ─────────
-
-export function DocumentRowButton({
-  document,
-  projectName,
-  ownerName,
-  projects,
-  children,
-}: DocumentViewerProps & { children: React.ReactNode }) {
-  const inspector = useInspector();
-
-  function open() {
-    inspector.open(
-      <DocumentViewer
-        document={document}
-        projectName={projectName}
-        ownerName={ownerName}
-        projects={projects}
-      />,
-      document.reference_id ? `Doc ${document.reference_id}` : "Document",
-    );
-  }
-
-  return (
-    <tr
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-      className="hover:bg-sunken transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-    >
-      {children}
-    </tr>
-  );
-}

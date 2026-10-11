@@ -81,10 +81,75 @@ export default async function ClashesPage() {
         <span>= system-detected resource over-allocation</span>
       </div>
 
-      {/* Table */}
+      {/* List — table ≥md, cards <md (F5). Hand-rolled rather than <DataList>
+          because the deep-link opener (?clash=<id>) scrolls to and highlights
+          a specific row by DOM id, which DataList's row API does not expose;
+          both renders below carry that same `id`. */}
       <Card>
         {clashList.length > 0 ? (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-border-subtle md:hidden">
+            {clashList.map((clash) => {
+              const isAuto = clash.type === "resource";
+              return (
+                <li key={clash.id} id={`clash-m-${clash.id}`} className="flex min-h-[44px] flex-col gap-1.5 px-4 py-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">{clash.title}</span>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {clash.reference_id && (
+                          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+                            {clash.reference_id}
+                          </span>
+                        )}
+                        {isAuto && (
+                          <Badge tone="neutral" size="sm">
+                            auto
+                          </Badge>
+                        )}
+                        <Badge size="sm" tone={typeTone(clash.type as ClashType)}>
+                          {typeLabel(clash.type as ClashType)}
+                        </Badge>
+                        <Badge size="sm" tone={statusTone(clash.status as ClashStatus)}>
+                          {statusLabel(clash.status as ClashStatus)}
+                        </Badge>
+                      </div>
+                    </div>
+                    <Severity level={clash.severity as ClashSeverity} />
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs">
+                    <span className="shrink-0 text-ink-muted">Projects</span>
+                    {clash.project_a_id ? (
+                      <EntityLink kind="project" id={clash.project_a_id} muted>
+                        {projectMap[clash.project_a_id] ?? clash.project_a_id.slice(0, 8) + "…"}
+                      </EntityLink>
+                    ) : null}
+                    {clash.project_a_id && clash.project_b_id && <span className="text-ink-muted">/</span>}
+                    {clash.project_b_id ? (
+                      <EntityLink kind="project" id={clash.project_b_id} muted>
+                        {projectMap[clash.project_b_id] ?? clash.project_b_id.slice(0, 8) + "…"}
+                      </EntityLink>
+                    ) : null}
+                    {!clash.project_a_id && !clash.project_b_id && <span className="text-ink-muted">—</span>}
+                  </div>
+                  {clash.over_allocation_pct != null && (
+                    <span className="inline-flex w-fit items-center gap-1 text-xs font-medium text-warning bg-warning/10 border border-warning/25 rounded px-1.5 py-0.5 tabular-nums">
+                      +{Number(clash.over_allocation_pct).toFixed(0)}% over
+                    </span>
+                  )}
+                  {clash.description && (
+                    <p className="text-xs text-ink-secondary leading-snug line-clamp-2">{clash.description}</p>
+                  )}
+                  {clash.recommended_action && (
+                    <p className="text-xs text-ink-muted leading-snug line-clamp-2 italic">
+                      {clash.recommended_action}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[700px] text-sm">
               <thead>
                 <tr className="border-b border-border-subtle">
@@ -197,6 +262,7 @@ export default async function ClashesPage() {
               </tbody>
             </table>
           </div>
+          </>
         ) : (
           // Clashes are system-detected (schedule/resource/dependency
           // over-allocation) — there is no manual "New Clash" write action

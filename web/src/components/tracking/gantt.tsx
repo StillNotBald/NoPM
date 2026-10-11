@@ -402,7 +402,7 @@ export function GanttChart({
               key={v}
               onClick={() => setView(v)}
               className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[36px]",
+                "rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[44px] sm:min-h-[36px]",
                 view === v
                   ? "bg-surface text-ink shadow-sm"
                   : "text-ink-secondary hover:text-ink"
@@ -437,7 +437,7 @@ export function GanttChart({
               )}
               <button
                 onClick={() => setLeftCollapsed((c) => !c)}
-                className="ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150"
+                className="relative ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150 before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
                 title={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
               >
                 {leftCollapsed
@@ -556,7 +556,7 @@ export function GanttChart({
                         paddingLeft: view === "month" ? 4 : 0,
                       }}
                     >
-                      <span className="text-[10px] text-ink-muted whitespace-nowrap select-none">
+                      <span className="text-2xs text-ink-muted whitespace-nowrap select-none">
                         {sl.label}
                       </span>
                     </div>
@@ -569,7 +569,7 @@ export function GanttChart({
                       style={{ left: todayOffset }}
                     >
                       <div className="rounded-full bg-accent px-1.5 py-0.5">
-                        <span className="text-[9px] font-bold text-white whitespace-nowrap select-none">
+                        <span className="text-2xs font-bold text-white whitespace-nowrap select-none">
                           Today
                         </span>
                       </div>
@@ -674,7 +674,7 @@ export function GanttChart({
                             {/* Slip indicator */}
                             {msSlip && (
                               <span
-                                className="ml-0.5 font-mono text-[9px] font-semibold text-warning select-none whitespace-nowrap"
+                                className="ml-0.5 font-mono text-2xs font-semibold text-warning select-none whitespace-nowrap"
                                 title={`Slipped ${msSlip} vs baseline`}
                               >
                                 {msSlip}
@@ -746,7 +746,7 @@ export function GanttChart({
                                   />
                                   {/* % label */}
                                   {showPct && t.completion_pct > 0 && (
-                                    <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold text-white/80 select-none pointer-events-none">
+                                    <span className="absolute inset-0 flex items-center justify-center text-2xs font-semibold text-white/80 select-none pointer-events-none">
                                       {t.completion_pct}%
                                     </span>
                                   )}
@@ -755,7 +755,7 @@ export function GanttChart({
                                 {/* Slip indicator label to the right of the bar */}
                                 {taskSlip && (
                                   <span
-                                    className="absolute top-1/2 -translate-y-1/2 font-mono text-[9px] font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
+                                    className="absolute top-1/2 -translate-y-1/2 font-mono text-2xs font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
                                     style={{ left: bp.left + bp.width + 4 }}
                                     title={`Slipped ${taskSlip} vs baseline`}
                                   >
@@ -831,7 +831,7 @@ export function GanttChart({
                                 style={{ width: `${Math.min(t.completion_pct, 100)}%` }}
                               />
                               {showPct && t.completion_pct > 0 && (
-                                <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold text-white/80 select-none pointer-events-none">
+                                <span className="absolute inset-0 flex items-center justify-center text-2xs font-semibold text-white/80 select-none pointer-events-none">
                                   {t.completion_pct}%
                                 </span>
                               )}
@@ -839,7 +839,7 @@ export function GanttChart({
                             {/* Slip indicator label to the right of the bar */}
                             {taskSlip && (
                               <span
-                                className="absolute top-1/2 -translate-y-1/2 font-mono text-[9px] font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
+                                className="absolute top-1/2 -translate-y-1/2 font-mono text-2xs font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
                                 style={{ left: bp.left + bp.width + 4 }}
                                 title={`Slipped ${taskSlip} vs baseline`}
                               >

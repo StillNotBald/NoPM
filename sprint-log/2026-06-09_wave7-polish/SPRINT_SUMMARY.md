@@ -16,7 +16,7 @@
 ## Open / deferred
 - Rebaseline **diff screen** (side-by-side before/after) not built as a standalone view — variance is shown inline on the Gantt; the rebaseline record's before/after remains in `audit_log` for the trail. Standalone diff = future polish.
 - Case-study proof metrics are hardcoded constants (fine for a portfolio snapshot).
-- Still pending (needs Chu Ling): owner demo LLM key + a live visual walk-through.
+- Still pending: owner demo LLM key + a live visual walk-through.
 
 ## Status
 Board fully cleared. v1 MVP + polish complete across Waves 2-7 — all deployed, audited, tested (102/102), and traceable (39 R-IDs).

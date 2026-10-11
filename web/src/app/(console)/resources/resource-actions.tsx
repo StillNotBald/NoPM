@@ -12,11 +12,21 @@ import { AllocationForm } from "@/components/forms/allocation-form";
  *
  * variant="header"     — two side-by-side buttons (Add member + Allocate)
  * variant="empty-state" — single "Add member" button for the empty-state card
+ *
+ * `part` (mobile pass, R-94) splits the header variant in two so the page can
+ * hand "Add member" to PageHeader's `action` slot and "Allocate to project"
+ * to `secondaryActions` — below `sm` PageHeader collapses secondaryActions
+ * into a 44px overflow menu instead of cramming both buttons + the
+ * over-allocated badge into one row, which used to push "Add member" past
+ * the viewport edge on phones. Omitting `part` renders both, unchanged, for
+ * any other caller.
  */
 export function ResourceActions({
   variant = "header",
+  part,
 }: {
   variant?: "header" | "empty-state";
+  part?: "primary" | "secondary";
 }) {
   const inspector = useInspector();
 
@@ -32,6 +42,27 @@ export function ResourceActions({
     return (
       <Button variant="primary" size="sm" onClick={openAddMember}>
         Add member
+      </Button>
+    );
+  }
+
+  if (part === "primary") {
+    return (
+      <Button variant="primary" size="sm" onClick={openAddMember}>
+        Add member
+      </Button>
+    );
+  }
+
+  if (part === "secondary") {
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={openAllocate}
+        className="w-full justify-start sm:w-auto sm:justify-center"
+      >
+        Allocate to project
       </Button>
     );
   }

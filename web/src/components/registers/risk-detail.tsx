@@ -6,6 +6,9 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
+import { EntityLink } from "@/components/ui/entity-link";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { RiskForm, type Risk, type RiskResponseStrategy } from "@/components/forms/risk-form";
 import {
   riskScore,
@@ -82,7 +85,7 @@ function formatDate(iso: string | null | undefined) {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2.5 border-b border-border-subtle last:border-0">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -256,37 +259,150 @@ export function RiskDetail({ risk, projectName, ownerName }: RiskDetailProps) {
   );
 }
 
-// ── RiskRowButton — clickable <tr> wrapper (client component) ─────────────────
+// ── RiskDataList — responsive register list (F5): table ≥md, cards <md ───────
 
-export function RiskRowButton({
-  risk,
-  projectName,
-  ownerName,
-  children,
-}: RiskDetailProps & { children: React.ReactNode }) {
+export type RiskListRow = RiskDetailProps["risk"] & { owner_id?: string | null };
+
+export function RiskDataList({
+  risks,
+  projectMap,
+  ownerMap,
+  dateDisplayPref,
+}: {
+  risks: RiskListRow[];
+  projectMap: Record<string, string>;
+  ownerMap: Record<string, string>;
+  dateDisplayPref: DateDisplayPref;
+}) {
   const inspector = useInspector();
 
-  function open() {
+  function ownerName(ownerId: string | null | undefined) {
+    if (!ownerId) return "—";
+    return ownerMap[ownerId] ?? ownerId.slice(0, 8) + "…";
+  }
+
+  function openRisk(risk: RiskListRow) {
     inspector.open(
-      <RiskDetail risk={risk} projectName={projectName} ownerName={ownerName} />,
+      <RiskDetail
+        risk={risk}
+        projectName={risk.project_id ? (projectMap[risk.project_id] ?? undefined) : undefined}
+        ownerName={ownerName(risk.owner_id)}
+      />,
       risk.reference_id ? `Risk ${risk.reference_id}` : "Risk Detail",
     );
   }
 
+  const columns: DataListColumn<RiskListRow>[] = [
+    {
+      key: "ref",
+      header: "Ref",
+      // Desktop-only — Ref repeats redundantly with the card's own detail
+      // panel one tap away, so it is dropped from the <md card, not the table.
+      hideOnMobile: true,
+      cell: (r) =>
+        r.reference_id ? (
+          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted whitespace-nowrap">
+            {r.reference_id}
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
+    },
+    {
+      key: "title",
+      header: "Title",
+      primary: true,
+      cell: (r) => (
+        <span className="block min-w-0 max-w-[240px] truncate font-medium text-ink">{r.title}</span>
+      ),
+    },
+    {
+      key: "project",
+      header: "Project",
+      hideOnMobile: true,
+      cell: (r) =>
+        r.project_id ? (
+          <span className="block min-w-0 max-w-[160px]">
+            <EntityLink kind="project" id={r.project_id} muted>
+              {projectMap[r.project_id] ?? "—"}
+            </EntityLink>
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
+    },
+    {
+      key: "severity",
+      header: "Severity",
+      badge: true,
+      cell: (r) => <Severity level={r.severity} />,
+    },
+    {
+      key: "score",
+      header: "Score",
+      badge: true,
+      cell: (r) => {
+        const score = riskScore(r.probability_pct ?? null, r.impact_score ?? null);
+        const band = exposureBand(score);
+        return score != null && band ? (
+          <span className="inline-flex items-center gap-2">
+            <Severity level={BAND_TO_SEVERITY[band]} />
+            <span className="font-mono text-xs text-ink-muted tabular-nums">{score}/5</span>
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        );
+      },
+    },
+    {
+      key: "strategy",
+      header: "Strategy",
+      badge: true,
+      cell: (r) =>
+        r.response_strategy ? (
+          <Badge size="sm" tone={strategyTone(r.response_strategy)}>
+            {STRATEGY_LABEL[r.response_strategy]}
+          </Badge>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      badge: true,
+      cell: (r) => (
+        <Badge size="sm" tone={statusTone(r.status as RiskStatus)}>
+          {r.status}
+        </Badge>
+      ),
+    },
+    {
+      key: "owner",
+      header: "Owner",
+      cell: (r) => <span className="text-xs text-ink-secondary">{ownerName(r.owner_id)}</span>,
+    },
+    {
+      key: "due",
+      header: "Due",
+      cell: (r) => {
+        const due = formatByPref(r.due_date, dateDisplayPref);
+        return (
+          <span className="tabular-nums text-xs text-ink-secondary" title={due.title}>
+            {due.text}
+          </span>
+        );
+      },
+    },
+  ];
+
   return (
-    <tr
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-      className="hover:bg-sunken transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-    >
-      {children}
-    </tr>
+    <DataList
+      columns={columns}
+      rows={risks}
+      rowKey={(r) => r.id}
+      onRowClick={openRisk}
+      tableClassName="min-w-[860px]"
+    />
   );
 }

@@ -65,7 +65,7 @@ export function HotStrip({ items }: { items: HotItem[] }) {
   if (items.length === 0) {
     return (
       <div className="flex items-center gap-2 rounded-md bg-success/8 px-3 py-2.5 text-sm text-success">
-        <span aria-hidden className="text-[8px]">●</span>
+        <span aria-hidden className="text-2xs">●</span>
         <span>Nothing hot right now — all clear.</span>
       </div>
     );

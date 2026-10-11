@@ -1,5 +1,7 @@
 # NoPM — the constitution
 
+*Operating instructions for AI coding agents working in this repo. Human-facing docs start at `docs/guide/README.md`.*
+
 ## What this is
 A **lite, API-first project-management tool that a user's own AI agent operates** (like the `aws` / `supabase` / `hubspot` CLIs — NoPM bundles **no** LLM). It is Chu Ling's **live-hosted portfolio proof-piece** for employers, deployed to **stillnotbald.com**. The thesis is the resume line: *"I build the systems that make unclear requirements impossible."* Governance (audit, traceability, change-control) is engineered into the **data + API layer**, not the UI.
 

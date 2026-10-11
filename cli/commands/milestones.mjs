@@ -13,9 +13,10 @@ export const usage = [
   "nopm milestones ls --project <id>                             list milestones for a project",
   "nopm milestones get <id>                                      fetch a single milestone",
   "nopm milestones create --project <id> --name <n> [--status <s>] [--target <date>] [--pct <0-100>] [--description <d>]",
-  "nopm milestones update <id> [--name <n>] [--status <s>] [--target <date>] [--pct <0-100>] [--description <d>]",
+  "nopm milestones update <id> [--name <n>] [--status <s>] [--target <date>] [--pct <0-100>] [--description <d>] [--expected-updated-at <iso>]",
   "nopm milestones rm <id>                                       delete a milestone",
   "  statuses: not_started | on_track | at_risk | delayed | completed",
+  "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -78,6 +79,7 @@ export async function run(rest, ctx) {
       if (f.start)       body.start_date  = f.start;
       if (f.deliverable) body.deliverable = f.deliverable;
       if (f.order != null && f.order !== true)  body.sort_order     = Number(f.order);
+      if (f["expected-updated-at"]) body.expected_updated_at = f["expected-updated-at"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --name, --status, --target, --pct, etc.");
       const { data } = await ctx.api("PATCH", `/api/milestones/${id}`, body);
       console.log("✓ updated milestone", id);

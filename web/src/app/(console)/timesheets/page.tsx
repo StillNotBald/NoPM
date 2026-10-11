@@ -222,26 +222,18 @@ export default async function TimesheetsPage({
                   <CardTitle>Week grid</CardTitle>
                   {selectedMember && <span className="text-xs text-ink-muted truncate">— {selectedMember.name}</span>}
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <TimesheetSubmitPanel
-                    memberId={selectedMemberId}
-                    periodStart={weekStart}
-                    canWrite={canWrite}
-                    initialStatus={submissionStatus}
-                  />
-                  <Link
-                    href={`/timesheets?member=${selectedMemberId ?? ""}&week=${prevWeek}`}
-                    className="inline-flex h-9 items-center rounded-md border border-border-subtle px-2.5 text-xs text-ink-secondary hover:bg-sunken"
-                  >
-                    ← Prev
-                  </Link>
-                  <Link
-                    href={`/timesheets?member=${selectedMemberId ?? ""}&week=${nextWeek}`}
-                    className="inline-flex h-9 items-center rounded-md border border-border-subtle px-2.5 text-xs text-ink-secondary hover:bg-sunken"
-                  >
-                    Next →
-                  </Link>
-                </div>
+                {/* Prev/Next moved into the filter row below (R-94) — with
+                    Submit still here, three items in this one non-wrapping
+                    row overflowed the header on phones (F-mobile: the
+                    "Next" link clipped past the viewport edge). The filter
+                    row already wraps (`flex flex-wrap`), so Prev/Next live
+                    there instead where they can drop to their own line. */}
+                <TimesheetSubmitPanel
+                  memberId={selectedMemberId}
+                  periodStart={weekStart}
+                  canWrite={canWrite}
+                  initialStatus={submissionStatus}
+                />
               </CardHeader>
               <CardBody pad="none" className="border-b border-border-subtle p-4">
                 <form action="/timesheets" method="get" className="flex flex-wrap items-end gap-3">
@@ -264,6 +256,20 @@ export default async function TimesheetsPage({
                   <Button type="submit" variant="secondary" size="sm" className="h-11 sm:h-9">
                     View
                   </Button>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <Link
+                      href={`/timesheets?member=${selectedMemberId ?? ""}&week=${prevWeek}`}
+                      className="inline-flex h-11 items-center rounded-md border border-border-subtle px-2.5 text-xs text-ink-secondary hover:bg-sunken sm:h-9"
+                    >
+                      ← Prev
+                    </Link>
+                    <Link
+                      href={`/timesheets?member=${selectedMemberId ?? ""}&week=${nextWeek}`}
+                      className="inline-flex h-11 items-center rounded-md border border-border-subtle px-2.5 text-xs text-ink-secondary hover:bg-sunken sm:h-9"
+                    >
+                      Next →
+                    </Link>
+                  </div>
                 </form>
               </CardBody>
               <CardBody pad="none">

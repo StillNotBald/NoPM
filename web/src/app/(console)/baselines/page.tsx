@@ -3,11 +3,14 @@ import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
 import { formatByPref } from "@/lib/format/dates";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
-import { EntityLink } from "@/components/ui/entity-link";
-import { EmptyState } from "@/components/ui/empty-state";
+import {
+  LockedBaselinesList,
+  RebaselinesList,
+  type LockedBaselineRow,
+  type RebaselineRow as RebaselineListRow,
+} from "@/components/baselines/baseline-lists";
 
 // Baselines (R-78 sprint-1 follow-up): a nav home for the "lock → rebaseline
 // → sign-off → apply" flow described in
@@ -112,6 +115,34 @@ export default async function BaselinesPage() {
     .filter((p) => p.is_locked)
     .sort((a, b) => (b.locked_at ?? "").localeCompare(a.locked_at ?? ""));
 
+  const lockedBaselineRows: LockedBaselineRow[] = lockedProjects.map((p) => {
+    const lockedAt = formatByPref(p.locked_at, dateDisplayPref);
+    return {
+      id: p.id,
+      name: p.name,
+      lockedAtText: lockedAt.text,
+      lockedAtTitle: lockedAt.title,
+      lockedByLabel: labelFor(p.locked_by),
+      lockReason: p.lock_reason,
+    };
+  });
+
+  const rebaselineRows: RebaselineListRow[] = rebaselineList.map((r) => {
+    const requested = formatByPref(r.created_at, dateDisplayPref);
+    const counts = signoffCounts.get(r.id);
+    return {
+      id: r.id,
+      projectId: r.project_id,
+      projectName: projectMap[r.project_id] ?? r.project_id.slice(0, 8) + "…",
+      status: r.status,
+      statusLabel: statusLabel(r.status),
+      statusTone: statusTone(r.status as RebaselineStatus),
+      requestedText: requested.text,
+      requestedTitle: requested.title,
+      signoffLabel: counts ? `${counts.cast} / ${counts.total}` : "—",
+    };
+  });
+
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -129,59 +160,7 @@ export default async function BaselinesPage() {
               Locked baselines
             </h2>
           </div>
-          {lockedProjects.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle">
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                      Project
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                      Locked at
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                      Locked by
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                      Lock reason
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {lockedProjects.map((p) => {
-                    const lockedAt = formatByPref(p.locked_at, dateDisplayPref);
-                    return (
-                      <tr key={p.id} className="hover:bg-sunken transition-colors duration-100">
-                        <td className="px-5 py-3.5 min-w-0 max-w-[220px]">
-                          <EntityLink kind="project" id={p.id}>
-                            {p.name}
-                          </EntityLink>
-                        </td>
-                        <td className="px-5 py-3.5 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
-                          <span title={lockedAt.title}>{lockedAt.text}</span>
-                        </td>
-                        <td className="px-5 py-3.5 text-ink-secondary whitespace-nowrap text-xs">
-                          {labelFor(p.locked_by)}
-                        </td>
-                        <td className="px-5 py-3.5 max-w-xs">
-                          {p.lock_reason ? (
-                            <span className="text-xs text-ink-secondary leading-snug">
-                              {p.lock_reason}
-                            </span>
-                          ) : (
-                            <span className="text-ink-muted">—</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState purpose={FLOW_EXPLAINER} />
-          )}
+          <LockedBaselinesList rows={lockedBaselineRows} purpose={FLOW_EXPLAINER} />
         </Card>
 
         {/* Rebaselines */}
@@ -191,56 +170,7 @@ export default async function BaselinesPage() {
               Rebaselines
             </h2>
           </div>
-          {rebaselineList.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[700px] text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle">
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                      Project
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                      Status
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                      Requested
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                      Sign-offs
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {rebaselineList.map((r) => {
-                    const requested = formatByPref(r.created_at, dateDisplayPref);
-                    const counts = signoffCounts.get(r.id);
-                    return (
-                      <tr key={r.id} className="hover:bg-sunken transition-colors duration-100">
-                        <td className="px-5 py-3.5 min-w-0 max-w-[220px]">
-                          <EntityLink kind="project" id={r.project_id}>
-                            {projectMap[r.project_id] ?? r.project_id.slice(0, 8) + "…"}
-                          </EntityLink>
-                        </td>
-                        <td className="px-5 py-3.5 whitespace-nowrap">
-                          <Badge size="sm" tone={statusTone(r.status as RebaselineStatus)}>
-                            {statusLabel(r.status)}
-                          </Badge>
-                        </td>
-                        <td className="px-5 py-3.5 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
-                          <span title={requested.title}>{requested.text}</span>
-                        </td>
-                        <td className="px-5 py-3.5 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
-                          {counts ? `${counts.cast} / ${counts.total}` : "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState purpose={FLOW_EXPLAINER} />
-          )}
+          <RebaselinesList rows={rebaselineRows} purpose={FLOW_EXPLAINER} />
         </Card>
       </div>
     </div>

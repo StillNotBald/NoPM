@@ -130,7 +130,7 @@ export function ProjectSwitcher({ collapsed = false }: { collapsed?: boolean }) 
 
             {!loading && !query.trim() && recentFull.length > 0 && (
               <>
-                <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                <div className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wide text-ink-muted">
                   Recent
                 </div>
                 {recentFull.map((p) => (
@@ -142,7 +142,7 @@ export function ProjectSwitcher({ collapsed = false }: { collapsed?: boolean }) 
             {!loading && (
               <>
                 {!query.trim() && recentFull.length > 0 && allFiltered.length > 0 && (
-                  <div className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-ink-muted">
+                  <div className="px-3 pb-0.5 pt-2 text-2xs font-semibold uppercase tracking-wide text-ink-muted">
                     All Projects
                   </div>
                 )}
@@ -176,11 +176,11 @@ function ProjectRow({
       onClick={() => onSelect(project)}
       className="flex w-full items-center gap-2.5 px-3 py-1.5 text-left text-[13px] transition-colors hover:bg-sunken"
     >
-      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-accent/10 font-mono text-[10px] font-bold text-accent">
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded bg-accent/10 font-mono text-2xs font-bold text-accent">
         {project.code.slice(0, 2).toUpperCase()}
       </span>
       <span className="flex-1 truncate text-ink">{project.name}</span>
-      <span className="shrink-0 font-mono text-[10px] text-ink-muted">{project.code}</span>
+      <span className="shrink-0 font-mono text-2xs text-ink-muted">{project.code}</span>
     </button>
   );
 }

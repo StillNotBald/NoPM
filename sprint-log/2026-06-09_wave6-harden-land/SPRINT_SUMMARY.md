@@ -14,7 +14,7 @@
 - `npm test` → **102/102**. `npm run rtm:verify` → **39 R-IDs / 145 paths**. `tsc` + `next build` clean. All five waves deployed to stillnotbald.com.
 - Governance invariants now machine-checked: audit immutability, scope enforcement, four-eyes (deletion + change-request), BYOK crypto integrity, assistant scope ceiling, storage path isolation.
 
-## Open / collaborative (with Chu Ling)
+## Open items (owner input required)
 - **Visual persona walk-through + assistant chat demo** — best done together: the chat needs an owner demo key (`NOPM_DEMO_LLM_PROVIDER/KEY/MODEL` on Vercel), and a live click-through is more useful with her watching. Everything beneath is verified + live.
 - Minor polish carried forward: dedicated `change.decided` notification type; right-push viewer snapshot refresh after live file attach/remove (ADR 0005); R-51 one-pager PDF; R-61 Playwright E2E (post-v1 stretch).
 

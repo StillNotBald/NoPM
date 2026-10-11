@@ -38,6 +38,9 @@ export const updateMilestoneSchema = z.object({
   start_date: z.string().nullable().optional(), // ISO date string
   baseline_target_date: z.string().nullable().optional(), // ISO date string
   actual_date: z.string().nullable().optional(), // ISO date string
+  // ── Optimistic concurrency (R-90) — opt-in. When sent, must match the row's
+  // current updated_at or the PATCH is rejected with 412 (see @/lib/api/occ).
+  expected_updated_at: z.string().datetime({ offset: true }).optional(),
 });
 
 export type CreateMilestoneInput = z.infer<typeof createMilestoneSchema>;

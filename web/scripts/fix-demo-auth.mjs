@@ -18,26 +18,13 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv, requireEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-let fileEnv = {};
+let env;
 try {
-  fileEnv = Object.fromEntries(
-    readFileSync(path.join(here, "..", ".env.local"), "utf8")
-      .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-  );
-} catch {
-  // no .env.local — CI provides everything via process.env
-}
-const env = { ...fileEnv, ...process.env };
-
-const missing = ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "DEMO_EMAIL", "DEMO_PASSWORD"]
-  .filter((k) => !env[k] || !env[k].trim());
-if (missing.length) {
-  console.error(`fix-demo-auth: refusing to run — missing env: ${missing.join(", ")}`);
+  env = requireEnv(["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "DEMO_EMAIL", "DEMO_PASSWORD"], loadEnv());
+} catch (e) {
+  console.error(`fix-demo-auth: refusing to run — ${e.message}`);
   process.exit(1);
 }
 

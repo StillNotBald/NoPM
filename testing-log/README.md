@@ -86,3 +86,5 @@ Honest mapping: a product journey to the suite(s) that actually exercise it end 
 
 - [`2026-08-14_wave1a-live-verification/`](./2026-08-14_wave1a-live-verification/README.md) — live-DB rolled-back transaction probe closing devops-wave-1a (project lock P0010 enforcement, rate-limit RPC countdown, auth-smoke 19/19).
 - [`2026-08-20_demo-preflight/`](./2026-08-20_demo-preflight/README.md) — full-battery demo pre-flight: 1,718 unit tests, RTM 67/432, e2e Tier-1 77/77 **against live**, funnel-identity probe (demo = manager), 23-page screenshot + timing pass as the demo identity.
+- [`2026-09-07_mobile-ui/`](./2026-09-07_mobile-ui/FINDINGS.md) — mobile audit for R-94: 29 routes × iPhone 14 / small Android, baseline vs after screenshots and measurements (`results.json`, `results-after.json`), `COMPARISON.md` from the single-agent re-audit.
+- [`2026-09-07_oss-improvements/`](./2026-09-07_oss-improvements/README.md) — gate battery + per-requirement verifier verdicts for R-88 … R-94 (self-host path, nonce CSP, optimistic concurrency, MFA challenge, contributor governance, use cases/BPDs, mobile console).

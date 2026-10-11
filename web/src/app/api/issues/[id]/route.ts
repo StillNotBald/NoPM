@@ -1,6 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError } from "@/lib/api/errors";
+import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
@@ -54,6 +55,10 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const input = parsed.data;
 
+  // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
+  // the caller doesn't send it (today's last-write-wins, unchanged).
+  checkOptimisticConcurrency(existing.updated_at, input.expected_updated_at);
+
   // Build only the fields provided in the patch
   const updates: Record<string, unknown> = {};
   if (input.title !== undefined) updates.title = input.title;
@@ -69,15 +74,27 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
   if (input.external_url !== undefined) updates.external_url = input.external_url;
 
-  const { data: updated, error: updateError } = await db
+  let query = db
     .from("issues")
     .update(updates)
     .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
+    .eq("workspace_id", actor.workspaceId);
+  // Defense-in-depth: also scope the write itself to the row's pre-check
+  // updated_at, closing the (narrow) race between the fetch above and this
+  // write. On a lost race the row exists but the filter matches zero rows —
+  // maybeSingle() returns null instead of PostgREST's "no rows" error.
+  if (input.expected_updated_at !== undefined) {
+    query = query.eq("updated_at", existing.updated_at);
+  }
+  const { data: updated, error: updateError } = await query.select().maybeSingle();
 
-  if (updateError || !updated) throw new Error(updateError?.message ?? "Update failed");
+  if (updateError) throw new Error(updateError.message);
+  if (!updated) {
+    if (input.expected_updated_at !== undefined) {
+      throw new PreconditionFailedError("Record changed since you loaded it");
+    }
+    throw new Error("Update failed");
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

@@ -6,22 +6,10 @@
 //   Usage:  node scripts/auth-smoke.mjs            (defaults to the live site)
 //           BASE=http://localhost:3000 node scripts/auth-smoke.mjs
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
 // Env precedence: process.env (CI secrets) over web/.env.local (local dev).
-let fileEnv = {};
-try {
-  fileEnv = Object.fromEntries(
-    readFileSync(path.join(here, "..", ".env.local"), "utf8")
-      .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-  );
-} catch {
-  // no .env.local — CI provides everything via process.env
-}
-const env = { ...fileEnv, ...process.env };
+const env = loadEnv();
 const BASE = process.env.BASE || "https://stillnotbald.com";
 const EMAIL = process.env.ADMIN_EMAIL || env.ADMIN_EMAIL || "admin@stillnotbald.com";
 const ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
@@ -55,7 +43,8 @@ const pages = [
 ];
 
 let pass = 0, fail = 0;
-console.log(`Authenticated smoke as ${EMAIL} → ${BASE}\n`);
+const maskedEmail = EMAIL.replace(/^(.{2}).*(@.*)$/, "$1***$2");
+console.log(`Authenticated smoke as ${maskedEmail} → ${BASE}\n`);
 for (const p of pages) {
   try {
     const r = await fetch(BASE + p, { headers: { Cookie: cookie }, redirect: "manual" });

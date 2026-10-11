@@ -44,7 +44,7 @@ export function EntityLink({
       )}
     >
       {refId ? (
-        <span className="shrink-0 font-mono text-[10px] text-ink-muted">{refId}</span>
+        <span className="shrink-0 font-mono text-2xs text-ink-muted">{refId}</span>
       ) : null}
       <span className="truncate">{children}</span>
     </Link>

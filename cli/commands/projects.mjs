@@ -23,11 +23,12 @@ export const usage = [
   "nopm projects ls                                         list all projects [--external-ref <ref>]",
   "nopm projects get <id>                                   fetch a single project",
   "nopm projects create --name <n> --code <c> [--program <p>] [--rag <status>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--currency <USD>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
-  "nopm projects update <id> [--name <n>] [--code <c>] [--rag <status>] [--pct <0-100>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm projects update <id> [--name <n>] [--code <c>] [--rag <status>] [--pct <0-100>] [--description <d>] [--phase <ph>] [--start <date>] [--target <date>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
   "nopm projects lock   <id> [--reason <why>]               lock project timeline",
   "nopm projects unlock <id> --reason <text>                unlock project timeline (--reason required, R-83)",
   "nopm projects rm     <id>                                hard-delete a project (project:write)",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this project mirrors, e.g. --source jira --external-ref PROJ-123",
+  "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -98,6 +99,7 @@ export async function run(rest, ctx) {
       if (f.source)              body.source       = f.source;
       if (f["external-ref"])     body.external_ref = f["external-ref"];
       if (f["external-url"])     body.external_url = f["external-url"];
+      if (f["expected-updated-at"]) body.expected_updated_at = f["expected-updated-at"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --name, --rag, --pct, etc.");
       const { data } = await ctx.api("PATCH", `/api/projects/${id}`, body);
       console.log("✓ updated project", id);

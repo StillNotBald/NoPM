@@ -12,34 +12,13 @@
  *   node scripts/mcp-http-smoke.mjs
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { loadEnv } from "./lib/env.mjs";
 
-const __dir = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(__dir, "..");
-
-function loadEnvLocal() {
-  const envPath = path.join(ROOT, ".env.local");
-  if (!existsSync(envPath)) return {};
-  const env = {};
-  for (const line of readFileSync(envPath, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    const val = trimmed.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, "");
-    env[key] = val;
-  }
-  return env;
-}
-
-const envLocal = loadEnvLocal();
-const token = envLocal.NOPM_TOKEN || envLocal.NOPM_MAKER_TOKEN;
-const mcpUrl = process.env.NOPM_HTTP_MCP_URL || "http://localhost:3000/api/mcp";
+const env = loadEnv();
+const token = env.NOPM_TOKEN || env.NOPM_MAKER_TOKEN;
+const mcpUrl = env.NOPM_HTTP_MCP_URL || "http://localhost:3000/api/mcp";
 
 if (!token) {
   console.error("smoke: no token — set NOPM_TOKEN or NOPM_MAKER_TOKEN in web/.env.local");

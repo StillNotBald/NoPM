@@ -1,5 +1,6 @@
 /**
- * Guard tests for wave3-mobile / W3-T3-landing-heatmap.
+ * Guard tests for wave3-mobile / W3-T3-landing-heatmap, updated for the
+ * R-94 mobile pass (2026-09-07).
  *
  * Source-inspection pattern (see src/components/layout/mobile-chrome.test.ts)
  * rather than mounting React — no jsdom/@testing-library in this project
@@ -8,15 +9,29 @@
  * tokens so a future edit can't silently drop a breakpoint gate and regress
  * desktop (locked decision: "desktop regression = failure").
  *
+ * SUPERSEDES the original wave3 "nav stays pure CSS visibility, no
+ * hamburger" lock: the R-94 mobile pass found the landing/case-study nav
+ * had five reachable-but-hidden-below-sm links with no way to open them on
+ * a phone (Agent API, OpenAPI, Raise a change request were unreachable
+ * below 640px; Home/Sign in on case-study had the same gap below md). The
+ * fix is a 44px hamburger (`MobileNavMenu`, `components/marketing/`)
+ * built on the same body-scroll-lock/inert/focus-return hooks every other
+ * sheet in the product uses — not a new pattern, just marketing catching up
+ * to the console's own sheet convention. `<md` is "phone" per
+ * `components/ui/MOBILE.md`; the breakpoint moved from `sm` (640) to `md`
+ * (768) so nothing sits hidden-and-unreachable in the 640-767px gap.
+ *
  * Covers:
- *   1. Landing nav collapses to brand + Case study + demo button below sm;
- *      Agent API / OpenAPI stay reachable (case-study page, footer) but are
- *      hidden below sm and restored unchanged at sm+.
- *   2. Landing hero h1 steps down text-4xl -> sm:text-5xl (no more
- *      undownscaled text-5xl).
- *   3. Case-study header's Home link is hidden below sm (tight fit at
- *      390px alongside Sign in + the demo button), restored at sm+; Sign in
- *      and the demo button stay visible at every width.
+ *   1. Landing nav collapses to brand + Open console + a menu button below
+ *      md; Case study / Raise a change request / Agent API / OpenAPI move
+ *      into the menu (reachable via MobileNavMenu) and restore inline,
+ *      unchanged, at md+.
+ *   2. Landing hero h1 scales via a mobile clamp below sm, steps to
+ *      sm:text-5xl / xl:text-6xl unchanged above sm (no undownscaled
+ *      text-5xl).
+ *   3. Case-study header's Home and Sign in links move into the same
+ *      MobileNavMenu below md (demo button stays inline at every width),
+ *      restored unchanged at md+.
  *   4. Case-study hero h1 steps down text-3xl -> sm:text-4xl (no more
  *      undownscaled text-4xl).
  */
@@ -29,43 +44,49 @@ const LANDING = readFileSync(join(APP_DIR, "page.tsx"), "utf8");
 const CASE_STUDY = readFileSync(join(APP_DIR, "case-study", "page.tsx"), "utf8");
 
 // ---------------------------------------------------------------------------
-// 1. Landing nav — collapse below sm
+// 1. Landing nav — collapse below md, reachable via MobileNavMenu
 // ---------------------------------------------------------------------------
-describe("landing page.tsx — header nav collapses below sm", () => {
+describe("landing page.tsx — header nav collapses below md", () => {
   const navBlock = LANDING.slice(LANDING.indexOf("<nav "), LANDING.indexOf("</nav>"));
 
-  it("keeps Case study reachable at every width (no hidden gate)", () => {
+  it("hides Case study below md, restores it md+ (reachable via the menu below md)", () => {
     const caseStudyLine = navBlock
       .split("\n")
-      .find((l) => l.includes('href="/case-study"'));
+      .find((l) => l.includes('href="/case-study"') && l.includes("<Link"));
     expect(caseStudyLine).toBeTruthy();
-    expect(caseStudyLine).not.toMatch(/hidden/);
+    expect(caseStudyLine).toMatch(/hidden md:inline\b/);
   });
 
-  it("hides Agent API below sm, restores it sm+ (still reachable via case-study/footer)", () => {
-    const agentApiLine = navBlock.split("\n").find((l) => l.includes('href="/llms.txt"'));
+  it("hides Agent API below md, restores it md+ (reachable via the menu below md)", () => {
+    const agentApiLine = navBlock
+      .split("\n")
+      .find((l) => l.includes('href="/llms.txt"') && l.includes("<a "));
     expect(agentApiLine).toBeTruthy();
-    expect(agentApiLine).toMatch(/hidden sm:inline-flex/);
+    expect(agentApiLine).toMatch(/hidden md:inline-flex/);
   });
 
-  it("hides OpenAPI below sm, restores it sm+", () => {
+  it("hides OpenAPI below md, restores it md+ (reachable via the menu below md)", () => {
     const openApiLine = navBlock
       .split("\n")
-      .find((l) => l.includes('href="/api/openapi.json"'));
+      .find((l) => l.includes('href="/api/openapi.json"') && l.includes("<a "));
     expect(openApiLine).toBeTruthy();
-    expect(openApiLine).toMatch(/hidden sm:inline-flex/);
+    expect(openApiLine).toMatch(/hidden md:inline-flex/);
   });
 
   it("keeps the demo/console button visible at every width (no hidden gate)", () => {
     const consoleBlock = navBlock.slice(navBlock.indexOf('href="/login"'));
     expect(consoleBlock).toMatch(/Open console/);
-    const consoleLine = navBlock.split("\n").find((l) => l.includes('href="/login"'));
+    const consoleLine = navBlock.split("\n").find((l) => l.includes('href="/login"') && l.includes("<Link"));
     expect(consoleLine).not.toMatch(/hidden/);
   });
 
-  it("adds no new client JS / hamburger — nav stays pure CSS visibility", () => {
-    expect(LANDING).not.toMatch(/"use client"/);
-    expect(LANDING).not.toMatch(/hamburger/i);
+  it("renders MobileNavMenu, gated to below md, carrying every link hidden from the inline nav", () => {
+    expect(navBlock).toMatch(/<MobileNavMenu/);
+    const menuBlock = navBlock.slice(navBlock.indexOf("<MobileNavMenu"));
+    expect(menuBlock).toMatch(/className="md:hidden"/);
+    for (const href of ['"/case-study"', "CONTACT_URL", '"/llms.txt"', '"/api/openapi.json"', '"/login"']) {
+      expect(menuBlock).toContain(href);
+    }
   });
 });
 
@@ -73,10 +94,10 @@ describe("landing page.tsx — header nav collapses below sm", () => {
 // 2. Landing hero heading — mobile step
 // ---------------------------------------------------------------------------
 describe("landing page.tsx — hero h1 steps down on mobile", () => {
-  it("h1 is text-4xl below sm, text-5xl at sm+ (no undownscaled text-5xl)", () => {
+  it("h1 clamps below sm, steps to sm:text-5xl / xl:text-6xl unchanged above sm", () => {
     const h1Line = LANDING.split("\n").find((l) => l.includes("<h1 "));
     expect(h1Line).toBeTruthy();
-    expect(h1Line).toMatch(/text-4xl sm:text-5xl/);
+    expect(h1Line).toMatch(/text-\[clamp\([^)]+\)\] sm:text-5xl xl:text-6xl/);
   });
 
   it("has no bare (non-stepped) text-4xl/5xl/6xl heading anywhere on the page", () => {
@@ -92,7 +113,7 @@ describe("landing page.tsx — hero h1 steps down on mobile", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Case-study header — Home hidden below sm (tight at 390px)
+// 3. Case-study header — Home + Sign in move into the menu below md
 // ---------------------------------------------------------------------------
 describe("case-study page.tsx — header fits 390px", () => {
   const navBlock = CASE_STUDY.slice(
@@ -100,22 +121,33 @@ describe("case-study page.tsx — header fits 390px", () => {
     CASE_STUDY.indexOf("{/* ── hero ── */}"),
   );
 
-  it("hides the Home link below sm, restores it sm+", () => {
+  it("hides the Home link below md, restores it md+", () => {
     const homeLine = navBlock.split("\n").find((l) => l.includes(">Home<"));
     expect(homeLine).toBeTruthy();
-    expect(homeLine).toMatch(/hidden sm:inline\b/);
+    expect(homeLine).toMatch(/hidden md:inline\b/);
   });
 
-  it("keeps Sign in and the demo button visible at every width", () => {
+  it("hides the Sign in link below md, restores it md+ (still reachable via the menu below md)", () => {
     const signInLine = navBlock.split("\n").find((l) => l.includes(">Sign in<"));
     expect(signInLine).toBeTruthy();
-    expect(signInLine).not.toMatch(/hidden/);
+    expect(signInLine).toMatch(/hidden md:inline\b/);
+  });
+
+  it("keeps the demo button visible at every width (no hidden gate)", () => {
     expect(navBlock).toMatch(/<DemoLoginButton/);
     const demoLine = navBlock.split("\n").find((l) => l.includes("<DemoLoginButton"));
     expect(demoLine).not.toMatch(/hidden/);
   });
 
-  it("the brand logo/home link (icon) is unaffected — only the text nav link is gated", () => {
+  it("renders MobileNavMenu, gated to below md, carrying Home and Sign in", () => {
+    expect(navBlock).toMatch(/<MobileNavMenu/);
+    const menuBlock = navBlock.slice(navBlock.indexOf("<MobileNavMenu"));
+    expect(menuBlock).toMatch(/className="md:hidden"/);
+    expect(menuBlock).toContain('label: "Home"');
+    expect(menuBlock).toContain('label: "Sign in"');
+  });
+
+  it("the brand logo/home link (icon) is unaffected — only the text nav links are gated", () => {
     const brandBlock = navBlock.slice(0, navBlock.indexOf("<nav "));
     expect(brandBlock).toMatch(/href="\/"/);
     expect(brandBlock).not.toMatch(/hidden/);

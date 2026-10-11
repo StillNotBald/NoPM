@@ -232,19 +232,26 @@ export default async function PortfolioPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      {/* The project/program count used to sit inline before the New Program
+          button; at phone widths that squeezed "Portfolio Roadmap" down to
+          "P…" (PageHeader's title is the only flexible side of the row). It
+          now lives in secondaryActions: inline at sm+ (same spot as before),
+          collapsed into the 44px overflow menu below sm so the title has
+          room to breathe. */}
       <PageHeader
         title="Portfolio Roadmap"
-        action={
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-xs text-ink-muted tabular-nums">
-              {projects.length} project{projects.length !== 1 ? "s" : ""}
-              {programs.length > 0
-                ? ` · ${programs.length} program${programs.length !== 1 ? "s" : ""}`
-                : ""}
-            </span>
-            <NewProgramButton />
-          </div>
-        }
+        action={<NewProgramButton />}
+        secondaryActions={[
+          <span
+            key="count"
+            className="whitespace-nowrap font-mono text-xs text-ink-muted tabular-nums"
+          >
+            {projects.length} project{projects.length !== 1 ? "s" : ""}
+            {programs.length > 0
+              ? ` · ${programs.length} program${programs.length !== 1 ? "s" : ""}`
+              : ""}
+          </span>,
+        ]}
       />
 
       {allGroups.length === 0 ? (
