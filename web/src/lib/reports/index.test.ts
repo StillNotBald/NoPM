@@ -191,6 +191,20 @@ describe("generateDeck — pptx and pdf", () => {
     expect((out.body as Buffer).subarray(0, 2).toString("latin1")).toBe("PK");
   });
 
+  it("pptx unzips to a real deck: one slide per default section, valid presentation parts", async () => {
+    const { default: JSZip } = await import("jszip");
+    const out = await generateDeck(WS, "pptx");
+    const zip = await JSZip.loadAsync(out.body as Buffer);
+    const slides = Object.keys(zip.files).filter((f) => /^ppt\/slides\/slide\d+\.xml$/.test(f));
+    // cover, rag, projects, evm, risks, issues, milestones
+    expect(slides).toHaveLength(7);
+    expect(zip.file("ppt/presentation.xml")).not.toBeNull();
+    expect(zip.file("[Content_Types].xml")).not.toBeNull();
+    const cover = await zip.file("ppt/slides/slide1.xml")!.async("string");
+    expect(cover).toContain("Portfolio Status Report");
+    expect(cover).toContain("Acme Delivery");
+  });
+
   it("pdf returns a Buffer with the application/pdf content type", async () => {
     const out = await generateDeck(WS, "pdf");
     expect(Buffer.isBuffer(out.body)).toBe(true);
