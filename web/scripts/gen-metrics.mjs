@@ -97,7 +97,8 @@ const next = JSON.stringify(metrics, null, 2) + "\n";
 
 if (process.argv.includes("--check")) {
   let current = "";
-  try { current = readFileSync(OUT, "utf8"); } catch {}
+  // Normalise CRLF so a Windows autocrlf checkout does not fail on identical numbers.
+  try { current = readFileSync(OUT, "utf8").replace(/\r\n/g, "\n"); } catch {}
   if (current !== next) {
     console.error("✗ metrics.gen.json is stale. Regenerate with: node scripts/gen-metrics.mjs");
     console.error("  checked-in:", current.trim() || "(missing)");
