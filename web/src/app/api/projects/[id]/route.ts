@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { NextResponse } from "next/server";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
+import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { updateProjectSchema, ProjectDeleteRequestSchema } from "../_schema";
 
@@ -57,20 +58,37 @@ export const PATCH = route(async ({ actor, params, request }) => {
     );
   }
 
+  // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
+  // the caller doesn't send it (today's last-write-wins, unchanged).
+  const { expected_updated_at, ...fields } = parsed.data;
+  checkOptimisticConcurrency(before.updated_at, expected_updated_at);
+
   const now = new Date().toISOString();
-  const { data: after, error: updateError } = await db
+  let query = db
     .from("projects")
     .update({
-      ...parsed.data,
+      ...fields,
       workspace_id: actor.workspaceId, // never let caller overwrite
       updated_at: now,
     })
     .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
+    .eq("workspace_id", actor.workspaceId);
+  // Defense-in-depth: also scope the write itself to the row's pre-check
+  // updated_at, closing the (narrow) race between the fetch above and this
+  // write. On a lost race the row exists but the filter matches zero rows —
+  // maybeSingle() returns null instead of PostgREST's "no rows" error.
+  if (expected_updated_at !== undefined) {
+    query = query.eq("updated_at", before.updated_at);
+  }
+  const { data: after, error: updateError } = await query.select().maybeSingle();
 
   if (updateError) throw updateError;
+  if (!after) {
+    if (expected_updated_at !== undefined) {
+      throw new PreconditionFailedError("Record changed since you loaded it");
+    }
+    throw new Error("Update failed");
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

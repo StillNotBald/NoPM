@@ -34,6 +34,9 @@ export interface Milestone {
   start_date?: string | null;
   baseline_target_date?: string | null;
   actual_date?: string | null;
+  // Optimistic concurrency (R-90) — present on any record loaded from the
+  // API; carried back on PATCH as expected_updated_at when editing.
+  updated_at?: string | null;
 }
 
 // ── MilestoneForm ─────────────────────────────────────────────────────────────
@@ -103,6 +106,9 @@ export function MilestoneForm({
       start_date: startDate || null,
       baseline_target_date: baselineTargetDate || null,
       actual_date: actualDate || null,
+      // Optimistic concurrency (R-90) — only meaningful (and only sent) on
+      // an edit of an existing record; a create has nothing to be stale.
+      ...(milestone?.updated_at ? { expected_updated_at: milestone.updated_at } : {}),
     };
 
     try {
@@ -116,8 +122,14 @@ export function MilestoneForm({
       router.refresh();
       inspector.close();
     } catch (err) {
-      applyApiError(err as ApiError);
-      toast.error((err as ApiError).message ?? "Failed to save milestone");
+      const apiErr = err as ApiError;
+      if (apiErr.status === 412) {
+        setTopError("This record changed since you opened it. Reload to see the latest.");
+        toast.error("This record changed since you opened it. Reload to see the latest.");
+      } else {
+        applyApiError(apiErr);
+        toast.error(apiErr.message ?? "Failed to save milestone");
+      }
       setSaving(false);
     }
   }

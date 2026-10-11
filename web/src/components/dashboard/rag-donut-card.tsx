@@ -52,7 +52,7 @@ export function RagDonutCard({
               <span className="font-mono text-2xl font-semibold tabular-nums text-ink leading-none">
                 {total}
               </span>
-              <span className="mt-0.5 text-[10px] uppercase tracking-widest text-ink-muted">
+              <span className="mt-0.5 text-2xs uppercase tracking-widest text-ink-muted">
                 total
               </span>
             </div>

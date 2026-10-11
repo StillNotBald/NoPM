@@ -32,7 +32,7 @@ import { cn } from "@/lib/cn";
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2 border-b border-border-subtle last:border-0">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -166,14 +166,18 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
         </div>
       )}
 
-      {/* Step 1: pick action */}
+      {/* Step 1: pick action — docked at the bottom of the inspector sheet
+          like a sticky footer (RightPushPanel's own footer slot isn't wired
+          through useInspector, so this is a same-look sticky bar inside the
+          panel's own scroll container instead). >=44px, full width on
+          phones (stacked column), primary (Approve) first. */}
       {!confirming && (
-        <div className="flex gap-2">
+        <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-col gap-2 border-t border-border-subtle bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row">
           <Button
             type="button"
             variant="primary"
             size="sm"
-            className="flex-1"
+            className="h-11 w-full sm:h-9 sm:flex-1"
             onClick={() => setConfirming("approve")}
           >
             Approve
@@ -182,7 +186,7 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
             type="button"
             variant="danger"
             size="sm"
-            className="flex-1"
+            className="h-11 w-full sm:h-9 sm:flex-1"
             onClick={() => setConfirming("reject")}
           >
             Reject
@@ -231,14 +235,17 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
             </div>
           )}
 
-          <div className="flex gap-2 pt-1">
+          {/* Confirm/Back — same sticky sheet-footer bar; flex-col-reverse on
+              phones puts the primary Confirm action visually first (on top)
+              without changing the Back-then-Confirm tab order. */}
+          <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-col-reverse gap-2 border-t border-border-subtle bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row">
             <Button
               type="button"
               variant="secondary"
               size="sm"
               onClick={reset}
               disabled={saving}
-              className="flex-1"
+              className="h-11 w-full sm:h-9 sm:flex-1"
             >
               Back
             </Button>
@@ -247,7 +254,7 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
               variant={confirming === "approve" ? "primary" : "danger"}
               size="sm"
               disabled={saving}
-              className="flex-1"
+              className="h-11 w-full sm:h-9 sm:flex-1"
             >
               {saving ? (
                 <>
@@ -440,14 +447,15 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
         </div>
       )}
 
-      {/* Step 1: pick action */}
+      {/* Step 1: pick action — same sticky sheet-footer bar as
+          ApprovalInlineAction above. */}
       {!confirming && (
-        <div className="flex gap-2">
+        <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-col gap-2 border-t border-border-subtle bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row">
           <Button
             type="button"
             variant="primary"
             size="sm"
-            className="flex-1"
+            className="h-11 w-full sm:h-9 sm:flex-1"
             onClick={() => setConfirming("approved")}
           >
             Approve
@@ -456,7 +464,7 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
             type="button"
             variant="danger"
             size="sm"
-            className="flex-1"
+            className="h-11 w-full sm:h-9 sm:flex-1"
             onClick={() => setConfirming("rejected")}
           >
             Reject
@@ -505,14 +513,14 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
             </div>
           )}
 
-          <div className="flex gap-2 pt-1">
+          <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 flex flex-col-reverse gap-2 border-t border-border-subtle bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:flex-row">
             <Button
               type="button"
               variant="secondary"
               size="sm"
               onClick={reset}
               disabled={saving}
-              className="flex-1"
+              className="h-11 w-full sm:h-9 sm:flex-1"
             >
               Back
             </Button>
@@ -521,7 +529,7 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
               variant={confirming === "approved" ? "primary" : "danger"}
               size="sm"
               disabled={saving}
-              className="flex-1"
+              className="h-11 w-full sm:h-9 sm:flex-1"
             >
               {saving ? (
                 <>

@@ -135,14 +135,19 @@ export default async function EmailPreviewsPage() {
                       {relativeTime(n.created_at)}
                     </time>
                   </CardHeader>
-                  <CardBody pad="none">
-                    {/* Sandboxed iframe — email styles are fully isolated */}
+                  <CardBody pad="none" className="overflow-hidden rounded-b-lg">
+                    {/* Sandboxed iframe — email styles are fully isolated.
+                        Height caps at 60vh (min() keeps the existing 420px on
+                        normal-height screens) so a short/landscape phone
+                        viewport never has the preview pushed off-screen; the
+                        iframe scrolls its own content if it's taller than
+                        the visible box. */}
                     <iframe
                       srcDoc={html}
                       sandbox=""
                       title={`Email preview: ${subject}`}
                       className="w-full rounded-b-lg"
-                      style={{ height: "420px", border: "none", display: "block" }}
+                      style={{ height: "min(420px, 60vh)", border: "none", display: "block" }}
                     />
                   </CardBody>
                 </Card>

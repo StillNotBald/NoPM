@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { FilterSheet } from "@/components/ui/filter-sheet";
 import { cn } from "@/lib/cn";
 import { parseAuditFilters } from "@/app/api/audit/_query";
 
@@ -26,6 +27,11 @@ interface AuditRow {
    *  existed have no channel on file. */
   channel?: "ui" | "api" | "cli" | "mcp" | "assistant" | string | null;
   request_id?: string | null;
+}
+
+function shortRequestId(id: string | null | undefined): string | null {
+  if (!id) return null;
+  return id.length > 12 ? `${id.slice(0, 12)}…` : id;
 }
 
 const COMMON_ACTIONS: { action: string; description: string }[] = [
@@ -122,6 +128,7 @@ export default async function TrustPage({
   const filters = parseAuditFilters(parseInput);
   const hasAnyFilter = !!(filters.target_type || filters.target_id || filters.action || filters.channel);
   const hasTargetFilter = !!(filters.target_type && filters.target_id);
+  const activeFilterCount = (filters.channel ? 1 : 0) + (filters.action ? 1 : 0);
 
   let query = db.from("audit_log").select("*");
   if (filters.target_type) query = query.eq("target_type", filters.target_type);
@@ -183,57 +190,62 @@ export default async function TrustPage({
         </div>
       )}
 
-      {/* Filter bar — plain GET form, no client JS. */}
-      <form
-        method="get"
-        className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface px-4 py-3 sm:flex-row sm:flex-wrap sm:items-end"
-      >
-        {filters.target_type && <input type="hidden" name="target_type" value={filters.target_type} />}
-        {filters.target_id && <input type="hidden" name="target_id" value={filters.target_id} />}
+      {/* Filter bar — plain GET form, no client JS. Below md it collapses
+          into a single "Filters" button (FilterSheet); the form's own
+          Filter/Clear controls still do the work via native navigation, so
+          no onApply/onClear callback is needed here. */}
+      <FilterSheet activeCount={activeFilterCount}>
+        <form
+          method="get"
+          className="flex flex-col gap-3 rounded-lg border border-border-subtle bg-surface px-4 py-3 sm:flex-row sm:flex-wrap sm:items-end"
+        >
+          {filters.target_type && <input type="hidden" name="target_type" value={filters.target_type} />}
+          {filters.target_id && <input type="hidden" name="target_id" value={filters.target_id} />}
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="trust-channel" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
-            Channel
-          </label>
-          <select
-            id="trust-channel"
-            name="channel"
-            defaultValue={filters.channel ?? ""}
-            className="h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30"
-          >
-            <option value="">All</option>
-            {CHANNEL_OPTIONS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trust-channel" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+              Channel
+            </label>
+            <select
+              id="trust-channel"
+              name="channel"
+              defaultValue={filters.channel ?? ""}
+              className="field h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-auto"
+            >
+              <option value="">All</option>
+              {CHANNEL_OPTIONS.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label htmlFor="trust-action" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
-            Action
-          </label>
-          <Input
-            id="trust-action"
-            name="action"
-            defaultValue={filters.action ?? ""}
-            placeholder="e.g. task.create"
-            className="h-10 sm:w-56"
-          />
-        </div>
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trust-action" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+              Action
+            </label>
+            <Input
+              id="trust-action"
+              name="action"
+              defaultValue={filters.action ?? ""}
+              placeholder="e.g. task.create"
+              className="h-11 sm:h-10 sm:w-56"
+            />
+          </div>
 
-        <div className="flex items-center gap-2">
-          <Button type="submit" variant="secondary" size="sm">
-            Filter
-          </Button>
-          {hasAnyFilter && (
-            <a href="/trust" className="text-xs text-ink-muted hover:text-ink hover:underline">
-              Clear
-            </a>
-          )}
-        </div>
-      </form>
+          <div className="flex items-center gap-2">
+            <Button type="submit" variant="secondary" size="sm" className="h-11 sm:h-9">
+              Filter
+            </Button>
+            {hasAnyFilter && (
+              <a href="/trust" className="text-xs text-ink-muted hover:text-ink hover:underline">
+                Clear
+              </a>
+            )}
+          </div>
+        </form>
+      </FilterSheet>
 
       {/* Main content row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
@@ -268,56 +280,19 @@ export default async function TrustPage({
                     )}
                   </div>
 
-                  {/* Entry body */}
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-                      {/* Left side */}
-                      <div className="space-y-1.5">
-                        {/* Action badge */}
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            tone={actionToBadgeTone(entry.action)}
-                            className="font-mono text-xs"
-                          >
-                            {entry.action}
-                          </Badge>
-                        </div>
-
-                        {/* Actor */}
-                        <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                          <span className="text-ink-muted">by</span>
-                          <span className="font-medium text-ink">{entry.actor_label}</span>
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs",
-                              entry.actor_type === "token"
-                                ? "bg-warning/15 text-warning"
-                                : "bg-sunken text-ink-secondary",
-                            )}
-                          >
-                            {entry.actor_type === "token" ? "token" : "user"}
-                          </span>
-                          {entry.channel && (
-                            <span
-                              title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
-                              className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
-                            >
-                              {entry.channel}
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Target */}
-                        <p className="text-xs text-ink-muted">
-                          <span className="capitalize">{entry.target_type}</span>
-                          <code className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
-                            {shortId(entry.target_id)}
-                          </code>
-                        </p>
-                      </div>
-
-                      {/* Right side: timestamp */}
-                      <div className="shrink-0 text-right">
+                  {/* Entry body — a compact card at every width: action +
+                      time share a row (time wraps under the badge on
+                      narrow screens instead of hanging as an orphan column
+                      to the right), then actor, target, request id. */}
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <Badge
+                        tone={actionToBadgeTone(entry.action)}
+                        className="font-mono text-xs"
+                      >
+                        {entry.action}
+                      </Badge>
+                      <div className="text-left sm:text-right">
                         <time
                           dateTime={entry.created_at}
                           title={absoluteTime(entry.created_at)}
@@ -325,11 +300,51 @@ export default async function TrustPage({
                         >
                           {relativeTime(entry.created_at)}
                         </time>
-                        <span className="block text-xs text-ink-muted">
+                        <span className="block text-2xs text-ink-muted">
                           {absoluteTime(entry.created_at)}
                         </span>
                       </div>
                     </div>
+
+                    {/* Actor */}
+                    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                      <span className="text-ink-muted">by</span>
+                      <span className="font-medium text-ink">{entry.actor_label}</span>
+                      <span
+                        className={cn(
+                          "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs",
+                          entry.actor_type === "token"
+                            ? "bg-warning/15 text-warning"
+                            : "bg-sunken text-ink-secondary",
+                        )}
+                      >
+                        {entry.actor_type === "token" ? "token" : "user"}
+                      </span>
+                      {entry.channel && (
+                        <span
+                          title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
+                          className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
+                        >
+                          {entry.channel}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Target */}
+                    <p className="text-xs text-ink-muted">
+                      <span className="capitalize">{entry.target_type}</span>
+                      <code className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
+                        {shortId(entry.target_id)}
+                      </code>
+                    </p>
+
+                    {/* Request id — provenance, always present but easy to
+                        skim past at text-2xs. */}
+                    {entry.request_id && (
+                      <p className="font-mono text-2xs text-ink-muted">
+                        req: {shortRequestId(entry.request_id)}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}

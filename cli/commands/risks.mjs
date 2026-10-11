@@ -13,11 +13,12 @@ export const usage = [
   "nopm risks ls --project <id>                                  list risks for a project [--external-ref <ref>]",
   "nopm risks get <id>                                           fetch a single risk",
   "nopm risks create --project <id> --title <t> --severity <s> --likelihood <l>  [--description <d>] [--mitigation <m>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
-  "nopm risks update <id> [--title <t>] [--severity <s>] [--likelihood <l>] [--status <s>] [--mitigation <m>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm risks update <id> [--title <t>] [--severity <s>] [--likelihood <l>] [--status <s>] [--mitigation <m>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
   "nopm risks rm <id>                                            delete a risk",
   "  severity/likelihood: low | medium | high | critical",
   "  status: open | mitigating | closed | accepted",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this risk mirrors, e.g. --source jira --external-ref PROJ-123",
+  "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -90,6 +91,7 @@ export async function run(rest, ctx) {
       if (f.source)              body.source       = f.source;
       if (f["external-ref"])     body.external_ref = f["external-ref"];
       if (f["external-url"])     body.external_url = f["external-url"];
+      if (f["expected-updated-at"]) body.expected_updated_at = f["expected-updated-at"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --title, --severity, --status, etc.");
       const { data } = await ctx.api("PATCH", `/api/risks/${id}`, body);
       console.log("✓ updated risk", id);

@@ -172,6 +172,9 @@ const ALLOWED_TASK_FIELDS = [
   "source",
   "external_ref",
   "external_url",
+  // Optimistic concurrency (R-90) — a precondition on the write, not a
+  // schedule-shape field itself; stripped before the DB update either way.
+  "expected_updated_at",
 ] as const;
 
 describe("TaskUpdateSchema field classification (schedule-shape vs allowed)", () => {

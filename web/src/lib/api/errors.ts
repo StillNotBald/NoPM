@@ -42,6 +42,24 @@ export class RuleError extends ApiError {
   }
 }
 
+/**
+ * Optimistic concurrency conflict (R-90): the caller sent
+ * `expected_updated_at` on a PATCH and the row's current `updated_at` no
+ * longer matches — someone else wrote it first. `currentUpdatedAt`, when
+ * known, is echoed back on the response body as `current_updated_at` so the
+ * caller can show/refresh the latest value and retry deliberately instead of
+ * blindly overwriting it.
+ */
+export class PreconditionFailedError extends ApiError {
+  constructor(
+    message = "Record changed since you loaded it",
+    public readonly currentUpdatedAt?: string,
+    code = "precondition_failed",
+  ) {
+    super(412, message, code);
+  }
+}
+
 /** Workspace+actor-class request budget exceeded (see @/lib/api/rate-limit). */
 export class RateLimitError extends ApiError {
   constructor(message = "Rate limit exceeded", code = "rate_limited") {
@@ -50,6 +68,16 @@ export class RateLimitError extends ApiError {
 }
 
 export function toErrorResponse(error: unknown): NextResponse {
+  if (error instanceof PreconditionFailedError) {
+    return NextResponse.json(
+      {
+        error: error.message,
+        ...(error.code ? { code: error.code } : {}),
+        ...(error.currentUpdatedAt ? { current_updated_at: error.currentUpdatedAt } : {}),
+      },
+      { status: error.status },
+    );
+  }
   if (error instanceof ApiError) {
     return NextResponse.json(
       { error: error.message, ...(error.code ? { code: error.code } : {}) },

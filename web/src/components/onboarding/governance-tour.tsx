@@ -63,11 +63,13 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
     <Card>
       <CardHeader>
         <CardTitle>See the governance in 2 minutes</CardTitle>
+        {/* F7 — 44px hit area via an invisible ::before pseudo-element; the
+            card header's visual size is unchanged. */}
         <button
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss governance tour"
-          className="rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink"
+          className="relative rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
         >
           <X size={14} />
         </button>

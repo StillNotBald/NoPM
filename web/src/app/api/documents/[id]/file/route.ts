@@ -5,7 +5,7 @@ import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { BUCKET, validateStoragePath } from "@/lib/documents/storage";
+import { BUCKET, INLINE_MIME_TYPES, matchesMagicBytes, normalizeMimeType, validateStoragePath } from "@/lib/documents/storage";
 
 export const runtime = "nodejs";
 
@@ -28,9 +28,11 @@ export const GET = route(async ({ actor, params }) => {
   if (!doc.storage_path) throw new NotFoundError("No file attached to this document");
 
   const admin = createAdminClient();
+  // Only inline-safe types are served for rendering; everything else is a download.
+  const inline = INLINE_MIME_TYPES.has(normalizeMimeType(doc.mime_type ?? ""));
   const { data: signed, error: signError } = await admin.storage
     .from(BUCKET)
-    .createSignedUrl(doc.storage_path, 60);
+    .createSignedUrl(doc.storage_path, 60, inline ? undefined : { download: doc.file_name ?? true });
 
   if (signError || !signed?.signedUrl) {
     throw new Error(signError?.message ?? "Could not generate signed URL");
@@ -78,12 +80,22 @@ export const POST = route(async ({ actor, params, request }) => {
 
   // Confirm the object actually exists in the bucket (errors if missing).
   const admin = createAdminClient();
-  const { error: checkError } = await admin.storage
+  const { data: signedCheck, error: checkError } = await admin.storage
     .from(BUCKET)
     .createSignedUrl(body.path, 60);
 
-  if (checkError) {
+  if (checkError || !signedCheck?.signedUrl) {
     throw new RuleError("File not found in storage — upload may have failed");
+  }
+
+  // Never trust the declared type: browser-executable types are coerced to
+  // octet-stream, and inline-rendered types (PDF/images) must match the bytes.
+  const mimeType = normalizeMimeType(body.mime_type);
+  if (INLINE_MIME_TYPES.has(mimeType)) {
+    const head = await readLeadingBytes(signedCheck.signedUrl);
+    if (!matchesMagicBytes(mimeType, head)) {
+      throw new RuleError(`File content does not match the declared mime_type (${mimeType})`);
+    }
   }
 
   const { data: updated, error: updateError } = await db
@@ -91,7 +103,7 @@ export const POST = route(async ({ actor, params, request }) => {
     .update({
       storage_path: body.path,
       file_name:    body.file_name,
-      mime_type:    body.mime_type,
+      mime_type:    mimeType,
       file_size:    body.file_size,
       updated_at:   new Date().toISOString(),
     })
@@ -166,3 +178,13 @@ export const DELETE = route(async ({ actor, params }) => {
 
   return noContent();
 });
+
+/** Fetch the first ~1 KiB of a storage object (Range request; falls back to the first chunk). */
+async function readLeadingBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url, { headers: { Range: "bytes=0-1023" } });
+  if (!res.ok || !res.body) return new Uint8Array(0);
+  const reader = res.body.getReader();
+  const { value } = await reader.read();
+  await reader.cancel().catch(() => undefined);
+  return value ? value.subarray(0, 1024) : new Uint8Array(0);
+}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +10,30 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import { cn } from "@/lib/cn";
 import { useRequireSession } from "@/lib/auth/use-require-session";
 import { AGENT_PRESET_SCOPES, scopeChoices } from "@/lib/auth/scopes";
+
+/** Groups an already resource-ordered flat scope list (scopeChoices()'
+ *  output) back into per-resource buckets for the mobile collapsible
+ *  accordion — a naive contiguous scan is safe because scopeChoices()
+ *  itself groups by resource before flattening. */
+function groupScopesByResource(scopes: string[]): { resource: string; scopes: string[] }[] {
+  const groups: { resource: string; scopes: string[] }[] = [];
+  const byResource = new Map<string, string[]>();
+  for (const scope of scopes) {
+    const resource = scope.split(":")[0];
+    let list = byResource.get(resource);
+    if (!list) {
+      list = [];
+      byResource.set(resource, list);
+      groups.push({ resource, scopes: list });
+    }
+    list.push(scope);
+  }
+  return groups;
+}
 
 // Derived from the SCOPES registry (see scopeChoices' own doc comment) so a
 // newly registered resource/scope shows up here automatically instead of
@@ -223,6 +245,64 @@ export default function TokensPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // >=md table columns for the token list (DataList) — visually identical
+  // to the hand-rolled <table> this replaced. The <md card is fully custom
+  // via `renderCard` below (scope COUNT chip + Revoke in the card footer,
+  // rather than every scope badge inline), so these columns never drive the
+  // mobile rendering.
+  const tokenColumns: DataListColumn<ApiToken>[] = [
+    {
+      key: "name",
+      header: "Name",
+      primary: true,
+      cell: (t) => <span className="font-medium text-ink">{t.name}</span>,
+    },
+    {
+      key: "prefix",
+      header: "Prefix",
+      cell: (t) => <span className="font-mono text-ink-secondary">{t.prefix}…</span>,
+    },
+    {
+      key: "scopes",
+      header: "Scopes",
+      cell: (t) => (
+        <div className="flex flex-wrap gap-1">
+          {t.scopes.map((s) => (
+            <Badge key={s} tone="neutral">
+              {s}
+            </Badge>
+          ))}
+        </div>
+      ),
+    },
+    {
+      key: "lastUsed",
+      header: "Last used",
+      cell: (t) => <span className="text-ink-secondary">{formatRelative(t.last_used_at)}</span>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      cell: (t) => (t.revoked ? <Badge tone="danger">revoked</Badge> : <Badge tone="success">active</Badge>),
+    },
+    {
+      key: "actions",
+      header: "",
+      cell: (t) =>
+        !t.revoked ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-danger hover:bg-danger/10"
+            disabled={revoking === t.id}
+            onClick={() => handleRevoke(t.id)}
+          >
+            {revoking === t.id ? <Spinner size="sm" /> : "Revoke"}
+          </Button>
+        ) : null,
+    },
+  ];
+
   // Client-safe auth guard — tokens has no server component wrapping it, so
   // it previously showed a broken empty state to unauthenticated visitors.
   // Render nothing until the session check resolves; useRequireSession
@@ -272,10 +352,10 @@ export default function TokensPage() {
             <p className="text-sm font-medium text-ink">Your new token</p>
             <Badge tone="warning">Shown once — copy it now.</Badge>
           </div>
-          <code className="block break-all rounded-md bg-canvas border border-border-subtle px-3 py-2 text-sm font-mono text-ink">
+          <code className="block w-full break-all rounded-md bg-canvas border border-border-subtle px-3 py-2 text-sm font-mono text-ink">
             {newToken}
           </code>
-          <Button variant="secondary" size="sm" onClick={handleCopy}>
+          <Button variant="secondary" size="sm" className="h-11 w-full sm:h-9 sm:w-auto" onClick={handleCopy}>
             {copied ? "Copied!" : "Copy token"}
           </Button>
         </div>
@@ -425,75 +505,58 @@ export default function TokensPage() {
             </div>
           ) : listError ? (
             <p className="px-5 py-6 text-sm text-danger">{listError}</p>
-          ) : tokens.length === 0 ? (
-            <EmptyState
-              purpose="No tokens yet. A scoped token lets an agent or script call the NoPM API on this workspace's behalf — every action it takes is audited under the token as the actor."
-              className="py-10"
-            />
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle text-left text-xs text-ink-muted uppercase tracking-wide">
-                    <th className="px-5 py-3 font-medium">Name</th>
-                    <th className="px-5 py-3 font-medium">Prefix</th>
-                    <th className="px-5 py-3 font-medium">Scopes</th>
-                    <th className="px-5 py-3 font-medium">Last used</th>
-                    <th className="px-5 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 font-medium sr-only">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tokens.map((tok, i) => {
-                    const isRevoked = tok.revoked;
-                    return (
-                      <tr
-                        key={tok.id}
-                        className={cn(
-                          "border-b border-border-subtle last:border-0",
-                          i % 2 === 1 && "bg-sunken/40",
-                        )}
-                      >
-                        <td className="px-5 py-3 font-medium text-ink">{tok.name}</td>
-                        <td className="px-5 py-3 font-mono text-ink-secondary">{tok.prefix}…</td>
-                        <td className="px-5 py-3">
-                          <div className="flex flex-wrap gap-1">
-                            {tok.scopes.map((s) => (
-                              <Badge key={s} tone="neutral">
-                                {s}
-                              </Badge>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 text-ink-secondary">
-                          {formatRelative(tok.last_used_at)}
-                        </td>
-                        <td className="px-5 py-3">
-                          {isRevoked ? (
-                            <Badge tone="danger">revoked</Badge>
-                          ) : (
-                            <Badge tone="success">active</Badge>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">
-                          {!isRevoked && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-danger hover:bg-danger/10"
-                              disabled={revoking === tok.id}
-                              onClick={() => handleRevoke(tok.id)}
-                            >
-                              {revoking === tok.id ? <Spinner size="sm" /> : "Revoke"}
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataList<ApiToken>
+              columns={tokenColumns}
+              rows={tokens}
+              rowKey={(t) => t.id}
+              tableClassName="min-w-[640px]"
+              renderCard={(tok) => {
+                const isRevoked = tok.revoked;
+                return (
+                  <div className="flex min-h-[44px] flex-col gap-2 px-4 py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-ink">{tok.name}</p>
+                        <p className="font-mono text-xs text-ink-secondary">{tok.prefix}…</p>
+                      </div>
+                      {isRevoked ? (
+                        <Badge tone="danger" className="shrink-0">revoked</Badge>
+                      ) : (
+                        <Badge tone="success" className="shrink-0">active</Badge>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge tone="neutral">
+                        {tok.scopes.length} scope{tok.scopes.length !== 1 ? "s" : ""}
+                      </Badge>
+                      <span className="text-xs text-ink-muted">
+                        Last used {formatRelative(tok.last_used_at)}
+                      </span>
+                    </div>
+                    {!isRevoked && (
+                      <div className="-mx-4 -mb-3 mt-1 border-t border-border-subtle px-4 pt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-11 w-full text-danger hover:bg-danger/10"
+                          disabled={revoking === tok.id}
+                          onClick={() => handleRevoke(tok.id)}
+                        >
+                          {revoking === tok.id ? <Spinner size="sm" /> : "Revoke"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              }}
+              empty={
+                <EmptyState
+                  purpose="No tokens yet. A scoped token lets an agent or script call the NoPM API on this workspace's behalf — every action it takes is audited under the token as the actor."
+                  className="py-10"
+                />
+              }
+            />
           )}
         </CardBody>
       </Card>
@@ -521,11 +584,55 @@ export default function TokensPage() {
             <p className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
               Scopes
             </p>
-            <div className="grid grid-cols-1 gap-y-3 sm:grid-cols-2 sm:gap-x-6 sm:gap-y-2 lg:grid-cols-3">
+
+            {/* <md (phone): one-handed collapsible groups by resource, so the
+                full ~30-scope list isn't one long scroll of checkboxes. */}
+            <div className="space-y-2 md:hidden">
+              {groupScopesByResource(ALL_SCOPES).map((g) => {
+                const selectedCount = g.scopes.filter((s) => selectedScopes.has(s)).length;
+                return (
+                  <details key={g.resource} className="group rounded-md border border-border-subtle bg-surface">
+                    <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 marker:hidden [&::-webkit-details-marker]:hidden">
+                      <span className="text-sm font-medium text-ink capitalize">
+                        {g.resource.replace(/_/g, " ")}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        {selectedCount > 0 && (
+                          <span className="rounded-full bg-accent/15 px-1.5 py-0.5 font-mono text-2xs font-medium text-accent">
+                            {selectedCount}
+                          </span>
+                        )}
+                        <ChevronDown size={16} className="text-ink-muted transition-transform group-open:rotate-180" />
+                      </span>
+                    </summary>
+                    <div className="space-y-1 border-t border-border-subtle px-3 py-2">
+                      {g.scopes.map((scope) => (
+                        <label
+                          key={scope}
+                          className="flex min-h-[44px] items-center gap-2 cursor-pointer"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedScopes.has(scope)}
+                            onChange={() => toggleScope(scope)}
+                            disabled={minting}
+                            className="h-4 w-4 rounded border-border-subtle accent-accent cursor-pointer shrink-0"
+                          />
+                          <span className="text-sm text-ink font-mono">{scope}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+
+            {/* >=md (desktop/tablet): unchanged flat grid. */}
+            <div className="hidden md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-2 lg:grid-cols-3">
               {ALL_SCOPES.map((scope) => (
                 <label
                   key={scope}
-                  className="flex items-center gap-2 cursor-pointer group min-h-[44px] sm:min-h-0"
+                  className="flex items-center gap-2 cursor-pointer group"
                 >
                   <input
                     type="checkbox"

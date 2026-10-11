@@ -1,7 +1,16 @@
 // Browser-side helper for calling NoPM's REST API (same-origin, session cookie auth).
 // Unwraps the { data } / { error, fields } contract.
 
-export type ApiError = Error & { status?: number; fields?: { field: string; message: string }[] };
+export type ApiError = Error & {
+  status?: number;
+  fields?: { field: string; message: string }[];
+  /**
+   * Optimistic concurrency (R-90): present only on a 412 response — the
+   * record's actual current updated_at, so a caller can offer "reload" or
+   * rebase and retry instead of guessing.
+   */
+  currentUpdatedAt?: string;
+};
 
 async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -13,11 +22,15 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
     data?: T;
     error?: string;
     fields?: { field: string; message: string }[];
+    current_updated_at?: string;
   };
   if (!res.ok) {
     const err = new Error(json.error || `Request failed (${res.status})`) as ApiError;
     err.status = res.status;
     err.fields = json.fields;
+    if (res.status === 412 && json.current_updated_at) {
+      err.currentUpdatedAt = json.current_updated_at;
+    }
     throw err;
   }
   return json.data as T;

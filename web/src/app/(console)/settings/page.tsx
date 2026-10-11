@@ -527,6 +527,43 @@ function NavigationSection() {
   );
 }
 
+// ── Section nav (phones only) ─────────────────────────────────────────────────
+//
+// Settings is one long single-column scroll (Profile → Appearance →
+// Navigation → Invites → Security → About); below sm a horizontally
+// scrollable chip row lets a phone user jump straight to a section instead
+// of scrolling past MFA/appearance controls to reach it. Anchor links only —
+// no client state. scroll-mt-20 on each section target clears the app's
+// sticky h-14 top bar.
+
+const SETTINGS_SECTIONS = [
+  { id: "settings-profile", label: "Profile" },
+  { id: "settings-appearance", label: "Appearance" },
+  { id: "settings-navigation", label: "Navigation" },
+  { id: "settings-invites", label: "Invites" },
+  { id: "settings-security", label: "Security" },
+  { id: "settings-about", label: "About" },
+] as const;
+
+function SettingsSectionNav() {
+  return (
+    <nav
+      aria-label="Jump to settings section"
+      className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1 sm:hidden"
+    >
+      {SETTINGS_SECTIONS.map((s) => (
+        <a
+          key={s.id}
+          href={`#${s.id}`}
+          className="flex h-11 shrink-0 items-center rounded-full border border-border-subtle bg-surface px-3.5 text-xs font-medium text-ink-secondary transition-colors hover:bg-sunken hover:text-ink"
+        >
+          {s.label}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
 // ── Settings page ──────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -638,21 +675,31 @@ export default function SettingsPage() {
       <div className="mx-auto max-w-xl space-y-8">
         <PageHeader title="Account settings" />
 
+        <SettingsSectionNav />
+
         {/* ── Profile ────────────────────────────────────────────────────────── */}
-        <ProfileSection />
+        <div id="settings-profile" className="scroll-mt-20">
+          <ProfileSection />
+        </div>
 
         {/* ── Appearance (L-37/L-38/L-42 — display-only, unaudited) ───────────── */}
-        <AppearanceSection />
+        <div id="settings-appearance" className="scroll-mt-20">
+          <AppearanceSection />
+        </div>
 
         {/* ── Navigation & help (R-78 — display-only, unaudited) ───────────────── */}
-        <NavigationSection />
+        <div id="settings-navigation" className="scroll-mt-20">
+          <NavigationSection />
+        </div>
 
         {/* ── Invites (L-47/L-48) — admin/manager only ─────────────────────────── */}
-        <InvitesCard />
+        <div id="settings-invites" className="scroll-mt-20">
+          <InvitesCard />
+        </div>
 
         {/* ── Security ───────────────────────────────────────────────────────── */}
-        <div>
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+        <div id="settings-security" className="scroll-mt-20">
+          <p className="mb-3 text-2xs font-semibold uppercase tracking-wider text-ink-muted">
             Security
           </p>
           <Card>
@@ -677,7 +724,9 @@ export default function SettingsPage() {
                 <div className="space-y-4">
                   <p className="text-sm text-ink-secondary">
                     Two-factor authentication adds a second layer of security to your account. You will
-                    need an authenticator app (e.g. Authy, 1Password, or Google Authenticator).
+                    need an authenticator app (e.g. Authy, 1Password, or Google Authenticator). Once
+                    enabled, signing in will ask for a code from your app (or a backup code) before
+                    letting you into the workspace.
                   </p>
                   <Button variant="primary" size="md" onClick={handleEnroll}>
                     Enable 2FA
@@ -850,8 +899,8 @@ export default function SettingsPage() {
         </div>
 
         {/* ── About / Support ────────────────────────────────────────────────── */}
-        <div>
-          <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+        <div id="settings-about" className="scroll-mt-20">
+          <p className="mb-3 text-2xs font-semibold uppercase tracking-wider text-ink-muted">
             About
           </p>
           <Card>

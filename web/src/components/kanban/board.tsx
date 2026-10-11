@@ -21,6 +21,10 @@ import { CSS } from "@dnd-kit/utilities";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
 import { STALE_STATUS_AGE_DAYS } from "@/lib/insight/status-age";
+import { useInspector } from "@/components/layout/app-shell";
+import { TaskDetailPanel } from "@/components/tracking/detail-panel";
+import type { Milestone, Task as RichTask } from "@/components/tracking/activity-table";
+import { useMediaQuery, QUERY_MD_UP } from "@/lib/hooks/use-media-query";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -39,6 +43,11 @@ interface KanbanBoardProps {
   projectId: string;
   isLocked: boolean;
   tasks: Task[];
+  /** Optional — when supplied, a card tap opens the same TaskDetailPanel the
+   *  Activity tab uses. Board tabs that don't pass these keep the card
+   *  drag-only, exactly as before. */
+  milestones?: Milestone[];
+  members?: Record<string, string>;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────
@@ -65,9 +74,13 @@ interface TaskCardProps {
   task: Task;
   movedNote: boolean;
   isLocked: boolean;
+  /** Touch drag on a scrollable phone column is unreliable next to a tap-to-
+   *  open gesture, so drag is desktop-only; phones get tap-to-open instead. */
+  dragEnabled: boolean;
+  onOpen?: () => void;
 }
 
-function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
+function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -75,7 +88,7 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id, disabled: isLocked });
+  } = useSortable({ id: task.id, disabled: isLocked || !dragEnabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -95,7 +108,20 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
     <div
       ref={setNodeRef}
       style={style}
-      {...(isLocked ? {} : { ...attributes, ...listeners })}
+      {...(isLocked || !dragEnabled ? {} : { ...attributes, ...listeners })}
+      onClick={onOpen}
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onKeyDown={
+        onOpen
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen();
+              }
+            }
+          : undefined
+      }
       className={cn(
         // kanban-card: density-compact hook (globals.css) — not a Tailwind
         // utility, purely a CSS-selector target.
@@ -104,11 +130,16 @@ function TaskCard({ task, movedNote, isLocked }: TaskCardProps) {
         // touch-action: none on the draggable node so dnd-kit's PointerSensor
         // can claim touch gestures without the page hijacking them as a scroll
         // (same precedent as the sortable shortcut tiles in bottom-nav.tsx).
-        !isLocked && "touch-none",
+        !isLocked && dragEnabled && "touch-none",
         isDragging
           ? "opacity-50 shadow-md z-50"
           : "hover:shadow-sm",
-        isLocked ? "cursor-default" : "cursor-grab active:cursor-grabbing",
+        onOpen && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+        !dragEnabled
+          ? "cursor-pointer"
+          : isLocked
+            ? "cursor-default"
+            : "cursor-grab active:cursor-grabbing",
       )}
     >
       <p className="font-medium text-ink leading-snug">{task.name}</p>
@@ -142,18 +173,21 @@ interface ColumnProps {
   tasks: Task[];
   movedIds: Set<string>;
   isLocked: boolean;
+  dragEnabled: boolean;
+  onOpenTask?: (task: Task) => void;
 }
 
-function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
+function KanbanColumn({ status, tasks, movedIds, isLocked, dragEnabled, onOpenTask }: ColumnProps) {
   const ids = tasks.map((t) => t.id);
   const { setNodeRef } = useDroppable({ id: "col:" + status });
 
   return (
-    // Mobile/tablet (below lg): fixed-min-width flex item so the board's
-    // overflow-x-auto actually has something to scroll (1fr grid tracks never
+    // Phones (below sm): ~85vw so exactly one column-and-a-bit is visible per
+    // swipe, snapping cleanly. sm-lg: fixed 16rem flex item so the board's
+    // overflow-x-auto has something to scroll (1fr grid tracks never
     // overflow). lg and up: min-w reset so the parent's grid-cols-5 tracks
     // size exactly as before — pixel-identical to the pre-fix desktop layout.
-    <div className="flex min-w-[16rem] shrink-0 snap-start flex-col min-h-0 lg:min-w-0">
+    <div className="flex min-w-[85vw] shrink-0 snap-start flex-col min-h-0 sm:min-w-[16rem] lg:min-w-0">
       {/* Column header */}
       <div className="mb-2 flex items-center gap-2">
         <span className="text-xs font-semibold text-ink-secondary uppercase tracking-wide">
@@ -179,6 +213,8 @@ function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
                 task={task}
                 movedNote={movedIds.has(task.id)}
                 isLocked={isLocked}
+                dragEnabled={dragEnabled}
+                onOpen={onOpenTask ? () => onOpenTask(task) : undefined}
               />
             ))}
           </div>
@@ -194,11 +230,37 @@ function KanbanColumn({ status, tasks, movedIds, isLocked }: ColumnProps) {
 
 // ── Board ──────────────────────────────────────────────────────────────────
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function KanbanBoard({ projectId: _projectId, isLocked, tasks: initialTasks }: KanbanBoardProps) {
+export function KanbanBoard({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  projectId: _projectId,
+  isLocked,
+  tasks: initialTasks,
+  milestones,
+  members,
+}: KanbanBoardProps) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   // Tracks task IDs that recently moved (show inline confirmation)
   const [recentlyMoved, setRecentlyMoved] = useState<Set<string>>(new Set());
+
+  const inspector = useInspector();
+  // Touch drag on a scrollable phone column fights the snap-scroll gesture,
+  // so drag is desktop-only (md+); phones get tap-to-open instead (below).
+  const isDesktop = useMediaQuery(QUERY_MD_UP, true);
+
+  const openTask = milestones
+    ? (task: Task) => {
+        inspector.open(
+          <TaskDetailPanel
+            task={task as unknown as RichTask}
+            milestones={milestones}
+            tasks={tasks as unknown as RichTask[]}
+            members={members}
+            isLocked={isLocked}
+          />,
+          task.name,
+        );
+      }
+    : undefined;
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -295,7 +357,7 @@ export function KanbanBoard({ projectId: _projectId, isLocked, tasks: initialTas
           overflow). At lg and above: switch back to the original fluid
           grid-cols-5 — unchanged from before this fix.
         */}
-        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-proximity lg:grid lg:grid-cols-5">
+        <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory lg:grid lg:grid-cols-5 lg:snap-none">
           {COLUMN_ORDER.map((status) => (
             <KanbanColumn
               key={status}
@@ -303,6 +365,8 @@ export function KanbanBoard({ projectId: _projectId, isLocked, tasks: initialTas
               tasks={byStatus(status)}
               movedIds={recentlyMoved}
               isLocked={isLocked}
+              dragEnabled={isDesktop}
+              onOpenTask={openTask}
             />
           ))}
         </div>

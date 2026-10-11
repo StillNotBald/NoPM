@@ -82,7 +82,7 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
           <p className="text-sm text-ink-muted">No projects in this program yet.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 px-4 py-3 sm:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-4">
           {/* Completion % */}
           <div>
             <p className="text-[11px] uppercase tracking-wide text-ink-muted">Completion</p>

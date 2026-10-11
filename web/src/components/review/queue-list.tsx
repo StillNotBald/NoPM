@@ -123,8 +123,10 @@ function RowContent({ item }: { item: ReviewItem }) {
         {item.kind}
       </Badge>
 
-      {/* Title */}
-      <span className="min-w-0 flex-1 truncate font-medium text-ink">
+      {/* Title — full row width on phones (its own line once the row
+          wraps) so it isn't squeezed to a handful of characters next to
+          four other chips; reverts to sharing the row inline at sm+. */}
+      <span className="w-full min-w-0 truncate font-medium text-ink sm:w-auto sm:flex-1">
         {item.title}
       </span>
 
@@ -153,8 +155,11 @@ function RowContent({ item }: { item: ReviewItem }) {
 
 // ── Row variants: inspector (approval/change) vs deep-link navigation ─────────
 
+// min-h-[44px] is the touch-target floor; flex-wrap lets a row break onto a
+// second line on phones instead of truncating every chip down to nothing —
+// sm:flex-nowrap restores the exact single-line desktop row.
 const ROW_BASE =
-  "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent";
+  "flex min-h-[44px] flex-wrap items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent sm:flex-nowrap";
 
 function InspectorRow({
   item,
@@ -279,7 +284,7 @@ function FilterTabs({
             {count > 0 && (
               <span
                 className={cn(
-                  "rounded-full px-1.5 py-0.5 text-[10px] tabular-nums",
+                  "rounded-full px-1.5 py-0.5 text-2xs tabular-nums",
                   isActive
                     ? "bg-accent text-accent-ink"
                     : "bg-sunken text-ink-muted",

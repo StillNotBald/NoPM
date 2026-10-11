@@ -33,44 +33,48 @@ function formatDate(iso: string | null) {
 
 export function RiskRow({ risk }: { risk: MyRisk }) {
   return (
-    <div className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken">
-      {/* Reference chip */}
-      {risk.reference_id && (
-        <span className="shrink-0 rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
-          {risk.reference_id}
-        </span>
-      )}
+    <div className="flex flex-col gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken sm:flex-row sm:items-center sm:gap-3 sm:py-2">
+      <div className="flex min-w-0 items-center gap-3">
+        {/* Reference chip */}
+        {risk.reference_id && (
+          <span className="shrink-0 rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+            {risk.reference_id}
+          </span>
+        )}
 
-      {/* Title — deep-links into the risks register with focus param */}
-      <EntityLink
-        kind="risk"
-        id={risk.id}
-        className="min-w-0 flex-1 font-medium"
-      >
-        {risk.title}
-      </EntityLink>
+        {/* Title — deep-links into the risks register with focus param */}
+        <EntityLink
+          kind="risk"
+          id={risk.id}
+          className="min-w-0 flex-1 font-medium"
+        >
+          {risk.title}
+        </EntityLink>
+      </div>
 
-      {/* Project chip */}
-      {risk.project_name && (
-        <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
-          {risk.project_name}
-        </span>
-      )}
+      <div className="flex flex-wrap items-center gap-2 sm:contents">
+        {/* Project chip */}
+        {risk.project_name && (
+          <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+            {risk.project_name}
+          </span>
+        )}
 
-      {/* Severity */}
-      <Severity level={risk.severity} className="shrink-0" />
+        {/* Severity */}
+        <Severity level={risk.severity} className="shrink-0" />
 
-      {/* Status */}
-      <Badge size="sm" tone={statusTone(risk.status)} className="shrink-0">
-        {risk.status}
-      </Badge>
+        {/* Status */}
+        <Badge size="sm" tone={statusTone(risk.status)} className="shrink-0">
+          {risk.status}
+        </Badge>
 
-      {/* Due date */}
-      {risk.due_date && (
-        <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted">
-          {formatDate(risk.due_date)}
-        </span>
-      )}
+        {/* Due date */}
+        {risk.due_date && (
+          <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted">
+            {formatDate(risk.due_date)}
+          </span>
+        )}
+      </div>
     </div>
   );
 }

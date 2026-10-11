@@ -721,7 +721,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                 type="button"
                 onClick={startNewChat}
                 aria-label="New chat"
-                className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+                className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -751,7 +751,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                 requestAnimationFrame(() => triggerRef?.current?.focus());
               }}
               aria-label="Close assistant panel"
-              className="grid h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+              className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
             >
               <X className="h-4 w-4" />
             </button>

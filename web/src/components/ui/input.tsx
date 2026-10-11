@@ -10,7 +10,7 @@ export function Input({
     <input
       ref={ref}
       className={cn(
-        "h-11 w-full rounded-md border border-border-subtle bg-canvas px-3 text-base text-ink sm:h-10 sm:text-sm",
+        "field h-11 rounded-md border border-border-subtle bg-canvas px-3 text-base text-ink sm:h-10 sm:text-sm",
         "placeholder:text-ink-muted focus:outline-none",
         "focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
         className,

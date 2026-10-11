@@ -3,15 +3,9 @@
 // render populated, workspace-scoped data — the same query path the server
 // components use. Proves the persona journeys end-to-end at the data layer.
 import pg from "pg";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+const env = loadEnv();
 const dbRef = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
 const c = new pg.Client({
   connectionString: env.DB_URL || `postgresql://postgres:${env.SUPABASE_DB_PASSWORD}@db.${dbRef}.supabase.co:5432/postgres`,

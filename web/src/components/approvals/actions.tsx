@@ -88,12 +88,15 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
       )}
 
       {/* Step 1: pick action. Own requests get Withdraw only — four-eyes
-          would 403/422 the maker's approve/reject anyway. */}
+          would 403/422 the maker's approve/reject anyway. Buttons are
+          full-width and >=44px on phones (stacked in a column), the
+          original inline/compact sizing returns at sm+. */}
       {!confirming && isOwn && (
-        <div className="flex flex-col items-end gap-1.5">
+        <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
           <Button
             variant="secondary"
             size="sm"
+            className="h-11 w-full sm:h-8 sm:w-auto"
             onClick={() => setConfirming("withdraw")}
           >
             Withdraw
@@ -102,10 +105,11 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
         </div>
       )}
       {!confirming && !isOwn && (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button
             variant="primary"
             size="sm"
+            className="h-11 w-full sm:h-8 sm:w-auto"
             onClick={() => setConfirming("approve")}
           >
             Approve
@@ -113,6 +117,7 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
           <Button
             variant="danger"
             size="sm"
+            className="h-11 w-full sm:h-8 sm:w-auto"
             onClick={() => setConfirming("reject")}
           >
             Reject
@@ -174,13 +179,17 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
             </div>
           )}
 
-          <div className="flex gap-2">
+          {/* flex-col-reverse on phones puts the primary Confirm action
+              visually first (on top) while keeping Back-then-Confirm tab
+              order; both are >=44px and full width below sm. */}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button
               type="button"
               variant="secondary"
               size="sm"
               onClick={reset}
               disabled={saving}
+              className="h-11 w-full sm:h-8 sm:w-auto"
             >
               Back
             </Button>
@@ -195,6 +204,7 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
               }
               size="sm"
               disabled={saving}
+              className="h-11 w-full sm:h-8 sm:w-auto"
             >
               {saving ? (
                 <>

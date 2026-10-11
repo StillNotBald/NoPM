@@ -28,29 +28,31 @@ export function ApprovalRow({ approval }: { approval: PendingApproval }) {
   return (
     <Link
       href="/approvals"
-      className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
+      className="flex flex-col gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken sm:flex-row sm:items-center sm:gap-3 sm:py-2"
     >
-      {/* Type badge */}
-      <Badge tone="danger" className="shrink-0">
-        {approval.target_type}
-      </Badge>
+      <div className="flex min-w-0 items-center gap-3">
+        {/* Type badge */}
+        <Badge tone="danger" className="shrink-0">
+          {approval.target_type}
+        </Badge>
 
-      {/* Target ID chip */}
-      <code className="shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
-        {shortId(approval.target_id)}
-      </code>
+        {/* Target ID chip */}
+        <code className="shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+          {shortId(approval.target_id)}
+        </code>
 
-      {/* Reason / requester */}
-      <span className="min-w-0 flex-1 truncate text-ink-secondary">
-        <span className="text-ink-muted">by </span>
-        <span className="font-medium text-ink">{approval.requested_by_label}</span>
-        {approval.reason && (
-          <span className="text-ink-muted"> · {approval.reason}</span>
-        )}
-      </span>
+        {/* Reason / requester */}
+        <span className="min-w-0 flex-1 truncate text-ink-secondary">
+          <span className="text-ink-muted">by </span>
+          <span className="font-medium text-ink">{approval.requested_by_label}</span>
+          {approval.reason && (
+            <span className="text-ink-muted"> · {approval.reason}</span>
+          )}
+        </span>
+      </div>
 
       {/* Date */}
-      <span className="shrink-0 font-mono text-xs tabular-nums text-ink-muted">
+      <span className="shrink-0 pl-[1.125rem] font-mono text-xs tabular-nums text-ink-muted sm:pl-0">
         {formatDate(approval.created_at)}
       </span>
     </Link>

@@ -41,7 +41,7 @@ function formatDate(iso: string | null | undefined) {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2.5 border-b border-border-subtle last:border-0">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -154,43 +154,3 @@ export function DecisionDetail({
   );
 }
 
-// ── DecisionRowButton — clickable <tr> wrapper ────────────────────────────────
-
-export function DecisionRowButton({
-  decision,
-  projectName,
-  supersededByRef,
-  projects,
-  children,
-}: DecisionDetailProps & { children: React.ReactNode }) {
-  const inspector = useInspector();
-
-  function open() {
-    inspector.open(
-      <DecisionDetail
-        decision={decision}
-        projectName={projectName}
-        supersededByRef={supersededByRef}
-        projects={projects}
-      />,
-      decision.reference_id ? `Decision ${decision.reference_id}` : "Decision",
-    );
-  }
-
-  return (
-    <tr
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-      className="hover:bg-sunken transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-    >
-      {children}
-    </tr>
-  );
-}

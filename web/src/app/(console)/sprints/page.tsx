@@ -236,7 +236,7 @@ export default async function SprintsPage({
                             <Link
                               href={`/sprints?sprint=${s.id}`}
                               className={cn(
-                                "flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm transition-colors",
+                                "flex min-h-[44px] items-center justify-between gap-2 rounded-md px-3 py-2 text-sm transition-colors",
                                 selected?.id === s.id ? "bg-sunken font-medium text-ink" : "text-ink-secondary hover:bg-sunken",
                               )}
                             >

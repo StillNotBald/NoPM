@@ -3,15 +3,9 @@
 // boundary, so status alone is insufficient. FAIL if the error-boundary text
 // appears; PASS otherwise (with a marker that real content rendered).
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+const env = loadEnv();
 const BASE = process.env.BASE || "http://localhost:3100";
 const EMAIL = process.env.ADMIN_EMAIL || env.ADMIN_EMAIL || "admin@stillnotbald.com";
 const ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];

@@ -41,3 +41,6 @@ web/scripts/mainline-*.html
 
 # graphify generated outputs
 graphify-out/
+
+# testing-log raw captures are regenerable evidence (see testing-log/README.md rule 3)
+testing-log/**/*.png

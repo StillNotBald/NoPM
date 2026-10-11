@@ -71,7 +71,7 @@ export function QuickstartSnippet() {
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-ink-muted hover:bg-sunken hover:text-ink"
+          className="flex h-11 items-center gap-1.5 rounded-md px-2 text-xs text-ink-muted hover:bg-sunken hover:text-ink sm:h-7"
         >
           {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy"}
@@ -105,7 +105,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+        "flex h-11 items-center rounded-md px-2.5 text-xs font-medium transition-colors sm:h-7",
         active ? "bg-accent/10 text-accent" : "text-ink-muted hover:bg-sunken hover:text-ink",
       )}
     >

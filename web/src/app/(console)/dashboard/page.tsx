@@ -390,7 +390,7 @@ export default async function DashboardPage({
                             >
                               {targetDate.text}
                               {isOverdue && (
-                                <span className="ml-1.5 inline-block rounded-full bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger">
+                                <span className="ml-1.5 inline-block rounded-full bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger">
                                   overdue
                                 </span>
                               )}

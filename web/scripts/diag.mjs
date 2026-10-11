@@ -1,14 +1,8 @@
 // Diagnose the console data path: grants, RLS policies, and RLS-visible rows for the admin user.
 import pg from "pg";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+const env = loadEnv();
 const pw = env.SUPABASE_DB_PASSWORD;
 const ref = new URL(env.NEXT_PUBLIC_SUPABASE_URL).hostname.split(".")[0];
 const c = new pg.Client({

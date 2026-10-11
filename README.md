@@ -22,6 +22,7 @@ The in-app **BYOK assistant** uses the same registry as the MCP server: your own
 
 | You want to… | Go to |
 |---|---|
+| New here? Plain-language guides (demo, self-host, governance, help) | [`docs/guide/README.md`](docs/guide/README.md) |
 | Understand what this is and why | [Case study](https://stillnotbald.com/case-study) — or `web/src/app/case-study/page.tsx` |
 | See the requirements + status | [`requirements/REQUIREMENTS.md`](requirements/REQUIREMENTS.md) (canonical R-IDs) |
 | Trace a requirement to code + tests | [`requirements/TRACEABILITY.md`](requirements/TRACEABILITY.md) (RTM, CI-verified) |
@@ -54,6 +55,18 @@ npm run health                # one-command RAG read on requirements/RTM/tests/g
 ```
 Secrets live in `web/.env.local` (gitignored). See `web/.env.example`.
 
+## Deploy in one command
+
+Run your own copy of NoPM against your own Supabase project:
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/StillNotBald/NoPM&root-directory=web&project-name=nopm&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,NOPM_ENCRYPTION_KEY&envDescription=Supabase+project+values+plus+a+generated+BYOK+encryption+key&envLink=https://github.com/StillNotBald/NoPM/blob/main/docs/SELF_HOSTING.md)
+
+then, once, against that Supabase project:
+```bash
+npm run setup                 # applies migrations, bootstraps admin + tokens (--dry-run to preview, --seed for demo data)
+```
+Or run it in Docker instead of on Vercel: `docker build -t nopm-web ./web && docker run -p 3000:3000 --env-file web/.env.local nopm-web`, or `docker compose up --build` from the repo root. Full walkthrough, required env vars, and the Docker/manual paths: [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
+
 ## The governance gates travel with the clone
 
 - **pre-commit** — leak gate over staged files (hashed confidential-token blocklist + secret-filename check)
@@ -70,3 +83,9 @@ Secrets live in `web/.env.local` (gitignored). See `web/.env.example`.
 
 ## Stack
 Next.js 16 · TypeScript · Tailwind v4 · Supabase (Postgres + Auth + RLS) · Vercel + Cloudflare DNS.
+
+## License
+Apache License, Version 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Everything in this repository is open source; paid offerings are services only (implementation guide, change requests, setup help) — see [`docs/guide/05-getting-help-and-paid-services.md`](docs/guide/05-getting-help-and-paid-services.md).
+
+## Trademarks
+"NoPM" and "stillnotbald" are the names of this project and its live deployment. The Apache-2.0 license grants rights to the source code; it does not grant any right to use the NoPM or stillnotbald names or logos to describe a fork, derivative, or unrelated product in a way that implies endorsement or affiliation. Accurate reference ("based on NoPM") is fine. Jira, Slack, Microsoft Teams, OpenAI, Anthropic, and Google are trademarks of their respective owners, mentioned only descriptively.

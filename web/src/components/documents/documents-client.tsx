@@ -6,9 +6,10 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Plus } from "lucide-react";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { ChevronRight, Plus } from "lucide-react";
 import { FolderTree, type FolderTreeSelection } from "./folder-tree";
-import { DocumentRowButton, DocumentViewer } from "./document-viewer";
+import { DocumentViewer } from "./document-viewer";
 import { DocumentForm, type Document, type DocStatus, type DocType } from "./document-form";
 
 // ── Label maps ────────────────────────────────────────────────────────────────
@@ -120,11 +121,116 @@ export function DocumentsClient({
     return ownerMap[ownerId];
   }
 
+  function openDocument(doc: Document) {
+    inspector.open(
+      <DocumentViewer
+        document={doc}
+        projectName={doc.project_id ? (projectMap[doc.project_id] ?? undefined) : undefined}
+        ownerName={ownerName(doc.owner_id)}
+        projects={projects}
+      />,
+      doc.reference_id ? `Doc ${doc.reference_id}` : "Document",
+    );
+  }
+
+  // Column order mirrors the ≥md table exactly; the <md card uses a fully
+  // custom renderCard (below) so the summary preview and Updated date stay
+  // visible on phones instead of being dropped as ordinary secondary fields.
+  const columns: DataListColumn<Document>[] = [
+    {
+      key: "ref",
+      header: "Ref",
+      cell: (doc) =>
+        doc.reference_id ? (
+          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
+            {doc.reference_id}
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
+    },
+    {
+      key: "title",
+      header: "Title",
+      primary: true,
+      cell: (doc) => (
+        <>
+          <span className="font-medium text-ink">{doc.title}</span>
+          {doc.summary && (
+            <p className="mt-0.5 max-w-[28ch] truncate text-xs text-ink-muted">{doc.summary}</p>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      cell: (doc) => (
+        <span className="text-ink-secondary">{DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      badge: true,
+      cell: (doc) => (
+        <Badge tone={statusTone(doc.status as DocStatus)}>
+          {STATUS_LABELS[doc.status as DocStatus] ?? doc.status}
+        </Badge>
+      ),
+    },
+    {
+      key: "project",
+      header: "Project",
+      cell: (doc) => (
+        <span className="text-ink-secondary">{doc.project_id ? (projectMap[doc.project_id] ?? "—") : "—"}</span>
+      ),
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      cell: (doc) => (
+        <span className="text-ink-secondary tabular-nums">{formatDate(doc.updated_at)}</span>
+      ),
+    },
+  ];
+
+  function renderDocCard(doc: Document) {
+    return (
+      <div className="flex min-h-[44px] items-center gap-3 px-4 py-3">
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            {doc.reference_id && (
+              <span className="shrink-0 font-mono text-2xs bg-sunken border border-border-subtle rounded px-1 py-0.5 text-ink-muted">
+                {doc.reference_id}
+              </span>
+            )}
+            <span className="truncate text-sm font-medium text-ink">{doc.title}</span>
+          </div>
+          {doc.summary && <p className="truncate text-xs text-ink-muted">{doc.summary}</p>}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge tone={statusTone(doc.status as DocStatus)}>
+              {STATUS_LABELS[doc.status as DocStatus] ?? doc.status}
+            </Badge>
+            <span className="text-xs text-ink-muted">
+              {DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}
+            </span>
+          </div>
+          <div className="flex items-baseline gap-1.5 text-xs">
+            <span className="text-ink-muted">Updated</span>
+            <span className="text-ink-secondary tabular-nums">{formatDate(doc.updated_at)}</span>
+          </div>
+        </div>
+        <ChevronRight size={18} className="shrink-0 text-ink-muted" aria-hidden="true" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex gap-0 min-h-0">
       {/* ── Folder tree sidebar ──────────────────────────────────────────────── */}
       <aside className="hidden md:block w-48 lg:w-56 shrink-0 border-r border-border-subtle bg-canvas px-3 py-4">
-        <p className="mb-2 px-2.5 text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+        <p className="mb-2 px-2.5 text-2xs font-semibold uppercase tracking-wider text-ink-muted">
           Folders
         </p>
         <FolderTree
@@ -156,77 +262,16 @@ export function DocumentsClient({
           </Button>
         </div>
 
-        {/* Document table */}
+        {/* Document list — table ≥md, cards <md (F5) */}
         {filtered.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[600px] text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle">
-                  <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Ref
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Title
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide hidden sm:table-cell">
-                    Type
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide hidden lg:table-cell">
-                    Project
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide hidden lg:table-cell">
-                    Updated
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {filtered.map((doc) => (
-                  <DocumentRowButton
-                    key={doc.id}
-                    document={doc}
-                    projectName={doc.project_id ? (projectMap[doc.project_id] ?? undefined) : undefined}
-                    ownerName={ownerName(doc.owner_id)}
-                    projects={projects}
-                  >
-                    <td className="px-4 py-3.5">
-                      {doc.reference_id ? (
-                        <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
-                          {doc.reference_id}
-                        </span>
-                      ) : (
-                        <span className="text-ink-muted">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <span className="font-medium text-ink">{doc.title}</span>
-                      {doc.summary && (
-                        <p className="mt-0.5 text-xs text-ink-muted truncate max-w-[28ch]">
-                          {doc.summary}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3.5 text-ink-secondary hidden sm:table-cell">
-                      {DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}
-                    </td>
-                    <td className="px-4 py-3.5">
-                      <Badge tone={statusTone(doc.status as DocStatus)}>
-                        {STATUS_LABELS[doc.status as DocStatus] ?? doc.status}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3.5 text-ink-secondary hidden lg:table-cell">
-                      {doc.project_id ? (projectMap[doc.project_id] ?? "—") : "—"}
-                    </td>
-                    <td className="px-4 py-3.5 text-ink-secondary tabular-nums hidden lg:table-cell">
-                      {formatDate(doc.updated_at)}
-                    </td>
-                  </DocumentRowButton>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataList
+            columns={columns}
+            rows={filtered}
+            rowKey={(doc) => doc.id}
+            onRowClick={openDocument}
+            renderCard={renderDocCard}
+            tableClassName="min-w-[600px]"
+          />
         ) : documents.length === 0 ? (
           <EmptyState
             purpose="Documents hold the durable artifacts of the project — charters, plans, RAID logs, status reports — versioned and linked back to the project they belong to."

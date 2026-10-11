@@ -55,7 +55,10 @@ export function ProjectLens({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center gap-2">
+      {/* Stacks below sm — the select's longest option (a full project
+          code + name) otherwise sizes it past the viewport edge, same
+          quirk fixed for the dashboard's Project filter (F3). */}
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
         <label htmlFor="mainline-project-picker" className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
           Project
         </label>
@@ -63,7 +66,7 @@ export function ProjectLens({
           id="mainline-project-picker"
           value={selectedProjectId ?? ""}
           onChange={(e) => selectProject(e.target.value)}
-          className="h-11 sm:h-9 min-w-[12rem] rounded-md border border-border-subtle bg-canvas px-2.5 text-base text-ink sm:text-sm focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30"
+          className="h-11 w-full sm:h-9 sm:w-auto sm:min-w-[12rem] rounded-md border border-border-subtle bg-canvas px-2.5 text-base text-ink sm:text-sm focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30"
         >
           {projects.map((p) => (
             <option key={p.id} value={p.id}>

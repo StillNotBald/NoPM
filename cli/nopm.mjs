@@ -38,6 +38,12 @@ async function showVersion() {
   console.log(`nopm ${pkg.version}`);
 }
 
+// Set inside main() once flags are parsed; read by the top-level .catch()
+// below so a 412's --json rendering can print the raw error body instead of
+// the friendly text (main() itself doesn't handle the error — the request
+// only fails once mod.run() starts making API calls).
+let currentFlags = {};
+
 async function main() {
   const argv = process.argv.slice(2);
   const [group, ...rest] = argv;
@@ -53,6 +59,7 @@ async function main() {
 
   // Build context that every command module receives
   const flags = parseFlags(rest);
+  currentFlags = flags;
   const ctx = {
     flags,
     api: (method, p, body) => api(method, p, body, { curl: flags.curl }),
@@ -87,6 +94,13 @@ async function main() {
 
 main().catch((e) => {
   if (e?.isDryRun) return; // --curl printed the request; nothing was sent
+  // R-90: --json must still surface the raw 412 error body (current_updated_at
+  // and all), not the human-readable sentence, so a scripted caller can parse it.
+  if (e?.status === 412 && currentFlags.json) {
+    console.log(JSON.stringify(e.payload ?? {}, null, 2));
+    process.exitCode = 1;
+    return;
+  }
   // CliError (and structured API errors) carry a user-friendly message
   console.error("✗ " + e.message);
   if (e?.payload?.fields) {

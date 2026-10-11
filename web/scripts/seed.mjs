@@ -3,15 +3,9 @@
 // Enriched (0008 content_enrichment): project charters, PMBOK risk-register fields,
 // RAID-parity issues, 5-8 tasks/milestone, baseline pairs, EVM-ready budgets.
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv, requireEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+const env = requireEnv(["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"], loadEnv());
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -387,7 +381,7 @@ const people = [
   { name: "Elena Rossi", role_title: "Programme Lead", cost_rate: 220, capacity_hours_per_week: 40 },
   { name: "Marcus Bauer", role_title: "Solution Architect", cost_rate: 260, capacity_hours_per_week: 40 },
   { name: "Priya Nair", role_title: "Data Engineer", cost_rate: 180, capacity_hours_per_week: 40 },
-  { name: "Daniel Okafor", role_title: "QA Lead", cost_rate: 160, capacity_hours_per_week: 40 },
+  { name: "Daniel Okoro", role_title: "QA Lead", cost_rate: 160, capacity_hours_per_week: 40 },
   { name: "Carlos Mendes", role_title: "Cloud Engineer", cost_rate: 190, capacity_hours_per_week: 40 },
 ];
 const members = [];

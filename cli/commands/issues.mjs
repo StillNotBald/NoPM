@@ -13,11 +13,12 @@ export const usage = [
   "nopm issues ls --project <id>                                 list issues for a project [--external-ref <ref>]",
   "nopm issues get <id>                                          fetch a single issue",
   "nopm issues create --project <id> --title <t> --priority <p>  [--description <d>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
-  "nopm issues update <id> [--title <t>] [--priority <p>] [--status <s>] [--resolution <r>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm issues update <id> [--title <t>] [--priority <p>] [--status <s>] [--resolution <r>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
   "nopm issues rm <id>                                           delete an issue",
   "  priority: low | medium | high | urgent",
   "  status:   open | in_progress | resolved | closed",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this issue mirrors, e.g. --source jira --external-ref PROJ-123",
+  "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -87,6 +88,7 @@ export async function run(rest, ctx) {
       if (f.source)              body.source       = f.source;
       if (f["external-ref"])     body.external_ref = f["external-ref"];
       if (f["external-url"])     body.external_url = f["external-url"];
+      if (f["expected-updated-at"]) body.expected_updated_at = f["expected-updated-at"];
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --title, --priority, --status, etc.");
       const { data } = await ctx.api("PATCH", `/api/issues/${id}`, body);
       console.log("✓ updated issue", id);

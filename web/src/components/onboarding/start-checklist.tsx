@@ -72,7 +72,7 @@ export function StartChecklist(props: Props) {
           <button
             type="button"
             onClick={() => toggleDismissed(true)}
-            className="shrink-0 text-xs text-ink-muted hover:text-ink hover:underline"
+            className="shrink-0 -my-3.5 py-3.5 text-xs text-ink-muted hover:text-ink hover:underline"
           >
             Hide this page&apos;s checklist
           </button>
@@ -106,7 +106,7 @@ export function StartChecklist(props: Props) {
                   }}
                   className="shrink-0"
                 >
-                  <Button variant="secondary" size="sm">
+                  <Button variant="secondary" size="sm" className="h-11 sm:h-8">
                     {step.cta}
                   </Button>
                 </Link>

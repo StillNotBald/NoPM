@@ -79,6 +79,18 @@ Owner-locked (Decision 3, requirements/devops-wave1/README.md): maker-checker ex
 PROJECTS ONLY — milestones/risks/issues stay single-step hard deletes and never create a
 deletion_request row.
 
+## Optimistic concurrency (R-90)
+PATCH /projects/{id}, /tasks/{id}, /milestones/{id}, /risks/{id}, and /issues/{id} accept an
+OPTIONAL "expected_updated_at" field in the body (ISO 8601 datetime with offset — the same
+format as the updated_at you last read on that record). Omit it and the PATCH behaves exactly
+as it always has (last-write-wins). Send it and the server compares it against the row's
+current updated_at before writing: a match proceeds normally; a mismatch is rejected with
+412 (code: precondition_failed) instead of silently overwriting a change someone else already
+made, and the response body includes current_updated_at so you can decide whether to reload
+and retry or force the write by re-reading first. Best practice for any agent editing a record
+across multiple turns: read the record, keep its updated_at, and pass it back as
+expected_updated_at on the PATCH.
+
 ## Audit log
 Every mutation writes exactly one immutable row to the audit_log table.
 Read it at GET /audit (scope: audit:read).
@@ -110,7 +122,8 @@ PUT    /me/preferences                     — user session only — merge displ
 
 POST   /auth/demo-login                    — public — start a demo viewer session
 POST   /auth/signout                       — user session — end the session
-GET    /auth/mfa                           — user session — get MFA enabled status for the current user
+GET    /auth/mfa                           — user session — get MFA status: enabled, enrolled, satisfied (challenge passed this session)
+POST   /auth/mfa/challenge                 — user session — verify TOTP or backup code after sign-in; sets the nopm_mfa cookie (5 failed attempts / 10 min)
 POST   /auth/mfa/enroll                    — user session — begin TOTP enrollment (returns secret + otpauth URI)
 POST   /auth/mfa/verify                    — user session — confirm TOTP code, enable MFA, receive backup codes (shown once)
 POST   /auth/mfa/disable                   — user session — disable MFA and clear TOTP secret

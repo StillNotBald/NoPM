@@ -81,6 +81,9 @@ export const updateProjectSchema = z.object({
     .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
     .nullable()
     .optional(),
+  // ── Optimistic concurrency (R-90) — opt-in. When sent, must match the row's
+  // current updated_at or the PATCH is rejected with 412 (see @/lib/api/occ).
+  expected_updated_at: z.string().datetime({ offset: true }).optional(),
 });
 
 // Maker step for project deletion (four-eyes, Decision 3 devops-wave1) — mirrors

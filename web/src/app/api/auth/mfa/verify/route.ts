@@ -1,11 +1,13 @@
 import { authenticator } from "otplib";
 import { createHash, randomBytes } from "node:crypto";
+import { cookies } from "next/headers";
 import { route } from "@/lib/api/handler";
 import { AuthError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
+import { MFA_COOKIE_NAME } from "@/lib/auth/mfa";
 import { verifyMfaSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -79,6 +81,15 @@ export const POST = route(async ({ actor, request }) => {
     before: { enabled: mfa.enabled },
     after: { enabled: true },
   });
+
+  // R-91 — this is a (re-)enrollment: `user_mfa.enrolled_at` was set to a
+  // fresh timestamp by /enroll, which changes the `enr` binding a nopm_mfa
+  // cookie must carry. A cookie issued against a prior enrollment will
+  // already fail the `enr` check, but clear it here too so the same browser
+  // never carries a now-meaningless satisfied-challenge cookie forward
+  // (verified-adversarial finding, defense in depth).
+  const store = await cookies();
+  store.delete({ name: MFA_COOKIE_NAME, path: "/" });
 
   return ok({ enabled: true, backupCodes });
 });

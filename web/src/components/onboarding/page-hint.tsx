@@ -55,11 +55,14 @@ export function PageHint() {
           </>
         )}
       </span>
+      {/* F7 — 44px hit area via an invisible ::before pseudo-element centered
+          on the button, so the slim one-line strip doesn't grow taller and
+          the icon's visual size is unchanged. */}
       <button
         type="button"
         onClick={handleDismiss}
         aria-label="Dismiss hint"
-        className="shrink-0 rounded-md p-1 text-ink-muted hover:bg-canvas hover:text-ink"
+        className="relative shrink-0 rounded-md p-1 text-ink-muted hover:bg-canvas hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
       >
         <X size={12} />
       </button>

@@ -17,10 +17,10 @@ name: Demo reseed (manual)
 #                                 never log it, never echo it to workflow output)
 #
 # web/scripts/seed.mjs (and every script in the `seed:all` chain) reads its
-# Supabase credentials from web/.env.local via readFileSync — they do NOT
-# read process.env directly. So this workflow writes the two secrets into a
-# fresh web/.env.local before running seed:all. That file only ever exists
-# inside the ephemeral runner (never committed, never printed).
+# Supabase credentials via scripts/lib/env.mjs, which merges web/.env.local
+# (if present) with process.env — process.env always wins. This runner has
+# no web/.env.local at all, so the two secrets below are passed as plain
+# job-step env vars; no file is written or needed.
 
 on:
   workflow_dispatch: {}
@@ -44,19 +44,10 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: Write Supabase credentials to .env.local
-        # seed.mjs and every downstream seed-*.mjs script parse
-        # web/.env.local with readFileSync (not process.env) — see the note
-        # at the top of this file. printf avoids any risk of secret values
-        # being interpreted as shell/echo flags.
+      - name: Reseed demo workspace
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: |
-          printf 'NEXT_PUBLIC_SUPABASE_URL=%s\nSUPABASE_SERVICE_ROLE_KEY=%s\n' \
-            "$NEXT_PUBLIC_SUPABASE_URL" "$SUPABASE_SERVICE_ROLE_KEY" > .env.local
-
-      - name: Reseed demo workspace
         run: npm run seed:all
 
       - name: Repair demo login (password ↔ env sync)

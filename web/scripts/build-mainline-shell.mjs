@@ -2,15 +2,13 @@
 // Network) over a shared control surface (layer toggles + project filter). Static,
 // interactive (vanilla JS), built from the live demo seed. Output: scripts/mainline-shell.html
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv, requireEnv } from "./lib/env.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+const env = requireEnv(["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"], loadEnv());
 const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const W = (await db.from("workspaces").select("id").eq("slug", "demo").single()).data.id;
 const pick = async (t, c) => (await db.from(t).select(c).eq("workspace_id", W)).data ?? [];

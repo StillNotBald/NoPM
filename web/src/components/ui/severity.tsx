@@ -55,7 +55,7 @@ export function Severity({
     >
       <span
         aria-hidden="true"
-        className={cn("text-[8px] leading-none", colour)}
+        className={cn("text-2xs leading-none", colour)}
       >
         ●
       </span>

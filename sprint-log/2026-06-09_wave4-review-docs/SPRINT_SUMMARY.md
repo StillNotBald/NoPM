@@ -20,7 +20,7 @@
 ## Open / deferred
 - Right-push viewer holds a document snapshot; after a **live** attach/remove the panel may need reopening to reflect it (`router.refresh()` updates page data, not the open snapshot) — Wave 6 polish.
 - 25 MB/file cap; no server-side virus scan (demo workspace).
-- Owner demo LLM key (Wave 3 assistant) still to be inserted by Chu Ling (`NOPM_DEMO_LLM_*`).
+- Owner demo LLM key (Wave 3 assistant) still to be configured (`NOPM_DEMO_LLM_*`).
 
 ## Next
 - Wave 5: change-control register + decision log (greenlit as v1 MVP).

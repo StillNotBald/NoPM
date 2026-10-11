@@ -45,6 +45,27 @@ nopm tasks update <taskId> --pct 50 --status-type completed
 nopm tasks rm     <taskId> --reason "superseded"   # MAKER — creates a pending deletion request
 ```
 
+## Optimistic concurrency
+
+`projects`, `tasks`, `milestones`, `risks`, and `issues` support opt-in optimistic
+concurrency (R-90) on `update`: pass `--expected-updated-at <iso>` and the API
+rejects the write with `412` if the record changed since you read it, instead of
+silently overwriting someone else's edit.
+
+```bash
+nopm tasks get <id> --json                                        # copy "updated_at" from the output
+nopm tasks update <id> --status-type completed \
+  --expected-updated-at 2026-09-07T08:12:44.031Z                  # fails 412 if it's stale
+```
+
+Omitting the flag preserves today's last-write-wins behavior exactly. A `412` prints:
+
+```
+✗ Precondition failed: the record changed since you loaded it (current updated_at: <value>). Re-run with --expected-updated-at <value> after reviewing.
+```
+
+Under `--json`, the raw error body (including `current_updated_at`) is printed instead, for scripted retries.
+
 ## Four-eyes deletion governance
 
 ```bash
@@ -77,6 +98,7 @@ Every request sends `X-NoPM-Client: cli`, so the resulting audit_log rows are ta
 | `--page <n>` | Pagination (list commands) |
 | `--limit <n>` | Page size (list commands) |
 | `--flag=value` | Alternative syntax for values that start with `--` |
+| `--expected-updated-at <iso>` | Optimistic concurrency on `update` (projects/tasks/milestones/risks/issues, R-90) — 412 instead of overwriting a stale record |
 
 ## Tests
 

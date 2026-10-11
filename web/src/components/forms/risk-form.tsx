@@ -58,6 +58,9 @@ export interface Risk {
   impact_area?: RiskImpactArea | null;
   trigger?: string | null;
   residual_risk?: string | null;
+  // Optimistic concurrency (R-90) — present on any record loaded from the
+  // API; carried back on PATCH as expected_updated_at when editing.
+  updated_at?: string | null;
 }
 
 const RISK_CATEGORY_OPTIONS: { value: RiskCategoryValue; label: string }[] = [
@@ -183,6 +186,9 @@ export function RiskForm({
       impact_score: impactValue,
       trigger: trigger.trim() || null,
       residual_risk: residualRisk.trim() || null,
+      // Optimistic concurrency (R-90) — only meaningful (and only sent) on
+      // an edit of an existing record; a create has nothing to be stale.
+      ...(risk?.updated_at ? { expected_updated_at: risk.updated_at } : {}),
     };
 
     try {
@@ -196,8 +202,14 @@ export function RiskForm({
       router.refresh();
       inspector.close();
     } catch (err) {
-      applyApiError(err as ApiError);
-      toast.error((err as ApiError).message ?? "Failed to save risk");
+      const apiErr = err as ApiError;
+      if (apiErr.status === 412) {
+        setTopError("This record changed since you opened it. Reload to see the latest.");
+        toast.error("This record changed since you opened it. Reload to see the latest.");
+      } else {
+        applyApiError(apiErr);
+        toast.error(apiErr.message ?? "Failed to save risk");
+      }
       setSaving(false);
     }
   }

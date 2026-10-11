@@ -14,6 +14,12 @@ export type DemoLoginButtonProps = {
   label?: string;
   /** Color treatment. Defaults to the filled accent button used on the landing page. */
   variant?: DemoLoginButtonVariant;
+  /**
+   * Optional one-line disclaimer rendered under the button (e.g. flagging
+   * the shared-account nature of the demo). Omitted entirely when not
+   * passed — every existing caller keeps its current appearance untouched.
+   */
+  caption?: string;
 };
 
 /**
@@ -25,15 +31,23 @@ export function DemoLoginButton({
   className = "px-5 py-2.5",
   label = "Try the live demo →",
   variant = "primary",
+  caption,
 }: DemoLoginButtonProps) {
   return (
-    <form method="POST" action="/api/auth/demo-login">
-      <button
-        type="submit"
-        className={cn("rounded-md font-medium", variantClasses[variant], className)}
-      >
-        {label}
-      </button>
-    </form>
+    <div className="flex flex-col items-center gap-1.5">
+      <form method="POST" action="/api/auth/demo-login">
+        <button
+          type="submit"
+          className={cn(
+            "inline-flex min-h-[44px] items-center justify-center rounded-md font-medium sm:min-h-0",
+            variantClasses[variant],
+            className,
+          )}
+        >
+          {label}
+        </button>
+      </form>
+      {caption && <p className="text-xs text-ink-muted">{caption}</p>}
+    </div>
   );
 }

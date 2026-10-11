@@ -16,7 +16,7 @@
 - ADR **0004-byok-governed-assistant** records the BYOK-not-subscription decision + the governance framing.
 
 ## Open / deferred
-- **Full chat demo needs an LLM key** — a real BYOK key (employer's own) or an owner-funded demo key (`NOPM_DEMO_LLM_*`, not yet set). Plumbing + UI + guards are verified without one; the model round-trip is the only unexercised path. Surface to Chu Ling: supply an owner demo key so an anonymous employer can try it.
+- **Full chat demo needs an LLM key** — a real BYOK key (employer's own) or an owner-funded demo key (`NOPM_DEMO_LLM_*`, not yet set). Plumbing + UI + guards are verified without one; the model round-trip is the only unexercised path. Remaining: an owner-funded demo key must be configured so an anonymous visitor can try the assistant without their own key.
 - Action chips don't yet deep-link to the specific `audit_log` row (envelope has no `auditId`); non-streaming; no cross-session history; in-memory demo rate-limit. All deferred.
 
 ## Next

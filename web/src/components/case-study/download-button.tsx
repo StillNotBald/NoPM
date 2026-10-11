@@ -28,6 +28,7 @@ export function DownloadOnePagerButton() {
     <Button
       variant="secondary"
       size="sm"
+      className="max-sm:h-11"
       onClick={handleClick}
       disabled={loading}
       aria-label="Download case study as a one-page PDF"

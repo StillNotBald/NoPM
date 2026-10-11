@@ -3,6 +3,7 @@ import { DownloadOnePagerButton } from "@/components/case-study/download-button"
 import { DemoLoginButton } from "@/components/demo-login-button";
 import { TerminalCard } from "@/components/ui/terminal-card";
 import { WedgeGrid } from "@/components/marketing/wedges";
+import { MobileNavMenu } from "@/components/marketing/mobile-nav";
 import metrics from "@/lib/metrics.gen.json";
 
 export const metadata = {
@@ -59,10 +60,17 @@ export default function CaseStudyPage() {
             <span className="font-medium">NoPM</span>
           </Link>
         </div>
-        <nav className="flex items-center gap-4 text-sm text-ink-secondary">
-          <Link href="/" className="hidden sm:inline hover:text-ink">Home</Link>
-          <Link href="/login" className="hover:text-ink">Sign in</Link>
+        <nav className="flex items-center gap-3 text-sm text-ink-secondary sm:gap-4">
+          <Link href="/" className="hidden md:inline hover:text-ink">Home</Link>
+          <Link href="/login" className="hidden md:inline hover:text-ink">Sign in</Link>
           <DemoLoginButton className="px-3 py-1.5 text-sm" label="Try the demo →" />
+          <MobileNavMenu
+            className="md:hidden"
+            links={[
+              { href: "/", label: "Home" },
+              { href: "/login", label: "Sign in" },
+            ]}
+          />
         </nav>
       </header>
 
@@ -85,7 +93,7 @@ export default function CaseStudyPage() {
           <DemoLoginButton className="px-4 py-2 text-sm" label="Open the live demo →" />
           <Link
             href="/login"
-            className="text-sm font-medium text-ink-secondary hover:text-ink"
+            className="flex min-h-[44px] items-center text-sm font-medium text-ink-secondary hover:text-ink"
           >
             Sign in →
           </Link>
@@ -94,7 +102,7 @@ export default function CaseStudyPage() {
             href="https://stillnotbald.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="font-mono text-xs text-ink-muted hover:text-ink"
+            className="flex min-h-[44px] items-center font-mono text-xs text-ink-muted hover:text-ink"
           >
             stillnotbald.com
           </a>
@@ -275,7 +283,7 @@ created_at            actor_label     action        target
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead className="bg-sunken text-xs uppercase tracking-wide text-ink-muted">
               <tr>
-                <th className="px-4 py-2 font-medium">Finding (morning)</th>
+                <th className="sticky left-0 z-10 bg-sunken px-4 py-2 font-medium">Finding (morning)</th>
                 <th className="px-4 py-2 font-medium">State (evening)</th>
               </tr>
             </thead>
@@ -293,7 +301,7 @@ created_at            actor_label     action        target
                 ["Tool and metric counts drifted between surfaces.", "Closed. Counts are generated and CI-checked; the pitch notes were realigned."],
               ].map(([before, after]) => (
                 <tr key={before}>
-                  <td className="px-4 py-2.5 align-top">{before}</td>
+                  <td className="sticky left-0 z-10 bg-canvas px-4 py-2.5 align-top">{before}</td>
                   <td className="px-4 py-2.5 align-top text-ink">{after}</td>
                 </tr>
               ))}
@@ -389,19 +397,19 @@ created_at            actor_label     action        target
           <DemoLoginButton className="px-5 py-2.5 text-sm" label="Open the live demo →" />
           <Link
             href="/login"
-            className="rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken sm:min-h-0"
           >
             Sign in →
           </Link>
           <a
             href="/api/openapi.json"
-            className="rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken sm:min-h-0"
           >
             OpenAPI spec
           </a>
           <a
             href="/llms.txt"
-            className="rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken"
+            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken sm:min-h-0"
           >
             Agent API (llms.txt)
           </a>

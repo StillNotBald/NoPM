@@ -6,6 +6,9 @@ import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
+import { EntityLink } from "@/components/ui/entity-link";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { IssueForm, type Issue, type IssueSeverity, type IssueCategory } from "@/components/forms/issue-form";
 
 // ── Local type helpers ────────────────────────────────────────────────────────
@@ -51,7 +54,7 @@ function formatDate(iso: string | null | undefined) {
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5 py-2.5 border-b border-border-subtle last:border-0">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+      <span className="text-2xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </span>
       <div className="text-sm text-ink">{children}</div>
@@ -187,36 +190,105 @@ export function IssueDetail({ issue, projectName }: IssueDetailProps) {
   );
 }
 
-// ── IssueRowButton — clickable <tr> wrapper (client component) ────────────────
+// ── IssueDataList — responsive register list (F5): table ≥md, cards <md ──────
 
-export function IssueRowButton({
-  issue,
-  projectName,
-  children,
-}: IssueDetailProps & { children: React.ReactNode }) {
+type IssueRow = IssueDetailProps["issue"];
+
+export function IssueDataList({
+  issues,
+  projectMap,
+  dateDisplayPref,
+}: {
+  issues: IssueRow[];
+  projectMap: Record<string, string>;
+  dateDisplayPref: DateDisplayPref;
+}) {
   const inspector = useInspector();
 
-  function open() {
+  function openIssue(issue: IssueRow) {
     inspector.open(
-      <IssueDetail issue={issue} projectName={projectName} />,
+      <IssueDetail
+        issue={issue}
+        projectName={issue.project_id ? (projectMap[issue.project_id] ?? undefined) : undefined}
+      />,
       issue.reference_id ? `Issue ${issue.reference_id}` : "Issue Detail",
     );
   }
 
+  const columns: DataListColumn<IssueRow>[] = [
+    {
+      key: "ref",
+      header: "Ref",
+      hideOnMobile: true,
+      cell: (i) =>
+        i.reference_id ? (
+          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted whitespace-nowrap">
+            {i.reference_id}
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
+    },
+    {
+      key: "title",
+      header: "Title",
+      primary: true,
+      cell: (i) => (
+        <span className="block min-w-0 max-w-[240px] truncate font-medium text-ink">{i.title}</span>
+      ),
+    },
+    {
+      key: "project",
+      header: "Project",
+      hideOnMobile: true,
+      cell: (i) =>
+        i.project_id ? (
+          <span className="block min-w-0 max-w-[160px]">
+            <EntityLink kind="project" id={i.project_id} muted>
+              {projectMap[i.project_id] ?? "—"}
+            </EntityLink>
+          </span>
+        ) : (
+          <span className="text-ink-muted">—</span>
+        ),
+    },
+    {
+      key: "priority",
+      header: "Priority",
+      badge: true,
+      cell: (i) => <Severity level={i.priority} />,
+    },
+    {
+      key: "status",
+      header: "Status",
+      badge: true,
+      cell: (i) => (
+        <Badge size="sm" tone={statusTone(i.status as IssueStatus)}>
+          {statusLabel(i.status as IssueStatus)}
+        </Badge>
+      ),
+    },
+    {
+      key: "due",
+      header: "Due",
+      cell: (i) => {
+        const due = formatByPref(i.due_date, dateDisplayPref);
+        return (
+          <span className="tabular-nums text-xs text-ink-secondary" title={due.title}>
+            {due.text}
+          </span>
+        );
+      },
+    },
+  ];
+
   return (
-    <tr
-      role="button"
-      tabIndex={0}
-      onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          open();
-        }
-      }}
-      className="hover:bg-sunken transition-colors duration-100 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-    >
-      {children}
-    </tr>
+    <DataList
+      columns={columns}
+      rows={issues}
+      rowKey={(i) => i.id}
+      onRowClick={openIssue}
+      tableClassName="min-w-[640px]"
+    />
   );
 }

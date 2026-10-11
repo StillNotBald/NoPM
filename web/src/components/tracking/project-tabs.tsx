@@ -1,6 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Plus, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -9,7 +10,8 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { useInspector } from "@/components/layout/app-shell";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/api-client";
-import { ActivityTable } from "@/components/tracking/activity-table";
+import { ActivityTable, type Task as RichTask } from "@/components/tracking/activity-table";
+import { TaskDetailPanel } from "@/components/tracking/detail-panel";
 import { GanttChart, type TaskDependency } from "@/components/tracking/gantt";
 import { KanbanBoard } from "@/components/kanban/board";
 import { HistoryTimeline } from "@/components/tracking/history-timeline";
@@ -639,7 +641,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                   <td className="py-3 px-4 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       {r.reference_id && (
-                        <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
+                        <span className="font-mono text-2xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
                           {r.reference_id}
                         </span>
                       )}
@@ -749,7 +751,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                   <td className="py-3 px-4 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
                       {iss.reference_id && (
-                        <span className="font-mono text-[10px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
+                        <span className="font-mono text-2xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted shrink-0">
                           {iss.reference_id}
                         </span>
                       )}
@@ -797,12 +799,15 @@ export function ProjectTabs({
   /** L-33 — Σ time_entries.hours per task id, batched server-side. */
   actualHoursByTask?: Record<string, number>;
 }) {
-  const [active, setActive] = useState<Tab>("charter");
+  const searchParams = useSearchParams();
+  // A ?task= deep link lands on the Activity tab, where the task panel opens.
+  const [active, setActive] = useState<Tab>(() => (searchParams.get("task") ? "activity" : "charter"));
 
   // Resolve owner/assignee UUIDs to display names. Tasks/milestones reference
   // profiles(id), so we key the map by both resource-member id AND the linked
   // profile_id → name. Fetched once and shared down to the detail views.
   const [members, setMembers] = useState<Record<string, string>>({});
+  const [membersReady, setMembersReady] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -821,6 +826,8 @@ export function ProjectTabs({
         setMembers(map);
       } catch {
         // Non-fatal: fall back to short-id rendering in the detail views.
+      } finally {
+        if (!cancelled) setMembersReady(true);
       }
     }
 
@@ -830,16 +837,41 @@ export function ProjectTabs({
     };
   }, []);
 
+  // Deep link: /projects/:id?task=<id> (entityHref for tasks, used by the
+  // /tasks list, My Work and search) opens that task's detail panel on the
+  // Activity tab, once, after member names are available (R-94 residual).
+  const inspector = useInspector();
+  const focusTaskId = searchParams.get("task");
+  const openedTaskRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!focusTaskId || !membersReady || openedTaskRef.current === focusTaskId) return;
+    const task = tasks.find((t) => t.id === focusTaskId);
+    if (!task) return;
+    openedTaskRef.current = focusTaskId;
+    inspector.open(
+      <TaskDetailPanel
+        task={task as unknown as RichTask}
+        milestones={milestones}
+        tasks={tasks as unknown as RichTask[]}
+        members={members}
+        isLocked={project.is_locked}
+      />,
+      task.name,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusTaskId, membersReady]);
+
   return (
     <div className="space-y-6">
-      {/* Segmented tab bar — scrollable on mobile */}
-      <div className="flex gap-1 overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-lg bg-sunken p-1 border border-border-subtle">
+      {/* Segmented tab bar — scrollable on mobile, snaps to whole tabs so a
+          swipe lands cleanly instead of stopping mid-label. */}
+      <div className="flex gap-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-lg bg-sunken p-1 border border-border-subtle">
         {TABS.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActive(tab.id)}
             className={cn(
-              "shrink-0 rounded-md px-4 py-2.5 sm:py-1.5 text-sm font-medium transition-colors duration-150 min-h-[40px]",
+              "shrink-0 snap-start rounded-md px-4 py-2.5 sm:py-1.5 text-sm font-medium transition-colors duration-150 min-h-[44px] sm:min-h-0",
               active === tab.id
                 ? "bg-surface text-ink shadow-sm"
                 : "text-ink-secondary hover:text-ink hover:bg-surface/50"
@@ -848,12 +880,12 @@ export function ProjectTabs({
             {tab.label}
             {/* Count badges for risks/issues */}
             {tab.id === "risks" && risks.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-warning/20 text-warning px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
+              <span className="ml-1.5 rounded-full bg-warning/20 text-warning px-1.5 py-0.5 text-2xs font-semibold tabular-nums">
                 {risks.filter((r) => r.status === "open" || r.status === "mitigating").length}
               </span>
             )}
             {tab.id === "issues" && issues.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-danger/20 text-danger px-1.5 py-0.5 text-[10px] font-semibold tabular-nums">
+              <span className="ml-1.5 rounded-full bg-danger/20 text-danger px-1.5 py-0.5 text-2xs font-semibold tabular-nums">
                 {issues.filter((i) => i.status === "open" || i.status === "in_progress").length}
               </span>
             )}
@@ -895,6 +927,10 @@ export function ProjectTabs({
           // ProjectTabs' Task lacks the board's index signature; the runtime
           // shape (id/name/status_type/priority) matches, so cast to its prop type.
           tasks={tasks as unknown as Parameters<typeof KanbanBoard>[0]["tasks"]}
+          // Card tap opens the same TaskDetailPanel the Activity tab uses
+          // (R-94 — mobile board, drag is desktop-only there).
+          milestones={milestones}
+          members={members}
         />
       )}
       {active === "gantt" && (

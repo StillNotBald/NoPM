@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DemoLoginButton } from "@/components/demo-login-button";
 import { TerminalCard } from "@/components/ui/terminal-card";
 import { WedgeGrid } from "@/components/marketing/wedges";
+import { MobileNavMenu } from "@/components/marketing/mobile-nav";
 import metrics from "@/lib/metrics.gen.json";
 
 export const metadata = {
@@ -9,6 +10,9 @@ export const metadata = {
   description:
     "A lite, API-first project-management tool your AI agent drives like the aws/supabase CLIs. Immutable audit, scoped tokens, four-eyes approval — enforced in the data layer.",
 };
+
+const CONTACT_URL =
+  process.env.NEXT_PUBLIC_CONTACT_URL ?? "https://github.com/StillNotBald/NoPM/issues/new/choose";
 
 export default function Landing() {
   return (
@@ -20,19 +24,30 @@ export default function Landing() {
           </span>
           <span className="font-medium">NoPM</span>
         </div>
-        <nav className="flex items-center gap-5 text-sm text-ink-secondary">
-          <Link href="/case-study" className="hover:text-ink">Case study</Link>
-          <a href="/llms.txt" className="hidden sm:inline-flex hover:text-ink">Agent API</a>
-          <a href="/api/openapi.json" className="hidden sm:inline-flex hover:text-ink">OpenAPI</a>
+        <nav className="flex items-center gap-3 text-sm text-ink-secondary sm:gap-5">
+          <Link href="/case-study" className="hidden md:inline hover:text-ink">Case study</Link>
+          <a href={CONTACT_URL} className="hidden md:inline-flex hover:text-ink">Raise a change request</a>
+          <a href="/llms.txt" className="hidden md:inline-flex hover:text-ink">Agent API</a>
+          <a href="/api/openapi.json" className="hidden md:inline-flex hover:text-ink">OpenAPI</a>
           <Link href="/login" className="rounded-md bg-accent px-3 py-1.5 font-medium text-white hover:bg-accent-hover">
             Open console
           </Link>
+          <MobileNavMenu
+            className="md:hidden"
+            links={[
+              { href: "/case-study", label: "Case study" },
+              { href: CONTACT_URL, label: "Raise a change request" },
+              { href: "/llms.txt", label: "Agent API" },
+              { href: "/api/openapi.json", label: "OpenAPI" },
+              { href: "/login", label: "Sign in" },
+            ]}
+          />
         </nav>
       </header>
 
       <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-14 pt-16 lg:grid-cols-[1.05fr_1fr]">
         <div>
-          <h1 className="rise font-display text-4xl sm:text-5xl xl:text-6xl leading-[1.05] tracking-tight text-ink">
+          <h1 className="rise font-display text-[clamp(1.9rem,7vw,2.25rem)] sm:text-5xl xl:text-6xl leading-[1.05] tracking-tight text-ink">
             Project governance your AI agent can operate.
           </h1>
           <p className="rise rise-1 mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
@@ -42,9 +57,12 @@ export default function Landing() {
             It sits beside the tools you already run, Jira, Slack, Teams, and adds what they do not enforce:
             an immutable audit trail, change control, and four-eyes approval.
           </p>
-          <div className="rise rise-2 mt-8 flex flex-wrap items-center gap-4">
-            <DemoLoginButton />
-            <a href="/llms.txt" className="rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken">
+          <div className="rise rise-2 mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+            <DemoLoginButton className="w-full px-5 py-2.5 sm:w-auto" />
+            <a
+              href="/llms.txt"
+              className="inline-flex w-full items-center justify-center rounded-md border border-border-strong px-5 py-2.5 font-medium text-ink hover:bg-sunken sm:w-auto"
+            >
               Read the agent API
             </a>
             <Link href="/login" className="text-sm font-medium text-ink-secondary hover:text-ink">
@@ -87,7 +105,10 @@ created_at   actor_label      action       target
       <footer className="border-t border-border-subtle">
         <div className="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
           <span>Built solo with an AI multi-agent workflow.</span>
-          <span className="font-mono text-xs">stillnotbald.com</span>
+          <div className="flex items-center gap-4">
+            <a href={CONTACT_URL} className="flex min-h-[44px] items-center hover:text-ink">Raise a change request</a>
+            <span className="flex min-h-[44px] items-center font-mono text-xs">stillnotbald.com</span>
+          </div>
         </div>
       </footer>
     </div>

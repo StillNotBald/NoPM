@@ -469,7 +469,7 @@ function TaskRow({
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm text-ink truncate">{task.name}</span>
             {task.checklist && task.checklist.length > 0 && (
-              <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-sunken px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-ink-muted">
+              <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-sunken px-1.5 py-0.5 text-2xs font-medium tabular-nums text-ink-muted">
                 {task.checklist.filter((i) => i.done).length}/{task.checklist.length}
               </span>
             )}

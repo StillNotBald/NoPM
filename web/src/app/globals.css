@@ -223,3 +223,43 @@ body {
 .density-compact tr[role="button"] {
   min-height: 44px;
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Mobile shell (R-94 / testing-log/2026-09-07_mobile-ui) — shared
+   form/type utilities for the FilterSheet / DataList primitives and any
+   page that adopts them.
+   ───────────────────────────────────────────────────────────── */
+
+/* F8: one type token replacing scattered text-[8px]/[9px]/[10px] literals.
+   11px on phones (still legible at arm's length) is the floor; text-xs
+   (12px) is untouched everywhere else. Written as plain (unlayered) CSS so
+   it wins over the @utility declaration's own layer at the sm breakpoint —
+   unlayered rules always beat `@layer utilities` regardless of source
+   order, per the CSS cascade layers spec. */
+@utility text-2xs {
+  font-size: 11px;
+  line-height: 1rem;
+}
+
+@media (min-width: 640px) {
+  .text-2xs {
+    font-size: 10px;
+  }
+}
+
+/* F3/F4: guarantees a form control never overflows its row and floors at
+   44px tall below sm (matches the Input primitive's own h-11 sm:h-10
+   convention) — for the <select>/<textarea> elements pages build directly
+   rather than through the Input primitive. */
+@utility field {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+}
+
+@media (min-width: 640px) {
+  .field {
+    min-height: 0;
+  }
+}

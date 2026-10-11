@@ -1,0 +1,98 @@
+name: Change request
+description: Ask for a feature or change that is not in NoPM today (free triage; may become a paid change request).
+title: "[CR]: "
+labels: ["change-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Change requests can be built as a free contribution (see `docs/CONTRIBUTING.md`) or as a paid engagement (see `docs/guide/05-getting-help-and-paid-services.md`). Filling this in either way helps the owner scope it. Fields below mirror NoPM's own `change_requests` register.
+
+  - type: input
+    id: requester
+    attributes:
+      label: Your name and organization
+      description: How the owner should refer to you and, if relevant, your organization.
+    validations:
+      required: true
+
+  - type: input
+    id: contact
+    attributes:
+      label: How to reach you
+      description: Email, or say "GitHub is fine" if this issue thread is enough.
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One or two sentences, in your own words, of what you want.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Governance (audit, scopes, four-eyes, locking)
+        - Module (a specific register or feature area)
+        - Reporting (exports, dashboards, decks)
+        - Agent surface (API, CLI, MCP, assistant)
+        - Integration (a third-party system)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: area
+    attributes:
+      label: Affected area
+      description: Which part of NoPM this touches. Helps flag early whether it brushes a constitutional rule (see the checkbox below).
+    validations:
+      required: true
+
+  - type: textarea
+    id: justification
+    attributes:
+      label: Business justification
+      description: Why this matters to you, not just what the feature does.
+    validations:
+      required: true
+
+  - type: input
+    id: timeline
+    attributes:
+      label: Desired timeline
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: What "done" looks like, in your own words.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Hosted demo (stillnotbald.com)
+        - Self-hosted (own Supabase project)
+        - Own fork
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: wontbuild
+    attributes:
+      label: The "will not build" list
+      description: Regardless of payment, the owner will not weaken these. Read `docs/guide/05-getting-help-and-paid-services.md` for the full list and reasoning.
+      options:
+        - label: I understand the owner will not weaken audit immutability, workspace isolation, self-approval protection, or add a bundled AI model, even for a paid request.
+          required: true

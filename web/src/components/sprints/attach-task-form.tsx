@@ -102,7 +102,7 @@ export function AttachTaskForm({
           {attachedTasks.map((t) => (
             <li
               key={t.id}
-              className="flex items-center justify-between gap-2 rounded-md border border-border-subtle px-3 py-2 text-sm"
+              className="flex min-h-[44px] items-center justify-between gap-2 rounded-md border border-border-subtle px-3 py-2 text-sm"
             >
               <span className="truncate text-ink">{t.name}</span>
               <button
@@ -110,7 +110,7 @@ export function AttachTaskForm({
                 onClick={() => detach(t.id)}
                 disabled={busy !== null}
                 aria-label={`Detach ${t.name}`}
-                className="shrink-0 rounded p-1 text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-50"
+                className="grid h-11 w-11 shrink-0 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1"
               >
                 {busy === t.id ? <Spinner size="sm" /> : <X size={14} />}
               </button>

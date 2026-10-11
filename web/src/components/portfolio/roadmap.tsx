@@ -273,7 +273,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                   {!railCollapsed && (
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-mono text-[10px] text-ink-muted shrink-0">
+                        <span className="font-mono text-2xs text-ink-muted shrink-0">
                           {project.code}
                         </span>
                         <span className="text-[12px] font-medium text-ink truncate">
@@ -287,7 +287,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                             style={{ width: `${pct}%` }}
                           />
                         </div>
-                        <span className="font-mono text-[10px] text-ink-muted tabular-nums shrink-0">
+                        <span className="font-mono text-2xs text-ink-muted tabular-nums shrink-0">
                           {pct}%
                         </span>
                       </div>
@@ -333,7 +333,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                     style={{ left: todayOffset }}
                   >
                     <div className="rounded-full bg-accent px-1.5 py-0.5">
-                      <span className="text-[9px] font-bold text-white whitespace-nowrap select-none">
+                      <span className="text-2xs font-bold text-white whitespace-nowrap select-none">
                         Today
                       </span>
                     </div>
@@ -453,7 +453,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                                 className={cn("w-3.5 h-3.5", milestoneColor(ms.status))}
                               />
                               {hasSlip && slipLabel && (
-                                <span className="ml-0.5 font-mono text-[9px] font-semibold text-warning select-none whitespace-nowrap pointer-events-none">
+                                <span className="ml-0.5 font-mono text-2xs font-semibold text-warning select-none whitespace-nowrap pointer-events-none">
                                   {slipLabel}
                                 </span>
                               )}
@@ -501,7 +501,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
               <span className="text-[11px] text-ink-muted">Baseline</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-[10px] font-semibold text-warning">+Nd</span>
+              <span className="font-mono text-2xs font-semibold text-warning">+Nd</span>
               <span className="text-[11px] text-ink-muted">Slip vs baseline</span>
             </div>
           </>

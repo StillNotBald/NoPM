@@ -42,7 +42,7 @@ function ago(iso: string) {
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="space-y-0.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">{label}</p>
+      <p className="text-2xs font-semibold uppercase tracking-wider text-ink-muted">{label}</p>
       <div className="text-sm text-ink">{children}</div>
     </div>
   );
@@ -53,7 +53,7 @@ function Module({ title, count, children }: { title: string; count?: number; chi
       <div className="flex items-center gap-2">
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">{title}</h3>
         {count !== undefined && (
-          <span className="rounded-full bg-sunken px-1.5 py-0.5 font-mono text-[10px] text-ink-muted">{count}</span>
+          <span className="rounded-full bg-sunken px-1.5 py-0.5 font-mono text-2xs text-ink-muted">{count}</span>
         )}
       </div>
       {children}

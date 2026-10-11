@@ -9,7 +9,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { parseFlags, die, CliError, out } from "../lib/api.mjs";
+import { parseFlags, die, CliError, out, api } from "../lib/api.mjs";
 
 // ── Stub ctx ────────────────────────────────────────────────────────────────
 
@@ -261,6 +261,155 @@ test("approve without an id dies", async () => {
   const ctx = makeCtx({ _: [] });
   await expectDies(() => approve.run([], ctx), /usage: nopm approve/);
   assert.equal(ctx.calls.length, 0);
+});
+
+// ── optimistic concurrency (R-90) — --expected-updated-at ───────────────────
+
+test("projects update sends expected_updated_at when the flag is supplied", async () => {
+  const projects = await import("../commands/projects.mjs");
+  const ctx = makeCtx(
+    { _: ["update", "proj_1"], rag: "amber", "expected-updated-at": "2026-09-01T00:00:00Z" },
+    { data: { id: "proj_1" } },
+  );
+  await projects.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/projects/proj_1", body: { rag_status: "amber", expected_updated_at: "2026-09-01T00:00:00Z" } },
+  ]);
+});
+
+test("tasks update sends expected_updated_at when the flag is supplied", async () => {
+  const tasks = await import("../commands/tasks.mjs");
+  const ctx = makeCtx(
+    { _: ["update", "task_1"], "status-type": "completed", "expected-updated-at": "2026-09-01T00:00:00Z" },
+    { data: { id: "task_1" } },
+  );
+  await tasks.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/tasks/task_1", body: { status_type: "completed", expected_updated_at: "2026-09-01T00:00:00Z" } },
+  ]);
+});
+
+test("tasks update omits expected_updated_at when the flag is not supplied", async () => {
+  const tasks = await import("../commands/tasks.mjs");
+  const ctx = makeCtx({ _: ["update", "task_1"], "status-type": "completed" }, { data: { id: "task_1" } });
+  await tasks.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/tasks/task_1", body: { status_type: "completed" } },
+  ]);
+  assert.ok(!("expected_updated_at" in ctx.calls[0].body), "expected_updated_at must not appear unless the flag was given");
+});
+
+test("milestones update sends expected_updated_at when the flag is supplied", async () => {
+  const milestones = await import("../commands/milestones.mjs");
+  const ctx = makeCtx(
+    { _: ["update", "ms_1"], status: "at_risk", "expected-updated-at": "2026-09-01T00:00:00Z" },
+    { data: { id: "ms_1" } },
+  );
+  await milestones.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/milestones/ms_1", body: { status: "at_risk", expected_updated_at: "2026-09-01T00:00:00Z" } },
+  ]);
+});
+
+test("risks update sends expected_updated_at when the flag is supplied", async () => {
+  const risks = await import("../commands/risks.mjs");
+  const ctx = makeCtx(
+    { _: ["update", "risk_1"], status: "mitigating", "expected-updated-at": "2026-09-01T00:00:00Z" },
+    { data: { id: "risk_1" } },
+  );
+  await risks.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/risks/risk_1", body: { status: "mitigating", expected_updated_at: "2026-09-01T00:00:00Z" } },
+  ]);
+});
+
+test("issues update sends expected_updated_at when the flag is supplied", async () => {
+  const issues = await import("../commands/issues.mjs");
+  const ctx = makeCtx(
+    { _: ["update", "issue_1"], status: "in_progress", "expected-updated-at": "2026-09-01T00:00:00Z" },
+    { data: { id: "issue_1" } },
+  );
+  await issues.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/issues/issue_1", body: { status: "in_progress", expected_updated_at: "2026-09-01T00:00:00Z" } },
+  ]);
+});
+
+test("issues update omits expected_updated_at when the flag is not supplied", async () => {
+  const issues = await import("../commands/issues.mjs");
+  const ctx = makeCtx({ _: ["update", "issue_1"], status: "in_progress" }, { data: { id: "issue_1" } });
+  await issues.run([], ctx);
+  assert.ok(!("expected_updated_at" in ctx.calls[0].body), "expected_updated_at must not appear unless the flag was given");
+});
+
+// ── 412 precondition-failed rendering (R-90) ─────────────────────────────────
+//
+// These exercise lib/api.mjs's api() directly against a stubbed global.fetch
+// (no network) — the command-level stubbed ctx.api bypasses this entirely, so
+// this is the only layer where the 412 message-building logic itself lives.
+
+function withStubbedFetch(status, jsonBody, fn) {
+  const originalFetch = globalThis.fetch;
+  const originalEnvUrl = process.env.NOPM_API_URL;
+  const originalEnvToken = process.env.NOPM_TOKEN;
+  globalThis.fetch = async () => ({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => jsonBody,
+  });
+  process.env.NOPM_API_URL = "http://test";
+  process.env.NOPM_TOKEN = "npm_test";
+  return Promise.resolve()
+    .then(fn)
+    .finally(() => {
+      globalThis.fetch = originalFetch;
+      if (originalEnvUrl === undefined) delete process.env.NOPM_API_URL; else process.env.NOPM_API_URL = originalEnvUrl;
+      if (originalEnvToken === undefined) delete process.env.NOPM_TOKEN; else process.env.NOPM_TOKEN = originalEnvToken;
+    });
+}
+
+test("api() renders a friendly message on 412 and preserves the raw payload", async () => {
+  await withStubbedFetch(412, { error: "Record changed since you loaded it", code: "precondition_failed", current_updated_at: "2026-09-07T08:12:44.031Z" }, async () => {
+    await assert.rejects(
+      () => api("PATCH", "/api/tasks/task_1", { status_type: "completed", expected_updated_at: "2026-01-01T00:00:00Z" }),
+      (e) => {
+        assert.ok(e instanceof CliError);
+        assert.equal(e.status, 412);
+        assert.equal(
+          e.message,
+          "Precondition failed: the record changed since you loaded it (current updated_at: 2026-09-07T08:12:44.031Z). Re-run with --expected-updated-at 2026-09-07T08:12:44.031Z after reviewing.",
+        );
+        assert.deepEqual(e.payload, { error: "Record changed since you loaded it", code: "precondition_failed", current_updated_at: "2026-09-07T08:12:44.031Z" });
+        return true;
+      },
+    );
+  });
+});
+
+test("api() 412 message falls back to 'unknown' when current_updated_at is absent (lost-race branch)", async () => {
+  await withStubbedFetch(412, { error: "Record changed since you loaded it", code: "precondition_failed" }, async () => {
+    await assert.rejects(
+      () => api("PATCH", "/api/tasks/task_1", { expected_updated_at: "2026-01-01T00:00:00Z" }),
+      (e) => {
+        assert.match(e.message, /current updated_at: unknown/);
+        assert.match(e.message, /--expected-updated-at unknown/);
+        return true;
+      },
+    );
+  });
+});
+
+test("api() non-412 errors keep the plain HTTP <status>: <error> message", async () => {
+  await withStubbedFetch(422, { error: "Invalid rag_status" }, async () => {
+    await assert.rejects(
+      () => api("PATCH", "/api/tasks/task_1", { rag_status: "bogus" }),
+      (e) => {
+        assert.equal(e.status, 422);
+        assert.equal(e.message, "HTTP 422: Invalid rag_status");
+        return true;
+      },
+    );
+  });
 });
 
 // ── every command module exposes the help contract ──────────────────────────

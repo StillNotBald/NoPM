@@ -59,6 +59,18 @@ const externalUrl = {
   description: "Optional link to the record in the external system",
 };
 
+// ── Optimistic concurrency (R-90) — mirrors the update Zod validators exactly
+// (ISO 8601 datetime with offset). Opt-in: omit it for today's last-write-wins
+// behavior; send the updated_at you last read to get a 412 instead of
+// silently overwriting a concurrent edit.
+const expectedUpdatedAt = {
+  type: "string",
+  format: "date-time",
+  description:
+    "Optional optimistic-concurrency guard: pass the updated_at you last read on this record. " +
+    "If the record has changed since, the update is rejected with a 412 instead of overwriting it.",
+};
+
 /**
  * @typedef {{ path: string, method: string, body?: unknown }} ToolRequest
  * @typedef {{
@@ -135,6 +147,7 @@ export const TOOL_REGISTRY = [
         source,
         external_ref: externalRef,
         external_url: externalUrl,
+        expected_updated_at: expectedUpdatedAt,
       },
       required: ["project_id"],
       additionalProperties: false,
@@ -218,6 +231,7 @@ export const TOOL_REGISTRY = [
         target_date: { type: "string", description: DATETIME },
         status: { type: "string", enum: MILESTONE_STATUSES },
         completion_pct: { type: "number", description: "0-100 integer" },
+        expected_updated_at: expectedUpdatedAt,
       },
       required: ["milestone_id"],
       additionalProperties: false,
@@ -303,6 +317,7 @@ export const TOOL_REGISTRY = [
         source,
         external_ref: externalRef,
         external_url: externalUrl,
+        expected_updated_at: expectedUpdatedAt,
       },
       required: ["task_id"],
       additionalProperties: false,
@@ -393,6 +408,7 @@ export const TOOL_REGISTRY = [
         source,
         external_ref: externalRef,
         external_url: externalUrl,
+        expected_updated_at: expectedUpdatedAt,
       },
       required: ["risk_id"],
       additionalProperties: false,
@@ -461,6 +477,7 @@ export const TOOL_REGISTRY = [
         source,
         external_ref: externalRef,
         external_url: externalUrl,
+        expected_updated_at: expectedUpdatedAt,
       },
       required: ["issue_id"],
       additionalProperties: false,

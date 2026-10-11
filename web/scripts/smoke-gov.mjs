@@ -1,13 +1,7 @@
 // NoPM — governance hero-path smoke test: the full four-eyes loop + audit trail.
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { loadEnv } from "./lib/env.mjs";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
-const env = Object.fromEntries(
-  readFileSync(path.join(here, "..", ".env.local"), "utf8")
-    .split(/\r?\n/).map((l) => l.match(/^([A-Z0-9_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]),
-);
+const env = loadEnv();
 const BASE = "http://localhost:3000";
 const MAKER = env.NOPM_MAKER_TOKEN, CHECKER = env.NOPM_CHECKER_TOKEN;
 const h = (t) => ({ Authorization: `Bearer ${t}`, "Content-Type": "application/json" });

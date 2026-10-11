@@ -70,7 +70,8 @@ export function ExportBoardPack() {
         )}
       </Button>
 
-      {/* Chevron for format menu */}
+      {/* Chevron for format menu — F6: 44px hit area via an invisible
+          ::before pseudo-element; the 36x32 visual button is unchanged. */}
       <button
         type="button"
         disabled={busy !== null}
@@ -79,12 +80,13 @@ export function ExportBoardPack() {
         aria-expanded={open}
         aria-label="Choose export format"
         className={[
-          "flex h-9 w-8 items-center justify-center",
+          "relative flex h-9 w-8 items-center justify-center",
           "rounded-l-none border-l border-accent-ink/20",
           "bg-accent text-accent-ink",
           "hover:bg-accent-hover transition-colors",
           "disabled:opacity-50 disabled:cursor-not-allowed",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']",
         ].join(" ")}
       >
         <svg

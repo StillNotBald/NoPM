@@ -1,0 +1,41 @@
+# NoPM — self-host via Docker Compose (R-88).
+#
+# This runs the Next.js app ONLY. Supabase (Postgres + Auth + RLS + Realtime)
+# stays hosted (Supabase Cloud, free tier is fine) — a fully local Supabase
+# stack is out of scope for this compose file. If you want Supabase running
+# locally too, use the Supabase CLI's own compose setup instead:
+#   npx supabase start
+# and point NEXT_PUBLIC_SUPABASE_URL / keys below at that instead of the
+# cloud project. See docs/SELF_HOSTING.md for the full picture (including
+# why a from-scratch self-hosted Supabase stack is documented, not shipped).
+#
+# Usage:
+#   1. cp web/.env.example web/.env.local and fill in your Supabase project's
+#      values (see docs/SELF_HOSTING.md for where to find each one).
+#   2. Once, against that Supabase project:  npm run setup   (or --seed)
+#   3. docker compose up --build
+#
+# NEXT_PUBLIC_* vars are inlined into the client bundle at Next.js BUILD time
+# (a Next.js constraint), so this file passes them as build args too, not
+# just runtime env — see web/Dockerfile's top comment. Docker Compose reads
+# ${VAR} interpolation below from the shell environment or a repo-root .env
+# file (Compose's own convention) — NOT from web/.env.local, which only
+# supplies the container's runtime env via env_file. To build with your real
+# Supabase project values: either export them before `docker compose build`,
+# or create a repo-root .env with the same three NEXT_PUBLIC_* lines.
+
+services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-https://placeholder.supabase.co}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-placeholder-anon-key}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+    image: nopm-web
+    ports:
+      - "3000:3000"
+    env_file:
+      - web/.env.local
+    restart: unless-stopped

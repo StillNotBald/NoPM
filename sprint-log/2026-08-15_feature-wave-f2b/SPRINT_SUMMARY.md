@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-15
 **Intent:** Land F2b — 12 lite-register rows: sprints + commitment snapshot + burndown + velocity (L-17/18/19/20), cycle/lead time + time-in-status API (L-22/24/26), time report + weekly timesheet grid + timesheet four-eyes (L-28/30/31), first-run wizard (L-45), link invites + unified identity (L-47/48). New R-IDs: **R-73/R-74/R-75**.
-**Mode:** LEAN (owner-locked this session after the token-spend review of the 2026-08-14 marathon): 8 sequential AI implementation agents, adversarial verification ONLY on the two governance builds (T5 timesheet four-eyes, T7 link invites), trimmed e2e set. Cross-model verifier skipped both times (no OpenRouter key) — verdicts rest on 3 Claude-family independent reviewers each.
+**Mode:** LEAN (owner-locked this session after a cost review of the 2026-08-14 marathon): 8 sequential AI build passes, adversarial verification ONLY on the two governance builds (T5 timesheet four-eyes, T7 link invites), trimmed e2e set. Cross-model verifier skipped both times (no OpenRouter key) — verdicts rest on 3 independent adversarial review passes each.
 
 ## What shipped
 
@@ -22,7 +22,7 @@
 - E2E journeys skipped this wave: velocity deep journey, flow-card-with-real-transitions, time-report filter journey, log-time-form journey, wizard happy-path, invite-accept happy-path, role-escalation-cap negative e2e (unit-covered).
 - `/login` doesn't consume the `?email=` prefill hint the accept form passes.
 - Empty-dashboard "connect an agent" pointer now lives only inside the wizard's final step — viewers and early-dismissers lose the link (spec-conformant; owner may want a light permanent pointer back).
-- A prior same-stack project audit (this session, notes in the owner's memory store) suggests unifying invite-accept error responses (uniform 400 anti-enumeration) — current distinct 404/422s are safe (32-byte CSPRNG tokens) but the uniform shape is strictly better; candidate for F3.
+- Notes from a prior same-stack project audit, surfaced this session, suggest unifying invite-accept error responses (uniform 400 anti-enumeration) — current distinct 404/422s are safe (32-byte CSPRNG tokens) but the uniform shape is strictly better; candidate for F3.
 - Sidebar + review-queue pre-existing `text-[11px]` literals — batch design cleanup candidate.
 
 ## Land evidence

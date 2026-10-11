@@ -14,12 +14,15 @@ import { FilterBar } from "@/components/registers/filter-bar";
 import {
   useListControls,
   toApiQueryString,
+  fieldParamKeys,
   type FilterFieldConfig,
 } from "@/components/registers/use-list-controls";
 import { SavedViewsBar, type SavedView } from "@/components/registers/saved-views-bar";
 import { GroupBySelect, type GroupByOption } from "@/components/registers/group-by-select";
 import { ColumnChooser, type ColumnDef } from "@/components/registers/column-chooser";
 import { AggregateFooter, type AggregateSpec } from "@/components/registers/aggregate-footer";
+import { FilterSheet } from "@/components/ui/filter-sheet";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import {
   decodeStoredConfig,
   buildSortParam,
@@ -58,8 +61,11 @@ interface TaskRow {
   estimate_hours: number | null;
 }
 
-const FILTER_FIELDS: readonly FilterFieldConfig[] = [
-  { key: "q", label: "Search", type: "text", placeholder: "Task name…" },
+// F4 — search stays inline; status/priority/due collapse into a FilterSheet
+// below md so the register's first row isn't ~1,400px below the fold.
+const SEARCH_FIELD: FilterFieldConfig = { key: "q", label: "Search", type: "text", placeholder: "Task name…" };
+
+const SHEET_FIELDS: readonly FilterFieldConfig[] = [
   {
     key: "status_type",
     label: "Status",
@@ -85,6 +91,8 @@ const FILTER_FIELDS: readonly FilterFieldConfig[] = [
   },
   { key: "due", label: "Due between", type: "date-range", fromKey: "due_after", toKey: "due_before" },
 ];
+
+const FILTER_FIELDS: readonly FilterFieldConfig[] = [SEARCH_FIELD, ...SHEET_FIELDS];
 
 // Only these fields are in TASK_SORT_FIELDS (src/app/api/tasks/_query.ts) —
 // assignee/project/estimate columns below are visible but not sortable.
@@ -314,6 +322,34 @@ export default function TasksPage() {
     projectNameById,
   ]);
 
+  // F4 — active count for just the sheet's fields (search stays outside it).
+  const sheetActiveCount = fieldParamKeys(SHEET_FIELDS).filter((k) => filters[k]).length;
+
+  // F5 — below md: cards, title/status/priority/project/due. Ungrouped
+  // (DataList has no grouping concept); the desktop table keeps grouping,
+  // sort, and the column chooser.
+  const mobileColumns: DataListColumn<TaskRow>[] = [
+    { key: "name", header: "Task", cell: (t) => t.name, primary: true },
+    {
+      key: "status_type",
+      header: "Status",
+      cell: (t) => <Badge tone={statusTone(t.status_type)}>{t.status_type}</Badge>,
+      badge: true,
+    },
+    {
+      key: "priority",
+      header: "Priority",
+      cell: (t) => <Badge tone={priorityTone(t.priority)}>{t.priority}</Badge>,
+      badge: true,
+    },
+    {
+      key: "project_id",
+      header: "Project",
+      cell: (t) => projectNameById.get(t.project_id) ?? "Unknown project",
+    },
+    { key: "due_date", header: "Due", cell: (t) => t.due_date ?? "—" },
+  ];
+
   const aggregates: AggregateSpec[] = [
     ...(columns.includes("completion_pct")
       ? [{ key: "completion_pct", label: "Avg done", kind: "avg" as const, values: rows.map((r) => r.completion_pct), format: (n: number) => `${Math.round(n)}%` }]
@@ -332,13 +368,24 @@ export default function TasksPage() {
         />
 
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <FilterBar
-            fields={FILTER_FIELDS}
-            values={filters}
-            onChange={setFilter}
-            onClear={clearFilters}
-            activeCount={activeFilterCount}
-          />
+          <div className="flex flex-wrap items-end gap-3">
+            <FilterBar
+              fields={[SEARCH_FIELD]}
+              values={filters}
+              onChange={setFilter}
+              onClear={clearFilters}
+              activeCount={0}
+            />
+            <FilterSheet activeCount={sheetActiveCount} onClear={clearFilters}>
+              <FilterBar
+                fields={SHEET_FIELDS}
+                values={filters}
+                onChange={setFilter}
+                onClear={clearFilters}
+                activeCount={sheetActiveCount}
+              />
+            </FilterSheet>
+          </div>
           <div className="flex items-end gap-2">
             <GroupBySelect
               options={GROUP_BY_OPTIONS}
@@ -399,7 +446,7 @@ export default function TasksPage() {
         )}
 
         {!loading && !error && rows.length > 0 && (
-          <div className="overflow-x-auto rounded-lg border border-border-subtle">
+          <div className="hidden overflow-x-auto rounded-lg border border-border-subtle md:block">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border-subtle bg-sunken text-left">
@@ -444,6 +491,17 @@ export default function TasksPage() {
               </tbody>
             </table>
             <AggregateFooter count={rows.length} aggregates={aggregates} />
+          </div>
+        )}
+
+        {!loading && !error && rows.length > 0 && (
+          <div className="rounded-lg border border-border-subtle md:hidden">
+            <DataList
+              columns={mobileColumns}
+              rows={rows}
+              rowKey={(t) => t.id}
+              href={(t) => entityHref("task", { id: t.id, projectId: t.project_id })}
+            />
           </div>
         )}
 

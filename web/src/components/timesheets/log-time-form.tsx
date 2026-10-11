@@ -154,6 +154,7 @@ export function LogTimeForm({ defaultMemberId }: { defaultMemberId?: string }) {
           <FieldLabel required>Hours</FieldLabel>
           <Input
             type="number"
+            inputMode="decimal"
             min="0.25"
             step="0.25"
             placeholder="e.g. 4"

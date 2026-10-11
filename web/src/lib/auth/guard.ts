@@ -1,8 +1,10 @@
+import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { hashToken, hasScope } from "@/lib/auth/tokens";
 import { AuthError, ScopeError } from "@/lib/api/errors";
 import { resolveClientMeta, type AuditChannel } from "@/lib/audit/channel";
+import { MFA_COOKIE_NAME, verifyMfaCookie, getMfaEnrollmentStatus } from "@/lib/auth/mfa";
 
 export type { AuditChannel };
 
@@ -27,6 +29,23 @@ export type Actor = {
   requestId?: string;
 };
 
+/**
+ * Routes that must keep working for a session actor who is MFA-enrolled but
+ * has not yet passed the challenge — the challenge submission itself, and
+ * the status poll the login page uses to decide whether to show the code
+ * step. Every other session-authenticated route requires a valid
+ * `nopm_mfa` cookie once the user has MFA enabled (R-91).
+ */
+const MFA_CHALLENGE_EXEMPT_PATHS = new Set<string>(["/api/auth/mfa", "/api/auth/mfa/challenge"]);
+
+function isMfaChallengeExempt(request: Request): boolean {
+  try {
+    return MFA_CHALLENGE_EXEMPT_PATHS.has(new URL(request.url).pathname);
+  } catch {
+    return false;
+  }
+}
+
 export async function requireAuth(request: Request): Promise<Actor> {
   const authz = request.headers.get("authorization");
   if (authz?.toLowerCase().startsWith("bearer ")) {
@@ -34,7 +53,35 @@ export async function requireAuth(request: Request): Promise<Actor> {
     return { ...actor, ...resolveClientMeta(request.headers, "token") };
   }
   const actor = await verifySession();
-  return { ...actor, ...resolveClientMeta(request.headers, "user") };
+  const full: Actor = { ...actor, ...resolveClientMeta(request.headers, "user") };
+
+  if (!isMfaChallengeExempt(request)) {
+    await assertMfaSatisfied(full.id);
+  }
+
+  return full;
+}
+
+/**
+ * R-91 — a session actor who has enabled MFA must carry a valid `nopm_mfa`
+ * cookie (issued by POST /api/auth/mfa/challenge after a correct TOTP or
+ * backup code), bound to the account's *current* enrollment. Token (Bearer
+ * PAT) actors never reach this function. Unenrolled users (the common case,
+ * including the shared demo login, which is never MFA-enrolled)
+ * short-circuit on the `enabled` check below without ever touching the
+ * cookie. One `user_mfa` lookup (enabled + enrolled_at, for the enrollment
+ * binding) — errors propagate uncaught (fail-closed: no actor is ever
+ * resolved for this request).
+ */
+async function assertMfaSatisfied(uid: string): Promise<void> {
+  const { enabled, enr } = await getMfaEnrollmentStatus(uid);
+  if (!enabled || enr === null) return;
+
+  const store = await cookies();
+  const cookieValue = store.get(MFA_COOKIE_NAME)?.value;
+  if (!verifyMfaCookie(cookieValue, uid, enr)) {
+    throw new AuthError("MFA required", "mfa_required");
+  }
 }
 
 async function verifyBearer(raw: string): Promise<Actor> {

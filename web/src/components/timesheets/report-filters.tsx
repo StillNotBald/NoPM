@@ -218,34 +218,64 @@ function TotalCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ReportTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: { key: string; label: string; hours: number; cost: number }[];
-}) {
+interface ReportRow {
+  key: string;
+  label: string;
+  hours: number;
+  cost: number;
+}
+
+/**
+ * Mobile pass (R-94, F5) — the bare (no-header) `<table>` this used to
+ * always render clipped its label column hard at phone widths. Below `md`
+ * it's now one row-card per member/project (label + hours/cost stacked to
+ * the right); the `≥md` branch keeps the exact original table markup
+ * unchanged so desktop is pixel-identical to before. Kept as a small
+ * hand-rolled split rather than DataList — DataList always renders a
+ * `<thead>`, and this table deliberately has none (the section title bar
+ * above it stands in for a header); reusing it would add a header row on
+ * desktop that wasn't there before.
+ */
+function ReportTable({ title, rows }: { title: string; rows: ReportRow[] }) {
   return (
     <div className="rounded-lg border border-border-subtle">
       <div className="border-b border-border-subtle px-4 py-2.5 text-sm font-medium text-ink">{title}</div>
       {rows.length === 0 ? (
         <p className="px-4 py-4 text-sm text-ink-muted">No rows.</p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <tbody className="divide-y divide-border-subtle">
-              {rows.map((r) => (
-                <tr key={r.key}>
-                  <td className="px-4 py-2 text-ink truncate max-w-[180px]">{r.label}</td>
-                  <td className="px-4 py-2 text-right font-mono tabular-nums text-ink-secondary">{r.hours}h</td>
-                  <td className="px-4 py-2 text-right font-mono tabular-nums text-ink-secondary">
+        <>
+          {/* <md: cards */}
+          <ul className="divide-y divide-border-subtle md:hidden">
+            {rows.map((r) => (
+              <li key={r.key} className="flex min-h-[44px] items-center justify-between gap-3 px-4 py-2.5">
+                <span className="min-w-0 truncate text-sm text-ink">{r.label}</span>
+                <span className="shrink-0 text-right">
+                  <span className="block font-mono text-xs tabular-nums text-ink-secondary">{r.hours}h</span>
+                  <span className="block font-mono text-2xs tabular-nums text-ink-muted">
                     {r.cost.toLocaleString("en-US", { style: "currency", currency: "USD" })}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+
+          {/* ≥md: original table, unchanged */}
+          <div className="hidden overflow-x-auto md:block">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-border-subtle">
+                {rows.map((r) => (
+                  <tr key={r.key}>
+                    <td className="px-4 py-2 text-ink truncate max-w-[180px]">{r.label}</td>
+                    <td className="px-4 py-2 text-right font-mono tabular-nums text-ink-secondary">{r.hours}h</td>
+                    <td className="px-4 py-2 text-right font-mono tabular-nums text-ink-secondary">
+                      {r.cost.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
