@@ -1,6 +1,6 @@
 # Sprint Summary — 2026-09-06_sprint1-complement-thesis
 
-**TL;DR:** The "complement, not replace" thesis now has a schema seam (external references), provable audit provenance (client channel + request id), uniform governance (audit-coverage invariant, BYOK key audit, immutability regression test, `change:decide` split, governed unlock), public copy that says it, and a Baselines nav page. **Landed 2026-09-06:** committed a0ce060, migrations 0041–0043 applied to the live DB, deployed to stillnotbald.com (<deployment>), live-verified.
+**TL;DR:** The "complement, not replace" thesis now has a schema seam (external references), provable audit provenance (client channel + request id), uniform governance (audit-coverage invariant, BYOK key audit, immutability regression test, `change:decide` split, governed unlock), public copy that says it, and a Baselines nav page. **Landed 2026-09-06:** committed a0ce060, migrations 0041–0043 applied to the live DB, deployed to stillnotbald.com, live-verified.
 
 ## Origin
 A six-lens multi-agent positioning review on 2026-09-06 (`docs/research/POSITIONING-REVIEW-2026-09-06.md`) found the thesis "NoPM is the lite governance layer beside Jira/Slack/Teams, anti-ClickUp" was stated nowhere public and had no schema footing, while governance was strong but uneven. Sprint 1 = the five ranked fixes that make the thesis true.

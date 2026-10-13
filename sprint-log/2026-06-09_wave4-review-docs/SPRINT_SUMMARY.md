@@ -1,6 +1,6 @@
 # Sprint — Wave 4 + 4.5: Review Queue + Documents (real file storage) (2026-06-09)
 
-**Intent:** the predecessor-platform reuse — kill the PM "long email trail" with one **Review Queue** of every pending decision, and add a **Documents register** with **real, governed file storage**. Built by two AI-assisted waves on disjoint files (Wave 4: docs-data · review-queue · docs-ui; Wave 4.5: storage-api · storage-ui) + verify passes; integrated + seeded + deployed by hand. Nav wiring kept off the agents to avoid sidebar collisions.
+**Intent:** the predecessor-platform reuse — kill the PM "long email trail" with one **Review Queue** of every pending decision, and add a **Documents register** with **real, governed file storage**. Built by two AI-agent waves on disjoint files (Wave 4: docs-data · review-queue · docs-ui; Wave 4.5: storage-api · storage-ui) + verify passes; integrated + seeded + deployed by hand. Nav wiring kept off the agents to avoid sidebar collisions.
 
 ## Done
 - **Review Queue** (`/review`, governance nav): `lib/review/gather.ts` fans out 5 governed sources via `Promise.allSettled` — pending deletion_requests, `pending_approval` rebaselines, `in_review` documents, high/critical open risks, unresolved clashes — into one priority-sorted queue (approvals + critical first), grouped by kind with count chips, each row deep-linking to its action. This is the answer to the PM email-trail pain.

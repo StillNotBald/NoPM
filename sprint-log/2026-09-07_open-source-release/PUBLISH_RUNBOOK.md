@@ -1,15 +1,15 @@
-# Publish runbook — flipping NoPM public (owner-executed, in order)
+# Publish runbook — flipping NoPM public (maintainer-executed, in order)
 
-Plain-language, one step at a time. Everything in code is already done in the working tree; these are the actions only the repository owner can take. Do them in order. Stop at any step that does not match what you expect.
+Plain-language, one step at a time. Everything in code is already done in the working tree; these are the actions only the repository maintainer can take. Do them in order. Stop at any step that does not match what you expect.
 
 ## Why step 1 exists (read this first)
 
-On 2026-08-13 the history was purged with `git filter-repo` and force-pushed. The purge worked for every reachable commit. But GitHub keeps the *old* objects on its servers until it runs garbage collection, and 25 days later it still has not. Checked on 2026-09-07: 18 of the 19 pre-purge commits still answer on the GitHub API by SHA, including one whose file list contains `docs/research/_PRIVATE.md`. While the repo is private only you can reach them. The moment it is public, anyone with a SHA can. So the repository must be recreated from a fresh clone, which never uploads the old objects at all.
+On 2026-08-13 the history was purged with `git filter-repo` and force-pushed. The purge worked for every reachable commit. But GitHub keeps the *old* objects on its servers until it runs garbage collection, and 25 days later it still has not. Checked on 2026-09-07: 18 of the 19 pre-purge commits still answer on the GitHub API by SHA, including one whose file list contains a private research file. While the repo is private only you can reach them. The moment it is public, anyone with a SHA can. So the repository must be recreated from a fresh clone, which never uploads the old objects at all.
 
 ## Step 0 — commit the release changes locally
 
 ```bash
-cd "<redacted-path>"
+cd "<projects-dir>/stillnotbald/NoPM"
 git add -A
 git commit -m "chore(release): open-source under Apache-2.0 — license switch, guides, security + sensitivity hardening"
 ```
@@ -18,20 +18,20 @@ The pre-commit leak gate runs automatically. Do **not** push to the old repo yet
 ## Step 1 — recreate the repository from a fresh clone
 
 ```bash
-cd "<redacted-path>"
-git clone --no-local --single-branch --branch main "<redacted-path>" NoPM-public
+cd "<projects-dir>/stillnotbald"
+git clone --no-local --single-branch --branch main "<projects-dir>/stillnotbald/NoPM" NoPM-public
 cd NoPM-public
 git log --oneline | wc -l          # expect 117 (116 + the release commit)
-git cat-file -t 4058b99018f8b06a2b12c408a7196c8a253cf83d   # expect "fatal: Not a valid object name" (old objects absent)
+git cat-file -t <pre-purge-sha>   # expect "fatal: Not a valid object name" (old objects absent)
 git gc --prune=now --quiet
 git remote remove origin
 gh repo create StillNotBald/NoPM-next --private --source=. --remote=origin --push
 ```
 Then prove the old objects are gone from the new repo (expect `404` on every line):
 ```bash
-for s in 4058b99018f8b06a2b12c408a7196c8a253cf83d; do gh api repos/StillNotBald/NoPM-next/commits/$s >/dev/null 2>&1 && echo "STILL THERE $s" || echo "404 ok $s"; done
+for s in <pre-purge-sha> <another-sha>; do gh api repos/StillNotBald/NoPM-next/commits/$s >/dev/null 2>&1 && echo "STILL THERE $s" || echo "404 ok $s"; done
 ```
-(The full list of 18 SHAs is in `reports/security-sweep.md`, F1. Test three or four of them.)
+(Take three or four pre-purge SHAs from the offline backup mirror and test each; use them in place of the placeholders above.)
 
 ## Step 2 — move the name so the public URL stays `github.com/StillNotBald/NoPM`
 
@@ -63,7 +63,7 @@ gh secret set NEXT_PUBLIC_SUPABASE_URL --repo StillNotBald/NoPM < <(printf '%s' 
 ## Step 4 — point your local checkout at the new repo
 
 ```bash
-cd "<redacted-path>"
+cd "<projects-dir>/stillnotbald/NoPM"
 git remote set-url origin https://github.com/StillNotBald/NoPM.git
 git fetch origin && git status    # expect: up to date with origin/main
 ```
@@ -87,11 +87,11 @@ Optional but recommended in the same sitting: Settings → General → Features:
 - Open `https://github.com/StillNotBald/NoPM` logged out. The README should show the Apache-2.0 license badge area, the guides row, and the License and Trademarks sections.
 - Re-run the SHA check from Step 1 against `StillNotBald/NoPM` (the renamed new repo). Expect 404s.
 - Run the weekly smoke manually: `gh workflow run e2e-smoke.yml --repo StillNotBald/NoPM`, then read the log. The line should read `Authenticated smoke as ad***@stillnotbald.com`.
-- Deploy the release commit to Vercel so the live site carries the document-upload hardening and the guides link: `cd web && vercel deploy --prod --yes` (owner runs it; the harness is blocked from deploying).
+- Deploy the release commit to Vercel so the live site carries the document-upload hardening and the guides link: `cd web && vercel deploy --prod --yes` (the maintainer runs it; the harness is blocked from deploying).
 - If Vercel's Git integration was linked to the old repo, relink it to the new one in the Vercel dashboard (Settings → Git). If you deploy manually with `vercel deploy`, nothing changes.
 
 ## What was deliberately NOT done by the assistant
 
-- No commit, no push, no repo creation, no visibility change. All of those are outward-facing and yours.
+- No commit, no push, no repo creation, no visibility change. All of those are outward-facing and the maintainer's.
 - No deletion of anything on GitHub.
 - The old private repo is archived, not deleted, so you can still consult its Issues or Action logs if ever needed.

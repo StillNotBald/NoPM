@@ -1,5 +1,5 @@
 NoPM
-Copyright 2026 Chu Ling
+Copyright 2026 Cheng Chu Ling
 
 This product includes software developed as part of the NoPM project
 (https://stillnotbald.com), licensed under the Apache License, Version 2.0.
@@ -18,9 +18,7 @@ repository). No NOTICE-level attribution is required for the MIT/ISC/BSD
 majority of the dependency tree.
 
 The following third-party components carry copyleft or non-trivial-permissive
-licenses and are called out here for transparency (see
-sprint-log/2026-09-07_open-source-release/reports/license-audit.md for the
-full inventory and reasoning):
+licenses and are called out here for transparency:
 
 - axe-core (MPL-2.0) — accessibility-lint devDependency only; not distributed
   with the built application.

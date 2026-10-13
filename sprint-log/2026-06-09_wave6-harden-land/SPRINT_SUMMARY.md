@@ -3,7 +3,7 @@
 **Intent:** close out the v1 MVP — expand the governance test suite to cover Waves 3-5, verify the persona journeys end-to-end at the data layer, and finalize the RTM / sprint-log. The build-out is complete; this wave is about provable correctness and landing.
 
 ## Done
-- **Test suite 34 → 102** (all green; `npm test`). A AI-assisted agent added 68 governance-invariant unit tests, no production code touched:
+- **Test suite 34 → 102** (all green; `npm test`). An AI implementation agent added 68 governance-invariant unit tests, no production code touched:
   - `src/lib/crypto.test.ts` (14) — BYOK key crypto: encrypt/decrypt round-trip (ascii/unicode/long/empty), random-IV non-determinism, **GCM tamper detection**, wrong-key failure, missing-key error.
   - `src/lib/assistant/scopes.test.ts` (28) — the assistant's governance envelope: `TOOL_SCOPES` **includes** `task:delete:request` but **excludes** `task:delete:approve`, every `token:*`, and any mfa scope. Proves via `hasScope` that the assistant can *request* a deletion but can **never approve** one — maker-checker is preserved even for the AI actor.
   - `src/lib/documents/storage.test.ts` (26) — path-safety: `sanitizeFileName` strips `/`/`\` separators (the real traversal vector in flat object storage), `buildStoragePath` locks the `workspaceId/documentId/` prefix, `validateStoragePath` rejects foreign-workspace prefixes.

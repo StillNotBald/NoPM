@@ -1,6 +1,6 @@
 # Sprint — Wave 8: UX finish layer + inline-action worklist + form validation + cmd-K search (2026-06-09)
 
-**Intent:** close the flow/UX/form gaps the predecessor-platform comparison surfaced — make the app *feel finished* and turn the Review Queue from a notification list into a real worklist. 4-agent AI-assisted wave (ux-infra · forms · queue-worklist · search) + verify, then an **authenticated end-to-end rehearsal** that caught a real bug.
+**Intent:** close the flow/UX/form gaps the predecessor-platform comparison surfaced — make the app *feel finished* and turn the Review Queue from a notification list into a real worklist. four AI implementation agents (ux-infra · forms · queue-worklist · search) + verify, then an **authenticated end-to-end rehearsal** that caught a real bug.
 
 ## Done
 - **UX finish layer (ux-infra):** a `ToastProvider`/`useToast` toast system (auto-dismiss, aria-live, theme-token styled) mounted in app-shell; a `Skeleton` primitive + `TableSkeleton`/`CardSkeleton`/`StatGridSkeleton`; **13 `loading.tsx`** skeleton fallbacks (one per heavy console route); a scoped **`(console)/error.tsx`** boundary with "Try again". (Removed a duplicate `ToastProvider` the queue agent added to `(console)/layout.tsx` — kept the app-shell mount.)

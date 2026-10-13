@@ -1,6 +1,6 @@
 # Sprint — Wave 9: Better navigation + cross-project views (2026-06-09)
 
-**Intent:** close the navigation gaps a comparison vs a prior PMO tool + ClickUp surfaced (`docs/research/NAV-REVIEW-2026-06-09.md`): NoPM led on mobile nav + record-search but lacked grouped IA, a project switcher, breadcrumbs, and any cross-project task/portfolio view. 4-agent AI-assisted wave (nav-shell · breadcrumbs · my-tasks · portfolio) + verify.
+**Intent:** close the navigation gaps a comparison vs a prior PMO tool + ClickUp surfaced (`docs/research/NAV-REVIEW-2026-06-09.md`): NoPM led on mobile nav + record-search but lacked grouped IA, a project switcher, breadcrumbs, and any cross-project task/portfolio view. four AI implementation agents (nav-shell · breadcrumbs · my-tasks · portfolio) + verify.
 
 ## Done
 - **Grouped sidebar IA** (nav-shell) — the flat 15-item list became **5 labelled sections**: Overview (My Work · My Tasks · Dashboard) · Delivery (Projects · Portfolio · Documents) · Registers (Risks · Issues · Clashes) · Capacity (Resources · Budget) · Governance (Review · Change Control · Decisions · Approvals · Trust · Tokens). Collapse behaviour + active state preserved; labels become dividers when collapsed.

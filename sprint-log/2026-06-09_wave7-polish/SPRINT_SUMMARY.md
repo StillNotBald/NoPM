@@ -1,6 +1,6 @@
 # Sprint — Wave 7: baselines + Charter + case-study one-pager (2026-06-09)
 
-**Intent:** close the remaining board backlog — milestone/task **baselines + Gantt slip** (#16), a project **Charter** surface (#18), and the employer-facing **one-page case-study PDF** (R-51). 3-agent AI-assisted wave (baselines-data · project-detail-ui · case-study) + verify; migration/seed/landing-link wired by hand.
+**Intent:** close the remaining board backlog — milestone/task **baselines + Gantt slip** (#16), a project **Charter** surface (#18), and the employer-facing **one-page case-study PDF** (R-51). three AI implementation agents (baselines-data · project-detail-ui · case-study) + verify; migration/seed/landing-link wired by hand.
 
 ## Done
 - **Baselines + slip** (#16) — migration `0018`: `milestones.baseline_target_date`, `tasks.baseline_start_date/baseline_due_date` (null = not baselined). **Captured on project lock** (snapshot current dates → baseline, once, where null — the approved plan) and re-set on **rebaseline apply**; both keep their existing `writeAudit`. The **Gantt** now renders faint baseline ghost bars (tasks) + baseline diamonds (milestones) with a **slip indicator** (e.g. `+3d`) when current is later than baseline; degrades silently when null. Seeded so slip is visible: **18 milestones + 114 tasks baselined, 21 tasks showing slip**.

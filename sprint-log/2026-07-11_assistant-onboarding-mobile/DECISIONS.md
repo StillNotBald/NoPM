@@ -2,10 +2,10 @@
 
 All locked with the owner in the ASK round (or directly in chat where noted).
 
-1. **Demo LLM provider = OpenRouter, same API key as the reference demo site** (owner, in chat).
+1. **Demo LLM provider = OpenRouter, same API key as the owner's other demo site** (owner, in chat).
    Free-tier model (`nvidia/nemotron-3-super-120b-a12b:free`), account deliberately holds zero
    credits = hard spend ceiling. New `openrouter.ts` adapter (raw fetch, no new lib). ~50 req/day
-   cap SHARED with the reference demo — accepted; fallback carries overflow.
+   cap SHARED with the owner's other demo site — accepted; fallback carries overflow.
 2. **Fallback = grounded answers** (ASK). Deterministic intent matcher over 2–3 read-only
    intents, through the same ephemeral-scoped-token path, rate-limited, persisted like a normal
    turn, demo-mode labeled. Never a 500, never hallucinated data, never a spliced chimera reply

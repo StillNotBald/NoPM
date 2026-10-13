@@ -1,6 +1,6 @@
 # Sprint — Wave 3: BYOK governed AI assistant (2026-06-09)
 
-**Intent:** ship the thesis centerpiece — the user's own LLM operates NoPM through its REST API under scopes + audit + maker-checker. A bolted-on chatbot would undercut the "no bundled LLM" wedge; a *governed agent client* showcases it. Built by a 3-agent AI-assisted wave (foundation · engine · UI) on disjoint files + a verify pass, then integrated by hand.
+**Intent:** ship the thesis centerpiece — the user's own LLM operates NoPM through its REST API under scopes + audit + maker-checker. A bolted-on chatbot would undercut the "no bundled LLM" wedge; a *governed agent client* showcases it. Built by three AI implementation agents (foundation · engine · UI) on disjoint files + a verify pass, then integrated by hand.
 
 ## Done
 - **Encryption + credential vault (foundation):** `src/lib/crypto.ts` — AES-256-GCM (key from `NOPM_ENCRYPTION_KEY`, checked inside the functions so `next build` survives its absence). Migration `0014_assistant_credentials` — RLS enabled, **zero policies (deny-all)**, admin-client-only, `unique(user_id)`. `api/assistant/credentials` GET/PUT/DELETE — session-user only (token actors 403), **never returns the key**, `demoAvailable` derived from server env.

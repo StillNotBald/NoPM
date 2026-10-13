@@ -1,6 +1,6 @@
 # Sprint — Deep-review remediation (2026-06-09)
 
-**Intent:** close the gaps the deep review surfaced — wire the built-but-dark features, restore the credibility layer (RTM/tests/receipts/ADRs), and sweep UI consistency. Driven by a 7-agent AI-assisted wave + integration.
+**Intent:** close the gaps the deep review surfaced — wire the built-but-dark features, restore the credibility layer (RTM/tests/receipts/ADRs), and sweep UI consistency. Driven by seven AI implementation agents plus manual integration.
 
 ## Done
 - **Credibility layer (P0):** RTM reconciled in `requirements/{REQUIREMENTS,TRACEABILITY}.md` (R-IDs → real DONE status + 97 Code paths); `rtm-verify.mjs` hardened to assert files exist on disk → `rtm:verify` green. 7 backfilled `sprint-log/` receipts. ADRs `0002-currency-usd`, `0003-audit-cascade`.

@@ -8,7 +8,7 @@ was touched.
 
 ## Spec files created (engine repo)
 
-`<redacted-path>`
+an external diagram tool, not in this repo
 
 - `nopm-change-request-lifecycle.flow.mjs`
 - `nopm-project-lock-rebaseline.flow.mjs`

@@ -16,7 +16,7 @@ web
 
 ## Product Purpose
 
-A lite, API-first project-management tool that a user's own AI agent operates — like the `aws`/`supabase` CLIs, but for project governance. NoPM bundles no LLM. It exists as a live-hosted proof of the thesis: *"I build the systems that make unclear requirements impossible."* Success = an evaluator (human or agent) can verify every governance claim against the running system, and a pilot team can actually run their portfolio in it.
+A lite, API-first project-management tool that a user's own AI agent operates — like the `aws`/`supabase` CLIs, but for project governance. NoPM bundles no LLM. It exists as a live-hosted proof of the thesis: *"I build the systems that make unclear requirements impossible."* Success = an evaluator (human or agent) can verify every governance claim against the running system, and a team can actually run its portfolio in it.
 
 ## Positioning
 
@@ -37,7 +37,7 @@ NoPM does not ask a team to give up Jira, Slack, or Teams. It is the governed re
 
 - 8 modules (Workspace→Project→Milestone→Task, Risk, Issue, Clash, Resource, Budget) + governance backbone + Trust Center + deck export + BYOK assistant + notification center. 54 R-IDs tracked in `requirements/`.
 - Stack is locked (ask-first): Next.js 16, TypeScript, Tailwind v4, shadcn-style primitives, Supabase. Approved libs listed in CLAUDE.md; nothing else without asking.
-- Do-NOT-build list (CLAUDE.md): real email send, OAuth/PKCE, custom fields, automations, comment threads, any bundled LLM.
+- Ask-first list (CLAUDE.md): real email send, OAuth/PKCE, custom fields, automations, comment threads, any bundled LLM.
 - Terminology: maker/checker, four-eyes, RAG status, clash, rebaseline, PAT, workspace. Task statuses are `backlog|unstarted|started|completed|canceled`.
 - Undecided: the Mainline timeline 3-lens UI (design-approved, parked); Playwright UAT depth.
 
@@ -45,12 +45,12 @@ NoPM does not ask a team to give up Jira, Slack, or Teams. It is the governed re
 
 - **Visual world (BINDING, owner-updated 2026-08-13):** terminal-light — white/near-black canvas, ink text, **Fluent blue `#0078d4` single accent** (owner retheme 2026-08-13; replaced terminal-green), JetBrains Mono for technical text, shadcn-style primitives, the traffic-light terminal motif. Bolder work happens WITHIN this world (composition, type scale, motion, motif) — never a new palette.
 - Name: NoPM. Domain: stillnotbald.com. Voice: a working engineer's — concrete mechanisms, no hype, terse empty states.
-- Sanitization is a brand commitment: no real client/stakeholder names in tracked files, ever.
+- Sanitization is a brand commitment: no real people's or organisations' names in tracked files, ever.
 
 ## Evidence on Hand
 
 - Real: the live deployment; generated proof metrics (`web/src/lib/metrics.gen.json` — R-IDs/tests/endpoints, CI-checked); the immutable audit trail itself; RTM + sprint logs + 8 ADRs; 533-test suite; public OpenAPI + llms.txt.
-- Absent (must not be fabricated): testimonials, customer logos, usage numbers, pricing, benchmarks. The pilot client may not be named or implied in public surfaces.
+- Absent (must not be fabricated): testimonials, customer logos, usage numbers, pricing, benchmarks. No customers, testimonials or logos are claimed; none may be fabricated.
 
 ## Product Principles
 

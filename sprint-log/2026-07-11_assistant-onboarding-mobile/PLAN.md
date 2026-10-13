@@ -1,7 +1,7 @@
 # Plan — working demo assistant · friendly onboarding · mobile-usable console
 
 Date: 2026-07-11 · Initiative: three workstreams requested by the owner —
-(1) AI assistant must actually work for a visitor (mirror the reference demo-site pattern),
+(1) AI assistant must actually work for a visitor (mirror the pattern of a separate reference project's demo site),
 (2) onboarding is unfriendly, (3) fully usable on a mobile phone.
 
 Method: an AI-assisted plan-ask-build pipeline — 4 recon agents + synthesis + 4 adversarial critics + 3 completeness rounds
@@ -29,7 +29,7 @@ Method: an AI-assisted plan-ask-build pipeline — 4 recon agents + synthesis + 
   can read every prior visitor's chats. Seed never clears `assistant_conversations/messages`.
 - Rate limiter RPC is fail-open with no logging (`index.ts:50`); budget (20/hr) is shared-fate
   across all visitors; no per-turn tool-call count cap; provider fetches have no AbortSignal.
-- the reference project reference facts: no `X-Demo-Mode` header exists there (brief was wrong); the portable
+- reference-project facts: no `X-Demo-Mode` header exists there (brief was wrong); the portable
   ideas are `writeFallbackTurn` (grounded fallback into the open stream) and `MAX_LLM_HISTORY=24`.
 
 **Onboarding**
@@ -100,9 +100,9 @@ Method: an AI-assisted plan-ask-build pipeline — 4 recon agents + synthesis + 
 7. `X-Demo-Mode` response header on the non-streaming path (streaming already carries
    `usedDemoKey` in the `done` event — headers are sent before the stream resolves).
 8. Env wiring: `NOPM_DEMO_LLM_PROVIDER=openrouter`, `NOPM_DEMO_LLM_KEY` (same OpenRouter key as
-   the reference demo — owner decision, locked), `NOPM_DEMO_LLM_MODEL` (free tier) — local +
+   the owner's other demo site — owner decision, locked), `NOPM_DEMO_LLM_MODEL` (free tier) — local +
    Vercel prod via printf method. Operational: OpenRouter account has zero credits → free-model
-   cap ~50 req/day shared with the reference demo; fallback carries the overflow.
+   cap ~50 req/day shared with the owner's other demo site; fallback carries the overflow.
 9. Named new tests: `assistant-fallback.test.ts` + `openrouter-provider.test.ts` (+ scopes
    assertions: fallback never gains approve/admin scopes). Suite must GROW from 268.
 

@@ -50,6 +50,6 @@ Built with AI-assisted development: 4 sequential implementation passes by AI age
 
 ## Landing status
 - Committed 77933b5 and pushed to main 2026-09-06 (pre-push gates green).
-- Deployed to stillnotbald.com the same day (Vercel deployment <deployment>). Note for the record: the deploy was triggered by an unintended command substitution in a local script, not run manually; the deployed artefact was the same fully-tested commit; the script has since been fixed.
+- Deployed to stillnotbald.com the same day (a Vercel production deployment). Note for the record: the deploy was triggered by an unintended command substitution in a local script, not run manually; the deployed artefact was the same fully-tested commit; the script has since been fixed.
 - Live verification: `/api/health` ok; a 401 echoes a supplied `X-Request-Id` and generates one when absent; landing shows "15 runtime dependencies, 0-dependency CLI"; OpenAPI exposes `since` / `after_id` / `order`; `auth-smoke.mjs` 24/24; Playwright console-pages + public + navigation vs live: 38 passed.
 - Live DB: RPC-written deletion rows from the write tier carry channel `api` and a shared request id; zero null-channel rows since 0044.

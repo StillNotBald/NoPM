@@ -28,7 +28,7 @@ bugs the generator exists to prevent.
 
 To change a diagram:
 
-1. Edit its FLOW SPEC in `<redacted-path><slug>.flow.mjs`
+1. Edit its flow spec in the external diagram engine used to render these flows (not part of this repo)
    (the six new specs are `nopm-change-request-lifecycle`, `nopm-project-lock-rebaseline`,
    `nopm-period-close-reopen`, `nopm-agent-token-lifecycle`, `nopm-document-control`, and
    `nopm-invite-onboarding`; the original two are `nopm-four-eyes-deletion` and `nopm-timesheet-lifecycle`).

@@ -7,9 +7,9 @@ is very unfriendly, (3) fully usable on a mobile phone.
 ## What shipped (all live on stillnotbald.com)
 
 **Assistant (R-24/R-26, ADR 0008)**
-- OpenRouter provider adapter (4th provider; same owner key as the reference demo;
+- OpenRouter provider adapter (4th provider; same owner key as the owner's other demo site;
   `nvidia/nemotron-3-super-120b-a12b:free`; zero-credit account = hard spend ceiling;
-  ~50 req/day cap SHARED with the reference demo). 45s AbortSignal timeouts on all providers.
+  ~50 req/day cap SHARED with the owner's other demo site). 45s AbortSignal timeouts on all providers.
 - Grounded read-only fallback: when the model is unreachable/capped, a deterministic matcher
   answers from real workspace data via the same ephemeral-token lifecycle, rate-checked first.
 - Raw provider error text no longer reaches clients (was streamed verbatim); mid-stream

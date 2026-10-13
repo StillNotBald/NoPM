@@ -1,6 +1,6 @@
 # Sprint — Wave 2: persona journeys + notifications (2026-06-09)
 
-**Intent:** stitch the SME "what's hot → where to act" entry point and the governed notification loop. 3-agent AI-assisted wave + integration.
+**Intent:** stitch the SME "what's hot → where to act" entry point and the governed notification loop. three AI implementation agents plus manual integration.
 
 ## Done
 - **Notification system:** `src/lib/notify/publish.ts` — fail-soft `notify()` (best-effort, never throws into a mutation, unlike audit) + `resolveWorkspaceApprovers` / `resolveProjectOwner`. API: `GET /api/notifications` (session-user, `?unread`, paginated), `PATCH /api/notifications/[id]` (mark-read), `POST /api/notifications/read-all`.

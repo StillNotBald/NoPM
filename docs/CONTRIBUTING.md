@@ -21,7 +21,7 @@ Running `npm install` (root or `web/`) installs the checked-in git hooks:
 - Every mutation writes exactly one audit row (`writeAudit`, fail-closed). No silent writes.
 - Agent surfaces (assistant + MCP) share `web/mcp/tools.mjs`; new tools must pass `tools-zod.test.ts` and `tools-openapi.test.ts`.
 - Stack additions are ask-first — open an issue before introducing a dependency.
-- No bundled LLM, no real email send, and nothing in the "Do NOT build" list in `CLAUDE.md` without an issue first.
+- No bundled LLM, no real email send, and nothing on the ask-first list in `CLAUDE.md` without an issue first.
 
 ## Quick check before a PR
 

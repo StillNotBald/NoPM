@@ -1,6 +1,6 @@
 # PLAN — 2026-09-07 OSS improvements wave (working state; resume from first unchecked item)
 
-Owner (07:45): "yes, please do all now via multi-agent AI-assisted; ensure requirements, sprint log, testing log are there; reverse-engineer use cases and BPD."
+Owner (07:45): "yes, please do all now via multi-agent AI assistance; ensure requirements, sprint log, testing log are there; reverse-engineer use cases and BPD."
 Previous sprint (2026-09-07_open-source-release) is STAGED, uncommitted; this wave stacks on top. Cron safety net: CronCreate "43 */2 * * *" — delete when done.
 
 R-ID allocation (lead writes requirements/ at land — workers never touch requirements/, sprint-log/, testing-log/):
@@ -12,8 +12,8 @@ R-ID allocation (lead writes requirements/ at land — workers never touch requi
 - R-93 reverse-engineered use-case catalogue (docs/use-cases) + 6 new BPD flows (docs/processes) (workers F use-cases, G bpd)
 
 ## Phases
-- [x] W1 seven AI implementation agents in parallel (disjoint files) → reports/<name>.md
-- [x] V1 adversarial verification (AI-assisted) of high-risk: occ, mfa-login, csp-nonce, deploy-path; fix at land
+- [x] W1 seven AI implementation workers in parallel (disjoint files) → reports/<name>.md
+- [x] V1 adversarial verification (independent automated review) of high-risk: occ, mfa-login, csp-nonce, deploy-path; fix at land
 - [x] L1 gates (tsc, vitest, lint, rtm:verify, gen-metrics, CLI, leak gate), RTM rows R-88..R-93 (REQUIREMENTS + TRACEABILITY same commit), ADR if needed
 - [x] L2 testing-log/2026-09-07_oss-improvements/ evidence (gate outputs, verifier verdicts), SPRINT_SUMMARY.md receipt, memory update, CronDelete, final summary (NO commit/push)
 

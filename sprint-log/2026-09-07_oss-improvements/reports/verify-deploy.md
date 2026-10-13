@@ -1,6 +1,6 @@
 # Adversarial verification — R-88 one-command self-host (deploy-path.md)
 
-Reviewer: verify-deploy (independent reviewer). Scope: read-only against the working tree,
+Reviewer: verify-deploy (independent automated reviewer). Scope: read-only against the working tree,
 no writes except this file. Never ran setup/seed/migrate/bootstrap against
 the real project; never ran `docker compose config` in non-quiet form.
 

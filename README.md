@@ -1,5 +1,7 @@
 # NoPM
 
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 **A lite, API-first project-management tool your AI agent operates** — like the `aws` / `supabase` / `hubspot` CLIs, but for project governance. NoPM bundles no LLM; *your* agent (Claude Code, Cursor, Copilot, any MCP client) drives it over a documented REST API + scoped token.
 
 **Positioning:** NoPM does not replace Jira, Slack, or Teams; it is the governed record beside them. Lite and fast, not ClickUp.

@@ -1,6 +1,6 @@
 # Sprint Summary — 2026-09-07_oss-improvements
 
-**TL;DR:** The post-publication improvement wave: one-command self-host, nonce CSP, optimistic concurrency, MFA at login, contributor governance, a reverse-engineered use-case catalogue with six new process diagrams, and a full mobile pass over 29 routes. Seven build workers, one CLI worker, six mobile workers, five adversarial verifiers and one re-audit, all AI-assisted, on disjoint file sets; every high-risk change was refuted-or-confirmed against the real code before landing. R-88 … R-94 added; RTM verifies with 84 R-IDs. Working tree is gated and **not committed** (owner action, together with the earlier open-source release changes).
+**TL;DR:** The post-publication improvement wave: one-command self-host, nonce CSP, optimistic concurrency, MFA at login, contributor governance, a reverse-engineered use-case catalogue with six new process diagrams, and a full mobile pass over 29 routes. Seven build workers, one CLI worker, six mobile workers, five adversarial verifiers and one re-audit, all AI agents, on disjoint file sets; every high-risk change was refuted-or-confirmed against the real code before landing. R-88 … R-94 added; RTM verifies with 84 R-IDs. Working tree is gated and **not committed** (owner action, together with the earlier open-source release changes).
 
 ## Declared goals (owner, 2026-09-07 07:45 and 08:20)
 "Do all" of the improvement list from the release review; make sure requirements, sprint log and testing log exist; reverse-engineer use cases and BPDs; greatly improve the mobile UI.
