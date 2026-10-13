@@ -7,6 +7,7 @@ import { cn } from "@/lib/cn";
 import { packDagPositions, capLabels } from "@/lib/mainline/layout";
 import { calculateCriticalPath, toCpmMap, type CpmInputDep, type CpmInputTask } from "@/lib/schedule/cpm";
 import type { TLGraph } from "@/lib/timeline/gather";
+import { TimelineTable } from "@/components/timeline/timeline-table";
 
 export interface DependencyEdgeRow {
   id: string;
@@ -112,7 +113,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
   return (
     <div className="flex flex-col gap-3">
       <div className="overflow-auto rounded-xl border border-border-subtle bg-surface shadow-sm p-4">
-        <svg width={width} height={height} style={{ minWidth: width }}>
+        <svg width={width} height={height} style={{ minWidth: width }} role="img" aria-label="Task dependency network. A table of the same edges follows for screen readers.">
           <defs>
             <marker id="mainline-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
               <path d="M0,0 L6,3 L0,6 Z" fill="var(--color-border-strong)" opacity="0.6" />
@@ -164,7 +165,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
                   <title>{`${task.label}${critical ? " · Critical path" : ""}`}</title>
                 </circle>
                 {showLabel.get(id) && (
-                  <text x={x + NODE_R + 4} y={y + 3} className="fill-current text-ink-secondary" fontSize={9}>
+                  <text x={x + NODE_R + 4} y={y + 3} className="fill-current text-ink-secondary" fontSize={12}>
                     {task.label.length > 22 ? `${task.label.slice(0, 22)}…` : task.label}
                   </text>
                 )}
@@ -186,27 +187,40 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
               key={id}
               href={task.href}
               className={cn(
-                "inline-flex min-h-[44px] sm:min-h-[28px] items-center rounded-full border px-2.5 text-[11px] transition-colors",
+                "focus-ring inline-flex min-h-[44px] sm:min-h-[28px] items-center rounded-full border px-2.5 text-xs transition-colors",
                 critical
                   ? "border-danger/40 bg-danger/10 text-danger hover:bg-danger/15"
                   : "border-border-subtle bg-sunken text-ink-secondary hover:text-ink",
               )}
             >
               {task.label}
+              {critical && <span className="ml-1 font-semibold">(critical path)</span>}
             </Link>
           );
         })}
       </div>
 
+      <TimelineTable
+        caption="Task dependencies: predecessor, successor, type, lag and critical path"
+        columns={["Predecessor", "Successor", "Type", "Lag", "Critical path"]}
+        rows={dependencies.map((d) => [
+          taskById.get(d.predecessor_id)?.label ?? d.predecessor_id,
+          taskById.get(d.successor_id)?.label ?? d.successor_id,
+          d.type,
+          `${d.lag_days ?? 0}d`,
+          criticalIds.has(d.predecessor_id) && criticalIds.has(d.successor_id) ? "yes" : "no",
+        ])}
+      />
+
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1">
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-0 w-4 rounded-full" style={{ borderTop: "2px solid var(--color-danger)", opacity: 0.9 }} />
-          <span className="text-[11px] text-ink-muted">Critical path</span>
+          <span className="text-xs text-ink-muted">Critical path</span>
         </div>
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-0 w-4 rounded-full" style={{ borderTop: "1.25px solid var(--color-border-strong)", opacity: 0.45 }} />
-          <span className="text-[11px] text-ink-muted">Dependency (hover for type + lag)</span>
+          <span className="text-xs text-ink-muted">Dependency (hover for type + lag)</span>
         </div>
       </div>
     </div>

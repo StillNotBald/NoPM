@@ -1,29 +1,17 @@
-import { CardSkeleton, StatGridSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { CardSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { PageContainer } from "@/components/ui/page-container";
 
-/**
- * Review loading skeleton — mirrors Review layout:
- * page header · summary stats · review cards grid
- */
+/** Review loading skeleton: header · queue callout · list of review cards. */
 export default function ReviewLoading() {
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        {/* page header */}
-        <div className="flex items-center justify-between gap-3">
-          <Skeleton variant="text" width="w-24" height="h-7" />
-        </div>
-
-        {/* summary stats */}
-        <StatGridSkeleton count={4} />
-
-        {/* review cards */}
-        <div className="grid gap-4 md:grid-cols-2">
-          <CardSkeleton lines={5} />
-          <CardSkeleton lines={5} />
-          <CardSkeleton lines={5} />
-          <CardSkeleton lines={5} />
-        </div>
+    <PageContainer width="narrow" className="space-y-6">
+      <Skeleton variant="text" width="w-32" height="h-7" />
+      <Skeleton variant="rect" width="w-full" height="h-10" />
+      <div className="space-y-4">
+        <CardSkeleton lines={3} />
+        <CardSkeleton lines={3} />
+        <CardSkeleton lines={3} />
       </div>
-    </div>
+    </PageContainer>
   );
 }

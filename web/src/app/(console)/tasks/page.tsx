@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -10,25 +9,12 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ExportCsvButton } from "@/components/export-csv-button";
-import { FilterBar } from "@/components/registers/filter-bar";
-import {
-  useListControls,
-  toApiQueryString,
-  fieldParamKeys,
-  type FilterFieldConfig,
-} from "@/components/registers/use-list-controls";
-import { SavedViewsBar, type SavedView } from "@/components/registers/saved-views-bar";
-import { GroupBySelect, type GroupByOption } from "@/components/registers/group-by-select";
-import { ColumnChooser, type ColumnDef } from "@/components/registers/column-chooser";
+import { type FilterFieldConfig } from "@/components/registers/use-list-controls";
+import { useRegisterToolbar, RegisterToolbar } from "@/components/registers/register-toolbar";
+import { type GroupByOption } from "@/components/registers/group-by-select";
+import { type ColumnDef } from "@/components/registers/column-chooser";
 import { AggregateFooter, type AggregateSpec } from "@/components/registers/aggregate-footer";
-import { FilterSheet } from "@/components/ui/filter-sheet";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
-import {
-  decodeStoredConfig,
-  buildSortParam,
-  type SavedViewConfig,
-} from "@/lib/views/view-config";
-import { useRegisterPreferences } from "@/lib/views/use-register-preferences";
 import { apiGet } from "@/lib/api-client";
 import { entityHref } from "@/lib/nav/entity-href";
 import { cn } from "@/lib/cn";
@@ -47,7 +33,6 @@ import { cn } from "@/lib/cn";
  */
 
 const REGISTER = "tasks";
-const COLUMNS_STORAGE_KEY = "nopm:columns:tasks";
 
 interface TaskRow {
   id: string;
@@ -92,8 +77,6 @@ const SHEET_FIELDS: readonly FilterFieldConfig[] = [
   { key: "due", label: "Due between", type: "date-range", fromKey: "due_after", toKey: "due_before" },
 ];
 
-const FILTER_FIELDS: readonly FilterFieldConfig[] = [SEARCH_FIELD, ...SHEET_FIELDS];
-
 // Only these fields are in TASK_SORT_FIELDS (src/app/api/tasks/_query.ts) —
 // assignee/project/estimate columns below are visible but not sortable.
 const SORTABLE_FIELDS = new Set(["name", "status_type", "priority", "due_date", "completion_pct"]);
@@ -133,44 +116,19 @@ function priorityTone(priority: string): "neutral" | "accent" | "success" | "war
   return "neutral";
 }
 
-function readStoredColumns(): string[] | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(COLUMNS_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed) && parsed.length > 0 && parsed.every((c) => typeof c === "string")) {
-      return parsed as string[];
-    }
-  } catch {
-    // corrupt localStorage value — fall back to the default, never blank the page
-  }
-  return null;
-}
-
 export default function TasksPage() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const activeViewId = searchParams.get("view");
-
-  const { filters, sort, page, activeFilterCount, setFilter, setSort, setPage, clearFilters } =
-    useListControls(FILTER_FIELDS);
-
-  const apiQuery = useMemo(
-    () => toApiQueryString(filters, sort, page, { limit: String(PAGE_SIZE) }),
-    [filters, sort, page],
-  );
-
-  const [columns, setColumns] = useState<string[]>(DEFAULT_COLUMNS);
-  const [groupBy, setGroupBy] = useState<string | null>(null);
-
-  // L-39 follow-through: the SAME per-user store appearance prefs use
-  // (GET/PUT /api/me/preferences), scoped to this register. Additive over
-  // the localStorage hydration below — when it resolves with a value for a
-  // signed-in non-demo user, that value wins; until then (or for
-  // anonymous/demo/token) localStorage keeps working exactly as before.
-  const registerPrefs = useRegisterPreferences(REGISTER);
+  const controls = useRegisterToolbar({
+    register: REGISTER,
+    exportEntity: "tasks",
+    searchField: SEARCH_FIELD,
+    sheetFields: SHEET_FIELDS,
+    columns: ALL_COLUMNS,
+    defaultColumns: DEFAULT_COLUMNS,
+    groupByOptions: GROUP_BY_OPTIONS,
+    pageSize: PAGE_SIZE,
+  });
+  const { sort, page, activeFilterCount, setPage, clearFilters, apiQuery, columns, groupBy, visibleColumns, toggleSort } =
+    controls;
 
   const [rows, setRows] = useState<TaskRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -192,67 +150,6 @@ export default function TasksPage() {
       .then((list) => setProjectNameById(new Map((list ?? []).map((p) => [p.id, p.name]))))
       .catch(() => {});
   }, []);
-
-  // Column persistence (L-11): while no saved view is active, the chooser's
-  // selection lives in localStorage — hydrate once on mount, then write
-  // back on every change. When a view IS active, its config.columns owns
-  // the selection instead (see the activeViewId effect below).
-  useEffect(() => {
-    if (activeViewId) return;
-    const stored = readStoredColumns();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- house pattern (see theme-toggle): one-time hydration from localStorage on mount, not a render-driven sync
-    if (stored) setColumns(stored);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (activeViewId) return;
-    try {
-      window.localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columns));
-    } catch {
-      // best-effort only — a full/blocked localStorage never breaks the page
-    }
-  }, [columns, activeViewId]);
-
-  // L-39: once the DB preferences fetch resolves, its value for THIS
-  // register wins over whatever localStorage/the default just hydrated —
-  // same "DB wins over cookie/device" precedence appearance prefs use. Only
-  // applies when no saved view is active (a view's own config already wins,
-  // same rule the localStorage effects above already follow).
-  useEffect(() => {
-    if (activeViewId || !registerPrefs.ready) return;
-    if (registerPrefs.columns && registerPrefs.columns.length > 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setColumns(registerPrefs.columns);
-    }
-    if (registerPrefs.groupBy !== null) {
-      setGroupBy(registerPrefs.groupBy);
-    }
-  }, [activeViewId, registerPrefs.ready, registerPrefs.columns, registerPrefs.groupBy]);
-
-  // Deep-link / reload support: ?view=<id> in the URL (set when a view is
-  // applied, or pasted directly) re-fetches that view's config and applies
-  // its columns + groupBy (filters/sort already live in the SAME URL, so
-  // useListControls picks those up on its own). A view pointing at since-
-  // deleted data just degrades to whatever filters are left — no 500 (L-05).
-  useEffect(() => {
-    if (!activeViewId) return;
-    let cancelled = false;
-    apiGet<SavedView>(`/api/saved-views/${activeViewId}`)
-      .then((view) => {
-        if (cancelled) return;
-        const config = decodeStoredConfig(view.config);
-        setColumns(config.columns && config.columns.length > 0 ? config.columns : DEFAULT_COLUMNS);
-        setGroupBy(config.groupBy);
-      })
-      .catch(() => {
-        // the referenced view is gone or no longer visible — leave whatever
-        // filters/columns are already on screen alone, degrade gracefully.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeViewId]);
 
   useEffect(() => {
     // Raw fetch rather than apiGet: the list envelope's `total` is a SIBLING
@@ -286,44 +183,12 @@ export default function TasksPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  function toggleSort(field: string) {
-    if (sort?.field === field) {
-      setSort(field, sort.direction === "asc" ? "desc" : "asc");
-    } else {
-      setSort(field, "asc");
-    }
-  }
-
-  function applyView(view: SavedView) {
-    const config = decodeStoredConfig(view.config);
-    const sp = new URLSearchParams();
-    for (const [key, value] of Object.entries(config.filters)) {
-      if (value) sp.set(key, value);
-    }
-    const sortParam = buildSortParam(config.sort);
-    if (sortParam) sp.set("sort", sortParam);
-    sp.set("view", view.id);
-    setColumns(config.columns && config.columns.length > 0 ? config.columns : DEFAULT_COLUMNS);
-    setGroupBy(config.groupBy);
-    router.push(`${pathname}?${sp.toString()}`);
-  }
-
-  const currentConfig: SavedViewConfig = useMemo(
-    () => ({ filters, sort, columns, groupBy }),
-    [filters, sort, columns, groupBy],
-  );
-
-  const visibleColumns = ALL_COLUMNS.filter((c) => columns.includes(c.key));
-
   const groups = useMemo(() => buildGroups(rows, groupBy, memberNameById, projectNameById), [
     rows,
     groupBy,
     memberNameById,
     projectNameById,
   ]);
-
-  // F4 — active count for just the sheet's fields (search stays outside it).
-  const sheetActiveCount = fieldParamKeys(SHEET_FIELDS).filter((k) => filters[k]).length;
 
   // F5 — below md: cards, title/status/priority/project/due. Ungrouped
   // (DataList has no grouping concept); the desktop table keeps grouping,
@@ -364,56 +229,10 @@ export default function TasksPage() {
       <div className="mx-auto max-w-6xl space-y-5">
         <PageHeader
           title="Tasks"
-          action={<ExportCsvButton href={`/api/export?entity=tasks&${apiQuery}`} />}
+          action={<ExportCsvButton href={controls.exportHref ?? "/api/export?entity=tasks"} />}
         />
 
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex flex-wrap items-end gap-3">
-            <FilterBar
-              fields={[SEARCH_FIELD]}
-              values={filters}
-              onChange={setFilter}
-              onClear={clearFilters}
-              activeCount={0}
-            />
-            <FilterSheet activeCount={sheetActiveCount} onClear={clearFilters}>
-              <FilterBar
-                fields={SHEET_FIELDS}
-                values={filters}
-                onChange={setFilter}
-                onClear={clearFilters}
-                activeCount={sheetActiveCount}
-              />
-            </FilterSheet>
-          </div>
-          <div className="flex items-end gap-2">
-            <GroupBySelect
-              options={GROUP_BY_OPTIONS}
-              value={groupBy}
-              onChange={(next) => {
-                setGroupBy(next);
-                // Only persist as the personal default while no saved view
-                // is active — mirrors the columns/localStorage rule above.
-                if (!activeViewId) registerPrefs.setGroupBy(next);
-              }}
-            />
-            <ColumnChooser
-              columns={ALL_COLUMNS}
-              visible={columns}
-              onChange={(next) => {
-                setColumns(next);
-                if (!activeViewId) registerPrefs.setColumns(next);
-              }}
-            />
-          </div>
-        </div>
-
-        <SavedViewsBar
-          register={REGISTER}
-          currentConfig={currentConfig}
-          activeViewId={activeViewId}
-          onApply={applyView}
-        />
+        <RegisterToolbar controls={controls} />
 
         {error && (
           <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger">

@@ -6,6 +6,10 @@ import { formatByPref } from "@/lib/format/dates";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
+import { Table, THead, TH, TD } from "@/components/ui/data-table";
+import { computeProgramRollup } from "@/lib/insight/program-rollup";
 import { ragLabel, ragTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
 import { RagDonutCard } from "@/components/dashboard/rag-donut-card";
@@ -34,7 +38,9 @@ interface Project {
   name: string;
   rag_status: RagStatus;
   completion_pct: number | null;
+  /** Resolved program label: programs.name via program_id, else legacy text. */
   program: string | null;
+  program_id: string | null;
   target_date: string | null;
 }
 
@@ -75,8 +81,9 @@ export default async function DashboardPage({
 
   // Parallel fetches — unfiltered; the filter is applied in JS below so
   // every card's numbers derive from the same filtered project set.
-  const [projectsResult, risksResult, issuesResult, clashesResult, viewerProfileResult] = await Promise.all([
-    db.from("projects").select("id,code,name,rag_status,completion_pct,program,target_date"),
+  const [projectsResult, programsResult, risksResult, issuesResult, clashesResult, viewerProfileResult] = await Promise.all([
+    db.from("projects").select("id,code,name,rag_status,completion_pct,program,program_id,target_date"),
+    db.from("programs").select("id,name"),
     db.from("risks").select("project_id,status"),
     db.from("issues").select("project_id,status"),
     db.from("clashes").select("id,project_a_id,project_b_id"),
@@ -93,7 +100,19 @@ export default async function DashboardPage({
   // is honest for all of them.
   const fetchedAt = new Date().toISOString();
 
-  const allProjects: Project[] = (projectsResult.data ?? []) as Project[];
+  const queryError = projectsResult.error ?? risksResult.error ?? issuesResult.error ?? clashesResult.error;
+  if (queryError) {
+    return <QueryError what="dashboard data" message={queryError.message} />;
+  }
+
+  // Program labels: programs.name via program_id first, legacy text fallback.
+  const programNameById = new Map<string, string>(
+    ((programsResult.data ?? []) as { id: string; name: string }[]).map((pr) => [pr.id, pr.name]),
+  );
+  const allProjects: Project[] = ((projectsResult.data ?? []) as Project[]).map((p) => ({
+    ...p,
+    program: (p.program_id ? programNameById.get(p.program_id) : undefined) ?? p.program ?? null,
+  }));
   const allRiskRows = (risksResult.data ?? []) as { project_id: string | null; status: string }[];
   const allIssueRows = (issuesResult.data ?? []) as { project_id: string | null; status: string }[];
   const allClashRows = (clashesResult.data ?? []) as {
@@ -163,16 +182,34 @@ export default async function DashboardPage({
     return new Date(p.target_date) < today;
   }).length;
 
-  // ── Program breakdown ───────────────────────────────────────────────────────
-  const programMap = new Map<string | null, number>();
+  // ── Program breakdown — program_id first (same rollup as /portfolio),
+  // legacy text fallback, then "(No program)". ─────────────────────────────
+  const programGroups = new Map<string | null, Project[]>();
   for (const p of projects) {
-    const key = p.program ?? null;
-    programMap.set(key, (programMap.get(key) ?? 0) + 1);
+    const key = p.program_id ?? (p.program ? `legacy:${p.program}` : null);
+    const list = programGroups.get(key) ?? [];
+    list.push(p);
+    programGroups.set(key, list);
   }
-  const programs = Array.from(programMap.entries()).map(([program, count]) => ({
-    program,
-    count,
-  }));
+  const programs = Array.from(programGroups.entries()).map(([key, children]) => {
+    const rollup = computeProgramRollup(
+      children.map((c) => ({
+        projectId: c.id,
+        completionPct: c.completion_pct ?? 0,
+        plannedAmount: 0,
+        committedAmount: 0,
+        actualAmount: 0,
+        currency: "USD",
+        allocatedHours: 0,
+        capacityHours: 0,
+      })),
+    );
+    return {
+      program: key === null ? null : (children[0].program ?? "(Unnamed program)"),
+      count: rollup.projectCount,
+      completionPct: rollup.completionPct,
+    };
+  });
 
   const ragCounts = { green: greenCount, amber: amberCount, red: redCount, complete: completeCount, not_started: notStarted };
 
@@ -186,8 +223,8 @@ export default async function DashboardPage({
     .map((p) => ({ id: p.id, label: `${p.code} — ${p.name}` }));
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <PageHeader title="Command Centre" action={<ExportBoardPack />} />
+    <PageContainer className="space-y-6">
+      <PageHeader title="Dashboard" action={<ExportBoardPack />} />
 
       {/* ── Governance tour (L-50, R-77) — every role incl. viewers, only
           once the workspace has at least one project anywhere (the
@@ -262,38 +299,21 @@ export default async function DashboardPage({
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-sm">
-                <thead>
-                  <tr className="border-b border-border-subtle">
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Code
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Name
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      RAG
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Completion
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Risks
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Issues
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Program
-                    </th>
-                    <th className="px-5 py-3 text-left text-xs font-medium uppercase tracking-widest text-ink-muted">
-                      Target
-                    </th>
+            <Table bare className="min-w-[640px]">
+                <THead>
+                  <tr>
+                    <TH>Code</TH>
+                    <TH>Name</TH>
+                    <TH>RAG</TH>
+                    <TH>Completion</TH>
+                    <TH>Risks</TH>
+                    <TH>Issues</TH>
+                    <TH>Program</TH>
+                    <TH>Target</TH>
                   </tr>
-                </thead>
+                </THead>
                 <tbody>
-                  {projects.map((project, i) => {
+                  {projects.map((project) => {
                     const pct = Math.min(100, Math.max(0, project.completion_pct ?? 0));
                     const isOverdue =
                       project.rag_status !== "complete" &&
@@ -311,31 +331,24 @@ export default async function DashboardPage({
                         project={project}
                         openR={openR}
                         openI={openI}
-                        isLast={i === projects.length - 1}
                       >
-                        {/* Code */}
-                        <td className="px-5 py-3.5">
-                          <span className="font-mono text-xs font-medium text-ink-secondary">
-                            {project.code}
-                          </span>
-                        </td>
 
                         {/* Name */}
-                        <td className="min-w-0 max-w-[260px] px-5 py-3.5">
+                        <TD className="min-w-0 max-w-[260px]">
                           <EntityLink kind="project" id={project.id} className="font-medium">
                             {project.name}
                           </EntityLink>
-                        </td>
+                        </TD>
 
                         {/* RAG Badge */}
-                        <td className="px-5 py-3.5">
+                        <TD>
                           <Badge size="sm" tone={ragTone(project.rag_status)}>
                             {ragLabel(project.rag_status)}
                           </Badge>
-                        </td>
+                        </TD>
 
                         {/* Completion bar */}
-                        <td className="px-5 py-3.5">
+                        <TD>
                           <div className="flex items-center gap-3">
                             <div className="h-1.5 w-28 overflow-hidden rounded-full bg-sunken">
                               <div
@@ -347,67 +360,60 @@ export default async function DashboardPage({
                               {pct}%
                             </span>
                           </div>
-                        </td>
+                        </TD>
 
                         {/* Open risks */}
-                        <td className="px-5 py-3.5">
+                        <TD>
                           {openR > 0 ? (
-                            <span className="inline-flex min-w-[1.6rem] justify-center rounded-md bg-danger/10 px-1.5 py-0.5 text-xs font-medium tabular-nums text-danger">
-                              {openR}
-                            </span>
+                            <Badge size="sm" tone="danger" className="tabular-nums">{openR}</Badge>
                           ) : (
                             <span className="text-ink-muted">—</span>
                           )}
-                        </td>
+                        </TD>
 
                         {/* Open issues */}
-                        <td className="px-5 py-3.5">
+                        <TD>
                           {openI > 0 ? (
-                            <span className="inline-flex min-w-[1.6rem] justify-center rounded-md bg-warning/10 px-1.5 py-0.5 text-xs font-medium tabular-nums text-warning">
-                              {openI}
-                            </span>
+                            <Badge size="sm" tone="warning" className="tabular-nums">{openI}</Badge>
                           ) : (
                             <span className="text-ink-muted">—</span>
                           )}
-                        </td>
+                        </TD>
 
                         {/* Program */}
-                        <td className="min-w-0 max-w-[140px] truncate px-5 py-3.5 text-ink-secondary">
+                        <TD className="min-w-0 max-w-[140px] truncate text-ink-secondary">
                           {project.program ?? (
                             <span className="text-ink-muted">—</span>
                           )}
-                        </td>
+                        </TD>
 
                         {/* Target date */}
-                        <td className="whitespace-nowrap px-5 py-3.5">
+                        <TD className="whitespace-nowrap">
                           {targetDate ? (
                             <span
                               title={targetDate.title}
                               className={cn(
                                 "font-mono text-xs tabular-nums",
-                                isOverdue ? "text-danger font-medium" : "text-ink-secondary",
+                                isOverdue ? "text-danger-ink font-medium" : "text-ink-secondary",
                               )}
                             >
                               {targetDate.text}
                               {isOverdue && (
-                                <span className="ml-1.5 inline-block rounded-full bg-danger/10 px-1.5 py-0.5 text-2xs font-medium text-danger">
-                                  overdue
-                                </span>
+                                <Badge size="sm" tone="danger" className="ml-1.5">overdue</Badge>
                               )}
                             </span>
                           ) : (
                             <span className="text-ink-muted">—</span>
                           )}
-                        </td>
+                        </TD>
                       </DashboardProjectRow>
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+              </Table>
           )}
         </CardBody>
       </Card>
-    </div>
+    </PageContainer>
   );
 }

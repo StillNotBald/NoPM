@@ -1,10 +1,27 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ragLabel, type RagStatus } from "@/lib/status";
+import {
+  barLayout as calcBarLayout,
+  computeBounds,
+  describeBar,
+  fmtDate,
+  fmtRange,
+  fmtSlip,
+  markerX,
+  monthTicks as calcMonthTicks,
+  slipDays,
+  toDay,
+  type Span,
+} from "@/lib/timeline";
+import { TimelineBar, type TimelineBarPattern } from "@/components/timeline/timeline-bar";
+import { TimelineTable } from "@/components/timeline/timeline-table";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 
@@ -38,33 +55,6 @@ const ROW_H = 48;        // swim-lane row height px
 const HEADER_H = 48;     // one-row month header height
 const RAIL_W = 220;      // left label rail width (collapsed: 48)
 const DAY_W = 14;        // px per day (month view)
-
-// ── Date utilities ────────────────────────────────────────────────────────────
-
-function startOfDay(iso: string): Date {
-  const d = new Date(iso);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-function toDay(d: Date | string): number {
-  const dt = typeof d === "string" ? startOfDay(d) : d;
-  return Math.floor(dt.getTime() / 86_400_000);
-}
-
-function fmtShort(d: string | null): string {
-  if (!d) return "—";
-  return startOfDay(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-}
-
-function slipDays(current: string | null, baseline: string | null): number | null {
-  if (!current || !baseline) return null;
-  return toDay(current) - toDay(baseline);
-}
-
-function fmtSlip(days: number | null): string | null {
-  if (days === null || days === 0) return null;
-  return days > 0 ? `+${days}d` : `${days}d`;
-}
 
 // ── RAG bar colour ─────────────────────────────────────────────────────────────
 
@@ -111,6 +101,14 @@ function milestoneColor(status: PortfolioMilestone["status"]): string {
   }
 }
 
+const RAG_PATTERN: Record<string, TimelineBarPattern> = {
+  green: "plain",
+  amber: "plain",
+  red: "plain",
+  complete: "solid",
+  not_started: "dashed",
+};
+
 // ── Diamond SVG ──────────────────────────────────────────────────────────────
 
 function DiamondIcon({ className }: { className?: string }) {
@@ -129,6 +127,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
   const [railCollapsed, setRailCollapsed] = useState(false);
 
   const railW = railCollapsed ? 48 : RAIL_W;
+  const pref = useDateDisplayPref();
 
   // ── Date bounds ───────────────────────────────────────────────────────────
 
@@ -140,24 +139,10 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
   const todayDay = toDay(today);
 
   const { minDay, maxDay, totalDays } = useMemo(() => {
-    const allDates: string[] = [];
-    for (const p of projects) {
-      if (p.start_date)  allDates.push(p.start_date);
-      if (p.target_date) allDates.push(p.target_date);
-    }
-    for (const m of milestones) {
-      if (m.target_date)          allDates.push(m.target_date);
-      if (m.baseline_target_date) allDates.push(m.baseline_target_date);
-    }
-    if (allDates.length === 0) {
-      return { minDay: todayDay - 30, maxDay: todayDay + 90, totalDays: 121 };
-    }
-    const days = allDates.map(toDay);
-    const rawMin = Math.min(...days);
-    const rawMax = Math.max(...days);
-    const mn = rawMin - 14;
-    const mx = rawMax + 28;
-    return { minDay: mn, maxDay: mx, totalDays: mx - mn + 1 };
+    const allDates: Array<string | null> = [];
+    for (const p of projects) allDates.push(p.start_date, p.target_date);
+    for (const m of milestones) allDates.push(m.target_date, m.baseline_target_date);
+    return computeBounds(allDates, todayDay, { fallbackBefore: 30, fallbackAfter: 90 });
   }, [projects, milestones, todayDay]);
 
   const totalPx = totalDays * DAY_W;
@@ -166,34 +151,12 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
 
   // ── Month gridline ticks ──────────────────────────────────────────────────
 
-  const monthTicks = useMemo(() => {
-    const result: { label: string; col: number }[] = [];
-    let lastMonth = -1;
-    const base = new Date(minDay * 86_400_000);
-    for (let i = 0; i < totalDays; i++) {
-      const d = new Date(base);
-      d.setDate(d.getDate() + i);
-      const month = d.getMonth();
-      if (month !== lastMonth) {
-        result.push({
-          label: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
-          col: i,
-        });
-        lastMonth = month;
-      }
-    }
-    return result;
-  }, [minDay, totalDays]);
+  const monthTicks = useMemo(() => calcMonthTicks(minDay, totalDays, "short"), [minDay, totalDays]);
 
   // ── Bar layout helper ─────────────────────────────────────────────────────
 
-  function barLayout(start: string | null, end: string | null): { left: number; width: number } | null {
-    if (!start && !end) return null;
-    const s = start ? (toDay(start) - minDay) * DAY_W : null;
-    const e = end   ? (toDay(end)   - minDay) * DAY_W + DAY_W : null;
-    const left  = s ?? e!;
-    const right = e ?? (s! + DAY_W);
-    return { left, width: Math.max(right - left, DAY_W) };
+  function barLayout(start: string | null, end: string | null): Span | null {
+    return calcBarLayout(start, end, minDay, DAY_W);
   }
 
   // ── Group milestones by project ───────────────────────────────────────────
@@ -241,16 +204,17 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
               style={{ height: HEADER_H }}
             >
               {!railCollapsed && (
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted select-none">
+                <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted select-none">
                   Project
                 </span>
               )}
               <button
                 onClick={() => setRailCollapsed((v) => !v)}
-                className="ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150"
-                title={railCollapsed ? "Expand rail" : "Collapse rail"}
+                className="focus-ring ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150"
+                aria-label={railCollapsed ? "Expand project rail" : "Collapse project rail"}
+                aria-expanded={!railCollapsed}
               >
-                {railCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+                {railCollapsed ? <ChevronRight size={13} aria-hidden /> : <ChevronLeft size={13} aria-hidden />}
               </button>
             </div>
 
@@ -258,22 +222,23 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
             {projects.map((project) => {
               const pct = Math.min(100, Math.max(0, project.completion_pct ?? 0));
               return (
-                <div
+                <Link
                   key={project.id}
-                  className="flex items-center gap-2 border-b border-border-subtle px-3 cursor-pointer hover:bg-sunken/60 transition-colors duration-100"
+                  href={`/projects/${project.id}`}
+                  className="focus-ring flex items-center gap-2 border-b border-border-subtle px-3 cursor-pointer hover:bg-sunken/60 transition-colors duration-100"
                   style={{ height: ROW_H }}
-                  onClick={() => router.push(`/projects/${project.id}`)}
                   title={`${project.code} — ${project.name}`}
+                  aria-label={`Open project ${project.code} ${project.name}, ${ragLabel(project.rag_status)}`}
                 >
                   {/* RAG dot */}
                   <span
                     className={cn("h-2 w-2 rounded-full shrink-0", ragDotClass(project.rag_status))}
-                    title={ragLabel(project.rag_status)}
+                    aria-hidden
                   />
                   {!railCollapsed && (
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-mono text-2xs text-ink-muted shrink-0">
+                        <span className="font-mono text-xs text-ink-muted shrink-0">
                           {project.code}
                         </span>
                         <span className="text-[12px] font-medium text-ink truncate">
@@ -287,13 +252,13 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                             style={{ width: `${pct}%` }}
                           />
                         </div>
-                        <span className="font-mono text-2xs text-ink-muted tabular-nums shrink-0">
+                        <span className="font-mono text-xs text-ink-muted tabular-nums shrink-0">
                           {pct}%
                         </span>
                       </div>
                     </div>
                   )}
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -321,7 +286,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                       className="absolute left-0 top-0 bottom-0 w-px bg-border-subtle"
                       style={{ opacity: 0.5 }}
                     />
-                    <span className="text-[11px] font-semibold text-ink-secondary whitespace-nowrap select-none">
+                    <span className="text-xs font-semibold text-ink-secondary whitespace-nowrap select-none">
                       {tick.label}
                     </span>
                   </div>
@@ -333,7 +298,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                     style={{ left: todayOffset }}
                   >
                     <div className="rounded-full bg-accent px-1.5 py-0.5">
-                      <span className="text-2xs font-bold text-white whitespace-nowrap select-none">
+                      <span className="text-xs font-bold text-accent-ink whitespace-nowrap select-none">
                         Today
                       </span>
                     </div>
@@ -366,34 +331,37 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                 {projects.map((project) => {
                   const bar = barLayout(project.start_date, project.target_date);
                   const pms = milestonesByProject.get(project.id) ?? [];
+                  const open = () => router.push(`/projects/${project.id}`);
 
                   return (
                     <div
                       key={project.id}
                       className="relative border-b border-border-subtle cursor-pointer group"
                       style={{ height: ROW_H, width: totalPx }}
-                      onClick={() => router.push(`/projects/${project.id}`)}
-                      role="link"
-                      aria-label={`Go to project ${project.name}`}
-                      tabIndex={0}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          router.push(`/projects/${project.id}`);
-                        }
-                      }}
+                      onClick={open}
                     >
                       {/* Hover tint */}
                       <div className="absolute inset-0 opacity-0 group-hover:opacity-100 bg-sunken/40 transition-opacity duration-100 pointer-events-none" />
 
                       {/* Project span bar */}
                       {bar && (
-                        <div
+                        <TimelineBar
+                          label={describeBar({
+                            kind: "Project",
+                            name: project.name,
+                            start: project.start_date,
+                            end: project.target_date,
+                            status: ragLabel(project.rag_status),
+                            progressPct: project.completion_pct,
+                            pref,
+                          })}
+                          onActivate={open}
+                          pattern={RAG_PATTERN[project.rag_status] ?? "plain"}
                           className={cn(
                             "absolute top-1/2 -translate-y-1/2 rounded-md h-6 overflow-hidden",
                             ragBarClass(project.rag_status),
                           )}
                           style={{ left: bar.left, width: bar.width }}
-                          title={`${project.name} · ${fmtShort(project.start_date)} → ${fmtShort(project.target_date)}`}
                         >
                           {/* progress fill */}
                           <div
@@ -403,32 +371,27 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                             )}
                             style={{ width: `${Math.min(project.completion_pct ?? 0, 100)}%` }}
                           />
-                        </div>
+                          {/* status as text, not colour alone (shown when it fits) */}
+                          {bar.width >= 90 && (
+                            <span className="absolute inset-0 flex items-center px-2 text-xs font-medium text-ink select-none pointer-events-none truncate">
+                              {ragLabel(project.rag_status)}
+                            </span>
+                          )}
+                        </TimelineBar>
                       )}
 
                       {/* Milestone diamonds */}
                       {pms.map((ms, idx) => {
                         if (!ms.target_date) return null;
-                        const left = (toDay(ms.target_date) - minDay) * DAY_W + DAY_W / 2;
+                        const left = markerX(ms.target_date, minDay, DAY_W);
                         const slip = slipDays(ms.target_date, ms.baseline_target_date);
                         const slipLabel = fmtSlip(slip);
                         const hasSlip = slip !== null && slip > 0;
 
                         // baseline ghost diamond
                         const baselineLeft = ms.baseline_target_date
-                          ? (toDay(ms.baseline_target_date) - minDay) * DAY_W + DAY_W / 2
+                          ? markerX(ms.baseline_target_date, minDay, DAY_W)
                           : null;
-
-                        const tooltipText = [
-                          ms.name,
-                          `Target: ${fmtShort(ms.target_date)}`,
-                          ms.baseline_target_date
-                            ? `Baseline: ${fmtShort(ms.baseline_target_date)}`
-                            : null,
-                          slipLabel ? `Slip: ${slipLabel}` : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ");
 
                         return (
                           <span key={idx}>
@@ -444,20 +407,28 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                             )}
 
                             {/* current diamond */}
-                            <div
-                              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center"
+                            <TimelineBar
+                              label={describeBar({
+                                kind: "Milestone",
+                                name: ms.name,
+                                end: ms.target_date,
+                                status: ms.status.replace("_", " "),
+                                slip,
+                                pref,
+                              })}
+                              onActivate={open}
+                              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center rounded-sm"
                               style={{ left }}
-                              title={tooltipText}
                             >
                               <DiamondIcon
                                 className={cn("w-3.5 h-3.5", milestoneColor(ms.status))}
                               />
                               {hasSlip && slipLabel && (
-                                <span className="ml-0.5 font-mono text-2xs font-semibold text-warning select-none whitespace-nowrap pointer-events-none">
+                                <span className="ml-0.5 font-mono text-xs font-semibold text-warning select-none whitespace-nowrap pointer-events-none">
                                   {slipLabel}
                                 </span>
                               )}
-                            </div>
+                            </TimelineBar>
                           </span>
                         );
                       })}
@@ -471,6 +442,30 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
         </div>
       </div>
 
+      {/* Text alternative for the chart */}
+      <TimelineTable
+        caption="Portfolio roadmap: projects and milestones with dates, status and slip against baseline"
+        columns={["Item", "Type", "Dates", "Status", "Progress", "Slip vs baseline"]}
+        rows={projects.flatMap((p) => [
+          [
+            `${p.code} ${p.name}`,
+            "Project",
+            fmtRange(p.start_date, p.target_date, pref),
+            ragLabel(p.rag_status),
+            `${p.completion_pct ?? 0}%`,
+            "-",
+          ],
+          ...(milestonesByProject.get(p.id) ?? []).map((m) => [
+            m.name,
+            "Milestone",
+            fmtDate(m.target_date, pref),
+            m.status.replace("_", " "),
+            `${m.completion_pct}%`,
+            fmtSlip(slipDays(m.target_date, m.baseline_target_date)) ?? "none",
+          ]),
+        ])}
+      />
+
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1">
         {/* RAG colours */}
@@ -483,14 +478,14 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
         ].map(({ label, bg }) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className={cn("h-2 w-4 rounded-sm", bg)} />
-            <span className="text-[11px] text-ink-muted">{label}</span>
+            <span className="text-xs text-ink-muted">{label}</span>
           </div>
         ))}
 
         {/* Milestone marker */}
         <div className="flex items-center gap-1.5">
           <DiamondIcon className="text-ink-secondary w-3 h-3" />
-          <span className="text-[11px] text-ink-muted">Milestone</span>
+          <span className="text-xs text-ink-muted">Milestone</span>
         </div>
 
         {/* Baseline slip */}
@@ -498,11 +493,11 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
           <>
             <div className="flex items-center gap-1.5">
               <DiamondIcon className="text-ink-muted opacity-30 w-3 h-3" />
-              <span className="text-[11px] text-ink-muted">Baseline</span>
+              <span className="text-xs text-ink-muted">Baseline</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-2xs font-semibold text-warning">+Nd</span>
-              <span className="text-[11px] text-ink-muted">Slip vs baseline</span>
+              <span className="font-mono text-xs font-semibold text-warning">+Nd</span>
+              <span className="text-xs text-ink-muted">Slip vs baseline</span>
             </div>
           </>
         )}
@@ -510,7 +505,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
         {/* Today */}
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-px bg-accent/70" />
-          <span className="text-[11px] text-ink-muted">Today</span>
+          <span className="text-xs text-ink-muted">Today</span>
         </div>
       </div>
     </div>

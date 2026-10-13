@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import type { ProgramRollup } from "@/lib/insight/program-rollup";
 import { useInspector } from "@/components/layout/app-shell";
+import { PacingBar } from "@/components/budget/pacing-bar";
 import { ProgramForm, type Program } from "@/components/forms/program-form";
 
 export interface ProgramRollupCardProps {
@@ -100,8 +101,8 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
                 rollup.currency === null
                   ? "text-ink-muted"
                   : rollup.budgetVariance < 0
-                  ? "text-danger"
-                  : "text-success",
+                  ? "text-danger-ink"
+                  : "text-success-ink",
               )}
             >
               {rollup.currency === null
@@ -124,6 +125,14 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
                     rollup.currency,
                   )}`}
             </p>
+            {rollup.currency !== null && (
+              <PacingBar
+                className="mt-1.5"
+                burnPct={rollup.burnPct ?? 0}
+                expectedPct={rollup.completionPct ?? 0}
+                hasPlan={rollup.plannedAmount > 0}
+              />
+            )}
           </div>
 
           {/* Allocated effort vs capacity */}

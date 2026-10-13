@@ -116,22 +116,22 @@ export function HistoryTimeline({
         {/* Body */}
         <div className="max-h-[28rem] overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed">
           {error && (
-            <p className="text-[#ff8a80]">
-              <span className="text-white/40">$ </span>
+            <p className="text-red-300">
+              <span className="text-white/60">$ </span>
               error: {error}
             </p>
           )}
 
           {!error && rows === null && (
-            <p className="text-white/40">
-              <span className="text-white/40">$ </span>
+            <p className="text-white/60">
+              <span className="text-white/60">$ </span>
               loading audit trail…
             </p>
           )}
 
           {!error && rows !== null && rows.length === 0 && (
-            <p className="text-white/40">
-              <span className="text-white/40">$ </span>
+            <p className="text-white/60">
+              <span className="text-white/60">$ </span>
               no audit events recorded for this target yet.
             </p>
           )}
@@ -144,11 +144,11 @@ export function HistoryTimeline({
                   className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-white/80"
                   title={absoluteTime(row.created_at)}
                 >
-                  <span className="text-[#28c840]">{row.actor_label}</span>
-                  <span className="text-white/30">·</span>
-                  <span className="text-[#febc2e]">{row.action}</span>
-                  <span className="text-white/30">·</span>
-                  <time dateTime={row.created_at} className="text-white/40">
+                  <span className="text-green-400">{row.actor_label}</span>
+                  <span className="text-white/50">·</span>
+                  <span className="text-amber-300">{row.action}</span>
+                  <span className="text-white/50">·</span>
+                  <time dateTime={row.created_at} className="text-white/60">
                     {relativeTime(row.created_at)}
                   </time>
                 </li>

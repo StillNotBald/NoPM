@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,10 +8,17 @@ import { ExportCsvButton } from "@/components/export-csv-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FilterSheet } from "@/components/ui/filter-sheet";
+import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { QueryError } from "@/components/ui/query-error";
+import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
+import { AUDIT_ACTION_GLOSSARY } from "@/lib/audit/action-glossary";
 import { cn } from "@/lib/cn";
 import { parseAuditFilters } from "@/app/api/audit/_query";
 
-export const metadata = { title: "Trust Center — NoPM" };
+export const metadata = { title: "Trust Center" };
+
+const PAGE_SIZE = 50;
 
 interface AuditRow {
   id: string;
@@ -34,21 +42,6 @@ function shortRequestId(id: string | null | undefined): string | null {
   return id.length > 12 ? `${id.slice(0, 12)}…` : id;
 }
 
-const COMMON_ACTIONS: { action: string; description: string }[] = [
-  { action: "task.create", description: "A new task was created" },
-  { action: "task.update", description: "A task field was mutated" },
-  { action: "task.delete", description: "Hard delete committed after approval" },
-  { action: "deletion_request.create", description: "Deletion request raised" },
-  { action: "deletion_request.approve", description: "Second reviewer approved request" },
-  { action: "deletion_request.reject", description: "Second reviewer rejected request" },
-  { action: "deletion_request.withdrawn", description: "Requester withdrew their own request" },
-  { action: "project.create", description: "A project was created" },
-  { action: "project.update", description: "Project metadata was updated" },
-  { action: "risk.create", description: "A risk was logged" },
-  { action: "token.create", description: "A PAT was issued" },
-  { action: "token.revoke", description: "A PAT was revoked" },
-];
-
 function actionToBadgeTone(
   action: string,
 ): "neutral" | "accent" | "success" | "warning" | "danger" {
@@ -59,32 +52,36 @@ function actionToBadgeTone(
   return "neutral";
 }
 
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const s = Math.floor(diff / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+/** Date (per the user's date-display preference) plus a fixed UTC time, so
+ *  server output is deterministic and every audit row is unambiguous. */
+function auditTime(iso: string, pref: DateDisplayPref): { date: string; time: string; exact: string } {
+  const d = new Date(iso);
+  const time = Number.isNaN(d.getTime())
+    ? ""
+    : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC" });
+  const f = formatByPref(iso, pref);
+  return { date: f.text, time: time ? `${time} UTC` : "", exact: `${f.absolute} ${time} UTC`.trim() };
 }
 
-function absoluteTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const CURSOR_RE = /^(\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})?)\|([0-9a-fA-F-]{8,40})$/;
+
+/** Valid calendar date (YYYY-MM-DD) or undefined. */
+function parseDay(v: string | undefined): string | undefined {
+  if (!v || !DATE_RE.test(v)) return undefined;
+  const d = new Date(`${v}T00:00:00Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? undefined : v;
+}
+
+function nextDay(day: string): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString();
+}
+
+function parseCursor(v: string | undefined): { at: string; id: string } | undefined {
+  const m = v ? CURSOR_RE.exec(v) : null;
+  return m ? { at: m[1], id: m[2] } : undefined;
 }
 
 function shortId(id: string | null): string {
@@ -126,20 +123,68 @@ export default async function TrustPage({
   if (rawParams.action) parseInput.set("action", rawParams.action);
   if (rawParams.channel) parseInput.set("channel", rawParams.channel);
   const filters = parseAuditFilters(parseInput);
-  const hasAnyFilter = !!(filters.target_type || filters.target_id || filters.action || filters.channel);
+  const hasAnyFilter = !!(filters.target_type || filters.target_id || filters.action || filters.channel || rawParams.from || rawParams.to);
   const hasTargetFilter = !!(filters.target_type && filters.target_id);
-  const activeFilterCount = (filters.channel ? 1 : 0) + (filters.action ? 1 : 0);
+  const activeFilterCount = (filters.channel ? 1 : 0) + (filters.action ? 1 : 0) + (rawParams.from ? 1 : 0) + (rawParams.to ? 1 : 0);
+
+  const dateDisplayPref = parseAppearancePrefs(
+    (await cookies()).get(APPEARANCE_COOKIE_NAME)?.value,
+  ).dateDisplay;
+
+  // Date range (UTC days) and keyset cursors are validated; anything
+  // malformed is dropped rather than passed to the query.
+  const from = parseDay(rawParams.from);
+  const to = parseDay(rawParams.to);
+  const olderCursor = parseCursor(rawParams.before);
+  const newerCursor = olderCursor ? undefined : parseCursor(rawParams.after);
+  const goingNewer = !!newerCursor;
+  const cursor = olderCursor ?? newerCursor;
 
   let query = db.from("audit_log").select("*");
   if (filters.target_type) query = query.eq("target_type", filters.target_type);
   if (filters.target_id) query = query.eq("target_id", filters.target_id);
   if (filters.action) query = query.eq("action", filters.action);
   if (filters.channel) query = query.eq("channel", filters.channel);
+  if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
+  if (to) query = query.lt("created_at", nextDay(to));
+  if (cursor) {
+    // Keyset on (created_at, id): stable even when rows share a timestamp.
+    const op = goingNewer ? "gt" : "lt";
+    query = query.or(
+      `created_at.${op}."${cursor.at}",and(created_at.eq."${cursor.at}",id.${op}."${cursor.id}")`,
+    );
+  }
   const { data: rows, error } = await query
-    .order("created_at", { ascending: false })
-    .limit(50);
+    .order("created_at", { ascending: goingNewer })
+    .order("id", { ascending: goingNewer })
+    .limit(PAGE_SIZE + 1);
 
-  const entries: AuditRow[] = rows ?? [];
+  let fetched: AuditRow[] = rows ?? [];
+  const hasExtra = fetched.length > PAGE_SIZE;
+  if (hasExtra) fetched = fetched.slice(0, PAGE_SIZE);
+  if (goingNewer) fetched = fetched.reverse();
+  const entries: AuditRow[] = fetched;
+  // Older exists if we paged forward and got an extra row, or if we arrived
+  // from a Newer step (the cursor row itself is older than this page).
+  const hasOlder = goingNewer ? entries.length > 0 : hasExtra;
+  const hasNewer = goingNewer ? hasExtra : !!olderCursor && entries.length > 0;
+  const cursorOf = (r: AuditRow) => `${r.created_at}|${r.id}`;
+  const baseParams = {
+    target_type: filters.target_type,
+    target_id: filters.target_id,
+    action: filters.action,
+    channel: filters.channel,
+    from,
+    to,
+  };
+  const olderHref =
+    hasOlder && entries.length > 0
+      ? hrefWithParams("/trust", { ...baseParams, before: cursorOf(entries[entries.length - 1]) })
+      : null;
+  const newerHref =
+    hasNewer && entries.length > 0
+      ? hrefWithParams("/trust", { ...baseParams, after: cursorOf(entries[0]) })
+      : null;
 
   // The CSV export mirrors whatever filters narrowed the view above, so the
   // downloaded file always matches what's on screen.
@@ -155,6 +200,8 @@ export default async function TrustPage({
   const clearTargetHref = hrefWithParams("/trust", {
     action: filters.action,
     channel: filters.channel,
+    from,
+    to,
   });
 
   return (
@@ -171,11 +218,7 @@ export default async function TrustPage({
       />
 
       {/* Error state */}
-      {error && (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger">
-          Failed to load audit log: {error.message}
-        </div>
-      )}
+      {error && <QueryError what="audit log" message={error.message} className="p-0" />}
 
       {/* Object-history chip — set by the "History" links on task/risk/issue/
           project detail views (?target_type=&target_id=). */}
@@ -230,8 +273,30 @@ export default async function TrustPage({
               name="action"
               defaultValue={filters.action ?? ""}
               placeholder="e.g. task.create"
+              list="trust-action-options"
               className="h-11 sm:h-10 sm:w-56"
             />
+            <datalist id="trust-action-options">
+              {AUDIT_ACTION_GLOSSARY.map((e) => (
+                <option key={e.action} value={e.action}>
+                  {e.description}
+                </option>
+              ))}
+            </datalist>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trust-from" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+              From (UTC)
+            </label>
+            <Input id="trust-from" name="from" type="date" defaultValue={from ?? ""} className="h-11 sm:h-10 sm:w-40" />
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label htmlFor="trust-to" className="text-xs font-medium text-ink-muted uppercase tracking-wide">
+              To (UTC)
+            </label>
+            <Input id="trust-to" name="to" type="date" defaultValue={to ?? ""} className="h-11 sm:h-10 sm:w-40" />
           </div>
 
           <div className="flex items-center gap-2">
@@ -249,106 +314,119 @@ export default async function TrustPage({
 
       {/* Main content row */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
-        {/* Timeline */}
+        {/* Provenance stream */}
         <Card>
           <CardHeader>
-            <CardTitle>Provenance timeline</CardTitle>
+            <CardTitle>Provenance stream</CardTitle>
             <span className="text-xs text-ink-muted">
-              {entries.length === 50 ? "Showing newest 50 entries" : `${entries.length} entries`}
+              {entries.length} {entries.length === 1 ? "entry" : "entries"}, newest first
             </span>
           </CardHeader>
 
           {entries.length === 0 && !error && (
             <CardBody>
               <div className="flex flex-col items-center gap-3 py-12 text-center">
-                <p className="text-sm text-ink-muted">No audit events recorded yet.</p>
+                <p className="text-sm text-ink-muted">
+                  {hasAnyFilter || cursor
+                    ? "No audit events match these filters."
+                    : "No audit events recorded yet."}
+                </p>
+                {(hasAnyFilter || cursor) && (
+                  <a href="/trust" className="text-xs text-accent hover:underline">
+                    Clear filters
+                  </a>
+                )}
               </div>
             </CardBody>
           )}
 
           {entries.length > 0 && (
-            <div className="divide-y divide-border-subtle">
-              {entries.map((entry, idx) => (
-                <div key={entry.id} className="relative flex gap-4 px-5 py-4 hover:bg-sunken transition-colors duration-100">
-                  {/* Vertical connector line */}
-                  <div className="relative flex flex-col items-center">
-                    {/* Coral dot */}
-                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-accent ring-2 ring-accent/20" />
-                    {/* Connector */}
-                    {idx < entries.length - 1 && (
-                      <span className="mt-1 w-px flex-1 bg-border-subtle" aria-hidden />
-                    )}
-                  </div>
-
-                  {/* Entry body — a compact card at every width: action +
-                      time share a row (time wraps under the badge on
-                      narrow screens instead of hanging as an orphan column
-                      to the right), then actor, target, request id. */}
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <Badge
-                        tone={actionToBadgeTone(entry.action)}
-                        className="font-mono text-xs"
-                      >
-                        {entry.action}
-                      </Badge>
-                      <div className="text-left sm:text-right">
-                        <time
-                          dateTime={entry.created_at}
-                          title={absoluteTime(entry.created_at)}
-                          className="block text-xs font-medium text-ink-secondary"
-                        >
-                          {relativeTime(entry.created_at)}
+            <Table bare>
+              <THead>
+                <TR>
+                  <TH>When</TH>
+                  <TH>Action</TH>
+                  <TH>Actor</TH>
+                  <TH>Target</TH>
+                </TR>
+              </THead>
+              <tbody>
+                {entries.map((entry) => {
+                  const t = auditTime(entry.created_at, dateDisplayPref);
+                  return (
+                    <TR key={entry.id} className="align-top transition-colors duration-100 hover:bg-sunken">
+                      <TD className="whitespace-nowrap">
+                        <time dateTime={entry.created_at} title={t.exact} className="block text-xs font-medium text-ink-secondary">
+                          {t.date}
                         </time>
-                        <span className="block text-2xs text-ink-muted">
-                          {absoluteTime(entry.created_at)}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Actor */}
-                    <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                      <span className="text-ink-muted">by</span>
-                      <span className="font-medium text-ink">{entry.actor_label}</span>
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs",
-                          entry.actor_type === "token"
-                            ? "bg-warning/15 text-warning"
-                            : "bg-sunken text-ink-secondary",
+                        <span className="block font-mono text-2xs text-ink-muted">{t.time}</span>
+                      </TD>
+                      <TD>
+                        <Badge tone={actionToBadgeTone(entry.action)} className="font-mono text-xs">
+                          {entry.action}
+                        </Badge>
+                        {entry.request_id && (
+                          <p className="mt-1 font-mono text-2xs text-ink-muted">
+                            req: {shortRequestId(entry.request_id)}
+                          </p>
                         )}
-                      >
-                        {entry.actor_type === "token" ? "token" : "user"}
-                      </span>
-                      {entry.channel && (
-                        <span
-                          title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
-                          className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
-                        >
-                          {entry.channel}
-                        </span>
-                      )}
-                    </div>
+                      </TD>
+                      <TD>
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                          <span className="font-medium text-ink">{entry.actor_label}</span>
+                          <span
+                            className={cn(
+                              "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs",
+                              entry.actor_type === "token"
+                                ? "bg-warning/15 text-warning-ink"
+                                : "bg-sunken text-ink-secondary",
+                            )}
+                          >
+                            {entry.actor_type === "token" ? "token" : "user"}
+                          </span>
+                          {entry.channel && (
+                            <span
+                              title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
+                              className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
+                            >
+                              {entry.channel}
+                            </span>
+                          )}
+                        </div>
+                      </TD>
+                      <TD className="text-xs text-ink-muted">
+                        <span className="capitalize">{entry.target_type}</span>
+                        <code className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
+                          {shortId(entry.target_id)}
+                        </code>
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </tbody>
+            </Table>
+          )}
 
-                    {/* Target */}
-                    <p className="text-xs text-ink-muted">
-                      <span className="capitalize">{entry.target_type}</span>
-                      <code className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
-                        {shortId(entry.target_id)}
-                      </code>
-                    </p>
-
-                    {/* Request id — provenance, always present but easy to
-                        skim past at text-2xs. */}
-                    {entry.request_id && (
-                      <p className="font-mono text-2xs text-ink-muted">
-                        req: {shortRequestId(entry.request_id)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+          {(olderHref || newerHref) && (
+            <nav
+              aria-label="Audit stream pages"
+              className="flex items-center justify-between border-t border-border-subtle px-5 py-3 text-sm"
+            >
+              {newerHref ? (
+                <a href={newerHref} rel="prev" className="text-accent hover:underline">
+                  &larr; Newer
+                </a>
+              ) : (
+                <span />
+              )}
+              {olderHref ? (
+                <a href={olderHref} rel="next" className="text-accent hover:underline">
+                  Older &rarr;
+                </a>
+              ) : (
+                <span />
+              )}
+            </nav>
           )}
         </Card>
 
@@ -356,11 +434,11 @@ export default async function TrustPage({
         <div className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Common actions</CardTitle>
+              <CardTitle>Action glossary</CardTitle>
             </CardHeader>
-            <CardBody className="p-0">
+            <CardBody className="max-h-96 overflow-y-auto p-0">
               <ul className="divide-y divide-border-subtle">
-                {COMMON_ACTIONS.map(({ action, description }) => (
+                {AUDIT_ACTION_GLOSSARY.map(({ action, description }) => (
                   <li key={action} className="px-4 py-3 space-y-0.5">
                     <code className="block text-xs font-mono text-ink">
                       {action}
@@ -387,7 +465,7 @@ export default async function TrustPage({
                 </p>
               </div>
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 inline-flex rounded-full bg-warning/15 px-1.5 py-0.5 text-xs text-warning shrink-0">
+                <span className="mt-0.5 inline-flex rounded-full bg-warning/15 px-1.5 py-0.5 text-xs text-warning-ink shrink-0">
                   token
                 </span>
                 <p className="text-xs text-ink-muted">

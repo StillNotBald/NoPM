@@ -1,23 +1,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueueCallout } from "@/components/ui/queue-callout";
+import { QueryError } from "@/components/ui/query-error";
 import { QueueList } from "@/components/review/queue-list";
-import { gatherReviewItems } from "@/lib/review/gather";
+import { gatherReviewItems, type ReviewItem } from "@/lib/review/gather";
 
 export const metadata = { title: "Review Queue — NoPM" };
-
-// ── Count chips shown in the page header ──────────────────────────────────────
-
-function TotalChip({ count }: { count: number }) {
-  if (count === 0) return null;
-  return (
-    <span className="rounded-full bg-danger/10 px-2.5 py-0.5 font-mono text-xs font-medium text-danger">
-      {count} pending
-    </span>
-  );
-}
-
-// ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ReviewQueuePage() {
   const db = await createClient();
@@ -27,22 +17,32 @@ export default async function ReviewQueuePage() {
 
   if (!user) redirect("/login");
 
-  const items = await gatherReviewItems(db);
+  let items: ReviewItem[];
+  try {
+    items = await gatherReviewItems(db);
+  } catch (e) {
+    return <QueryError what="the review queue" message={e instanceof Error ? e.message : null} />;
+  }
+
+  const oldest = items.reduce((m, i) => Math.max(m, i.ageDays), 0);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <PageHeader
-        title="Review Queue"
-        action={<TotalChip count={items.length} />}
-      />
+    <PageContainer width="narrow" className="space-y-6">
+      <PageHeader title="Review Queue" />
+
+      <QueueCallout count={items.length} noun="item" href="#queue" actionLabel="Jump to queue" className="mb-0">
+        Oldest waiting {oldest === 0 ? "today" : `${oldest} day${oldest === 1 ? "" : "s"}`}
+      </QueueCallout>
 
       {/* Intro line — one sentence explaining purpose */}
-      <p className="text-sm text-ink-muted -mt-3">
+      <p className="-mt-3 text-sm text-ink-muted">
         Every decision waiting for a human — approvals, rebaselines, risks,
         clashes, and documents in review — in one place, priority-sorted.
       </p>
 
-      <QueueList items={items} />
-    </div>
+      <div id="queue">
+        <QueueList items={items} />
+      </div>
+    </PageContainer>
   );
 }

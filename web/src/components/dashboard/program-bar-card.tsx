@@ -7,6 +7,8 @@ import { CardFreshness } from "@/components/dashboard/card-freshness";
 type ProgramEntry = {
   program: string | null;
   count: number;
+  /** BAC-independent rollup completion (computeProgramRollup); null when empty. */
+  completionPct?: number | null;
 };
 
 export function ProgramBarCard({
@@ -20,12 +22,13 @@ export function ProgramBarCard({
   /** L-34 — data fetch time, shown + a manual refresh button. */
   fetchedAt?: string;
 }) {
-  const items = programs
+  const items = [...programs]
     .sort((a, b) => b.count - a.count)
     .slice(0, 8) // cap at 8 rows to keep the card compact
     .map((p) => ({
       label: p.program ?? "(No program)",
       value: p.count,
+      completionPct: p.completionPct ?? null,
     }));
 
   return (
@@ -45,7 +48,30 @@ export function ProgramBarCard({
             No programs assigned yet.
           </p>
         ) : (
-          <HorizontalBarChart items={items} barHeight={14} gap={12} />
+          <>
+            <HorizontalBarChart items={items.map(({ label, value }) => ({ label, value }))} barHeight={14} gap={12} />
+            {/* Text alternative: the bars encode count only; this adds the
+                exact numbers + rollup completion for screen readers. */}
+            <table className="sr-only">
+              <caption>Projects by program</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Program</th>
+                  <th scope="col">Projects</th>
+                  <th scope="col">Average completion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((i) => (
+                  <tr key={i.label}>
+                    <th scope="row">{i.label}</th>
+                    <td>{i.value}</td>
+                    <td>{i.completionPct == null ? "n/a" : `${Math.round(i.completionPct)}%`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </CardBody>
     </Card>

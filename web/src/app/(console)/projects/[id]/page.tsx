@@ -152,7 +152,7 @@ export default async function ProjectDetailPage({
               </span>
             )}
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold text-ink leading-snug">
+              <h1 className="text-lg font-semibold tracking-tight text-ink leading-snug sm:text-xl">
                 {safeProject.name}
               </h1>
               {safeProject.program && (
@@ -162,7 +162,7 @@ export default async function ProjectDetailPage({
           </div>
 
           {/* Right: badges + actions */}
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end sm:shrink-0">
             <Badge tone={ragTone(safeProject.rag_status as RagStatus)}>
               {ragLabel(safeProject.rag_status as RagStatus)}
             </Badge>
@@ -191,7 +191,7 @@ export default async function ProjectDetailPage({
 
         {/* Lock reason banner */}
         {safeProject.is_locked && safeProject.lock_reason && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/25 px-4 py-3 text-sm text-warning">
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/25 px-4 py-3 text-sm text-warning-ink">
             <Lock size={14} className="mt-0.5 shrink-0" />
             <span>
               <span className="font-medium">Lock reason:</span> {safeProject.lock_reason}

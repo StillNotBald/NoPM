@@ -3,19 +3,34 @@ import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueueCallout } from "@/components/ui/queue-callout";
+import { QueryError } from "@/components/ui/query-error";
+import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { DecisionTable } from "@/components/decisions/decision-table";
 import { NewDecisionButton } from "@/components/decisions/new-decision-button";
 import { DecisionFocusOpener } from "@/app/(console)/decisions/_decision-focus-opener";
 import type { Decision } from "@/components/decisions/decision-form";
 
-export default async function DecisionsPage() {
+export const metadata = { title: "Decision Log — NoPM" };
+
+const STATUSES = ["proposed", "accepted", "superseded", "rejected"] as const;
+
+export default async function DecisionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string }>;
+}) {
+  const { status: statusParam } = await searchParams;
+  const view = (STATUSES as readonly string[]).includes(statusParam ?? "") ? (statusParam as string) : "all";
+
   const db = await createClient();
   const {
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: decisions }, { data: projects }, { data: viewerProfile }] = await Promise.all([
+  const [{ data: decisions, error: decisionsError }, { data: projects }, { data: viewerProfile }] = await Promise.all([
     db
       .from("decisions")
       .select(
@@ -26,6 +41,7 @@ export default async function DecisionsPage() {
     // caller's own role — see risks/page.tsx for the pattern (L-46).
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
   ]);
+  if (decisionsError) return <QueryError what="decisions" message={decisionsError.message} />;
   const canWrite = viewerProfile?.role !== "viewer";
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
@@ -37,12 +53,38 @@ export default async function DecisionsPage() {
     if (d.id && d.reference_id) refMap[d.id] = d.reference_id;
   }
 
+  const proposed = decisionList.filter((d) => d.status === "proposed");
+  const oldestDays = proposed.reduce(
+    (m, d) => Math.max(m, Math.floor((Date.now() - new Date(d.created_at).getTime()) / 86_400_000)),
+    0,
+  );
+  const visible = view === "all" ? decisionList : decisionList.filter((d) => d.status === view);
+  const countOf = (s: string) => decisionList.filter((d) => d.status === s).length;
+
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer width="narrow" className="space-y-6">
         <PageHeader
           title="Decision Log"
           action={<NewDecisionButton projects={projects ?? []} />}
+        />
+
+        {canWrite && (
+          <QueueCallout count={proposed.length} noun="proposed decision" href="/decisions?status=proposed" actionLabel="Show proposed" className="mb-0">
+            Oldest waiting {oldestDays === 0 ? "today" : `${oldestDays} day${oldestDays === 1 ? "" : "s"}`}
+          </QueueCallout>
+        )}
+
+        <UrlFilter
+          label="Decision status"
+          value={view}
+          defaultValue="all"
+          options={[
+            { value: "all", label: "All", count: decisionList.length },
+            { value: "proposed", label: "Proposed", count: countOf("proposed"), attention: canWrite && proposed.length > 0 },
+            { value: "accepted", label: "Accepted", count: countOf("accepted") },
+            { value: "superseded", label: "Superseded", count: countOf("superseded") },
+            { value: "rejected", label: "Rejected", count: countOf("rejected") },
+          ]}
         />
 
         {/* Deep-link auto-open: ?dec=<id> opens the matching decision in the inspector */}
@@ -57,14 +99,13 @@ export default async function DecisionsPage() {
 
         <Card>
           <DecisionTable
-            rows={decisionList}
+            rows={visible}
             projectMap={projectMap}
             refMap={refMap}
             projects={projects ?? []}
             canWrite={canWrite}
           />
         </Card>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

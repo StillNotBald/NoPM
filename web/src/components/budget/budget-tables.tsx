@@ -2,6 +2,8 @@
 
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import { Badge } from "@/components/ui/badge";
+import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { PacingBar } from "@/components/budget/pacing-bar";
 import { cn } from "@/lib/cn";
 
 /**
@@ -112,7 +114,7 @@ export function EvmTable({ rows }: { rows: EvmTableRow[] }) {
   );
 }
 
-// ── Project Budgets table (planned / committed / actual / variance / burn) ─
+// ── Project Budgets table (planned / committed / actual / variance / pacing) ─
 
 export interface BudgetTableRow {
   projectId: string;
@@ -124,36 +126,9 @@ export interface BudgetTableRow {
   varianceDisplay: string | null;
   varianceIsNegative: boolean;
   burnPct: number;
-  burnClampedPct: number;
-  isOver: boolean;
-  isNear: boolean;
-}
-
-function BurnBar({ row }: { row: BudgetTableRow }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="relative min-w-[80px] flex-1 overflow-visible h-2 rounded-full bg-sunken">
-        <div
-          className={cn(
-            "h-full rounded-full transition-all",
-            row.isOver ? "bg-danger" : row.isNear ? "bg-warning" : "bg-accent",
-          )}
-          style={{ width: `${row.burnClampedPct}%` }}
-        />
-        {row.isOver && (
-          <div className="absolute right-0 top-1/2 h-3 w-2 -translate-y-1/2 rounded-sm bg-danger opacity-70" />
-        )}
-      </div>
-      <span
-        className={cn(
-          "w-12 shrink-0 text-right text-xs font-medium tabular-nums",
-          row.isOver ? "text-danger" : row.isNear ? "text-warning" : "text-ink-secondary",
-        )}
-      >
-        {row.burnPct.toFixed(1)}%
-      </span>
-    </div>
-  );
+  /** Delivery progress; the pacing tick marks where spend should be. */
+  completionPct: number;
+  hasPlan: boolean;
 }
 
 export interface BudgetTotals {
@@ -163,15 +138,13 @@ export interface BudgetTotals {
   varianceDisplay: string;
   varianceIsNegative: boolean;
   burnPct: number;
-  burnClampedPct: number;
+  completionPct: number;
 }
 
 /**
- * Hand-rolled (not DataList) split: the desktop table has a `<tfoot>`
- * totals row DataList has no slot for, so the `≥md` branch below keeps the
- * exact original table+tfoot markup verbatim (pixel-identical to before)
- * and `<md` gets its own card list with a matching totals card, the
- * variance rendered as a chip per F5/the mobile spec.
+ * Hand-rolled split (DataList has no tfoot slot): <md card list with a
+ * totals card; >=md the DataTable primitives with numeric right-aligned
+ * cells and a pacing bar per project. Prints as a plain table.
  */
 export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: BudgetTotals | null }) {
   if (rows.length === 0) return null;
@@ -179,7 +152,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
   return (
     <>
       {/* <md: cards */}
-      <ul className="divide-y divide-border-subtle md:hidden">
+      <ul className="divide-y divide-border-subtle md:hidden print:hidden">
         {rows.map((r) => (
           <li key={r.projectId} className="flex min-h-[44px] flex-col gap-1.5 px-4 py-3">
             <div className="flex items-center justify-between gap-2">
@@ -208,14 +181,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                 <span className="block truncate font-mono tabular-nums text-ink">{r.actualDisplay}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 pt-0.5">
-              <BurnBar row={r} />
-              {r.isOver && (
-                <Badge tone="danger" size="sm" className="shrink-0">
-                  Over
-                </Badge>
-              )}
-            </div>
+            <PacingBar burnPct={r.burnPct} expectedPct={r.completionPct} hasPlan={r.hasPlan} className="pt-0.5" />
           </li>
         ))}
         {totals && (
@@ -245,139 +211,77 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                 <span
                   className={cn(
                     "block truncate font-mono tabular-nums font-semibold",
-                    totals.varianceIsNegative ? "text-danger" : "text-success",
+                    totals.varianceIsNegative ? "text-danger-ink" : "text-success-ink",
                   )}
                 >
                   {totals.varianceDisplay}
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-3 pt-0.5">
-              <div className="h-2 min-w-[80px] flex-1 overflow-hidden rounded-full bg-canvas">
-                <div
-                  className={cn(
-                    "h-full rounded-full",
-                    totals.burnPct > 100 ? "bg-danger" : totals.burnPct >= 80 ? "bg-warning" : "bg-accent",
-                  )}
-                  style={{ width: `${totals.burnClampedPct}%` }}
-                />
-              </div>
-              <span
-                className={cn(
-                  "shrink-0 text-xs font-semibold tabular-nums",
-                  totals.burnPct > 100 ? "text-danger" : totals.burnPct >= 80 ? "text-warning" : "text-accent",
-                )}
-              >
-                {totals.burnPct.toFixed(1)}%
-              </span>
-            </div>
+            <PacingBar burnPct={totals.burnPct} expectedPct={totals.completionPct} className="pt-0.5" />
           </li>
         )}
       </ul>
 
-      {/* ≥md: original table + tfoot, unchanged */}
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[640px] text-sm">
-          <thead>
-            <tr className="border-b border-border-subtle">
-              <th className="text-left px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                Project
-              </th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                Planned
-              </th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                Committed
-              </th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                Actual
-              </th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-                Variance
-              </th>
-              <th className="px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide min-w-[160px]">
-                Burn %
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border-subtle">
+      {/* >=md (and print): DataTable primitives */}
+      <div className="hidden md:block print:block">
+        <Table bare className="min-w-[760px] print:min-w-0">
+          <THead>
+            <TR>
+              <TH>Project</TH>
+              <TH align="right">Planned</TH>
+              <TH align="right">Committed</TH>
+              <TH align="right">Actual</TH>
+              <TH align="right">Variance</TH>
+              <TH className="min-w-[260px]">Burn vs progress</TH>
+            </TR>
+          </THead>
+          <tbody>
             {rows.map((r) => (
-              <tr key={r.projectId} className="hover:bg-sunken transition-colors duration-100">
-                <td className="px-5 py-4">
+              <TR key={r.projectId} className="hover:bg-sunken transition-colors duration-100 print:break-inside-avoid">
+                <TD>
                   <span className="font-medium text-ink">{r.projectName}</span>
                   <span className="ml-2 text-xs text-ink-muted">{r.currency}</span>
-                </td>
-                <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">{r.plannedDisplay}</td>
-                <td className="px-5 py-4 text-right tabular-nums text-ink-secondary">{r.committedDisplay}</td>
-                <td className="px-5 py-4 text-right tabular-nums text-ink">{r.actualDisplay}</td>
-                <td className="px-5 py-4 text-right tabular-nums font-medium">
+                </TD>
+                <TD align="right" numeric className="text-ink-secondary">{r.plannedDisplay}</TD>
+                <TD align="right" numeric className="text-ink-secondary">{r.committedDisplay}</TD>
+                <TD align="right" numeric>{r.actualDisplay}</TD>
+                <TD align="right" numeric className="font-medium">
                   {r.varianceDisplay === null ? (
                     <span className="text-ink-muted">—</span>
                   ) : (
-                    <span className={r.varianceIsNegative ? "text-danger" : "text-success"}>
+                    <span className={r.varianceIsNegative ? "text-danger-ink" : "text-success-ink"}>
                       {r.varianceDisplay}
                     </span>
                   )}
-                </td>
-                <td className="px-5 py-4">
-                  <div className="flex items-center gap-3">
-                    <BurnBar row={r} />
-                    {r.isOver && (
-                      <Badge tone="danger" className="shrink-0">
-                        Over
-                      </Badge>
-                    )}
-                  </div>
-                </td>
-              </tr>
+                </TD>
+                <TD>
+                  <PacingBar burnPct={r.burnPct} expectedPct={r.completionPct} hasPlan={r.hasPlan} />
+                </TD>
+              </TR>
             ))}
           </tbody>
           {totals && (
             <tfoot>
-              <tr className="border-t-2 border-border-subtle bg-sunken">
-                <td className="px-5 py-3 text-xs font-semibold text-ink-secondary uppercase tracking-wide">
-                  Totals
-                </td>
-                <td className="px-5 py-3 text-right tabular-nums font-semibold text-ink">
-                  {totals.plannedDisplay}
-                </td>
-                <td className="px-5 py-3 text-right tabular-nums font-semibold text-ink">
-                  {totals.committedDisplay}
-                </td>
-                <td className="px-5 py-3 text-right tabular-nums font-semibold text-ink">{totals.actualDisplay}</td>
-                <td
-                  className={cn(
-                    "px-5 py-3 text-right tabular-nums font-semibold",
-                    totals.varianceIsNegative ? "text-danger" : "text-success",
-                  )}
+              <TR className="border-t-2 border-border-subtle bg-sunken font-semibold print:break-inside-avoid">
+                <TD className="text-xs uppercase tracking-wide text-ink-secondary">Totals</TD>
+                <TD align="right" numeric>{totals.plannedDisplay}</TD>
+                <TD align="right" numeric>{totals.committedDisplay}</TD>
+                <TD align="right" numeric>{totals.actualDisplay}</TD>
+                <TD
+                  align="right"
+                  numeric
+                  className={totals.varianceIsNegative ? "text-danger-ink" : "text-success-ink"}
                 >
                   {totals.varianceDisplay}
-                </td>
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="h-2 min-w-[80px] flex-1 overflow-hidden rounded-full bg-canvas">
-                      <div
-                        className={cn(
-                          "h-full rounded-full",
-                          totals.burnPct > 100 ? "bg-danger" : totals.burnPct >= 80 ? "bg-warning" : "bg-accent",
-                        )}
-                        style={{ width: `${totals.burnClampedPct}%` }}
-                      />
-                    </div>
-                    <span
-                      className={cn(
-                        "tabular-nums text-xs font-semibold w-12 text-right shrink-0",
-                        totals.burnPct > 100 ? "text-danger" : totals.burnPct >= 80 ? "text-warning" : "text-accent",
-                      )}
-                    >
-                      {totals.burnPct.toFixed(1)}%
-                    </span>
-                  </div>
-                </td>
-              </tr>
+                </TD>
+                <TD>
+                  <PacingBar burnPct={totals.burnPct} expectedPct={totals.completionPct} />
+                </TD>
+              </TR>
             </tfoot>
           )}
-        </table>
+        </Table>
       </div>
     </>
   );
