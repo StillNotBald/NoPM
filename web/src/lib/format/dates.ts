@@ -81,3 +81,11 @@ export function formatByPref(
   const title = d && !Number.isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : "";
   return { text, absolute, title };
 }
+
+/** Age in whole days of the oldest timestamp in `isoDates` (0 when empty). */
+export function oldestAgeDays(isoDates: readonly string[], now: number = Date.now()): number {
+  return isoDates.reduce(
+    (m, iso) => Math.max(m, Math.floor((now - new Date(iso).getTime()) / 86_400_000)),
+    0,
+  );
+}

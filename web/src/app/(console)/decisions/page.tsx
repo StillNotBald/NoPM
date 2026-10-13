@@ -11,6 +11,7 @@ import { DecisionTable } from "@/components/decisions/decision-table";
 import { NewDecisionButton } from "@/components/decisions/new-decision-button";
 import { DecisionFocusOpener } from "@/app/(console)/decisions/_decision-focus-opener";
 import type { Decision } from "@/components/decisions/decision-form";
+import { oldestAgeDays } from "@/lib/format/dates";
 
 export const metadata = { title: "Decision Log — NoPM" };
 
@@ -54,10 +55,7 @@ export default async function DecisionsPage({
   }
 
   const proposed = decisionList.filter((d) => d.status === "proposed");
-  const oldestDays = proposed.reduce(
-    (m, d) => Math.max(m, Math.floor((Date.now() - new Date(d.created_at).getTime()) / 86_400_000)),
-    0,
-  );
+  const oldestDays = oldestAgeDays(proposed.map((d) => d.created_at));
   const visible = view === "all" ? decisionList : decisionList.filter((d) => d.status === view);
   const countOf = (s: string) => decisionList.filter((d) => d.status === s).length;
 

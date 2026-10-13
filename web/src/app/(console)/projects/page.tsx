@@ -1,123 +1,67 @@
+import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/cn";
-import { NewProjectButton } from "@/components/forms/new-project-button";
-import { PageHeader } from "@/components/ui/page-header";
-import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
-import { EntityLink } from "@/components/ui/entity-link";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
+import { ProjectsRegister, type ProjectRow } from "@/components/projects/projects-register";
+import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
 
-export default async function ProjectsPage() {
+export const metadata: Metadata = { title: "Projects" };
+
+// Whitelists mirror GET /api/export?entity=projects (filters + sort fields).
+const RAG = ["not_started", "green", "amber", "red", "complete"];
+const PHASES = ["initiation", "planning", "execution", "monitoring", "closing"];
+const SORT_FIELDS = ["name", "code", "rag_status", "phase", "completion_pct", "target_date"];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type SearchParams = Record<string, string | string[] | undefined>;
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
+
+export default async function ProjectsPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const db = await createClient();
   const {
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: projects, error } = await db
-    .from("projects")
-    .select("id, code, name, rag_status, completion_pct, target_date, is_locked, program")
-    .order("created_at", { ascending: false });
+  const dateDisplayPref = parseAppearancePrefs((await cookies()).get(APPEARANCE_COOKIE_NAME)?.value).dateDisplay;
 
-  if (error) {
-    return (
-      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load projects: {error.message}</p>
-      </div>
-    );
-  }
+  const sp = await searchParams;
+  const q = one(sp.q)?.trim().slice(0, 100);
+  const rag = one(sp.rag_status);
+  const phase = one(sp.phase);
+  const programId = one(sp.program_id);
+  const [sortField, sortDir] = (one(sp.sort) ?? "").split(":");
+
+  let query = db
+    .from("projects")
+    .select("id, code, name, rag_status, phase, completion_pct, target_date, is_locked, program");
+  if (rag && RAG.includes(rag)) query = query.eq("rag_status", rag);
+  if (phase && PHASES.includes(phase)) query = query.eq("phase", phase);
+  if (programId && UUID.test(programId)) query = query.eq("program_id", programId);
+  if (q) query = query.ilike("name", `%${q.replace(/[\\%_]/g, "\\$&")}%`);
+  query =
+    SORT_FIELDS.includes(sortField) && (sortDir === "asc" || sortDir === "desc")
+      ? query.order(sortField, { ascending: sortDir === "asc" })
+      : query.order("created_at", { ascending: false });
+
+  const [{ data: projects, error }, { data: programs }, { data: profile }] = await Promise.all([
+    query,
+    db.from("programs").select("id, name").order("name"),
+    db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+  ]);
+
+  if (error) return <QueryError what="projects" message={error.message} />;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <PageHeader title="Projects" action={<NewProjectButton />} />
-
-      {/* Table */}
-      <div className="rounded-lg border border-border-subtle bg-surface overflow-x-auto">
-        {projects && projects.length > 0 ? (
-          <table className="w-full min-w-[640px] text-sm">
-            <thead>
-              <tr className="border-b border-border-subtle bg-sunken/50">
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-24">Code</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary">Name</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-44">Program</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-24">RAG</th>
-                <th className="px-4 py-3 text-right font-medium text-ink-secondary w-32">Completion</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-32">Target date</th>
-                <th className="px-4 py-3 text-left font-medium text-ink-secondary w-20">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.map((project, i) => (
-                <tr
-                  key={project.id}
-                  className={cn(
-                    "transition-colors hover:bg-sunken/40",
-                    i < projects.length - 1 && "border-b border-border-subtle",
-                  )}
-                >
-                  <td className="px-4 py-3">
-                    <span className="font-mono text-xs text-ink-muted whitespace-nowrap">
-                      {project.code ?? "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 min-w-0">
-                    <EntityLink kind="project" id={project.id} className="font-medium">
-                      {project.name}
-                    </EntityLink>
-                  </td>
-                  <td className="px-4 py-3 min-w-0 max-w-[11rem]">
-                    <span className="block truncate text-ink-secondary text-sm">
-                      {project.program ?? <span className="text-ink-muted">—</span>}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <Badge size="sm" tone={ragTone(project.rag_status as RagStatus)}>
-                      {ragLabel(project.rag_status as RagStatus)}
-                    </Badge>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-2">
-                      <div className="w-16 h-1.5 rounded-full bg-sunken overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-accent"
-                          style={{ width: `${project.completion_pct ?? 0}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-ink-secondary tabular-nums whitespace-nowrap w-8 text-right">
-                        {Math.round(project.completion_pct ?? 0)}%
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-ink-secondary tabular-nums whitespace-nowrap text-xs">
-                    {project.target_date
-                      ? new Date(project.target_date).toLocaleDateString("en-GB", {
-                          day: "numeric",
-                          month: "short",
-                          year: "numeric",
-                        })
-                      : <span className="text-ink-muted">—</span>}
-                  </td>
-                  <td className="px-4 py-3">
-                    {project.is_locked ? (
-                      <Badge size="sm" tone="warning">Locked</Badge>
-                    ) : (
-                      <span className="text-xs text-ink-muted">Active</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div className="py-16 text-center">
-            <p className="text-sm text-ink-muted">No projects yet.</p>
-          </div>
-        )}
-      </div>
-
-      {projects && projects.length > 0 && (
-        <p className="mt-3 text-xs text-ink-muted">{projects.length} project{projects.length !== 1 ? "s" : ""}</p>
-      )}
-    </div>
+    <PageContainer>
+      <ProjectsRegister
+        rows={(projects ?? []) as ProjectRow[]}
+        programs={(programs ?? []) as Array<{ id: string; name: string }>}
+        dateDisplayPref={dateDisplayPref}
+        canWrite={profile?.role !== "viewer"}
+      />
+    </PageContainer>
   );
 }

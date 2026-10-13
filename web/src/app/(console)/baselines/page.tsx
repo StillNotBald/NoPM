@@ -20,6 +20,8 @@ import {
 // doc describes; this page just makes the flow's two record types legible
 // in one place instead of hidden inside individual project pages.
 
+export const metadata = { title: "Baselines" };
+
 type RebaselineStatus = "draft" | "pending_approval" | "approved" | "applied" | "rejected";
 
 interface ProjectRow {

@@ -9,6 +9,7 @@ import { QueryError } from "@/components/ui/query-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
+import { oldestAgeDays } from "@/lib/format/dates";
 
 export const metadata = { title: "Approvals — NoPM" };
 
@@ -75,10 +76,7 @@ export default async function ApprovalsPage({
   const isOwn = (r: DeletionRequest) => r.requested_by_type === "user" && r.requested_by_id === user.id;
   // Four-eyes: the requester can't decide their own request, so it isn't "waiting on me".
   const mine = pending.filter((r) => !isOwn(r));
-  const oldestDays = mine.reduce(
-    (m, r) => Math.max(m, Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86_400_000)),
-    0,
-  );
+  const oldestDays = oldestAgeDays(mine.map((r) => r.created_at));
 
   return (
     <PageContainer width="narrow" className="space-y-6">

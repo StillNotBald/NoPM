@@ -1,4 +1,5 @@
 import { TableSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { PageContainer } from "@/components/ui/page-container";
 
 /**
  * Clashes loading skeleton — mirrors Clashes layout:
@@ -6,8 +7,8 @@ import { TableSkeleton, Skeleton } from "@/components/ui/skeleton";
  */
 export default function ClashesLoading() {
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-5">
+      <div className="space-y-5">
         {/* page header */}
         <div className="flex items-center justify-between gap-3">
           <Skeleton variant="text" width="w-20" height="h-7" />
@@ -17,6 +18,6 @@ export default function ClashesLoading() {
         {/* clashes table: ref, type, projects, severity, status, raised */}
         <TableSkeleton rows={7} cols={6} />
       </div>
-    </div>
+    </PageContainer>
   );
 }

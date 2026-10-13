@@ -1,3 +1,4 @@
+import { PageContainer } from "@/components/ui/page-container";
 import { CardSkeleton, TableSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -6,8 +7,8 @@ import { CardSkeleton, TableSkeleton, Skeleton } from "@/components/ui/skeleton"
  */
 export default function RisksLoading() {
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-6">
+      <div className="space-y-6">
         {/* page header */}
         <div className="flex items-center justify-between gap-3">
           <Skeleton variant="text" width="w-32" height="h-7" />
@@ -20,6 +21,6 @@ export default function RisksLoading() {
         {/* risk register table: ref, title, project, severity, score, strategy, status, owner, due */}
         <TableSkeleton rows={7} cols={9} />
       </div>
-    </div>
+    </PageContainer>
   );
 }

@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { DocumentsClient, NewDocumentButton } from "@/components/documents/documents-client";
 
+export const metadata = { title: "Documents" };
+
 export default async function DocumentsPage() {
   const db = await createClient();
   const {

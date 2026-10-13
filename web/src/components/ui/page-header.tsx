@@ -62,12 +62,6 @@ export function PageHeader({
     };
   }, [menuOpen]);
 
-  // Move focus into the menu when it opens.
-  useEffect(() => {
-    if (menuOpen) menuItems()[0]?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [menuOpen]);
-
   function menuItems(): HTMLElement[] {
     const root = listRef.current;
     if (!root) return [];
@@ -75,6 +69,12 @@ export function PageHeader({
       root.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
     );
   }
+
+  // Move focus into the menu when it opens.
+  useEffect(() => {
+    if (menuOpen) menuItems()[0]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen]);
 
   function onMenuKeyDown(e: React.KeyboardEvent) {
     const items = menuItems();
