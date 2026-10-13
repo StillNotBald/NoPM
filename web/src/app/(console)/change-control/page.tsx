@@ -13,7 +13,7 @@ import { NewChangeButton } from "@/components/change-control/new-change-button";
 import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
 import type { ChangeRequest } from "@/components/change-control/change-form";
 
-export const metadata = { title: "Change control — NoPM" };
+export const metadata = { title: "Change Control" };
 
 const STATUS_FILTERS = ["raised", "under_review", "approved", "rejected", "all"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];

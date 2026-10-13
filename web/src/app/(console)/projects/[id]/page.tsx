@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { ProjectActions } from "@/components/tracking/project-actions";
 import { ProjectTabs } from "@/components/tracking/project-tabs";
+import { CrumbLabel } from "@/lib/nav/crumb-label";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import { fetchTaskStatusAges } from "@/lib/insight/status-age";
 
@@ -140,6 +141,7 @@ export default async function ProjectDetailPage({
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 mx-auto max-w-6xl space-y-8">
+      <CrumbLabel id={safeProject.id} label={safeProject.code ?? safeProject.name} />
       {/* Header */}
       <div>
         {/* Title row: stacks on mobile, side-by-side on sm+

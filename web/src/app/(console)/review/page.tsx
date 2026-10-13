@@ -7,7 +7,7 @@ import { QueryError } from "@/components/ui/query-error";
 import { QueueList } from "@/components/review/queue-list";
 import { gatherReviewItems, type ReviewItem } from "@/lib/review/gather";
 
-export const metadata = { title: "Review Queue — NoPM" };
+export const metadata = { title: "Review" };
 
 export default async function ReviewQueuePage() {
   const db = await createClient();

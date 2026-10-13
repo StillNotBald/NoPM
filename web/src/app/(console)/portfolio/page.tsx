@@ -20,7 +20,7 @@ import {
   type ProgramRollupChildInput,
 } from "@/lib/insight/program-rollup";
 
-export const metadata = { title: "Portfolio Roadmap — NoPM" };
+export const metadata = { title: "Portfolio" };
 
 // ── Row shapes (server-fetched) ──────────────────────────────────────────────
 // ProgramRow reuses the exact shape ProgramForm edits (id, code, name,

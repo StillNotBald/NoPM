@@ -156,12 +156,14 @@ describe("app-shell.tsx — header icon buttons hit >=44px below lg, unchanged a
   });
 
   it("sidebar collapse toggle: bumped to h-11 w-11, restores the original lg:h-10 lg:w-10 at lg+", () => {
-    const collapseBtn = APP_SHELL.slice(
-      APP_SHELL.indexOf('aria-label="Collapse sidebar"') - 400,
-      APP_SHELL.indexOf('aria-label="Collapse sidebar"') + 400,
-    );
+    // The label is now dynamic (Expand/Collapse) and the button exposes aria-expanded.
+    const idx = APP_SHELL.indexOf('"Collapse sidebar"');
+    expect(idx).toBeGreaterThan(-1);
+    const collapseBtn = APP_SHELL.slice(idx - 500, idx + 300);
     expect(collapseBtn).toMatch(/h-11 w-11/);
     expect(collapseBtn).toMatch(/lg:h-10 lg:w-10/);
+    expect(collapseBtn).toMatch(/aria-expanded=\{!collapsed\}/);
+    expect(collapseBtn).toMatch(/"Expand sidebar"/);
   });
 
   it("does not touch NotificationBell/ThemeToggle/AccountMenu source (not owned by this task)", () => {
@@ -281,3 +283,33 @@ describe("data-list.tsx — DataList", () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// 5. Wave 6 shell — print chrome, reduced motion, single label source
+// ---------------------------------------------------------------------------
+describe("shell chrome is print-hidden and motion-safe", () => {
+  const GLOBALS = readFileSync(join(process.cwd(), "src", "app", "globals.css"), "utf8");
+  const BOTTOM_NAV = readFileSync(join(COMPONENTS_DIR, "layout", "bottom-nav.tsx"), "utf8");
+  const SIDEBAR = readFileSync(join(COMPONENTS_DIR, "layout", "sidebar.tsx"), "utf8");
+
+  it("print stylesheet hides data-shell-chrome and the sidebar/header/bottom-nav carry the marker", () => {
+    expect(GLOBALS).toMatch(/@media print[\s\S]*\[data-shell-chrome\][\s\S]*display: none/);
+    expect(APP_SHELL).toMatch(/<header data-shell-chrome/);
+    expect(APP_SHELL).toMatch(/data-shell-chrome\s+className=\{cn\(\s*"hidden shrink-0 lg:block/);
+    expect(BOTTOM_NAV).toMatch(/<nav data-shell-chrome/);
+  });
+
+  it("the pulsing caret opts out of animation under reduced motion", () => {
+    expect(APP_SHELL).toMatch(/animate-pulse motion-reduce:animate-none/);
+    expect(SIDEBAR).toMatch(/animate-pulse motion-reduce:animate-none/);
+  });
+
+  it("sidebar footer no longer prints a bare domain string", () => {
+    expect(SIDEBAR).not.toMatch(/stillnotbald\.com/);
+  });
+
+  it("bottom nav derives its destinations from the shared nav list (no private label table)", () => {
+    expect(BOTTOM_NAV).toMatch(/ALL_NAV_ITEMS/);
+    expect(BOTTOM_NAV).not.toMatch(/label: "Home"/);
+  });
+});

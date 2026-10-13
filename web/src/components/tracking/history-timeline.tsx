@@ -116,22 +116,22 @@ export function HistoryTimeline({
         {/* Body */}
         <div className="max-h-[28rem] overflow-y-auto px-4 py-3 font-mono text-xs leading-relaxed">
           {error && (
-            <p className="text-red-300">
-              <span className="text-white/60">$ </span>
+            <p className="text-terminal-red-ink">
+              <span className="text-terminal-text-muted">$ </span>
               error: {error}
             </p>
           )}
 
           {!error && rows === null && (
-            <p className="text-white/60">
-              <span className="text-white/60">$ </span>
+            <p className="text-terminal-text-muted">
+              <span className="text-terminal-text-muted">$ </span>
               loading audit trail…
             </p>
           )}
 
           {!error && rows !== null && rows.length === 0 && (
-            <p className="text-white/60">
-              <span className="text-white/60">$ </span>
+            <p className="text-terminal-text-muted">
+              <span className="text-terminal-text-muted">$ </span>
               no audit events recorded for this target yet.
             </p>
           )}
@@ -141,14 +141,14 @@ export function HistoryTimeline({
               {rows.map((row) => (
                 <li
                   key={row.id}
-                  className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-white/80"
+                  className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-terminal-text"
                   title={absoluteTime(row.created_at)}
                 >
-                  <span className="text-green-400">{row.actor_label}</span>
-                  <span className="text-white/50">·</span>
-                  <span className="text-amber-300">{row.action}</span>
-                  <span className="text-white/50">·</span>
-                  <time dateTime={row.created_at} className="text-white/60">
+                  <span className="text-terminal-green-ink">{row.actor_label}</span>
+                  <span className="text-terminal-text-muted">·</span>
+                  <span className="text-terminal-amber-ink">{row.action}</span>
+                  <span className="text-terminal-text-muted">·</span>
+                  <time dateTime={row.created_at} className="text-terminal-text-muted">
                     {relativeTime(row.created_at)}
                   </time>
                 </li>

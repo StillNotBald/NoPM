@@ -12,7 +12,7 @@ import { PortfolioLens } from "@/components/mainline/portfolio-lens";
 import { ProjectLens, type ProjectLensData } from "@/components/mainline/project-lens";
 import { DependencyLens, type DependencyEdgeRow } from "@/components/mainline/dependency-lens";
 
-export const metadata = { title: "Mainline — NoPM" };
+export const metadata = { title: "Mainline" };
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 

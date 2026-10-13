@@ -7,7 +7,7 @@ import { MobileNavMenu } from "@/components/marketing/mobile-nav";
 import metrics from "@/lib/metrics.gen.json";
 
 export const metadata = {
-  title: "Case Study — NoPM",
+  title: "Case Study",
   description:
     `How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and ${metrics.rids} traced requirements shipped in eight waves.`,
 };

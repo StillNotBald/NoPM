@@ -13,7 +13,7 @@ import { DecisionFocusOpener } from "@/app/(console)/decisions/_decision-focus-o
 import type { Decision } from "@/components/decisions/decision-form";
 import { oldestAgeDays } from "@/lib/format/dates";
 
-export const metadata = { title: "Decision Log — NoPM" };
+export const metadata = { title: "Decisions" };
 
 const STATUSES = ["proposed", "accepted", "superseded", "rejected"] as const;
 

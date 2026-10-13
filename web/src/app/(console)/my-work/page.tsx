@@ -10,7 +10,7 @@ import { IssueRow, type MyIssue } from "@/components/my-work/issue-row";
 import { ApprovalRow, type PendingApproval } from "@/components/my-work/approval-row";
 import { HotStrip, type HotItem } from "@/components/my-work/hot-strip";
 
-export const metadata = { title: "My Work — NoPM" };
+export const metadata = { title: "My Work" };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

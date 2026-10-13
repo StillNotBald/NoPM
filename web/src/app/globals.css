@@ -35,6 +35,18 @@
   --danger-ink: #b42318; /* ~5.7:1 */
   --danger-hover: #c93b40; /* danger button hover (white text >=4.6:1) */
   --danger-solid: #d13438; /* danger button fill, white text ~4.9:1 */
+  /* Terminal window (ui/terminal-card.tsx): always dark, so these are set once
+     here and deliberately NOT redefined in .dark / .theme-system. */
+  --terminal-surface: #0a0a0b;
+  --terminal-border: #26262b;
+  --terminal-text: #e4e4e7; /* ~15:1 on surface */
+  --terminal-text-muted: #a1a1aa; /* ~7.5:1 on surface */
+  --terminal-red: #ff5f57; /* traffic-light dots */
+  --terminal-amber: #febc2e;
+  --terminal-green: #28c840;
+  --terminal-red-ink: #fca5a5; /* text on the terminal surface */
+  --terminal-amber-ink: #fcd34d;
+  --terminal-green-ink: #4ade80;
 }
 
 :root {
@@ -133,6 +145,16 @@
   --color-danger-ink: var(--danger-ink);
   --color-danger-hover: var(--danger-hover);
   --color-danger-solid: var(--danger-solid);
+  --color-terminal-surface: var(--terminal-surface);
+  --color-terminal-border: var(--terminal-border);
+  --color-terminal-text: var(--terminal-text);
+  --color-terminal-text-muted: var(--terminal-text-muted);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-amber: var(--terminal-amber);
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-red-ink: var(--terminal-red-ink);
+  --color-terminal-amber-ink: var(--terminal-amber-ink);
+  --color-terminal-green-ink: var(--terminal-green-ink);
 
   /* SF on Apple, Inter as the cross-platform SF-like fallback.
      `display` is the large-title cut (SF Pro Display) — a sans, despite
@@ -307,5 +329,27 @@ body {
   &:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Print — hide the app shell chrome so register/report pages print as
+   plain documents (sidebar, header, breadcrumbs, bottom nav, assistant
+   launcher, toasts) and release the viewport-locked layout so content
+   flows across pages instead of being clipped at one screen.
+   ───────────────────────────────────────────────────────────── */
+@media print {
+  [data-shell-chrome],
+  [data-app-shell] nav[aria-label="Breadcrumb"] {
+    display: none !important;
+  }
+  [data-shell-root],
+  [data-shell-main],
+  [data-shell-main] > * {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  [data-shell-column] {
+    margin-right: 0 !important;
   }
 }

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
 import { TaskList, type ProjectTask } from "@/components/my-tasks/task-list";
 
-export const metadata = { title: "My Tasks — NoPM" };
+export const metadata = { title: "My Tasks" };
 
 export default async function MyTasksPage() {
   const db = await createClient();

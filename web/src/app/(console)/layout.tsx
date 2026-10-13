@@ -5,6 +5,33 @@ import { ModalProvider } from "@/components/ui/modal";
 import { NAV_MODE_COOKIE_NAME, parseNavModeCookie, resolveInitialNavMode } from "@/lib/nav/nav-mode";
 import { readSignedInPreferences } from "@/lib/theme/server-prefs";
 import { requiresMfaChallengeFailClosed } from "@/lib/auth/mfa";
+import { createClient } from "@/lib/supabase/server";
+import { getPendingCounts, type PendingCounts } from "@/lib/governance/pending-counts";
+
+/**
+ * Governance badge counts for the nav, scoped to the signed-in actor's own
+ * workspace (explicit workspace filter + four-eyes exclusion live in
+ * getPendingCounts). Fail-soft by contract: any error yields null so a
+ * count problem can never break the shell.
+ */
+async function loadPendingCounts(): Promise<PendingCounts | null> {
+  try {
+    const db = await createClient();
+    const {
+      data: { user },
+    } = await db.auth.getUser();
+    if (!user) return null;
+    const { data: profile } = await db
+      .from("profiles")
+      .select("workspace_id")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (!profile?.workspace_id) return null;
+    return await getPendingCounts(db, { userId: user.id, workspaceId: profile.workspace_id });
+  } catch {
+    return null;
+  }
+}
 
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
   // R-91 — an MFA-enrolled session that hasn't passed its challenge yet
@@ -34,10 +61,12 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
     isDemo,
   });
 
+  const pendingCounts = await loadPendingCounts();
+
   return (
     <ModalProvider>
       {/* ToastProvider is mounted inside AppShell (wraps the inspector + all console content). */}
-      <AppShell initialNavMode={initialNavMode}>{children}</AppShell>
+      <AppShell initialNavMode={initialNavMode} pendingCounts={pendingCounts}>{children}</AppShell>
     </ModalProvider>
   );
 }

@@ -12,7 +12,7 @@ import { ReportFilters } from "@/components/timesheets/report-filters";
 import { LogTimeForm } from "@/components/timesheets/log-time-form";
 import { TimesheetSubmitPanel } from "@/components/timesheets/submit-panel";
 
-export const metadata = { title: "Timesheets — NoPM" };
+export const metadata = { title: "Timesheets" };
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 

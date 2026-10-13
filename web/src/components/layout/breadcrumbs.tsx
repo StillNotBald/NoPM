@@ -1,95 +1,44 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { apiGet } from "@/lib/api-client";
-
-// Route segment → human label
-const SEGMENT_LABELS: Record<string, string> = {
-  "my-work": "My Work",
-  "my-tasks": "My Tasks",
-  dashboard: "Dashboard",
-  start: "Getting started",
-  projects: "Projects",
-  portfolio: "Portfolio",
-  documents: "Documents",
-  risks: "Risks",
-  issues: "Issues",
-  clashes: "Clashes",
-  resources: "Resources",
-  budget: "Budget",
-  review: "Review",
-  "change-control": "Change Control",
-  decisions: "Decisions",
-  approvals: "Approvals",
-  trust: "Trust Center",
-  tokens: "Tokens",
-};
+import { labelForSegment } from "@/lib/nav/nav-config";
+import { useCrumbLabel } from "@/lib/nav/crumb-label";
 
 type Crumb = { label: string; href?: string };
 
-type ProjectStub = { id: string; code?: string | null; name: string };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Derive a short display ID from a UUID (first 8 chars). */
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id;
+/** Humanise an unmapped segment ("some-thing" -> "Some thing"); ids become "Details". */
+function fallbackLabel(seg: string): string {
+  if (UUID_RE.test(seg) || /^\d+$/.test(seg)) return "Details";
+  const spaced = seg.replace(/[-_]+/g, " ").trim();
+  return spaced ? spaced.charAt(0).toUpperCase() + spaced.slice(1) : seg;
 }
 
 function useBreadcrumbs(): Crumb[] {
   const pathname = usePathname();
-  const [projectName, setProjectName] = useState<string | null>(null);
+  const segments = (pathname ?? "").replace(/^\//, "").split("/").filter(Boolean);
 
-  // Detect /projects/[id] pattern
-  const projectsMatch = pathname?.match(/^\/projects\/([^/]+)(?:\/.*)?$/);
-  const projectId = projectsMatch?.[1] ?? null;
+  // /projects/[id] — the project page registers its own name (no list fetch).
+  const projectId = segments[0] === "projects" && segments[1] ? segments[1] : null;
+  const projectLabel = useCrumbLabel(projectId);
 
-  useEffect(() => {
-    if (!projectId) return;
-    let cancelled = false;
-    apiGet<ProjectStub[]>("/api/projects")
-      .then((projects) => {
-        if (cancelled) return;
-        const match = projects?.find((p) => p.id === projectId);
-        setProjectName(match?.code ?? match?.name ?? shortId(projectId));
-      })
-      .catch(() => {
-        if (!cancelled) setProjectName(shortId(projectId));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectId]);
-
-  if (!pathname) return [];
-
-  // Strip leading slash and split
-  const segments = pathname.replace(/^\//, "").split("/").filter(Boolean);
-
+  if (!pathname || segments.length === 0) return [];
   // Hide breadcrumb bar on bare /dashboard (only crumb would be "NoPM")
   if (segments.length === 1 && segments[0] === "dashboard") return [];
 
   const crumbs: Crumb[] = [{ label: "NoPM", href: "/dashboard" }];
 
-  if (segments.length === 0) return [];
-
-  // /projects/[id] — 2 levels deep
-  if (segments[0] === "projects" && segments[1]) {
-    crumbs.push({ label: "Projects", href: "/projects" });
-    // Last crumb is plain text (no href)
-    crumbs.push({
-      label: projectName ?? shortId(segments[1]),
-    });
-    return crumbs;
-  }
-
-  // General case: map each segment
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
-    const label = SEGMENT_LABELS[seg] ?? seg;
     const isLast = i === segments.length - 1;
+    const label =
+      i === 1 && projectId
+        ? (projectLabel ?? "Project")
+        : (labelForSegment(seg) ?? fallbackLabel(seg));
     const href = isLast ? undefined : "/" + segments.slice(0, i + 1).join("/");
     crumbs.push({ label, href });
   }

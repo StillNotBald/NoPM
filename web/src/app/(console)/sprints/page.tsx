@@ -15,7 +15,7 @@ import { AttachTaskForm } from "@/components/sprints/attach-task-form";
 import { BurndownChart } from "@/components/sprints/burndown-chart";
 import { VelocityChart } from "@/components/sprints/velocity-chart";
 
-export const metadata = { title: "Sprints — NoPM" };
+export const metadata = { title: "Sprints" };
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 

@@ -11,7 +11,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
 
-export const metadata = { title: "Approvals — NoPM" };
+export const metadata = { title: "Approvals" };
 
 interface DeletionRequest {
   id: string;

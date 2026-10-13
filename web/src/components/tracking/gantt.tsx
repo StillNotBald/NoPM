@@ -415,8 +415,11 @@ export function GanttChart({
               />
               {/* % label */}
               {showPct && t.completion_pct > 0 && (
-                <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold text-white/80 select-none pointer-events-none">
-                  {t.completion_pct}%
+                <span className="absolute inset-0 flex items-center justify-center select-none pointer-events-none">
+                  {/* ink on a canvas chip: >=4.5:1 over any track/fill, both themes */}
+                  <span className="rounded-sm bg-canvas/85 px-1 text-xs font-semibold leading-4 text-ink">
+                    {t.completion_pct}%
+                  </span>
                 </span>
               )}
             </TimelineBar>
