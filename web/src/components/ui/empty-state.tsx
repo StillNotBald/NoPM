@@ -37,7 +37,7 @@ export function EmptyState({
   action,
   canWrite = true,
   docsHref,
-  docsLabel = "Learn more",
+  docsLabel = "Read the docs",
   icon,
   className,
 }: EmptyStateProps) {

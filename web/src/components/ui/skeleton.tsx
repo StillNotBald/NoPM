@@ -28,7 +28,7 @@ export function Skeleton({
   return (
     <div
       className={cn(
-        "animate-pulse bg-sunken",
+        "animate-pulse bg-sunken motion-reduce:animate-none",
         variant === "text" && "h-4 rounded-full",
         variant === "rect" && "rounded-md",
         variant === "circle" && "rounded-full",

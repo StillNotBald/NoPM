@@ -17,7 +17,7 @@
   --border-strong: #d2d2d6;
   --text-primary: #161616; /* black font */
   --text-secondary: #555559;
-  --text-muted: #8b8b90;
+  --text-muted: #6a6a70; /* 5.4:1 on white (was #8b8b90, 3.4:1) */
   --accent: #0078d4; /* Fluent blue — buttons/indicators */
   --accent-hover: #106ebe;
   --accent-ink: #ffffff; /* white text on the blue button */
@@ -27,6 +27,14 @@
   --sev-high: #ea580c; /* orange — "high" severity, between warning and danger */
   --danger: #e5484d; /* vibrant red */
   --change: #7c3aed; /* violet — change-control artifacts in review */
+  /* Text-on-tint inks: saturated status hues fail 4.5:1 as text on their own
+     15% tint, so pills/inline status text use these darker/lighter inks. */
+  --info-ink: #1d4ed8; /* ~6:1 on info tint */
+  --success-ink: #166534; /* ~6.5:1 */
+  --warning-ink: #92400e; /* ~6.2:1 */
+  --danger-ink: #b42318; /* ~5.7:1 */
+  --danger-hover: #c93b40; /* danger button hover (white text >=4.6:1) */
+  --danger-solid: #d13438; /* danger button fill, white text ~4.9:1 */
 }
 
 :root {
@@ -43,7 +51,7 @@
   --border-strong: #34343a;
   --text-primary: #ededf0;
   --text-secondary: #a0a0a8;
-  --text-muted: #6b6b73;
+  --text-muted: #8a8a93; /* ~5.5:1 on near-black (was #6b6b73, 3.8:1) */
   --accent: #60cdff; /* bright Fluent blue — pops on near-black */
   --accent-hover: #7bd6ff;
   --accent-ink: #003253; /* dark text on the bright-blue button */
@@ -53,6 +61,12 @@
   --sev-high: #db6d28;
   --danger: #f85149;
   --change: #a371f7;
+  --info-ink: #79b8ff;
+  --success-ink: #56d364;
+  --warning-ink: #f0b84a;
+  --danger-ink: #ff7b72;
+  --danger-hover: #ff6a62;
+  --danger-solid: #da3633; /* white text ~4.9:1 */
   color-scheme: dark;
 }
 
@@ -74,7 +88,7 @@
     --border-strong: #34343a;
     --text-primary: #ededf0;
     --text-secondary: #a0a0a8;
-    --text-muted: #6b6b73;
+    --text-muted: #8a8a93;
     --accent: #60cdff;
     --accent-hover: #7bd6ff;
     --accent-ink: #003253;
@@ -84,6 +98,12 @@
     --sev-high: #db6d28;
     --danger: #f85149;
     --change: #a371f7;
+    --info-ink: #79b8ff;
+    --success-ink: #56d364;
+    --warning-ink: #f0b84a;
+    --danger-ink: #ff7b72;
+    --danger-hover: #ff6a62;
+    --danger-solid: #da3633; /* white text ~4.9:1 */
     color-scheme: dark;
   }
 }
@@ -107,6 +127,12 @@
   --color-sev-high: var(--sev-high);
   --color-danger: var(--danger);
   --color-change: var(--change);
+  --color-info-ink: var(--info-ink);
+  --color-success-ink: var(--success-ink);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger-ink: var(--danger-ink);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-solid: var(--danger-solid);
 
   /* SF on Apple, Inter as the cross-platform SF-like fallback.
      `display` is the large-title cut (SF Pro Display) — a sans, despite
@@ -164,6 +190,9 @@ body {
 .rise-3 { animation-delay: 260ms; }
 
 @media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
   .rise,
   .rise-1,
   .rise-2,
@@ -194,12 +223,19 @@ body {
   --density-row-py: 0.75rem; /* py-3 — register table cell vertical padding */
   --density-row-py-lg: 0.875rem; /* py-3.5 variant (portfolio/roadmap tables) */
   --density-card-py: 0.625rem; /* py-2.5 — kanban card vertical padding */
+  /* Cell tokens consumed by ui/data-table.tsx (new tables). Old tables still
+     use the class-sniffing selectors below — kept so they don't regress
+     until later waves migrate them to DataTable. */
+  --cell-py: 0.75rem;
+  --cell-px: 1.25rem;
 }
 
 .density-compact {
   --density-row-py: 0.375rem; /* py-1.5 */
   --density-row-py-lg: 0.375rem;
   --density-card-py: 0.375rem; /* py-1.5 */
+  --cell-py: 0.375rem;
+  --cell-px: 1rem;
 }
 
 .density-compact th.px-5.py-3,
@@ -261,5 +297,15 @@ body {
 @media (min-width: 640px) {
   .field {
     min-height: 0;
+  }
+}
+
+/* One focus-ring strength everywhere: solid 2px accent (>=3:1 on both
+   themes) with a 2px offset. Apply via the `focus-ring` utility; do not pair
+   with `focus:outline-none` (this only paints on :focus-visible). */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 }
