@@ -92,12 +92,12 @@ export function PageHeader({
   }
 
   return (
-    <div className={cn("mb-5 flex items-center justify-between gap-3", className)}>
-      <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-ink sm:text-xl">
+    <div className={cn("mb-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2", className)}>
+      <h1 className="min-w-0 max-w-full text-lg font-semibold tracking-tight text-ink sm:truncate sm:text-xl">
         {title}
       </h1>
       {(action || exports || hasSecondary) && (
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
           {exports}
           {action}
 

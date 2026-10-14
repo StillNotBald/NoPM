@@ -14,7 +14,7 @@ export function TimelineTable({
   rows: ReactNode[][];
 }) {
   return (
-    <table className="sr-only">
+    <div className="sr-only"><table>
       <caption>{caption}</caption>
       <thead>
         <tr>
@@ -32,6 +32,6 @@ export function TimelineTable({
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }

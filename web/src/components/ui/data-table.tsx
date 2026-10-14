@@ -12,7 +12,8 @@
  *   </Table>
  *
  * `Table` wraps in a bordered, horizontally scrollable surface. Pass `bare`
- * to skip the wrapper (when the table already sits inside a Card).
+ * to skip the border (the table still scrolls inside its own container, so
+ * the page never scrolls horizontally).
  * Not yet adopted by pages (later waves migrate them).
  */
 import type { HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from "react";
@@ -34,7 +35,7 @@ export function Table({
   ...props
 }: HTMLAttributes<HTMLTableElement> & { wrapperClassName?: string; bare?: boolean }) {
   const table = <table className={cn("w-full border-collapse text-sm", className)} {...props} />;
-  if (bare) return table;
+  if (bare) return <div className={cn("max-w-full overflow-x-auto", wrapperClassName)}>{table}</div>;
   return (
     <div
       className={cn(

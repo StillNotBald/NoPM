@@ -276,7 +276,12 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                 className="sticky top-0 z-10 bg-sunken/80 backdrop-blur-sm border-b border-border-subtle relative"
                 style={{ height: HEADER_H, width: totalPx }}
               >
-                {monthTicks.map((tick) => (
+                {monthTicks.map((tick, ti) => {
+                  // A partial first month can sit < ~6 days before the next tick;
+                  // its label would overprint the next one, so drop that label.
+                  const next = monthTicks[ti + 1];
+                  const showLabel = !next || (next.col - tick.col) * DAY_W >= 64;
+                  return (
                   <div
                     key={`${tick.label}-${tick.col}`}
                     className="absolute top-0 bottom-0 flex items-center px-2 pointer-events-none"
@@ -286,11 +291,14 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                       className="absolute left-0 top-0 bottom-0 w-px bg-border-subtle"
                       style={{ opacity: 0.5 }}
                     />
-                    <span className="text-xs font-semibold text-ink-secondary whitespace-nowrap select-none">
-                      {tick.label}
-                    </span>
+                    {showLabel && (
+                      <span className="text-xs font-semibold text-ink-secondary whitespace-nowrap select-none">
+                        {tick.label}
+                      </span>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
                 {/* Today pill */}
                 {todayVisible && (
                   <div

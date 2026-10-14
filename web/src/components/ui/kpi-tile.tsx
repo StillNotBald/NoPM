@@ -25,6 +25,21 @@ export interface KpiDelta {
   goodWhen?: "up" | "down" | "neutral";
 }
 
+/**
+ * Compact form of a long currency/number string at all widths:
+ * "USD 26,200,000.00" -> "USD 26.2M". Returns null when the value is short
+ * or not a plain (optionally prefixed/signed) number.
+ */
+function compactValue(value: string): string | null {
+  if (value.length <= 8) return null;
+  const m = /^([+\-−]?)\s*([^\d+\-−]*)([\d,]+(?:\.\d+)?)\s*([A-Za-z%]*)$/.exec(value.trim());
+  if (!m) return null;
+  const n = Number(m[3].replace(/,/g, ""));
+  if (!Number.isFinite(n) || n < 10_000) return null;
+  const compact = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  return `${m[1]}${m[2]}${compact}${m[4] ? ` ${m[4]}` : ""}`.trim();
+}
+
 export function KpiTile({
   label,
   value,
@@ -69,11 +84,20 @@ export function KpiTile({
       </p>
     );
   }
+  const full = String(value);
+  const compact = typeof value === "string" ? compactValue(value) : null;
   return (
-    <div className={cn("rounded-lg border border-border-subtle bg-surface px-4 py-3.5", className)}>
+    <div className={cn("min-w-0 rounded-lg border border-border-subtle bg-surface px-3 py-3.5 sm:px-4", className)}>
       <p className="font-mono text-2xs font-medium uppercase tracking-wider text-ink-muted">{label}</p>
       <div className="mt-1 flex items-end justify-between gap-3">
-        <p className="font-mono text-2xl font-semibold tabular-nums text-ink">{value}</p>
+        {compact ? (
+          <p className="min-w-0 whitespace-nowrap font-mono text-xl font-semibold tabular-nums text-ink sm:text-2xl" title={full}>
+            <span aria-hidden="true">{compact}</span>
+            <span className="sr-only">{full}</span>
+          </p>
+        ) : (
+          <p className="min-w-0 whitespace-nowrap font-mono text-xl font-semibold tabular-nums text-ink sm:text-2xl">{value}</p>
+        )}
         {spark && spark.length >= 2 && (
           <span aria-hidden="true" className="shrink-0">
             <Sparkline data={spark} width={72} height={24} />
@@ -81,7 +105,7 @@ export function KpiTile({
         )}
       </div>
       {deltaEl}
-      {sub && <p className="mt-1 text-xs text-ink-secondary">{sub}</p>}
+      {sub && <p className="mt-1 break-words text-xs text-ink-secondary">{sub}</p>}
     </div>
   );
 }

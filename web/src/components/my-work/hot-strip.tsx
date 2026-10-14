@@ -77,7 +77,7 @@ export function HotStrip({ items }: { items: HotItem[] }) {
         <Link
           key={`${item.kind}-${item.id}`}
           href={hrefFor(item)}
-          className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
+          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
         >
           {/* Kind chip */}
           <Badge size="sm" tone={kindTone(item.kind)} className="shrink-0">
@@ -85,13 +85,13 @@ export function HotStrip({ items }: { items: HotItem[] }) {
           </Badge>
 
           {/* Label */}
-          <span className="min-w-0 flex-1 truncate font-medium text-ink">
+          <span className="min-w-0 flex-1 basis-40 truncate font-medium text-ink">
             {item.label}
           </span>
 
           {/* Project chip */}
           {item.project_name && (
-            <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+            <span className="min-w-0 max-w-full truncate rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
               {item.project_name}
             </span>
           )}

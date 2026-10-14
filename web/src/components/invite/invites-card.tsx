@@ -255,7 +255,7 @@ export function InvitesCard() {
           ) : invites.length === 0 ? (
             <p className="text-sm text-ink-muted">No invites yet.</p>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="relative overflow-x-auto">
               <table className="w-full min-w-[520px] text-sm">
                 <thead>
                   <tr className="border-b border-border-subtle text-left text-xs text-ink-muted uppercase tracking-wide">

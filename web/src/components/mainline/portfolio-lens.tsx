@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ragLabel, ragTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
-import { dateToX, laneIndexByProject, capLabels } from "@/lib/mainline/layout";
+import { dateToX, laneIndexByProject } from "@/lib/mainline/layout";
 import type { TLGraph, TLNode } from "@/lib/timeline/gather";
 import { describeBar, fmtDate, toDay } from "@/lib/timeline";
 import { TimelineBar } from "@/components/timeline/timeline-bar";
@@ -16,7 +16,32 @@ import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 const LANE_H = 56;
 const PX_PER_DAY = 5;
 const MIN_WIDTH = 720;
-const LABEL_CAP_PER_LANE = 14; // perf guard — see lib/mainline/layout.ts capLabels
+const LABEL_MAX_W = 90; // matches the label's max-w-[90px]
+const LABEL_GAP = 6;
+const CHAR_W = 6.4; // text-xs mono-ish average advance, used to estimate label width
+
+/**
+ * Collision-aware label visibility for one lane. Every node keeps its mark
+ * (and a full aria-label/title); only labels that would overprint an
+ * already-placed label are hidden. Milestones claim space first, then tasks.
+ */
+function visibleLabels(nodes: TLNode[], xs: number[]): boolean[] {
+  const show = new Array<boolean>(nodes.length).fill(false);
+  const placed: Array<[number, number]> = [];
+  const order = nodes
+    .map((n, i) => i)
+    .sort((a, b) => Number(nodes[b].kind === "milestone") - Number(nodes[a].kind === "milestone") || a - b);
+  for (const i of order) {
+    const w = Math.min(LABEL_MAX_W, nodes[i].label.length * CHAR_W + 4);
+    const l = xs[i] - w / 2;
+    const r = xs[i] + w / 2;
+    if (placed.every(([pl, pr]) => r + LABEL_GAP <= pl || l >= pr + LABEL_GAP)) {
+      show[i] = true;
+      placed.push([l, r]);
+    }
+  }
+  return show;
+}
 
 function dayCount(startIso: string, endIso: string): number {
   return Math.max(toDay(endIso) - toDay(startIso), 1);
@@ -132,7 +157,8 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
               {graph.projects.map((p) => {
                 const nodes = byProject.get(p.id) ?? [];
                 const laneY = (lanes.get(p.id) ?? 0) * LANE_H;
-                const showLabel = capLabels(nodes.length, LABEL_CAP_PER_LANE);
+                const nodeXs = nodes.map((n) => dateToX(n.date, graph.axis.start, graph.axis.end, width));
+                const showLabel = visibleLabels(nodes, nodeXs);
                 return (
                   <div
                     key={p.id}

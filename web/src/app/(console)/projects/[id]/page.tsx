@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -7,6 +8,23 @@ import { ProjectTabs } from "@/components/tracking/project-tabs";
 import { CrumbLabel } from "@/lib/nav/crumb-label";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import { fetchTaskStatusAges } from "@/lib/insight/status-age";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  try {
+    const { id } = await params;
+    const db = await createClient();
+    // Same RLS/workspace-scoped client + table as the page's own project query.
+    const { data } = await db.from("projects").select("code, name").eq("id", id).maybeSingle();
+    if (data?.name) return { title: data.code ? `${data.code} · ${data.name}` : data.name };
+  } catch {
+    // fall through to the generic title
+  }
+  return { title: "Project" };
+}
 
 export default async function ProjectDetailPage({
   params,
@@ -140,7 +158,7 @@ export default async function ProjectDetailPage({
   });
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 mx-auto max-w-6xl space-y-8">
+    <div className="mx-auto min-w-0 max-w-6xl space-y-8 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <CrumbLabel id={safeProject.id} label={safeProject.code ?? safeProject.name} />
       {/* Header */}
       <div>

@@ -205,8 +205,8 @@ export default async function TrustPage({
   });
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-8">
+    <div className="min-w-0 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto min-w-0 max-w-4xl space-y-8">
       <PageHeader
         title="Trust Center"
         action={
@@ -313,9 +313,9 @@ export default async function TrustPage({
       </FilterSheet>
 
       {/* Main content row */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_260px]">
+      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
         {/* Provenance stream */}
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Provenance stream</CardTitle>
             <span className="text-xs text-ink-muted">
@@ -347,7 +347,7 @@ export default async function TrustPage({
                   <TH>When</TH>
                   <TH>Action</TH>
                   <TH>Actor</TH>
-                  <TH>Target</TH>
+                  <TH className="hidden md:table-cell">Target</TH>
                 </TR>
               </THead>
               <tbody>
@@ -370,6 +370,12 @@ export default async function TrustPage({
                             req: {shortRequestId(entry.request_id)}
                           </p>
                         )}
+                        <p className="mt-1 text-2xs text-ink-muted md:hidden">
+                          <span className="capitalize">{entry.target_type}</span>{" "}
+                          <code className="rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
+                            {shortId(entry.target_id)}
+                          </code>
+                        </p>
                       </TD>
                       <TD>
                         <div className="flex flex-wrap items-center gap-1.5 text-sm">
@@ -394,7 +400,7 @@ export default async function TrustPage({
                           )}
                         </div>
                       </TD>
-                      <TD className="text-xs text-ink-muted">
+                      <TD className="hidden text-xs text-ink-muted md:table-cell">
                         <span className="capitalize">{entry.target_type}</span>
                         <code className="ml-1.5 rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
                           {shortId(entry.target_id)}
@@ -431,7 +437,7 @@ export default async function TrustPage({
         </Card>
 
         {/* Sidebar: Legend */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle>Action glossary</CardTitle>

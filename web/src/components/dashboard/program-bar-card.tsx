@@ -52,7 +52,7 @@ export function ProgramBarCard({
             <HorizontalBarChart items={items.map(({ label, value }) => ({ label, value }))} barHeight={14} gap={12} />
             {/* Text alternative: the bars encode count only; this adds the
                 exact numbers + rollup completion for screen readers. */}
-            <table className="sr-only">
+            <div className="sr-only"><table>
               <caption>Projects by program</caption>
               <thead>
                 <tr>
@@ -70,7 +70,7 @@ export function ProgramBarCard({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           </>
         )}
       </CardBody>

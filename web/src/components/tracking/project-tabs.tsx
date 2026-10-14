@@ -488,7 +488,7 @@ function OverviewTab({
                   <span className="font-mono text-xs font-medium text-ink tabular-nums">
                     {fmtDate(project.target_date)}
                   </span>
-                  {daysRemaining !== null && (
+                  {daysRemaining !== null && project.rag_status !== "complete" && (
                     <Badge
                       tone={isOverdue ? "danger" : daysRemaining <= 14 ? "warning" : "success"}
                     >

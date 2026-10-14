@@ -338,7 +338,7 @@ export default async function BudgetPage() {
 
         {/* Portfolio roll-up */}
         {allSameCurrency && (
-          <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4 [&>*]:min-w-0 [&_p]:break-words">
             <div>
               <p className="text-xs text-ink-muted uppercase tracking-wide">Portfolio CPI</p>
               <p className={cn("mt-1 text-lg font-semibold tabular-nums", indexTone(portfolioEvm.cpi))}>

@@ -28,6 +28,8 @@ import {
   type DashboardFilters,
 } from "@/lib/insight/dashboard-filter";
 
+export const metadata = { title: "Dashboard" };
+
 // ── types ────────────────────────────────────────────────────────────────────
 
 type RagStatus = "green" | "amber" | "red" | "not_started" | "complete";
@@ -255,7 +257,7 @@ export default async function DashboardPage({
       />
 
       {/* ── Charts row: RAG donut + program bar ── */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-[repeat(2,minmax(0,1fr))] [&>*]:min-w-0">
         <RagDonutCard counts={ragCounts} filterLabel={filterLabel} fetchedAt={fetchedAt} />
         <ProgramBarCard programs={programs} filterLabel={filterLabel} fetchedAt={fetchedAt} />
       </div>

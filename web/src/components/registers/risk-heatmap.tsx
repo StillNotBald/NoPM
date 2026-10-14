@@ -106,7 +106,7 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
     // pixel-identical: mx-auto centers exactly like justify-center did.
     <div className="overflow-x-auto">
       {/* Text alternative: per-cell counts for assistive tech (the visual grid is aria-hidden) */}
-      <table className="sr-only">
+      <div className="sr-only"><table>
         <caption>Risk counts by impact (rows) and probability band (columns)</caption>
         <thead>
           <tr>
@@ -128,7 +128,7 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
       <div aria-hidden="true" className="mx-auto flex items-stretch gap-3 max-w-[460px] w-full min-w-[420px]">
         {/* Y axis label */}
         <div className="flex items-center">

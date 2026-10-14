@@ -107,8 +107,8 @@ export default async function MainlinePage({
   const workspaceEmpty = graph.projects.length === 0;
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-4">
+    <div className="min-w-0 space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <div className="mx-auto min-w-0 max-w-6xl space-y-4">
         <PageHeader title="Mainline" action={<LensSwitcher lens={lens} />} />
         <p className="-mt-2 text-sm text-ink-muted">{lensCaption(lens)}</p>
 
