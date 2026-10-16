@@ -233,3 +233,15 @@ what is wrong; keep each doc's voice.
 `npx tsc --noEmit` · `npm run lint` · `npm run test` · CLI tests · `npm run rtm:verify` ·
 `npm run build` (dummy env) · local Supabase (`npx supabase start`) migration apply + RPC
 four-eyes probe + Lark inbound probe with a fake signed callback · adversarial review agents.
+
+## Additional workers (fleet widened 2026-10-16)
+| Worker | Owns |
+|---|---|
+| W3c self-host relay | `web/scripts/lark-worker.mjs` (+ `web/scripts/lark-worker.test.mjs` if testable), `src/app/api/integrations/lark/[connectorId]/relay/route.ts`, `src/lib/integrations/lark/relay.ts` (HMAC verify of relayed events), `docs/guide/07-lark-integration.md` (owner/admin setup guide: create a Lark or Feishu self-built app, scopes, event + callback config, webhook vs long-connection, link your account, digest, troubleshooting). W3b therefore does NOT own the worker script or the relay route. |
+| W6 integrations UI | `src/app/(console)/integrations/**` (new page), `src/components/integrations/**`. Builds against the route contract in this PLAN (APIs land in parallel). |
+| W8 ADRs + new use cases | `docs/adr/0012-integration-hub-fan-out-boundary.md`, `docs/adr/0013-principal-aware-four-eyes.md`, `docs/use-cases/UC-23-approve-from-lark.md`, `UC-24-link-lark-account.md`, `UC-25-lark-weekly-digest.md`, `UC-26-calendar-feed-subscription.md` (new files only; W5 owns existing UC files + the README index). |
+| W9 local-DB probes | `web/scripts/local-db/**` (new): scripts the orchestrator runs against a LOCAL Supabase (`npx supabase start`, never the live project) to prove migrations apply in order and the four-eyes/principal rules hold at the DB layer, plus a fake signed Lark callback probe. Write only; do not run against any remote URL. |
+
+Extra hard rule: the repo's leak gate (`scripts/commit-gate.mjs`) blocks absolute user-profile
+paths and AI model product names (e.g. the names of model tiers) in tracked files — say "agent"
+or "worker", never a model name, and use repo-relative paths.
