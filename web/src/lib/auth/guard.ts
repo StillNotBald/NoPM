@@ -27,6 +27,21 @@ export type Actor = {
   channel?: AuditChannel;
   /** Per-request correlation id (X-Request-Id, echoed on the response). */
   requestId?: string;
+  /**
+   * The HUMAN behind this actor (a profiles.id), used by every four-eyes
+   * comparison (2026-10-16, principal-aware four-eyes). Session users: their
+   * own id. Bearer PATs: the token's `api_tokens.created_by`. Connector
+   * actions (e.g. a Lark button click): the verified linked profile. Null
+   * only for legacy tokens with no recorded creator — those can never
+   * approve (fail-closed).
+   */
+  principalId?: string | null;
+  /** Set when the action arrived through an integration connector. */
+  viaConnectorId?: string;
+  /** The platform's event / callback id (non-repudiation, idempotency). */
+  externalEventId?: string;
+  /** The platform's user reference, e.g. "lark:<tenant_key>:<open_id>". */
+  externalActorRef?: string;
 };
 
 /**

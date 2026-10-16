@@ -13,8 +13,14 @@
  * lying about its channel gains nothing beyond a mislabeled audit row.
  */
 
-export type AuditChannel = "ui" | "api" | "cli" | "mcp" | "assistant";
+export type AuditChannel = "ui" | "api" | "cli" | "mcp" | "assistant" | "lark";
 
+/**
+ * Channels a caller may DECLARE via X-NoPM-Client. Connector channels
+ * ("lark") are deliberately absent: they are server-derived from a verified
+ * connector binding (src/lib/integrations), never from a header, so the
+ * provenance of a chat-originated approval cannot be spoofed.
+ */
 const VALID_CHANNELS: ReadonlySet<string> = new Set<AuditChannel>([
   "ui",
   "api",
