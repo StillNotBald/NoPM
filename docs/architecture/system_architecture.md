@@ -213,7 +213,7 @@ One governed API, three ways in — plus the in-app assistant, which is not a fo
 | Surface | Where | What it gives an agent |
 |---|---|---|
 | **REST API** | `web/src/app/api/**` — documented at `GET /api/openapi.json` (OpenAPI 3.1) + `GET /llms.txt`, both spec-coverage drift-tested (`requirements/REQUIREMENTS.md` R-21, R-22) | Everything — every mutation audited, scopes enforced per request |
-| **`nopm` CLI** | `cli/` — zero dependencies, contract-tested, `--json` machine output, `--curl` dry-run (R-23) | 26 command groups over the same REST API and the same scoped-PAT auth |
+| **`nopm` CLI** | `cli/` — zero dependencies, contract-tested, `--json` machine output, `--curl` dry-run (R-23) | 27 command groups over the same REST API and the same scoped-PAT auth |
 | **MCP server** | `web/mcp/` + root `.mcp.json` — stdio, `@modelcontextprotocol/sdk` (`docs/adr/0007-mcp-server.md`, R-25) | Tools mapped 1:1 to the REST API; least-privilege by design — no approve/admin/token tools, so a PAT minted for it can't be escalated through the MCP layer |
 
 The **BYOK in-app assistant** shares the MCP server's tool registry verbatim (`web/mcp/tools.mjs` — one registry, not a copy, per `requirements/REQUIREMENTS.md` R-64) and drives the API through an **ephemeral scoped token**, audited as a token actor, structurally unable to hold an approve/admin scope (`docs/adr/0004-byok-governed-assistant.md`, `CLAUDE.md` "Sanctioned"). The user brings their own OpenAI/Anthropic/Google/OpenRouter key (AES-256-GCM at rest, never returned or logged — `SECURITY.md`); an optional owner-funded demo key exists for the live site only, rate-limited, server-only.

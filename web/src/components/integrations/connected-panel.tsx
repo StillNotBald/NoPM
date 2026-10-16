@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import {
+  clearTenantPin,
   revokeConnector,
   sendDigestNow,
   setConnectorStatus,
@@ -152,6 +153,31 @@ export function ConnectedPanel({
     }
   }
 
+  function askClearLock() {
+    modal.open(
+      <ConfirmDialog
+        heading="Clear the Lark workspace lock?"
+        confirmLabel="Clear lock"
+        failureFallback="Could not clear the lock."
+        onConfirm={async () => {
+          await clearTenantPin(connector.id);
+          toast.success("Workspace lock cleared. The next account link will lock it again.");
+          onChanged();
+        }}
+      >
+        <p>
+          This connection is locked to the first Lark workspace that linked an account, so people from any other
+          Lark workspace can&apos;t link to it.
+        </p>
+        <p>
+          Clearing the lock lets the next account that links choose the workspace, and the connection locks to it
+          again. Use this only if you moved to a different Lark workspace.
+        </p>
+      </ConfirmDialog>,
+      { title: "Clear workspace lock", size: "sm" },
+    );
+  }
+
   function askRevoke() {
     modal.open(
       <ConfirmDialog
@@ -212,6 +238,20 @@ export function ConnectedPanel({
           </Fact>
         )}
       </dl>
+
+      {connector.tenantPinned && (
+        <p className="flex flex-wrap items-center gap-x-3 text-xs text-ink-muted">
+          <span>Locked to the first Lark workspace that linked an account.</span>
+          <button
+            type="button"
+            onClick={askClearLock}
+            disabled={busy !== null}
+            className="focus-ring inline-flex min-h-[44px] items-center rounded-sm font-medium text-accent hover:underline disabled:pointer-events-none disabled:opacity-50 sm:min-h-0"
+          >
+            Clear lock
+          </button>
+        </p>
+      )}
 
       {health && (
         <div className="space-y-1">

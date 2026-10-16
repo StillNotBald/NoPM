@@ -12,6 +12,7 @@ import {
   buildCreateConnectorBody,
   buildFeedBody,
   buildSettingsPatchBody,
+  buildClearTenantPinBody,
   buildStatusPatchBody,
   normalizeCreatedConnector,
   pickConnector,
@@ -88,6 +89,12 @@ describe("PATCH /api/integrations/connectors/[id] bodies", () => {
     expect(updateConnectorSchema.safeParse(off).success).toBe(true);
   });
 
+  it("accepts clear_tenant_pin and sends nothing but that flag", () => {
+    const parsed = updateConnectorSchema.safeParse(buildClearTenantPinBody());
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data).toEqual({ clear_tenant_pin: true });
+  });
+
   it("accepts pause and resume", () => {
     expect(updateConnectorSchema.safeParse(buildStatusPatchBody("paused")).success).toBe(true);
     expect(updateConnectorSchema.safeParse(buildStatusPatchBody("active")).success).toBe(true);
@@ -131,6 +138,28 @@ describe("connector response shapes", () => {
     expect(created.relaySecret).toBe("relay-secret-once");
     expect(created.connector).toMatchObject({ id: "c1", mode: "long_connection", appId: "cli_a1b2c3" });
     expect(created.connector?.callbackUrls?.events).toBe("https://configured.example.com/api/integrations/lark/c1/events");
+  });
+
+  it("reads tenant_pinned from the admin list (a boolean; the key itself is never sent)", () => {
+    const [pinned, open] = [true, false].map((tenant_pinned) =>
+      pickConnector([
+        {
+          id: "c1",
+          name: "Team Lark",
+          kind: "lark",
+          status: "active",
+          region: "lark",
+          app_id: "cli_a1b2c3",
+          mode: "webhook",
+          approvals: { enabled: true },
+          digest: { enabled: false, chat_id: null, weekday: 1 },
+          has_encrypt_key: false,
+          tenant_pinned,
+        },
+      ]),
+    );
+    expect(pinned?.tenantPinned).toBe(true);
+    expect(open?.tenantPinned).toBe(false);
   });
 
   it("reads the redacted member list (id, name, kind, status, region, mode, approvals.enabled, digest.enabled)", () => {

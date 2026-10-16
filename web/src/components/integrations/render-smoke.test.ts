@@ -174,6 +174,15 @@ describe("ConnectedPanel", () => {
     expect(markup).toContain(remembered.events);
   });
 
+  it("shows the workspace lock line with a Clear lock action only when the connector is pinned", () => {
+    const pinned = render(connector({ tenant_pinned: true }));
+    expect(pinned).toContain("Locked to the first Lark workspace that linked an account.");
+    expect(pinned).toContain("Clear lock");
+    const open = render(connector({ tenant_pinned: false }));
+    expect(open).not.toContain("Locked to the first Lark workspace");
+    expect(open).not.toContain("Clear lock");
+  });
+
   it("never prints secret material (there is none in the view model)", () => {
     const markup = render(connector({ has_encrypt_key: true }));
     expect(markup).not.toMatch(/app_secret|verification_token|relay_secret/);
@@ -252,6 +261,12 @@ describe("LarkConnectorCard", () => {
     expect(markup).toContain("Lark (international) · Webhook");
     expect(markup).not.toContain("App ID");
     expect(markup).not.toContain("Edit settings");
+  });
+
+  it("never shows the workspace lock to a member, even if a pinned flag leaked into the view", () => {
+    const markup = card({ isAdmin: false, resource: { status: "ready", data: connector({ tenant_pinned: true }) } });
+    expect(markup).not.toContain("Locked to the first Lark workspace");
+    expect(markup).not.toContain("Clear lock");
   });
 
   it("non-admin with no connector is told so, and a paused one is reported as paused", () => {

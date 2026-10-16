@@ -118,7 +118,7 @@
 
     <div class="flowwrap">
       <div class="diagram">
-        <svg viewBox="-22 -34 1022 796" role="img" aria-label="End-to-end flow for the NoPM period lock and reopen process on a two-column grid. Phase 1, the week locks: a timesheet submission reaches status approved, see the companion timesheet lifecycle diagram for the log, submit, and four-eyes approval steps that lead here; once approved, a database trigger treats that member and week as locked; an attempt to add or delete a time entry inside the locked week is rejected with error PERIOD LOCKED, code P0011, mapped to HTTP 422, looping back to the still-locked state; separately, someone requests the week be reopened, which requires a mandatory rationale. The reopen request crosses over to phase 2, the governed reopen decision: an automatic scope gate requires the time colon approve scope; an automatic rationale gate returns 422 rationale required if no reason was given; an automatic status gate requires the submission currently be approved, else 422 not reopenable; a human four-eyes gate requires the actor not equal the original submitter, blocking self reopen exactly as it blocks self approve and self reject; on success, the submission is reopened, its decision fields are fully reset to null, and it re-enters the review queue as a brand new approval request with all workspace approvers notified in-app; a second decision gate then approves or rejects again, subject to the same four-eyes rule; the terminal state is the week re-approved and locked again, or rejected back toward draft.">
+        <svg viewBox="-22 -34 1022 796" role="img" aria-label="End-to-end flow for the NoPM period lock and reopen process on a two-column grid. Phase 1, the week locks: a timesheet submission reaches status approved, see the companion timesheet lifecycle diagram for the log, submit, and four-eyes approval steps that lead here; once approved, a database trigger treats that member and week as locked; an attempt to add or delete a time entry inside the locked week is rejected with error PERIOD LOCKED, code P0011, mapped to HTTP 422, looping back to the still-locked state; separately, someone requests the week be reopened, which requires a mandatory rationale. The reopen request crosses over to phase 2, the governed reopen decision: an automatic scope gate requires the time colon approve scope; an automatic rationale gate returns 422 rationale required if no reason was given; an automatic status gate requires the submission currently be approved, else 422 not reopenable; a human four-eyes gate requires a different person than the original submitter (a token counts as the person who created it), blocking self reopen exactly as it blocks self approve and self reject; on success, the submission is reopened, its decision fields are fully reset to null, and it re-enters the review queue as a brand new approval request with all workspace approvers notified in-app; a second decision gate then approves or rejects again, subject to the same four-eyes rule; the terminal state is the week re-approved and locked again, or rejected back toward draft.">
           <defs>
             <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b7178"/></marker>
             <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b06a2c"/></marker>
@@ -149,8 +149,8 @@
 <polygon points="690,208 770,248 690,288 610,248" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
 <text x="690" y="252" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Status = approved?</text>
 <polygon points="690,312 770,352 690,392 610,352" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
-<text x="690" y="349" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Actor ≠ original</text>
-<text x="690" y="364" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">submitter?</text>
+<text x="690" y="349" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Different person</text>
+<text x="690" y="364" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">than submitter?</text>
 <rect x="552.5" y="416" width="275" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
 <text x="690" y="436" text-anchor="middle" fill="#0b574f" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Reopened — reset to submitted</text>
 <text x="690" y="451" text-anchor="middle" fill="#0b574f" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">decision fields nulled · approvers notified</text>
@@ -238,7 +238,7 @@
         <ol>
           <li><span class="t">Week is approved &amp; locked</span><span class="d">DB trigger active</span></li>
           <li><span class="t">Request reopen + reason</span><span class="d">time:approve scope</span></li>
-          <li><span class="t">Different person than submitter</span><span class="d">four-eyes holds</span></li>
+          <li><span class="t">Different person than submitter</span><span class="d">four-eyes holds · a token counts as its creator</span></li>
           <li><span class="t">Reopened → resubmitted</span><span class="d">decision fields reset</span></li>
           <li><span class="t">Re-approve</span><span class="d">locks again</span></li>
         </ol>

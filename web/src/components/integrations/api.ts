@@ -9,7 +9,7 @@
  *   GET    /api/me                                        -> { id, role }
  *   GET    /api/integrations/connectors                   -> connector[]            (admin)
  *   POST   /api/integrations/connectors                   -> connector + relay_secret (once)
- *   PATCH  /api/integrations/connectors/{id}              -> update config / pause / resume
+ *   PATCH  /api/integrations/connectors/{id}              -> update config / pause / resume / clear_tenant_pin
  *   DELETE /api/integrations/connectors/{id}              -> revoke
  *   POST   /api/integrations/connectors/{id}/test         -> { ok, bot_name?, error? }
  *   POST   /api/integrations/connectors/{id}/digest       -> { delivery_id, status } (send the digest now)
@@ -26,6 +26,7 @@ import {
   buildCreateConnectorBody,
   buildFeedBody,
   buildSettingsPatchBody,
+  buildClearTenantPinBody,
   buildStatusPatchBody,
   normalizeCreatedConnector,
   normalizeDigestStatus,
@@ -72,6 +73,10 @@ export async function updateConnectorSettings(id: string, values: FeatureValues)
 
 export async function setConnectorStatus(id: string, status: "active" | "paused"): Promise<void> {
   await apiPatch(`/api/integrations/connectors/${encodeURIComponent(id)}`, buildStatusPatchBody(status));
+}
+
+export async function clearTenantPin(id: string): Promise<void> {
+  await apiPatch(`/api/integrations/connectors/${encodeURIComponent(id)}`, buildClearTenantPinBody());
 }
 
 export async function revokeConnector(id: string): Promise<void> {

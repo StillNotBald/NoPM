@@ -235,7 +235,7 @@ await report.check("D3", "RPCs stay service-role only (anon/authenticated cannot
   }
 });
 
-// ── (e) the CHECK constraints are the backstop when a code path forgets the guard ──
+// ── (e) the CHECK constraints are the backstop when a code path omits the guard ──
 await report.check("E1", "change_requests CHECK: decider principal == requester principal rejected (control accepted)", async () => {
   const c = CONTRACT.columns.change_requests;
   const base = (suffix) => ({

@@ -307,7 +307,7 @@ export async function approveDeletion(
     if (m.includes("SELF_APPROVAL") || error.code === "P0003") throw selfApprovalError();
     if (m.includes("NO_PRINCIPAL") || error.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
     if (m.includes("PROJECT_LOCKED") || error.code === "P0010")
-      throw new RuleError("Project is locked — unlock or rebaseline before committing this deletion.");
+      throw new RuleError("Project is locked — unlock or rebaseline before committing this deletion.", "project_locked");
     throw new Error(error.message || "Failed to commit deletion");
   }
 

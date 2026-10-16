@@ -115,7 +115,7 @@ cli/
   nopm.mjs              dispatcher — dynamic-import commands/<group>.mjs; central --help/--version
   lib/
     api.mjs             loadConfig/saveConfig/api/out/parseFlags/die (CliError, --curl dry-run)
-  commands/             24 command groups, one file each (describe + usage + run)
+  commands/             27 command groups, one file each (describe + usage + run)
   test/
     cli.test.mjs        contract tests with a stubbed ctx.api — no network
 ```

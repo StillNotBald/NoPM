@@ -22,6 +22,13 @@ await client.connect();
 await client.query(
   `create table if not exists _nopm_migrations (name text primary key, applied_at timestamptz default now())`,
 );
+// The ledger lives in `public`, which PostgREST exposes. Without RLS + a revoke,
+// anyone holding the public anon key could read it or INSERT a fake "applied"
+// row, making this runner silently SKIP a real migration. RLS on with zero
+// policies = postgres / service role only (this runner connects as postgres).
+// Both statements are idempotent, so existing installs are fixed on next run.
+await client.query(`alter table _nopm_migrations enable row level security`);
+await client.query(`revoke all on _nopm_migrations from anon, authenticated`);
 const applied = new Set(
   (await client.query("select name from _nopm_migrations")).rows.map((r) => r.name),
 );

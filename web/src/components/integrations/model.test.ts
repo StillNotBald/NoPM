@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_CONNECT_VALUES,
+  buildClearTenantPinBody,
   buildCreateConnectorBody,
   buildFeedBody,
   buildSettingsPatchBody,
@@ -206,6 +207,32 @@ describe("callback URLs", () => {
       card: "https://a.example/c",
       relay: "https://a.example/r",
     });
+  });
+});
+
+describe("tenant pin", () => {
+  it("reads tenant_pinned from the admin view and defaults to not pinned", () => {
+    expect(normalizeConnector({ id: "c1", tenant_pinned: true })?.tenantPinned).toBe(true);
+    expect(normalizeConnector({ id: "c1", tenant_pinned: false })?.tenantPinned).toBe(false);
+    expect(normalizeConnector({ id: "c1" })?.tenantPinned).toBe(false);
+  });
+
+  it("is absent from (so defaults off for) the redacted member view", () => {
+    const redacted = normalizeConnector({
+      id: "c1",
+      name: "Team Lark",
+      kind: "lark",
+      status: "active",
+      region: "lark",
+      mode: "webhook",
+      approvals: { enabled: true },
+      digest: { enabled: false },
+    });
+    expect(redacted?.tenantPinned).toBe(false);
+  });
+
+  it("clears the lock with a body that touches nothing else", () => {
+    expect(buildClearTenantPinBody()).toEqual({ clear_tenant_pin: true });
   });
 });
 

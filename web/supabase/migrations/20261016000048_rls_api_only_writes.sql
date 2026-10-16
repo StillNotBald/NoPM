@@ -13,6 +13,16 @@
 -- task without a deletion request. No NoPM code path ever used those policies:
 -- every route handler writes through the service-role admin client.
 --
+-- The worst instance was `profiles` (0001): "user updates own profile" had no
+-- column restriction, so any member could PATCH their OWN row with
+-- role = 'admin' (verified on a local stack) — self-promotion past every role
+-- check — or workspace_id = <another tenant>. /api/me writes display_name
+-- through the admin client and nothing uses the session-client path, so the
+-- policy is dropped outright. `notifications` (0007) had the same shape on a
+-- smaller scale (a user could rewrite their own rows' title/body/payload);
+-- read state is marked through /api/notifications/** on the admin client and
+-- the bell only subscribes to Realtime, so its write policy goes too.
+--
 -- THE RULE. The API is the only writer. The service role BYPASSES RLS and keeps
 -- its table privileges, so every route, RPC (nopm_commit_*, nopm_apply_*,
 -- nopm_accept_invite) and trigger keeps working untouched. Session users keep
@@ -24,7 +34,7 @@
 --   2. revoke INSERT/UPDATE/DELETE from anon + authenticated (a future
 --      careless policy still cannot grant what the role no longer holds).
 --
--- TABLES LOCKED (21, all governed domain data):
+-- TABLES LOCKED (24):
 --   projects, milestones, tasks                                    (0003)
 --   resource_members, allocations, time_entries, project_budget,
 --     expenses                                                     (0004)
@@ -38,11 +48,22 @@
 --   sprints                                                        (0037)
 --   timesheet_submissions — already RLS select-only (0038); privileges
 --     revoked here as belt and braces, no policy to drop
+--   profiles — "user updates own profile" (0001): role/workspace self-edit
+--   notifications — "update own notifications" (0007)
 --
--- DELIBERATELY NOT TOUCHED (see rls-write-lockdown.test.ts for the allow-list):
---   audit_log                        no write policy; immutable by trigger (0006)
---   profiles                         "user updates own profile" (0001)
---   notifications                    "update own notifications" — read state (0007)
+-- ALSO LOCKED: the migration ledger `public._nopm_migrations`. It is created by
+-- scripts/apply-migrations.mjs (not by a migration), sat in an exposed schema
+-- with RLS DISABLED and full grants to anon/authenticated, so anyone with the
+-- public anon key could read it or INSERT a fake "applied" row — making the
+-- runner silently skip a real migration. Guarded with to_regclass so it is a
+-- no-op where the ledger does not exist (e.g. the Supabase CLI local stack,
+-- which tracks migrations in its own schema). RLS on + zero policies = only
+-- postgres / service role; the runner connects as postgres and keeps working.
+-- The runner now does the same right after creating the table.
+--
+-- DELIBERATELY NOT TOUCHED (rls-write-lockdown.test.ts guards these too):
+--   audit_log, workspaces            no write policy (select-only); audit_log is
+--                                    also immutable by trigger (0006)
 --   0046 / 0047 tables, invites, nopm_rate_counters
 --                                    already `revoke all` from anon/authenticated
 --   user_mfa, api_tokens, assistant_*, user_preferences
@@ -56,7 +77,10 @@
 --     with check (workspace_id = nopm_current_workspace() and nopm_current_role() <> 'viewer');
 -- (policy names: "write projects" / "write milestones" / "write tasks" /
 -- "write programs" / "write sprints" use a space; the rest use `write_<table>`;
--- saved_views' three per-command policies are in 0035.) Re-running this file is
+-- saved_views' three per-command policies are in 0035; profiles' was
+-- "user updates own profile" (0001) and notifications' "update own
+-- notifications" (0007) — restoring the profiles one reopens the role
+-- self-promotion, so don't.) Re-running this file is
 -- safe: every statement is idempotent.
 
 -- ── 1. Drop the write policies (read policies stay) ─────────────────────────
@@ -92,6 +116,9 @@ drop policy if exists "delete saved_views"          on saved_views;
 
 drop policy if exists "write sprints"               on sprints;
 
+drop policy if exists "user updates own profile"    on profiles;
+drop policy if exists "update own notifications"    on notifications;
+
 -- ── 2. Revoke the write privileges (select is kept for the read policies) ───
 revoke insert, update, delete on projects              from anon, authenticated;
 revoke insert, update, delete on milestones            from anon, authenticated;
@@ -121,3 +148,15 @@ revoke insert, update, delete on programs              from anon, authenticated;
 revoke insert, update, delete on saved_views           from anon, authenticated;
 revoke insert, update, delete on sprints               from anon, authenticated;
 revoke insert, update, delete on timesheet_submissions from anon, authenticated;
+revoke insert, update, delete on profiles              from anon, authenticated;
+revoke insert, update, delete on notifications         from anon, authenticated;
+
+-- ── 3. Lock the migration ledger (created by scripts/apply-migrations.mjs) ──
+-- Guarded: the table does not exist on the Supabase CLI local stack.
+do $$
+begin
+  if to_regclass('public._nopm_migrations') is not null then
+    alter table public._nopm_migrations enable row level security;
+    revoke all on public._nopm_migrations from anon, authenticated;
+  end if;
+end $$;

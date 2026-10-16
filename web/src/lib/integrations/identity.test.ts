@@ -197,12 +197,23 @@ describe("consumeLinkCode", () => {
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
-  it("is idempotent when the same person links the same platform account again (no second audit row)", async () => {
+  it("re-confirming an existing link is a pure no-op: no audit row, no state change, and the code is NOT burned", async () => {
     linkIdentity(db, ids.manager, "ou_alice");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    const before = JSON.stringify(db.tables);
+
     expect(await link({ rawCode: code })).toEqual({ status: "linked", profileLabel: "Max Manager", alreadyLinked: true });
+
     expect(db.rows("external_identities")).toHaveLength(1);
     expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(db.rows("identity_link_codes")[0].used_at).toBeNull(); // not consumed
+    expect(JSON.stringify(db.tables)).toBe(before); // nothing at all changed
+
+    // the still-live code keeps working for its real purpose (e.g. a second platform account)
+    const next = await link({ rawCode: code, externalUserId: "ou_alice_phone" });
+    expect(next.status).toBe("linked");
+    expect(db.rows("identity_link_codes")[0].used_at).not.toBeNull();
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
   });
 
   it("keeps one active link per profile: a new platform account replaces the old one", async () => {

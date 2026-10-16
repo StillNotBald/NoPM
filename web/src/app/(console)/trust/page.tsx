@@ -99,7 +99,7 @@ function hrefWithParams(base: string, params: Record<string, string | undefined>
   return qs ? `${base}?${qs}` : base;
 }
 
-const CHANNEL_OPTIONS = ["ui", "api", "cli", "mcp", "assistant"] as const;
+const CHANNEL_OPTIONS = ["ui", "api", "cli", "mcp", "assistant", "lark"] as const;
 
 export default async function TrustPage({
   searchParams,

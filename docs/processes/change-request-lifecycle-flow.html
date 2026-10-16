@@ -95,7 +95,7 @@
     </div>
     <div>
       <h1>A change request is a record, not a remote control.</h1>
-      <div class="role">NoPM change-request lifecycle — raise, actor-typed four-eyes decide, audited close. No hidden mutation.</div>
+      <div class="role">NoPM change-request lifecycle — raise, four-eyes decide by a different person (a token counts as its creator), audited close. No hidden mutation.</div>
     </div>
   </header>
 
@@ -105,7 +105,7 @@
       <h2>Change-request lifecycle — end to end</h2>
     </div>
     <ul class="points">
-      <li><strong>Actor-typed four-eyes</strong> — requester vs decider compared by actor type + id (migration 0043), not just a profile column.</li>
+      <li><strong>Four-eyes by person</strong> — the decider must be a different person than the requester; a token counts as the person who created it.</li>
       <li><strong>Record, not remote control</strong> — deciding a change request never touches the project, task, or budget it describes.</li>
     </ul>
 
@@ -118,7 +118,7 @@
 
     <div class="flowwrap">
       <div class="diagram">
-        <svg viewBox="-22 -34 1034 692" role="img" aria-label="End-to-end flow for the NoPM change-request lifecycle on a two-column grid. Phase 1, raise: a requester raises a change request against a project with mandatory fields; an automatic scope gate denies callers without the change colon write scope with HTTP 403; an automatic validation gate returns 422 on a malformed payload, and raised at is now correctly omitted rather than nulled when the caller does not send it; the change request is created with an auto-assigned CR reference number and, if priority is high or critical, an in-app notification escalates it to the project owner. The created request crosses over to phase 2, decide: a decider opens the request; an automatic scope gate requires the change colon decide scope, distinct from change colon write and never granted to the assistant token ceiling; an automatic status gate requires the request still be raised or under review, else 422; a human four-eyes gate requires the decider not equal the requester by actor type and id, blocked in two layers, the API guard and a database check constraint, on approve, reject, and defer alike; a human decision gate records approve, reject, or defer with a rationale and notifies the requester in-app; the terminal state is a decided, audited change request that intentionally does not mutate any project, task, or budget record — that automatic effect is not built in this version.">
+        <svg viewBox="-22 -34 1034 692" role="img" aria-label="End-to-end flow for the NoPM change-request lifecycle on a two-column grid. Phase 1, raise: a requester raises a change request against a project with mandatory fields; an automatic scope gate denies callers without the change colon write scope with HTTP 403; an automatic validation gate returns 422 on a malformed payload, and raised at is now correctly omitted rather than nulled when the caller does not send it; the change request is created with an auto-assigned CR reference number and, if priority is high or critical, an in-app notification escalates it to the project owner. The created request crosses over to phase 2, decide: a decider opens the request; an automatic scope gate requires the change colon decide scope, distinct from change colon write and never granted to the assistant token ceiling; an automatic status gate requires the request still be raised or under review, else 422; a human four-eyes gate requires a different person than the requester (a token counts as the person who created it), blocked in two layers, the API guard and a database check constraint, on approve, reject, and defer alike; a human decision gate records approve, reject, or defer with a rationale and notifies the requester in-app; the terminal state is a decided, audited change request that intentionally does not mutate any project, task, or budget record — that automatic effect is not built in this version.">
           <defs>
             <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b7178"/></marker>
             <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b06a2c"/></marker>
@@ -150,8 +150,8 @@
 <text x="690" y="225" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Status</text>
 <text x="690" y="240" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">raised/under_review?</text>
 <polygon points="690,292 770,332 690,372 610,332" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
-<text x="690" y="329" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Decider ≠ requester</text>
-<text x="690" y="344" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">(actor-typed)?</text>
+<text x="690" y="329" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Different person</text>
+<text x="690" y="344" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">than requester?</text>
 <polygon points="690,396 770,436 690,476 610,436" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
 <text x="690" y="433" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approve, reject, or</text>
 <text x="690" y="448" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">defer?</text>
@@ -187,8 +187,8 @@
 <rect x="-6" y="194" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
 <text x="52" y="210" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">422 —</text>
 <text x="52" y="222.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">validation_error</text>
-<text x="52" y="235" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">field-level</text>
-<text x="52" y="246.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">messages returned</text>
+<text x="52" y="235" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">bad status on create</text>
+<text x="52" y="246.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">field-level messages</text>
 <line x1="220" y1="228" x2="110" y2="228" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
 <text x="214" y="224" text-anchor="end" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
 <rect x="384" y="90" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
@@ -213,7 +213,7 @@
 <text x="938" y="355.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">cr_maker_checker</text>
 <text x="938" y="366.5" text-anchor="middle" fill="#b06a2c" font-size="9" font-weight="700" font-family="-apple-system,Segoe UI,sans-serif">BLOCKED</text>
 <line x1="770" y1="332" x2="880" y2="332" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
-<text x="776" y="328" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no — same actor</text>
+<text x="776" y="328" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no — same person</text>
 <rect x="384" y="395.5" width="116" height="81" rx="9" fill="#fff" stroke="#e3e6e9" stroke-width="1.3"/>
 <text x="442" y="411.5" text-anchor="middle" fill="#1a1d21" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">Rejected /</text>
 <text x="442" y="424" text-anchor="middle" fill="#1a1d21" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">deferred</text>
@@ -236,8 +236,8 @@
         <div class="sub">the shortest governed CR</div>
         <ol>
           <li><span class="t">Raise the CR</span><span class="d">reason + project · CR-NNN assigned</span></li>
-          <li><span class="t">Different person decides</span><span class="d">change:decide scope</span></li>
-          <li><span class="t">Approve</span><span class="d">actor-typed four-eyes holds</span></li>
+          <li><span class="t">Different person decides</span><span class="d">change:decide scope · a token counts as its creator</span></li>
+          <li><span class="t">Approve</span><span class="d">four-eyes holds</span></li>
           <li><span class="t">Recorded &amp; audited</span><span class="d">no auto-effect — record only</span></li>
         </ol>
         <div class="foot">A decided CR is a governed fact for the record — not an execution trigger.</div>
@@ -253,6 +253,7 @@
       <div>
         <h3>Why it holds</h3>
         <ul class="points">
+      <li>An invalid status on create (anything but raised or under_review) returns 422 with field-level messages, never a raw database error.</li>
       <li>Blocked in <strong>two layers</strong>: API guard (403 forbidden_scope) + DB CHECK cr_maker_checker.</li>
       <li><strong>change:decide</strong> is a distinct scope from change:write — never granted to the AI-agent token ceiling.</li>
       <li>The raised_at fix (44cc801) stopped a NOT NULL column from ever seeing an explicit null.</li>

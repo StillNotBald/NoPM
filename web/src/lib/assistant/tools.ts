@@ -34,7 +34,18 @@ export const TOOLS: ToolSpec[] = TOOL_REGISTRY.map((t) => ({
   toRequest: t.toRequest,
 }));
 
-/** The exact scopes this tool set requires on the ephemeral token. */
+/**
+ * The exact scopes this tool set requires on the ephemeral token.
+ *
+ * `change:read` and `time:read` exist for list_pending_approvals (GET /api/review),
+ * which only shows a token the approval kinds it can read through each family's
+ * own list endpoint: without them the assistant would never see a pending change
+ * request or timesheet. They are READ scopes. This ceiling never holds an
+ * approve / decide / write-on-governance scope (task:delete:approve,
+ * project:delete:approve, time:approve, change:decide, rebaseline:approve) — the
+ * assistant can SEE what is waiting, a person decides it. Locked by
+ * tools-openapi.test.ts, scopes.test.ts and review/tool.test.ts.
+ */
 export const TOOL_SCOPES = [
   "project:read",
   "project:write",
@@ -52,6 +63,8 @@ export const TOOL_SCOPES = [
   "clash:read",
   "resource:read",
   "audit:read",
+  "change:read",
+  "time:read",
 ] as const;
 
 export type ToolScope = (typeof TOOL_SCOPES)[number];

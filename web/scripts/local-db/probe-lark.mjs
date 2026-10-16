@@ -21,7 +21,7 @@ import { call, requireApp, sessionCookie } from "./app-client.mjs";
 import { buildWebhookRequest, cardActionEnvelope, encryptBody, relayHeaders, signHeaders } from "./lark-wire.mjs";
 import { startFakeLark } from "./fake-lark.mjs";
 import { createReport, expect, expectEqual } from "./report.mjs";
-import { connect, createFixtures, hashToken, must, newTaskDeletionRequest } from "./fixtures.mjs";
+import { connect, createFixtures, hashToken, makeUser, must, newTaskDeletionRequest } from "./fixtures.mjs";
 
 needAnonKey();
 const { db, pgc, close } = await connect();
@@ -196,12 +196,12 @@ async function seedActionToken(req, recipient, { expiresInMs = 7 * 24 * HOUR } =
 }
 
 /** POST a signed + encrypted card click. Returns the app's response plus what was sent. */
-async function click({ openId, token, action = "approve", eventId, reason, verificationToken = SECRETS.verificationToken, tamper, timestamp, path = CARD_PATH(connector.id) }) {
+async function click({ openId, token, action = "approve", eventId, reason, verificationToken = SECRETS.verificationToken, tamper, timestamp, tenantKey = TENANT, path = CARD_PATH(connector.id) }) {
   const envelope = cardActionEnvelope({
     eventId,
     verificationToken,
     appId: APP_ID,
-    tenantKey: TENANT,
+    tenantKey,
     openId,
     actionToken: token,
     action,
@@ -330,7 +330,7 @@ for (const kind of ["change_request", "task_deletion"]) {
     expectEqual((await auditForTargets(main)).length, auditBefore, "no audit rows");
   });
 
-  // requester clicks their own card (a forged / mis-addressed token): four-eyes by HUMAN
+  // requester clicks their own card (a spoofed / mis-addressed token): four-eyes by HUMAN
   const own = await seedRequest(kind);
   const ownToken = await seedActionToken(own, fx.a);
   await report.check(`LK-${k}6`, `[${kind}] requester A clicks Approve on their own request -> self_approval toast, nothing committed`, async () => {
@@ -498,6 +498,45 @@ await report.check("LK-I5", "a viewer-role human cannot approve from chat, even 
     await pgc.query("update profiles set role = 'manager' where id = $1", [fx.b.id]);
   }
 });
+
+// ── 6b. tenant pin: a connector is bound to ONE platform tenant ───────────
+// The first successful identity link pins the connector to that tenant; events from any other tenant are
+// then refused. Identity rows are inserted directly here, so the pin is set by hand to emulate that first link.
+await report.check("LK-T1", "tenant pin: a click from ANOTHER Lark tenant is refused while pinned (even for a linked user with a valid token); the pinned tenant still works; unpinning lifts it", async () => {
+  const OTHER_TENANT = `tenant_other_${tag}`;
+  const OPEN_C = `ou_probe_c_${tag}`;
+  const userC = await makeUser(db, { workspaceId: fx.workspaceId, tag, label: "mgrC", role: "manager" });
+  await must(
+    db.from("external_identities").insert({ workspace_id: fx.workspaceId, connector_id: connector.id, provider: "lark", external_tenant: OTHER_TENANT, external_user_id: OPEN_C, display_name: "Probe C", profile_id: userC.id }),
+    "identity in the other tenant",
+  );
+  const reqC = await seedRequest("change_request");
+  const tokenC = await seedActionToken(reqC, { id: userC.id });
+  const reqB = await seedRequest("change_request");
+  const tokenB = await seedActionToken(reqB, fx.b);
+  const tokenUnused = async (raw) => (await pgc.query("select used_at from action_tokens where token_hash = $1", [hashToken(raw)])).rows[0].used_at === null;
+
+  await pgc.query("update integration_connectors set tenant_key = $2 where id = $1", [connector.id, TENANT]);
+  try {
+    const foreign = await click({ openId: OPEN_C, token: tokenC, eventId: newEventId("pin-foreign"), tenantKey: OTHER_TENANT });
+    expect(!(foreign.status === 200 && toastOf(foreign)?.type === "success"), `a foreign-tenant click was approved while the connector is pinned: ${foreign.text.slice(0, 200)}`);
+    expect(foreign.status !== 500, `foreign-tenant click produced a 500: ${foreign.text.slice(0, 160)}`);
+    expectEqual(await approvalStatus(reqC), PENDING.change_request, "the foreign-tenant click must not decide anything");
+    expect(await tokenUnused(tokenC), "a refused foreign-tenant click must not burn the token");
+    expectEqual((await auditForTargets(reqC)).length, 0, "no audit row about the request");
+
+    const home = await click({ openId: OPEN_B, token: tokenB, eventId: newEventId("pin-home") });
+    expectToast(home, true, "pinned tenant");
+    expectEqual(await approvalStatus(reqB), DECIDED.change_request, "the pinned tenant must still be able to approve");
+  } finally {
+    await pgc.query("update integration_connectors set tenant_key = null where id = $1", [connector.id]);
+  }
+  const unpinned = await click({ openId: OPEN_C, token: tokenC, eventId: newEventId("pin-lifted"), tenantKey: OTHER_TENANT });
+  expectToast(unpinned, true, "the same click once the pin is cleared (proves the pin was the only barrier)");
+});
+// Whatever LK-T1 concluded, C must not stay an active approver: the LK-EM* checks expect cards for exactly B and admin.
+await pgc.query("update external_identities set revoked_at = now() where connector_id = $1 and external_user_id = $2 and revoked_at is null", [connector.id, `ou_probe_c_${tag}`]);
+await pgc.query("update integration_connectors set tenant_key = null where id = $1", [connector.id]);
 
 // ── 7. kill switch ───────────────────────────────────────────────────────
 await report.check("LK-K1", "paused connector refuses clicks in both directions of the pipeline; resumes when re-activated", async () => {

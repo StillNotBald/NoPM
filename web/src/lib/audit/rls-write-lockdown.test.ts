@@ -16,9 +16,10 @@
  * loops the early migrations use, and GRANT/REVOKE on tables) and asserts the
  * FINAL state:
  *
- *   1. no table has a non-select policy unless it is on the explicit
- *      user-owned allow-list (profiles, notifications) — so a NEW table with a
- *      careless `for all` policy fails here the day it is written;
+ *   1. no table has ANY non-select policy, with no allow-list — so a NEW table
+ *      with a careless `for all` policy fails here the day it is written
+ *      (profiles' old "user updates own profile" let a member PATCH their own
+ *      role to 'admin'; that is why there is no user-owned exception);
  *   2. no governed table grants INSERT/UPDATE/DELETE to anon/authenticated;
  *   3. every governed table keeps its read policy (the lockdown must not
  *      break the console's session-client reads);
@@ -31,7 +32,9 @@
  * every new public table, so a table is "writable by grant" until a revoke says
  * otherwise. If you add a table that is meant to be API-only, add it to
  * GOVERNED (and `revoke insert, update, delete ... from anon, authenticated`)
- * or to DENY_ALL (RLS on, zero policies).
+ * or to DENY_ALL (RLS on, zero policies). There is deliberately no
+ * "user-owned state" exception: if a session/browser client ever genuinely
+ * needs to write a table, add an audited API route instead.
  */
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
@@ -40,7 +43,13 @@ import { join } from "node:path";
 const migrationsDir = join(__dirname, "..", "..", "..", "supabase", "migrations");
 const LOCKDOWN_FILE = "20261016000048_rls_api_only_writes.sql";
 
-/** Governed domain data: the API is the only writer, session users only read. */
+/**
+ * Tables the API is the only writer of; session users only read. Besides the
+ * domain data this includes profiles (role / workspace_id are authorization
+ * inputs; /api/me writes display_name on the admin client) and notifications
+ * (read state is marked via /api/notifications/** on the admin client; the
+ * bell only subscribes to Realtime, which needs select only).
+ */
 const GOVERNED = [
   "projects", "milestones", "tasks",
   "resource_members", "allocations", "time_entries", "project_budget", "expenses",
@@ -50,17 +59,8 @@ const GOVERNED = [
   "change_requests", "decisions",
   "programs", "saved_views", "sprints",
   "timesheet_submissions",
+  "profiles", "notifications",
 ] as const;
-
-/**
- * User-owned, unaudited state whose non-select policy legitimately stays.
- * profiles: own display name (writes go through /api/me; the policy predates
- * it). notifications: own read state (read_at).
- */
-const USER_OWNED_WRITE_POLICIES: Record<string, Cmd[]> = {
-  profiles: ["update"],
-  notifications: ["update"],
-};
 
 /** RLS on, zero policies, or `revoke all` — service role only, by design. */
 const DENY_ALL = [
@@ -199,20 +199,14 @@ describe("RLS write lockdown — final state after every migration", () => {
     for (const t of GOVERNED) expect(st.tables.has(t), `${t} no longer created by any migration`).toBe(true);
   });
 
-  it("no table has an active insert/update/delete/all policy, except the user-owned allow-list", () => {
+  it("no table has an active insert/update/delete/all policy (no exceptions)", () => {
     for (const t of st.tables) {
-      const writes = nonSelect(st, t);
-      const allowed = USER_OWNED_WRITE_POLICIES[t];
-      if (!allowed) {
-        expect(
-          writes,
-          `${t} has write policy ${JSON.stringify(writes)} — session users could write it directly via PostgREST, ` +
-            `skipping audit/four-eyes/lock checks. Route the write through an API route and drop the policy ` +
-            `(add the table to GOVERNED), or — only for unaudited user-owned state — add it to USER_OWNED_WRITE_POLICIES.`,
-        ).toEqual([]);
-      } else {
-        expect(writes.map(([, c]) => c).sort(), `${t} write policies drifted from the allow-list`).toEqual([...allowed].sort());
-      }
+      expect(
+        nonSelect(st, t),
+        `${t} has a write policy — session users could write it directly via PostgREST, skipping ` +
+          `audit/four-eyes/lock checks (or, for profiles, promote their own role). Route the write ` +
+          `through an audited API route on the admin client and drop the policy (add the table to GOVERNED).`,
+      ).toEqual([]);
     }
   });
 
@@ -248,6 +242,51 @@ describe("RLS write lockdown — final state after every migration", () => {
   });
 });
 
+describe("RLS write lockdown — the migration ledger (public._nopm_migrations)", () => {
+  // The ledger is created by the runner script, not by a migration, so the
+  // replay above never sees it. It sits in an exposed schema: with RLS off and
+  // default grants, anyone with the public anon key could INSERT a fake
+  // "applied" row and make the runner silently skip a real migration.
+  const squash = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ").replace(/\s+/g, " ").toLowerCase();
+
+  it("0048 locks it inside a to_regclass guard (no-op where the ledger does not exist)", () => {
+    const sql = squash(readFileSync(join(migrationsDir, LOCKDOWN_FILE), "utf8"));
+    const blocks = [...sql.matchAll(/\bdo \$\$([\s\S]*?)\$\$ ?;/g)]
+      .map((m) => m[1])
+      .filter((b) => b.includes("_nopm_migrations"));
+    expect(blocks, "0048 has no do-block touching _nopm_migrations").toHaveLength(1);
+    const body = blocks[0];
+    const guard = body.indexOf("to_regclass('public._nopm_migrations') is not null");
+    const rls = body.indexOf("alter table public._nopm_migrations enable row level security");
+    const revoke = body.indexOf("revoke all on public._nopm_migrations from anon, authenticated");
+    expect(guard, "missing to_regclass guard").toBeGreaterThanOrEqual(0);
+    expect(rls, "missing enable row level security").toBeGreaterThan(guard);
+    expect(revoke, "missing revoke all from anon, authenticated").toBeGreaterThan(rls);
+  });
+
+  it("no migration gives it a policy (zero policies = postgres / service role only)", () => {
+    for (const f of migrationFiles) {
+      const sql = squash(readFileSync(join(migrationsDir, f), "utf8"));
+      expect(/create policy [^;]* on (public\.)?_nopm_migrations\b/.test(sql), `${f} adds a policy on _nopm_migrations`).toBe(false);
+    }
+  });
+
+  it("the runner locks the ledger right after creating it, before it reads or writes it", () => {
+    const src = readFileSync(join(__dirname, "..", "..", "..", "scripts", "apply-migrations.mjs"), "utf8")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+    const create = src.indexOf("create table if not exists _nopm_migrations");
+    const rls = src.indexOf("alter table _nopm_migrations enable row level security");
+    const revoke = src.indexOf("revoke all on _nopm_migrations from anon, authenticated");
+    const firstRead = src.indexOf("select name from _nopm_migrations");
+    expect(create, "runner no longer creates the ledger").toBeGreaterThanOrEqual(0);
+    expect(rls, "runner does not enable RLS on the ledger").toBeGreaterThan(create);
+    expect(revoke, "runner does not revoke anon/authenticated on the ledger").toBeGreaterThan(rls);
+    expect(firstRead, "runner no longer reads the ledger").toBeGreaterThan(revoke);
+  });
+});
+
 describe("RLS write lockdown — the reader sees the original hole (canary)", () => {
   const before = replay(migrationFiles.filter((f) => f < LOCKDOWN_FILE));
 
@@ -261,6 +300,9 @@ describe("RLS write lockdown — the reader sees the original hole (canary)", ()
     expect(nonSelect(before, "projects")).toEqual([["write projects", "all"]]); // static `for all`
     expect(nonSelect(before, "change_requests")).toEqual([["write_change_requests", "all"]]); // do-$$ loop
     expect(nonSelect(before, "saved_views").map(([, c]) => c).sort()).toEqual(["delete", "insert", "update"]); // per-command
+    // The self-promotion hole: an unrestricted own-row UPDATE on profiles.
+    expect(nonSelect(before, "profiles")).toEqual([["user updates own profile", "update"]]);
+    expect(nonSelect(before, "notifications")).toEqual([["update own notifications", "update"]]);
   });
 
   it("before 0048, the default grants let anon/authenticated write the governed tables", () => {
@@ -271,11 +313,10 @@ describe("RLS write lockdown — the reader sees the original hole (canary)", ()
     }
   });
 
-  it("the user-owned allow-list policies exist before and after (0048 must not touch them)", () => {
+  it("0048 leaves the select policies on profiles and notifications intact", () => {
     const after = replay(migrationFiles);
-    for (const [t, cmds] of Object.entries(USER_OWNED_WRITE_POLICIES)) {
-      expect(nonSelect(before, t).map(([, c]) => c)).toEqual(cmds);
-      expect(nonSelect(after, t).map(([, c]) => c)).toEqual(cmds);
+    for (const t of ["profiles", "notifications"]) {
+      expect([...after.policies.get(t)!.values()], `${t} read policy`).toEqual(["select"]);
     }
   });
 });

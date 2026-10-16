@@ -144,6 +144,17 @@ function summarize(toolName: string, args: Record<string, unknown>, result: unkn
     case "list_clashes": return `Listed ${(r?.total as number | undefined) ?? "?"} clashes`;
     case "list_resources": return `Listed ${(r?.total as number | undefined) ?? "?"} resources`;
     case "query_audit": return `Found ${(r?.total as number | undefined) ?? "?"} audit entries`;
+    case "list_pending_approvals": {
+      // No "M you can decide" count on purpose: the ephemeral token never holds an
+      // approve/decide scope, so every item's can_decide is false for the assistant
+      // even when the signed-in person may decide it in the console. Say what is
+      // verifiably true instead — the total, and whether some kinds were unreadable.
+      const total = r?.total as number | undefined;
+      const hidden = Array.isArray(r?.hidden_kinds) ? (r?.hidden_kinds as unknown[]).length : 0;
+      const count = total === undefined ? "?" : String(total);
+      const noun = total === 1 ? "pending approval" : "pending approvals";
+      return `${count} ${noun}${hidden > 0 ? ` (${hidden} kind${hidden === 1 ? "" : "s"} not visible to the assistant)` : ""}`;
+    }
     default: return `${toolName} completed`;
   }
 }

@@ -14,7 +14,7 @@
 2. The raw token (`npm_…`) is shown **exactly once**; it is stored server-side only as a SHA-256 hash, never logged, never retrievable again.
 3. CLI setup: `nopm auth set-token npm_xxx --url https://stillnotbald.com`, then `nopm whoami` to confirm actor + scopes. Every CLI request sends `X-NoPM-Client: cli`, tagging its audit rows `channel: cli`.
 4. MCP setup (stdio): set `NOPM_TOKEN` env var, point Claude Code/Desktop/Cursor at `web/mcp/server.mjs` (a cloned repo's root `.mcp.json` makes this zero-config for Claude Code). MCP setup (Streamable HTTP, remote): register `https://stillnotbald.com/api/mcp` as a connector with `Authorization: Bearer npm_…`. Both transports send `X-NoPM-Client: mcp`.
-5. Operate: any of the 24 MCP tools, or any `nopm` CLI command, calls the same governed REST API a human uses — same scopes, same audit, same maker-checker. A `project:read`-only token cannot create a project; the server surfaces a `403` scope error as the tool result, never silently swallowed.
+5. Operate: any of the 25 MCP tools, or any `nopm` CLI command, calls the same governed REST API a human uses — same scopes, same audit, same maker-checker. A `project:read`-only token cannot create a project; the server surfaces a `403` scope error as the tool result, never silently swallowed.
 6. Token-authenticated callers use the admin client (RLS-bypassing) internally, but are always filtered by `actor.workspaceId` server-side — a token can never reach outside its own workspace regardless of scope.
 7. Revoke: `/tokens` → Revoke (admin/manager session), or `DELETE /api/tokens/{id}`. Sets `revoked = true` immediately; the token's next call fails scope checks. There is no separate "disable" state, and revoke is not reversible.
 
@@ -23,7 +23,8 @@
 - **A token tries to mint/revoke another token** → `403` — token management is user-session only.
 - **An agent calls an endpoint outside its granted scopes** → `403`, returned as an ordinary tool result over MCP (never a swallowed connection error) or an ordinary API error over the CLI/REST.
 - **Task or project deletion via an agent** → the MCP tool set only exposes the maker side (`request_task_deletion`, `request_project_deletion`); the checker (approve) step must be taken by a different person through the UI or API (UC-12). A token can take it only if its owner is that person.
-- **Approve or decide via an agent** → none of the 24 MCP tools and no assistant tool carries an approve, decide or sign-off scope. A token holding one (granted by exact name) can still call the matching endpoint or the `nopm` approve and decide commands, and four-eyes applies: the approver must be a different person from the requester.
+- **Approve or decide via an agent** → none of the 25 MCP tools and no assistant tool carries an approve, decide or sign-off scope. A token holding one (granted by exact name) can still call the matching endpoint or the `nopm` approve and decide commands, and four-eyes applies: the approver must be a different person from the requester.
+- **Checking what is waiting for a person** → the read-only `list_pending_approvals` MCP tool and the `nopm review` command list the pending deletions, change requests, timesheets and rebaselines, with whether this token may decide each one; neither approves anything.
 - **Rate limiting** — a DB-backed fixed-window limiter keyed on workspace + actor class survives per-turn ephemeral assistant tokens and serverless cold starts; a limit hit is `429` `rate_limited`, logged as a `rate.limited` audit row; the limiter itself fails open (never blocks traffic) on its own infrastructure error.
 
 ## Postconditions

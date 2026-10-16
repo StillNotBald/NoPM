@@ -100,6 +100,12 @@ export interface ConnectorView {
   hasEncryptKey: boolean;
   /** False when the server can no longer decrypt the stored credentials (encryption key changed). */
   secretsReadable: boolean;
+  /**
+   * The connection is locked to the first Lark workspace that linked an account.
+   * The API reports only that it is pinned, never the key; the redacted member
+   * view omits it.
+   */
+  tenantPinned: boolean;
   approvalsEnabled: boolean;
   digest: { enabled: boolean; chatId: string | null; weekday: number };
   createdAt: string | null;
@@ -152,6 +158,7 @@ export function normalizeConnector(raw: unknown): ConnectorView | null {
     appId: asString(firstDefined(cfg.appId, cfg.app_id, raw.app_id, raw.appId)) ?? "",
     hasEncryptKey: asBool(firstDefined(raw.has_encrypt_key, raw.hasEncryptKey, cfg.has_encrypt_key), false),
     secretsReadable: asBool(firstDefined(raw.secrets_readable, raw.secretsReadable), true),
+    tenantPinned: asBool(firstDefined(raw.tenant_pinned, raw.tenantPinned), false),
     approvalsEnabled: isRec(approvalsRaw)
       ? asBool(approvalsRaw.enabled, false)
       : asBool(firstDefined(raw.approvals_enabled, raw.approvalsEnabled), false),
@@ -322,6 +329,14 @@ export function buildCreateConnectorBody(v: ConnectFormValues): Rec {
 /** `PATCH /api/integrations/connectors/[id]` body for the edit-settings panel (non-secret fields only). */
 export function buildSettingsPatchBody(v: FeatureValues): Rec {
   return featureBody(v);
+}
+
+/**
+ * `PATCH /api/integrations/connectors/[id]` body that lifts the Lark-workspace
+ * lock (admin only); the next account link pins the connection again.
+ */
+export function buildClearTenantPinBody(): Rec {
+  return { clear_tenant_pin: true };
 }
 
 /** `PATCH /api/integrations/connectors/[id]` body for pause / resume. */

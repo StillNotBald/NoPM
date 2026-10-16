@@ -188,14 +188,16 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
       };
     }
 
+    // Re-confirming a link that already exists is a pure no-op: nothing is
+    // linked, pinned or audited, and the code is NOT burned (burning it would be
+    // a state change with no audit row). The person is simply told it is linked.
+    if (sameAccount) return { status: "linked", profileLabel: label, alreadyLinked: true };
+
     // Pin the tenant on the first NEW link (before the code is burned, so a
-    // refused tenant leaves the code usable). Re-confirming an existing link
-    // changes nothing and so pins nothing.
-    if (!sameAccount) {
-      const pin = await pinTenant(connector, externalTenant);
-      if (pin === "mismatch") return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
-      pinnedHere = pin === "pinned";
-    }
+    // refused tenant leaves the code usable).
+    const pin = await pinTenant(connector, externalTenant);
+    if (pin === "mismatch") return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
+    pinnedHere = pin === "pinned";
 
     const nowIso = new Date().toISOString();
     const { data: consumed, error: consumeError } = await db
@@ -208,8 +210,6 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
       .select("id");
     if (consumeError) throw consumeError;
     if (!consumed || consumed.length === 0) return { status: "already_used" };
-
-    if (sameAccount) return { status: "linked", profileLabel: label, alreadyLinked: true };
 
     // One active link per profile per connector: a fresh link replaces any
     // earlier one (e.g. the person moved to a different platform account).
