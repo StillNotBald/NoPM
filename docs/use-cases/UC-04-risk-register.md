@@ -38,9 +38,9 @@
 ## Traceability
 
 - R-IDs: R-13 (Risk register), R-81 (external reference seam), R-38 (Review Queue).
-- Key files: `web/src/app/api/risks/route.ts` (implied sibling of the pattern seen in `web/src/app/api/clashes/route.ts`), `web/src/app/api/risks/[id]/route.ts`, `web/src/app/api/risks/_schema.ts`, `web/src/lib/review/gather.ts`, `web/src/components/registers/risk-detail.tsx`.
+- Key files: `web/src/app/api/projects/[id]/risks/route.ts` (list + create), `web/src/app/api/risks/[id]/route.ts`, `web/src/app/api/risks/_query.ts`, `web/src/app/api/risks/_schema.ts`, `web/src/lib/review/gather.ts`, `web/src/components/registers/risk-detail.tsx`.
 - Tests: `[UNVERIFIED]` no risk-specific test file was read directly; covered indirectly by the shared audit-coverage and OpenAPI-drift suites (R-60).
 
 ## Open questions
 
-- `[UNVERIFIED]` The exact structure of `web/src/app/api/risks/route.ts` was inferred from the sibling `clashes` route pattern and the endpoint index in `llms.txt`, not read verbatim.
+- None outstanding for the flow itself. There is no cross-project `GET /api/risks`: the cross-workspace Risks register reads server-side, which is why the CSV export requires `project_id`.

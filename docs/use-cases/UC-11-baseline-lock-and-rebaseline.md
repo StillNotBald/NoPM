@@ -2,7 +2,7 @@
 
 **Goal:** Freeze a project's approved schedule shape so it can't drift by accident, while day-to-day work continues, and provide a reviewed path (rebaseline) for legitimate schedule changes afterward.
 
-**Actors:** Admin / Project Manager (locks, proposes rebaseline), Approver / second pair of eyes (signs off). AI agent via token can propose and (per its scope) sign off/apply, but console sign-off is not yet exposed as a button — see below.
+**Actors:** Any actor with `project:write` locks the project and proposes a rebaseline (the guard does not separate admin, manager and member). Approver / second pair of eyes signs off, as a different person from the requester. AI agent via token can propose, sign off and apply through the REST API or the `nopm` CLI, but not through the MCP server or the BYOK assistant, which expose no rebaseline tool. Console sign-off is not yet a button — see below.
 
 **Preconditions:** A project exists with a schedule (tasks/milestones with dates).
 
@@ -16,11 +16,11 @@
 
 ## Main flow — rebaseline
 
-1. Propose: `POST /api/projects/{id}/rebaselines` (scope `project:write`, reason required). As of this build, this is done through the API/agent surfaces (CLI, MCP, or the BYOK assistant with a scoped token) — there is no console form for step 1.
+1. Propose: `POST /api/projects/{id}/rebaselines` (scope `project:write`, reason required). As of this build, this is done through the REST API or the `nopm rebaselines` CLI. The MCP server and the BYOK assistant have no rebaseline tool, and there is no console form for this step.
 2. The pending rebaseline appears in the **Review Queue** (`/review`, "Rebaselines" filter tab) as a "Rebaseline Sign-off" item, deep-linking to the project detail page.
-3. Sign off: `POST /api/rebaselines/{id}/signoff` (scope `rebaseline:approve`).
+3. Sign off: `POST /api/rebaselines/{id}/signoff` (scope `rebaseline:approve`). The signer must be a different person from the requester; a token counts as the person who minted it.
 4. Apply: `POST /api/rebaselines/{id}/apply` (scope `rebaseline:approve`). Applying runs inside a transaction-local bypass of the lock guard (`nopm.lock_bypass`, migration `20260814000028`) — the one legitimate way dates get written to a locked project, never a general exception to the lock.
-5. Sign-off and apply are, as of this writing, API/agent-driven only — the console surfaces the pending item for visibility but has no in-console sign-off button yet; doing this from the browser today means using the BYOK assistant panel or a scoped PAT via the CLI.
+5. Sign-off and apply are, as of this writing, REST and CLI only. The console surfaces the pending item for visibility but has no sign-off or apply button; use the REST API or `nopm rebaselines` with a token that holds `rebaseline:approve`. The BYOK assistant cannot perform either step.
 
 ## Alternate and exception flows
 
@@ -40,7 +40,7 @@
 
 - `/baselines` register page (Locked baselines + Rebaselines tables).
 - Gantt slip visualization (current vs baseline, R-33) is itself a reporting surface — a reviewer can see schedule drift without reading the audit log.
-- Diagram: [`project-lock-rebaseline-flow.html`](../processes/project-lock-rebaseline-flow.html) is planned in this same work item; it did not exist on disk at the time this catalogue was written.
+- Diagram: [`project-lock-rebaseline-flow.html`](../processes/project-lock-rebaseline-flow.html).
 
 ## Traceability
 
@@ -51,4 +51,3 @@
 ## Open questions
 
 - `[UNVERIFIED]` Exact test file names covering the lock-enforcement triplicate.
-- The `project-lock-rebaseline.html` diagram gap is flagged in the report.

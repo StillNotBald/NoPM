@@ -77,6 +77,7 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   list_resources:       {},
   search_workspace:     { query: "kanban" },
   query_audit:          {},
+  list_pending_approvals: {},
 };
 
 // Typed view of the spec paths for easier narrowing

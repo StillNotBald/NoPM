@@ -18,6 +18,13 @@
 /** A governed request that a human can approve or reject from a chat card. */
 export type ApprovalKind = "task_deletion" | "project_deletion" | "change_request" | "timesheet";
 
+export const APPROVAL_KINDS: readonly ApprovalKind[] = [
+  "task_deletion",
+  "project_deletion",
+  "change_request",
+  "timesheet",
+];
+
 export type ApprovalRef = { kind: ApprovalKind; id: string };
 
 /** Emitted when a governed request is raised (after its audit row is written). */
@@ -85,10 +92,39 @@ export type ConnectorRow = {
   config: LarkConfig;
   secret_enc: string;
   relay_secret_hash: string | null;
+  /** Pinned platform tenant (set by the first identity link); null = not pinned yet. */
+  tenant_key?: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
   revoked_at: string | null;
+};
+
+export type DeliveryKind = "approval_card" | "decision_update" | "digest" | "bot_reply";
+
+export type DeliveryStatus = "pending" | "sent" | "retry" | "dead" | "superseded";
+
+/** A row of integration_deliveries (the outbound queue). */
+export type DeliveryRow = {
+  id: string;
+  workspace_id: string;
+  connector_id: string;
+  kind: DeliveryKind;
+  approval_kind: ApprovalKind | null;
+  approval_id: string | null;
+  recipient_profile_id: string | null;
+  /** open_id (DM) or chat_id (group). */
+  external_target: string | null;
+  parent_delivery_id: string | null;
+  payload: Record<string, unknown>;
+  status: DeliveryStatus;
+  attempts: number;
+  next_attempt_at: string;
+  locked_until: string | null;
+  external_message_id: string | null;
+  last_error: string | null;
+  created_at: string;
+  sent_at: string | null;
 };
 
 /** A message the adapter will send (opaque to the hub core). */

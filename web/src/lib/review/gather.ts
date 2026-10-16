@@ -167,13 +167,16 @@ export async function gatherReviewItems(
       }
     })(),
 
-    // 6. Change requests under review (defensive — table may not exist yet)
+    // 6. Change requests awaiting a decision: BOTH 'raised' (the default a new
+    //    request is created in — nothing moves it on automatically) and
+    //    'under_review', the same pair the decision route accepts
+    //    (defensive — table may not exist yet)
     (async () => {
       try {
         return await db
           .from("change_requests")
           .select("id, title, project_id, status, created_at")
-          .eq("status", "under_review")
+          .in("status", ["raised", "under_review"])
           .order("created_at", { ascending: true });
       } catch {
         return { data: null, error: null };

@@ -34,6 +34,7 @@ Most project-management tools bolt permissions and audit trails onto the UI as a
 | [04-for-developers.md](04-for-developers.md) | Repo map, the API contract, how to add an endpoint or an MCP tool the governed way |
 | [05-getting-help-and-paid-services.md](05-getting-help-and-paid-services.md) | Free vs. paid support, what the owner will and will not build, the license |
 | [06-faq.md](06-faq.md) | Answers to the questions a newcomer usually asks first |
+| [07-lark-integration.md](07-lark-integration.md) | Connect NoPM to Lark or Feishu: approval cards, weekly digest, and the self-host worker (setup for admins) |
 | [../ROADMAP.md](../ROADMAP.md) | What's shipped, a menu of paid modules someone could sponsor or hire to build, what's not planned and why, and how to ask for something new |
 
 ## A word about the live demo
@@ -53,7 +54,7 @@ A few terms come up across every guide in this folder:
 | **MCP (Model Context Protocol)** | An open standard that lets an AI assistant call an application's tools directly, instead of a person copy-pasting between a chat window and the app. |
 | **PAT (Personal Access Token)** | A password-like key, scoped to specific permissions, that an agent or a script uses to authenticate to the API instead of logging in as a person. |
 | **Scope** | A specific permission, written as `resource:action` (e.g. `task:write`), that a token either has or doesn't. |
-| **Four-eyes / maker-checker** | A rule that the person (or token) requesting a risky action can never also be the one who approves it. |
+| **Four-eyes / maker-checker** | A rule that the person requesting a risky action can never also be the one who approves it. A token counts as the person who minted it. |
 | **Audit log** | A permanent, unchangeable record of every action taken in the system. |
 | **Supabase** | The hosted database-and-login service NoPM is built on top of. |
 | **Workspace** | The top-level container for one organization's data in NoPM. Projects, tasks, and everything else live inside exactly one workspace, and workspaces can never see each other's data. |

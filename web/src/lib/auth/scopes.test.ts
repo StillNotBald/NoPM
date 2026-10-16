@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SCOPES, isValidScope, AGENT_PRESET_SCOPES, scopeChoices } from "./scopes";
+import { SCOPES, PRIVILEGED_SCOPES, isValidScope, AGENT_PRESET_SCOPES, scopeChoices } from "./scopes";
 import { TOOL_SCOPES } from "@/lib/assistant/tools";
 
 describe("scope registry", () => {
@@ -57,6 +57,29 @@ describe("scope registry", () => {
     // and no wildcard could smuggle an approve in
     expect(tool.has("*")).toBe(false);
     for (const s of TOOL_SCOPES) expect(s.endsWith(":*")).toBe(false);
+  });
+
+  // D2 (2026-10-16): the five checker verbs are never reachable through a
+  // wildcard (hasScope) — and no preset the product hands out carries one.
+  describe("PRIVILEGED_SCOPES", () => {
+    it("is a duplicate-free subset of the registry and exactly the approve/decide verbs", () => {
+      expect(new Set(PRIVILEGED_SCOPES).size).toBe(PRIVILEGED_SCOPES.length);
+      const registry = new Set<string>(SCOPES);
+      for (const s of PRIVILEGED_SCOPES) {
+        expect(registry.has(s)).toBe(true);
+        expect(s).toMatch(/(:approve|:decide)$/);
+      }
+      // every registry scope that ends in :approve / :decide is covered — a new
+      // checker scope added to SCOPES without being listed would be wildcard-grantable.
+      const checkerVerbs = SCOPES.filter((s) => /(:approve|:decide)$/.test(s));
+      expect([...PRIVILEGED_SCOPES].sort()).toEqual([...checkerVerbs].sort());
+    });
+
+    it("neither the assistant's tool scopes nor the agent preset carry a privileged scope", () => {
+      const privileged = new Set<string>(PRIVILEGED_SCOPES);
+      for (const s of TOOL_SCOPES) expect(privileged.has(s), `TOOL_SCOPES has ${s}`).toBe(false);
+      for (const s of AGENT_PRESET_SCOPES) expect(privileged.has(s), `AGENT_PRESET_SCOPES has ${s}`).toBe(false);
+    });
   });
 
   // F1e / L-49 — "Connect your agent" mints a PAT preset with this scope
@@ -150,6 +173,11 @@ describe("scope registry", () => {
 
     it("every choice is itself a valid, mintable scope", () => {
       for (const c of scopeChoices()) expect(isValidScope(c)).toBe(true);
+    });
+
+    it("offers every privileged (approve/decide) scope as an EXPLICIT choice — wildcards no longer grant them (D2)", () => {
+      const choices = new Set(scopeChoices());
+      for (const s of PRIVILEGED_SCOPES) expect(choices.has(s), s).toBe(true);
     });
 
     it("keeps task:delete:request/approve and project:delete:request/approve as explicit entries", () => {

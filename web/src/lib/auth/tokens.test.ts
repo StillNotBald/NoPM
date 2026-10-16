@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, it, expect } from "vitest";
 import { hasScope, hashToken, generateToken } from "./tokens";
+import { PRIVILEGED_SCOPES, SCOPES } from "./scopes";
 
 // ---------------------------------------------------------------------------
 // hashToken
@@ -99,10 +100,11 @@ describe("hasScope", () => {
   });
 
   // --- admin wildcard: *
-  it("allows anything when the token holds *", () => {
+  it("allows any NON-privileged scope when the token holds *", () => {
     expect(hasScope(["*"], "task:read")).toBe(true);
     expect(hasScope(["*"], "project:delete")).toBe(true);
     expect(hasScope(["*"], "deletion_request:approve")).toBe(true);
+    expect(hasScope(["*"], "task:delete:request")).toBe(true);
   });
 
   // --- empty / missing scopes
@@ -115,9 +117,64 @@ describe("hasScope", () => {
   });
 
   // --- compound action scope (three-part, e.g. task:delete:request)
-  it("denies a three-part scope unless matched exactly or by resource:* or *", () => {
+  it("denies a three-part scope unless matched exactly or (non-privileged only) by resource:* or *", () => {
     expect(hasScope(["task:delete:request"], "task:delete:approve")).toBe(false);
-    expect(hasScope(["task:*"], "task:delete:approve")).toBe(true);
+    expect(hasScope(["task:*"], "task:delete:request")).toBe(true);
     expect(hasScope(["task:delete:approve"], "task:delete:approve")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D2 (2026-10-16): wildcards never grant a privileged (approve/decide) scope
+// ---------------------------------------------------------------------------
+describe("hasScope — wildcards never grant privileged scopes (D2)", () => {
+  it("PRIVILEGED_SCOPES is exactly the five checker verbs", () => {
+    expect([...PRIVILEGED_SCOPES].sort()).toEqual(
+      [
+        "change:decide",
+        "project:delete:approve",
+        "rebaseline:approve",
+        "task:delete:approve",
+        "time:approve",
+      ].sort(),
+    );
+  });
+
+  it("every privileged scope is a registered scope (the list can't drift onto a typo)", () => {
+    const registry = new Set<string>(SCOPES);
+    for (const s of PRIVILEGED_SCOPES) expect(registry.has(s)).toBe(true);
+  });
+
+  for (const scope of PRIVILEGED_SCOPES) {
+    const resource = scope.split(":")[0];
+
+    it(`${scope}: the global * does not grant it`, () => {
+      expect(hasScope(["*"], scope)).toBe(false);
+    });
+
+    it(`${scope}: ${resource}:* does not grant it`, () => {
+      expect(hasScope([`${resource}:*`], scope)).toBe(false);
+    });
+
+    it(`${scope}: an exact grant still does`, () => {
+      expect(hasScope([scope], scope)).toBe(true);
+    });
+
+    it(`${scope}: * plus ${resource}:* together still do not grant it`, () => {
+      expect(hasScope(["*", `${resource}:*`], scope)).toBe(false);
+    });
+  }
+
+  it("a wildcard still grants every non-privileged scope of the resource (no over-correction)", () => {
+    const privileged = new Set<string>(PRIVILEGED_SCOPES);
+    for (const scope of SCOPES) {
+      if (privileged.has(scope)) continue;
+      expect(hasScope(["*"], scope), `* should grant ${scope}`).toBe(true);
+      expect(hasScope([`${scope.split(":")[0]}:*`], scope), `resource:* should grant ${scope}`).toBe(true);
+    }
+  });
+
+  it("holding task:delete:approve does not leak project:delete:approve (per-type gate)", () => {
+    expect(hasScope(["task:delete:approve"], "project:delete:approve")).toBe(false);
   });
 });

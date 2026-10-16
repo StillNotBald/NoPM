@@ -2,7 +2,7 @@
 
 **Goal:** Log time against a project, submit a week for approval, have a second person approve it (locking that week against further edits), and, if needed, formally reopen it.
 
-**Actors:** Team member (logs time, submits), Approver / second pair of eyes (approves, rejects, or reopens; must differ from the submitter), Finance/PMO (consumes the time report).
+**Actors:** Team member (logs time, submits), Approver / second pair of eyes (approves, rejects, or reopens; must be a different person from the submitter), Finance/PMO (consumes the time report).
 
 **Preconditions:** The team member is a `resource_member` with a cost rate. The week being submitted has at least one time entry (submission of an empty week is rejected).
 
@@ -13,7 +13,7 @@
 1. Log time: UI `/timesheets` (sidebar: Capacity) "log time" form, or `POST /api/time-entries` (scope `time:write`). Cost is auto-computed as `hours * member.cost_rate`, snapshotted at entry time — not recomputed later even if the member's rate changes. `billable` defaults from the project's `default_billable` when omitted (R-68/L-29); an explicit `true`/`false` always wins.
 2. Submit the week: `POST /api/timesheet-submissions` (scope `time:submit`) with `period_start` as a Monday. Snapshots `hours_total`/`entry_count` from that week's `time_entries` at submit time, never recomputed afterward. `422` if there is nothing to submit for that member+period, or an open submission already exists for it.
 3. UI: the submit panel on `/timesheets` surfaces this as a "Submit" action on the weekly grid; the submission also appears in the Review Queue (`/review`) as a `timesheet` item with an inline two-step decide action.
-4. Approve or reject: `POST /api/timesheet-submissions/{id}/decision` (scope `time:approve`) with `{decision: "approve"|"reject", rationale}`. **The deciding actor must differ from the submitter** (compound id+type comparison) — enforced on both approve and reject (guard symmetry). Rationale is required on reject.
+4. Approve or reject: `POST /api/timesheet-submissions/{id}/decision` (scope `time:approve`) with `{decision: "approved"|"rejected", rationale}`. **The deciding person must differ from the submitter** (a token counts as the person who minted it) — enforced on approve, reject and reopen (guard symmetry). Rationale is required on reject.
 5. Approval **locks the week**: `POST /api/time-entries` and `DELETE /api/time-entries/{id}` for that member+week now reject `422` (period-close lock, R-76), enforced both at the API route (`assertWeekUnlocked`) and by a DB trigger backstop with no bypass GUC — even a service-role writer cannot slip an entry into a closed week.
 6. Reopen a previously approved week: same decision endpoint, `{decision: "reopened", rationale}` — allowed only on `status=approved` submissions (`422` otherwise), rationale required, self-reopen blocked `403` by the same compound guard as approve/reject. Reopening reverts the submission to `submitted`, re-enters the Review Queue, and fail-soft re-notifies approvers.
 
@@ -23,7 +23,7 @@
 - **Log/delete a time entry against an already-approved week** → `422`, period-close lock, both `POST /api/time-entries` and `DELETE /api/time-entries/{id}`.
 - **Submit an already-open period** → `422`, duplicate-submission guard (partial unique index blocks a second open submission per member+week).
 - **Reject/approve a submission not in `status=submitted`** → `422`.
-- **`time:approve` on an agent token** → structurally impossible; `time:approve` can never reach an agent surface — asserted in the scope-ceiling tests, so no MCP tool or CLI-agent-preset path can approve a timesheet.
+- **`time:approve` on an agent token** → no MCP tool and no assistant tool carries `time:approve`, and the agent preset never includes it (asserted in the scope-ceiling tests). A token minted with `time:approve` can still decide a timesheet, but only one submitted by a different person than the token's owner.
 
 ## Postconditions
 
@@ -36,7 +36,7 @@
 - `/timesheets` weekly grid: Mon–Sun columns per member, "0" distinguishable from "—" (not submitted), row/column/grand totals, capacity shown against the week.
 - Filtered time report (member/project/date-range/billable) with by-member/by-project totals from `aggregateTimeReport` — cost is always the entry's snapshotted cost, never the member's current rate; the caption states the reconciliation rule against `/budget`.
 - `GET /api/export?entity=time_entries` (`project_id`/`member_id`/`date_from`/`date_to`/`billable` filters) for the governed CSV export.
-- Diagram: [`timesheet-lifecycle-flow.html`](../processes/timesheet-lifecycle-flow.html) exists today under this exact name in `docs/processes/`. A separate `period-close-reopen.html` diagram is planned in this same work item for the lock/reopen sub-flow specifically; it did not exist on disk at the time this catalogue was written.
+- Diagrams: [`timesheet-lifecycle-flow.html`](../processes/timesheet-lifecycle-flow.html) and, for the lock/reopen sub-flow, [`period-close-reopen-flow.html`](../processes/period-close-reopen-flow.html), both in `docs/processes/`.
 
 ## Traceability
 
@@ -46,4 +46,4 @@
 
 ## Open questions
 
-None outstanding for the flow itself; the `period-close-reopen.html` diagram gap is the only open item, flagged above and in the report.
+None outstanding for the flow itself.

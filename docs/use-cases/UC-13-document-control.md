@@ -36,7 +36,7 @@
 - The folder-tree viewer is itself the primary "presentable" surface for document control.
 - No `entity=documents` value is documented on `GET /api/export`'s entity list `[UNVERIFIED]`.
 - "History" deep-link pattern (R-86) applies to documents the same way it does to tasks/risks/issues, linking to `/trust?target_type=document&target_id=<id>` `[UNVERIFIED whether this specific link is wired on the document UI]`.
-- Diagram: [`document-control-flow.html`](../processes/document-control-flow.html) is planned in this same work item; it did not exist on disk at the time this catalogue was written.
+- Diagram: [`document-control-flow.html`](../processes/document-control-flow.html).
 
 ## Traceability
 
@@ -48,4 +48,3 @@
 
 - `[UNVERIFIED]` Exact error shape when a file exceeds the 25 MiB cap.
 - `[UNVERIFIED]` Whether the task/risk/issue-style "History" deep-link is wired on the document detail UI specifically.
-- The `document-control.html` diagram gap is flagged in the report.

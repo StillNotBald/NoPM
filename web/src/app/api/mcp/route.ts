@@ -1,6 +1,7 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { AuthError, toErrorResponse } from "@/lib/api/errors";
 import { resolveRequestId } from "@/lib/audit/channel";
 // mcp/tools.mjs is the single tool registry shared with the stdio server
 // (web/mcp/server.mjs) and the in-app BYOK assistant — kept outside src/ on
@@ -111,13 +112,17 @@ function buildServer(origin: string, token: string, requestId: string | null): S
 async function handle(request: Request): Promise<Response> {
   const authz = request.headers.get("authorization");
   if (!authz?.toLowerCase().startsWith("bearer ")) {
-    return new Response(
-      JSON.stringify({
-        error:
-          "Missing Bearer token. Create a scoped npm_ PAT in NoPM → Settings → API Tokens and connect with Authorization: Bearer <token>.",
-      }),
-      { status: 401, headers: { "content-type": "application/json" } },
+    // Same { error, code } 401 as every REST route (L-07), plus the challenge a
+    // client needs to learn the scheme; and the correlation id route() stamps
+    // on its own 401s.
+    const unauthorized = toErrorResponse(
+      new AuthError(
+        "Missing Bearer token. Create a scoped npm_ PAT in NoPM → Settings → API Tokens and connect with Authorization: Bearer <token>.",
+      ),
     );
+    unauthorized.headers.set("WWW-Authenticate", 'Bearer realm="nopm"');
+    unauthorized.headers.set("X-Request-Id", resolveRequestId(request.headers));
+    return unauthorized;
   }
   const token = authz.slice(7).trim();
   const origin = new URL(request.url).origin;

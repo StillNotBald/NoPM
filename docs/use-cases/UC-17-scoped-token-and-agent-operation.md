@@ -10,7 +10,7 @@
 
 ## Main flow
 
-1. Mint a token: UI `/tokens` → "Mint token", or `POST /api/tokens` (admin/manager **session** only — token actors cannot mint tokens for themselves). Pick scopes from `scopeChoices()` (derived from the live scope registry, `web/src/lib/auth/scopes.ts` — so the mint UI can never silently drift out of sync with a newly added scope again, R-86). A "least-privilege agent preset" (`AGENT_PRESET_SCOPES`, R-70/L-49) offers every read scope plus `task:write` in one click: read access to everything, the ability to edit tasks, and nothing that can delete, approve, or manage other tokens.
+1. Mint a token: UI `/tokens` → "Mint token", or `POST /api/tokens` (admin/manager **session** only — token actors cannot mint tokens for themselves). Pick scopes from `scopeChoices()` (derived from the live scope registry, `web/src/lib/auth/scopes.ts` — so the mint UI can never silently drift out of sync with a newly added scope again, R-86). A "least-privilege agent preset" (`AGENT_PRESET_SCOPES`, R-70/L-49) offers every read scope plus `task:write` in one click: read access to everything, the ability to edit tasks, and nothing that can delete, approve, or manage other tokens. The mint UI also lists the approve and decide scopes (`task:delete:approve`, `project:delete:approve`, `time:approve`, `change:decide`, `rebaseline:approve`). A `<resource>:*` wildcard such as `task:*` never grants them; each must be selected by exact name.
 2. The raw token (`npm_…`) is shown **exactly once**; it is stored server-side only as a SHA-256 hash, never logged, never retrievable again.
 3. CLI setup: `nopm auth set-token npm_xxx --url https://stillnotbald.com`, then `nopm whoami` to confirm actor + scopes. Every CLI request sends `X-NoPM-Client: cli`, tagging its audit rows `channel: cli`.
 4. MCP setup (stdio): set `NOPM_TOKEN` env var, point Claude Code/Desktop/Cursor at `web/mcp/server.mjs` (a cloned repo's root `.mcp.json` makes this zero-config for Claude Code). MCP setup (Streamable HTTP, remote): register `https://stillnotbald.com/api/mcp` as a connector with `Authorization: Bearer npm_…`. Both transports send `X-NoPM-Client: mcp`.
@@ -22,7 +22,8 @@
 
 - **A token tries to mint/revoke another token** → `403` — token management is user-session only.
 - **An agent calls an endpoint outside its granted scopes** → `403`, returned as an ordinary tool result over MCP (never a swallowed connection error) or an ordinary API error over the CLI/REST.
-- **Task or project deletion via an agent** → the MCP tool set only exposes the maker side (`request_task_deletion`, `request_project_deletion`); the checker (approve) step must be a human or a separately scoped token through the UI or API directly (UC-12).
+- **Task or project deletion via an agent** → the MCP tool set only exposes the maker side (`request_task_deletion`, `request_project_deletion`); the checker (approve) step must be taken by a different person through the UI or API (UC-12). A token can take it only if its owner is that person.
+- **Approve or decide via an agent** → none of the 24 MCP tools and no assistant tool carries an approve, decide or sign-off scope. A token holding one (granted by exact name) can still call the matching endpoint or the `nopm` approve and decide commands, and four-eyes applies: the approver must be a different person from the requester.
 - **Rate limiting** — a DB-backed fixed-window limiter keyed on workspace + actor class survives per-turn ephemeral assistant tokens and serverless cold starts; a limit hit is `429` `rate_limited`, logged as a `rate.limited` audit row; the limiter itself fails open (never blocks traffic) on its own infrastructure error.
 
 ## Postconditions
@@ -34,7 +35,7 @@
 
 - Trust Center's `channel` chip (R-82) is the direct evidence trail for "what did the agent actually do" — filterable to `channel=mcp` or `channel=cli`.
 - `GET /api/openapi.json` and `GET /llms.txt` are both drift-tested against the live route set (R-21/R-22/R-64) — an agent (or a developer) reading either gets an accurate, current picture, never a stale one.
-- Diagram: [`agent-token-lifecycle-flow.html`](../processes/agent-token-lifecycle-flow.html) is planned in this same work item; it did not exist on disk at the time this catalogue was written.
+- Diagram: [`agent-token-lifecycle-flow.html`](../processes/agent-token-lifecycle-flow.html).
 
 ## Traceability
 
@@ -44,4 +45,4 @@
 
 ## Open questions
 
-- The `agent-token-lifecycle.html` diagram gap is flagged in the report.
+- None outstanding for the flow itself.

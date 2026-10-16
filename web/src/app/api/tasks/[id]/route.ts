@@ -8,6 +8,7 @@ import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { actorLabel, announceRequested, principalOf, projectNameOf } from "@/lib/governance/decide";
 import { assertProjectUnlocked, SCHEDULE_SHAPE_TASK_FIELDS, touchesScheduleShape } from "@/lib/governance/lock";
 
 export const runtime = "nodejs";
@@ -212,6 +213,10 @@ export const DELETE = route(async ({ actor, params, request }) => {
       requested_by_type: actor.type,
       requested_by_id: actor.id,
       requested_by_label: actor.label,
+      // The HUMAN behind the requester (the user, or the token's creator) —
+      // four-eyes compares this, not the actor id. NULL only for a legacy
+      // token with no recorded creator.
+      requested_principal_id: principalOf(actor),
       before: task,
     })
     .select()
@@ -241,6 +246,20 @@ export const DELETE = route(async ({ actor, params, request }) => {
       body: reason ?? undefined,
       payload: { href: "/approvals", taskId: params.id, requestId: deletionRequest.id },
     });
+  });
+
+  // Tell the integration hub (chat approval cards) — never throws, runs after
+  // the request and its audit row are committed.
+  announceRequested({
+    workspaceId: actor.workspaceId,
+    kind: "task_deletion",
+    id: deletionRequest.id,
+    title: `Delete task "${task.name ?? params.id}"`,
+    summary: reason ?? null,
+    projectId: task.project_id ?? null,
+    projectName: await projectNameOf(db, actor.workspaceId, task.project_id),
+    requestedByLabel: actorLabel(actor),
+    requesterPrincipalId: principalOf(actor),
   });
 
   // Return 202 Accepted with the deletion_request

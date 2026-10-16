@@ -1,8 +1,8 @@
 # UC-12 · Task/project deletion via four-eyes approval
 
-**Goal:** Delete a task or a project only after a second, different actor reviews and approves the request, so the most destructive actions in the system can never be a single click (or a single agent call).
+**Goal:** Delete a task or a project only after a second, different person reviews and approves the request, so the most destructive actions in the system can never be a single click (or a single agent call).
 
-**Actors:** Requester / maker (any actor with the matching `:delete:request` scope), Approver / checker (a **different** actor holding the matching `:delete:approve` scope).
+**Actors:** Requester / maker (any actor with the matching `:delete:request` scope), Approver / checker (a **different** person holding the matching `:delete:approve` scope; a token counts as the person who minted it).
 
 **Preconditions:** The target task or project exists. For project deletion, the project must not be locked at commit time (see below).
 
@@ -14,21 +14,21 @@
 2. UI: the delete action on a task/project always goes through this path — there is no direct hard-delete button for either entity type.
 3. CLI: `nopm tasks rm <taskId> --reason "superseded"` (maker). MCP: `request_task_deletion` / `request_project_deletion` tools — the MCP server intentionally exposes only the maker side for both entity types.
 4. The pending request appears on `/approvals` (target type, shortened target id, requester, stated reason, when) and in the broader `/review` Review Queue.
-5. **Checker step.** A **different** token or user, holding the scope matching the request's `target_type` (`task:delete:approve` or `project:delete:approve`), calls `POST /api/deletion-requests/{id}/approve`. The route dispatches by `target_type` to the matching atomic commit RPC — `nopm_commit_task_deletion` or `nopm_commit_project_deletion` (`web/src/lib/governance/deletion-dispatch.ts`) — never a runtime-interpolated function name. On success: the target is deleted, the request moves to `status=committed`, and two audit rows are written in the same transaction: the entity delete (`task.delete`/`project.delete`) and `deletion_request.approved`.
+5. **Checker step.** A **different** person (in their own session, or with a token they minted), holding the scope matching the request's `target_type` (`task:delete:approve` or `project:delete:approve`), calls `POST /api/deletion-requests/{id}/approve`. The body may carry an optional `{ "note" }`, which is recorded in the audit trail with the approval. The route dispatches by `target_type` to the matching atomic commit RPC — `nopm_commit_task_deletion` or `nopm_commit_project_deletion` (`web/src/lib/governance/deletion-dispatch.ts`) — never a runtime-interpolated function name. On success: the target is deleted, the request moves to `status=committed`, and two audit rows are written in the same transaction: the entity delete (`task.delete`/`project.delete`) and `deletion_request.approved`.
 
 ## Alternate and exception flows
 
-- **Self-approval** (approver id+type matches requester) → `403`.
+- **Self-approval** (the approver is the requester's person, a token included) → `403`.
 - **Self-rejection** → `422` (four-eyes binds both decisions, not just approval).
 - **Checker rejects instead** → `POST /api/deletion-requests/{id}/reject` (same per-type scope gate as approve); the request closes without deleting anything.
 - **Requester wants to cancel their own pending request** → `POST /api/deletion-requests/{id}/withdraw` (scope: the matching `:delete:request` scope) — the maker's one permitted self-act, audited as `deletion_request.withdrawn`. On the Approvals page, if the pending request is yours, the only offered action is **Withdraw**, not Approve/Reject, since a self-decision would just be rejected anyway. Withdrawing is terminal (a withdrawn request can't be withdrawn again), but the same target can be re-requested afterward.
-- **Project became locked after the deletion was requested but before it was approved** → the commit RPC checks `is_locked` up front and raises `PROJECT_LOCKED` (errcode `P0010`), mapped to the same `422` the task path uses. Note the asymmetry: the task maker step does **not** pre-check lock state at request time; only the project path does, and only at commit time.
+- **Project became locked after the deletion was requested but before it was approved** → the commit RPC checks `is_locked` up front and raises `PROJECT_LOCKED` (errcode `P0010`), mapped to the same `422` the task path uses. Lock state is pre-checked when a **task** deletion is requested: `DELETE /api/tasks/{id}` returns `422` `project_locked` on a locked project. A **project** deletion request is not pre-checked; its lock is checked only at commit time.
 - **Milestones, risks, issues** → never enter this flow at all; they are single-step hard deletes with an audit row only (owner-locked scope decision, "Decision 3").
 
 ## Postconditions
 
 - Maker step: one `deletion_request.requested`-equivalent row `[UNVERIFIED exact action string]`, request status `pending`.
-- Checker approve: `task.delete`/`project.delete` + `deletion_request.approved`, written in the same DB transaction (fail-closed honesty — no window where the change exists without its audit record).
+- Checker approve: `task.delete`/`project.delete` + `deletion_request.approved` (with the optional approver note), written in the same DB transaction (fail-closed honesty — no window where the change exists without its audit record).
 - Checker reject: `deletion_request.rejected`.
 - Withdraw: `deletion_request.withdrawn`.
 - Trust Center's "What this proves" card explicitly calls out that deletion and invite commits write their audit row in the same transaction as the change.

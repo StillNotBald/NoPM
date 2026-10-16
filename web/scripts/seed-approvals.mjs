@@ -20,15 +20,11 @@
 // migration 20260814000032) is landed — but this script deliberately does
 // NOT yet seed a pending target_type='project' row here, for two reasons:
 //   1. There is no PAT-scope granting in THIS script to extend — the
-//      maker/checker api_tokens fixtures live in scripts/bootstrap.mjs
-//      (owned by the parallel docs wave this task must not touch). Note for
-//      whoever owns that file next: its "maker (agent)" token already holds
-//      the wildcard scope "project:*", which — per hasScope()'s resource-
-//      prefix matching (web/src/lib/auth/tokens.ts) — now ALSO grants
-//      project:delete:approve to the maker token once these two new scopes
-//      exist. That silently defeats four-eyes for project deletion (the
-//      maker could approve its own request, DB self-approval check aside)
-//      and needs the wildcard narrowed to an explicit scope list there.
+//      maker/checker api_tokens fixtures live in scripts/bootstrap.mjs.
+//      (The wildcard hazard this note used to describe — "project:*" also
+//      granting project:delete:approve — is closed twice over: bootstrap now
+//      lists explicit project scopes, and since 2026-10-16 hasScope() never
+//      lets a wildcard grant an approve/decide scope at all.)
 //   2. The approve/reject routes (web/src/app/api/deletion-requests/[id]/
 //      {approve,reject}/route.ts) are still hardcoded to
 //      nopm_commit_task_deletion + require task:delete:approve only — they
@@ -100,6 +96,12 @@ const { error } = await db.from("deletion_requests").insert({
   requested_by_type: "token",
   requested_by_id: requester.id,
   requested_by_label: "maker (agent)",
+  // 0045 (principal-aware four-eyes): four-eyes compares the HUMAN behind the
+  // requester, not the actor id — whoever approves (the admin login, the
+  // one-click demo manager, or the seeded "checker (agent)" token, which the
+  // bootstrap script gives a DIFFERENT owner than the maker token) must be a
+  // different person from this requester.
+  requested_principal_id: requester.id,
   before: taskForDeletion,
 });
 if (error) throw new Error(`deletion_requests: ${error.message}`);

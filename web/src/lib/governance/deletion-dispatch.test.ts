@@ -8,24 +8,16 @@ import {
 } from "./deletion-dispatch";
 import { RuleError } from "@/lib/api/errors";
 
-// R-84: the actual db.rpc(rpcName, {...}) call this dispatch map feeds lives
-// in the approve route itself (deletion-dispatch.ts only resolves names/
-// scopes — it never calls .rpc()), so — same source-text-drift pattern as
-// lock-db-backstop.test.ts's applyRoute/approveRoute checks — this reads the
-// route file and asserts the provenance fields are actually threaded onto
-// the RPC call args, not just present somewhere in the file.
-const approveRoutePath = join(
-  __dirname,
-  "..",
-  "..",
-  "app",
-  "api",
-  "deletion-requests",
-  "[id]",
-  "approve",
-  "route.ts",
-);
-const approveRoute = readFileSync(approveRoutePath, "utf8");
+// R-84: the actual db.rpc(...) call this dispatch map feeds lives in the
+// governed decision path (deletion-dispatch.ts only resolves names/scopes — it
+// never calls .rpc()). Since the 2026-10-16 principal-four-eyes change the
+// approve route is a thin wrapper and the call lives in
+// src/lib/governance/decide.ts (approveDeletion) so the console, CLI, MCP and
+// chat connectors share it. Same source-text-drift pattern as
+// lock-db-backstop.test.ts: read that file and assert the provenance fields
+// are actually threaded onto the RPC call args, not just present somewhere in
+// the file.
+const approveRoute = readFileSync(join(__dirname, "decide.ts"), "utf8");
 
 describe("resolveDeletionCommitRpc — approve-route dispatch (devops-wave1b, U2)", () => {
   it("resolves 'task' to the task commit RPC", () => {
@@ -75,17 +67,25 @@ describe("per-type decision-verb scope gates (adversarial-verify fix: task:delet
   });
 });
 
-describe("R-84: approve route threads provenance onto the commit RPC call", () => {
+describe("R-84: the approve path threads provenance onto the commit RPC call", () => {
+  const rpcStart = approveRoute.indexOf("db.rpc(resolveDeletionCommitRpc(");
+  const rpcCall = approveRoute.slice(rpcStart, approveRoute.indexOf("});", rpcStart));
+
+  it("finds the dispatching RPC call in decide.ts", () => {
+    expect(rpcStart).toBeGreaterThan(-1);
+  });
+
   it("passes p_channel and p_correlation_id from the actor alongside the existing args", () => {
-    const rpcCall = approveRoute.slice(
-      approveRoute.indexOf("db.rpc(rpcName"),
-      approveRoute.indexOf("});", approveRoute.indexOf("db.rpc(rpcName")),
-    );
     expect(rpcCall).toMatch(/p_channel:\s*actor\.channel\s*\?\?\s*null/);
     expect(rpcCall).toMatch(/p_correlation_id:\s*actor\.requestId\s*\?\?\s*null/);
     // Not p_request_id — that key is already the deletion_requests row id
-    // (params.id) on this same call; a second p_request_id would silently
-    // overwrite it in the object literal instead of adding a new arg.
-    expect(rpcCall).toMatch(/p_request_id:\s*params\.id/);
+    // on this same call; a second p_request_id would silently overwrite it in
+    // the object literal instead of adding a new arg.
+    expect(rpcCall).toMatch(/p_request_id:\s*id\b/);
+  });
+
+  it("passes the approver's PRINCIPAL (the human) and the optional note (principal four-eyes, 0045)", () => {
+    expect(rpcCall).toMatch(/p_approver_principal_id:\s*principal\b/);
+    expect(rpcCall).toMatch(/p_note:\s*note\b/);
   });
 });

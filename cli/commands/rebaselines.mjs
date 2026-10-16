@@ -3,8 +3,8 @@
 // Endpoints (source of truth: web/src/app/api/):
 //   GET  /api/projects/:id/rebaselines         project:read  — list rebaselines for a project
 //   POST /api/projects/:id/rebaselines         project:write — create a rebaseline
-//   POST /api/rebaselines/:id/signoff          project:write — cast a go/no_go vote
-//   POST /api/rebaselines/:id/apply            project:write — apply an approved rebaseline
+//   POST /api/rebaselines/:id/signoff          rebaseline:approve — cast a go/no_go vote (four-eyes: not your own request)
+//   POST /api/rebaselines/:id/apply            rebaseline:approve — apply an approved rebaseline
 //
 // Status flow: draft → pending_approval → approved | rejected → applied
 // A rebaseline is pending_approval when the project is locked (governed flow).

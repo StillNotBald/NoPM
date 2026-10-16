@@ -64,12 +64,58 @@ const ALLOWLIST: Record<string, string> = {
   "api/notifications/[id]": "per-user read-state, ADR 0009 class",
   "api/notifications/read-all": "per-user read-state, ADR 0009 class",
   "api/documents/[id]/file/sign": "signed URL issuance, no row mutation",
-  "api/reports/deck": "read that renders; scope audit:read",
-  "api/reports/project/[id]": "read that renders; scope audit:read",
+  "api/reports/deck": "read that renders; scopes audit:read + budget:read (budget figures in the output)",
+  "api/reports/project/[id]": "read that renders; scopes audit:read + budget:read (budget figures in the output)",
   "api/assistant/chat": "conversation persistence is per-user convenience; every tool call goes through the audited API",
   "api/mcp": "proxy; the target routes audit",
   "api/me/preferences": "ADR 0009 unaudited",
+  "api/integrations/connectors/[id]/test": "read-style credential probe: asks the chat platform for the bot's own info and writes no NoPM row (asserted in actions.test.ts)",
+  "api/integrations/lark/[connectorId]/card": "card.action.trigger: the only mutation is a human approve/reject: handleApprovalAction (inbound.ts) -> decideApproval (decide.ts) -> approveDeletion (audited inside the nopm_commit_*_deletion RPC) | rejectDeletion | decideChangeRequest | decideTimesheet, each with its own writeAudit; channel 'lark'",
+  "api/integrations/lark/[connectorId]/events": "chat event webhook: url_verification and the help/approvals/unknown DM replies write nothing; a card.action.trigger delegates to the card route; 'link <code>' -> identity.ts consumeLinkCode writes integration.identity.link for a NEW link. Open gap: re-confirming an already-linked account burns the code with no audit row",
+  "api/integrations/lark/[connectorId]/relay": "self-host relay: verifies the HMAC, then runs the same handleLarkPayload as the webhook routes, so the audit row is the one named for those routes (card -> decide.ts; link -> identity.ts); its only DB write is the nopm_rate_check counter",
 };
+
+/**
+ * Routes that are thin wrappers over a governed decision function in
+ * src/lib/governance/decide.ts (2026-10-16): one code path for the console,
+ * CLI, MCP and chat connectors, so the audit row is written THERE, not in the
+ * route. This is a narrower, checked mechanism — NOT an allowlist of
+ * unaudited routes: each entry must (a) call the named function from
+ * @/lib/governance/decide, (b) carry NO writeAudit( of its own (so the
+ * mutation can never be audited twice), and (c) name a function whose body
+ * contains exactly ONE writeAudit( call. A route that stops delegating, or a
+ * delegate that loses (or doubles) its audit call, fails the build.
+ */
+const DELEGATED_AUDIT: Record<string, { fn: string; reason: string }> = {
+  "api/deletion-requests/[id]/reject": {
+    fn: "rejectDeletion",
+    reason: "decision logic + 'deletion_request.rejected' audit live in decide.ts",
+  },
+  "api/deletion-requests/[id]/withdraw": {
+    fn: "withdrawDeletion",
+    reason: "decision logic + 'deletion_request.withdrawn' audit live in decide.ts",
+  },
+  "api/change-requests/[id]/decision": {
+    fn: "decideChangeRequest",
+    reason: "decision logic + 'change_request.decide' audit live in decide.ts",
+  },
+  "api/timesheet-submissions/[id]/decision": {
+    fn: "decideTimesheet",
+    reason: "decision logic + 'timesheet.approved|rejected|reopened' audit live in decide.ts",
+  },
+};
+
+const DECIDE_TS = join(process.cwd(), "src", "lib", "governance", "decide.ts");
+
+/** Source of one top-level exported function in decide.ts, up to the next top-level declaration. */
+function decideFunctionSource(fn: string): string | null {
+  const src = readFileSync(DECIDE_TS, "utf8");
+  const start = src.indexOf(`export async function ${fn}(`);
+  if (start < 0) return null;
+  const rest = src.slice(start + 1);
+  const next = rest.search(/\n(?:export |async function |function |type |const |\/\/ ──)/);
+  return next < 0 ? rest : rest.slice(0, next);
+}
 
 describe("audit-coverage invariant", () => {
   const routes = walk(API_DIR);
@@ -105,12 +151,49 @@ describe("audit-coverage invariant", () => {
 
       const apiPath = toApiPath(file);
       if (Object.prototype.hasOwnProperty.call(ALLOWLIST, apiPath)) continue; // explicitly justified
+      if (Object.prototype.hasOwnProperty.call(DELEGATED_AUDIT, apiPath)) continue; // audited in decide.ts — verified below
 
       violations.push(apiPath);
     }
 
     expect(violations).toEqual([]);
   });
+});
+
+describe("audit delegation to governance/decide.ts", () => {
+  it("a delegated route is never also allowlisted as unaudited", () => {
+    for (const apiPath of Object.keys(DELEGATED_AUDIT)) {
+      expect(Object.prototype.hasOwnProperty.call(ALLOWLIST, apiPath), apiPath).toBe(false);
+    }
+  });
+
+  for (const [apiPath, { fn, reason }] of Object.entries(DELEGATED_AUDIT)) {
+    describe(`${apiPath} -> ${fn} (${reason})`, () => {
+      const abs = join(process.cwd(), "src", "app", apiPath, "route.ts");
+
+      it("is a real mutating route", () => {
+        expect(existsSync(abs)).toBe(true);
+        expect(MUTATING_VERB.test(readFileSync(abs, "utf8"))).toBe(true);
+      });
+
+      it("calls the delegate imported from @/lib/governance/decide", () => {
+        const src = readFileSync(abs, "utf8");
+        expect(src).toMatch(/from "@\/lib\/governance\/decide"/);
+        expect(src).toMatch(new RegExp(String.raw`\b${fn}\s*\(`));
+      });
+
+      it("has no writeAudit( of its own (exactly one audit row, written by the delegate)", () => {
+        expect(WRITE_AUDIT_CALL.test(readFileSync(abs, "utf8"))).toBe(false);
+      });
+
+      it("the delegate's body contains exactly one writeAudit( call", () => {
+        const body = decideFunctionSource(fn);
+        expect(body, `${fn} not found in decide.ts`).not.toBeNull();
+        const calls = (body as string).match(/writeAudit\s*\(/g) ?? [];
+        expect(calls.length).toBe(1);
+      });
+    });
+  }
 });
 
 describe("BYOK credential audit hygiene", () => {

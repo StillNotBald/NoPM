@@ -73,6 +73,8 @@ nopm approvals                               # list pending deletion requests
 nopm approvals --status all                  # all statuses
 nopm approve <requestId>                     # CHECKER (must be a different token with task:delete:approve)
 nopm approve reject <requestId> [--reason <why>]
+nopm review                                  # everything waiting on a person: deletions, change requests, timesheets, rebaselines — and whether YOU may decide each
+nopm review --kind timesheet,change_request  # narrow by kind (read-only; deciding stays with the commands above / the console)
 ```
 
 ## Audit log & discovery

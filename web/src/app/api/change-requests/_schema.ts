@@ -2,14 +2,25 @@ import { z } from "zod";
 
 const categoryEnum = z.enum(["scope", "schedule", "cost", "quality", "resource", "other"]);
 const priorityEnum = z.enum(["low", "medium", "high", "critical"]);
-const statusEnum = z.enum(["raised", "under_review", "approved", "rejected", "deferred", "implemented"]);
+
+/**
+ * The only statuses a change request can be RAISED in. Every terminal status
+ * needs a decider (the cr_maker_checker CHECK), so accepting one at creation
+ * used to surface as a raw database constraint error (UC-10); it also made a
+ * request that skipped four-eyes look legitimate. Approve / reject / defer go
+ * through POST /api/change-requests/:id/decision.
+ */
+export const RAISE_TIME_STATUSES = ["raised", "under_review"] as const;
+const raiseStatusEnum = z.enum(RAISE_TIME_STATUSES, {
+  error: "status must be raised or under_review when raising a change request; use /decision to approve, reject or defer",
+});
 
 export const createChangeRequestSchema = z.object({
   title: z.string().min(1, "title is required").max(255),
   description: z.string().optional().nullable(),
   category: categoryEnum.optional().default("scope"),
   priority: priorityEnum.optional().default("medium"),
-  status: statusEnum.optional().default("raised"),
+  status: raiseStatusEnum.optional().default("raised"),
   impact_summary: z.string().optional().nullable(),
   impact_schedule_days: z.number().int().optional().nullable(),
   impact_cost: z.number().optional().nullable(),

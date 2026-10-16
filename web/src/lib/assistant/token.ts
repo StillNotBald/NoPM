@@ -33,6 +33,12 @@ export function scopesForActor(actor: Actor): string[] {
 /**
  * Mint a real api_tokens row scoped to the assistant tool set.
  * Caller MUST call revokeEphemeralToken(id) in a finally block.
+ *
+ * `created_by` records the HUMAN the assistant is acting for (the signed-in
+ * user's profile id). Four-eyes compares humans, not actor ids, so the token's
+ * owner is what makes "the assistant requested it, the same person can't
+ * approve it" hold; a token minted without one could never approve anything
+ * (fail-closed) and would hide whose request it was.
  */
 export async function mintEphemeralToken(actor: Actor): Promise<EphemeralToken> {
   const { raw, hash, prefix } = generateToken();
@@ -47,7 +53,7 @@ export async function mintEphemeralToken(actor: Actor): Promise<EphemeralToken> 
       token_hash: hash,
       prefix,
       scopes: scopesForActor(actor),
-      created_by: actor.id,
+      created_by: actor.principalId ?? (actor.type === "user" ? actor.id : null),
       expires_at: expiresAt,
     })
     .select("id")

@@ -4,12 +4,16 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
 
 export const runtime = "nodejs";
 
-// POST /api/rebaselines/[id]/apply — apply an approved rebaseline (project:write)
+// POST /api/rebaselines/[id]/apply — apply an approved rebaseline (rebaseline:approve)
 export const POST = route(async ({ actor, params }) => {
   requireScope(actor, "rebaseline:approve");
+  // Applying is the checker's act (same scope as sign-off): it needs a human
+  // behind the actor, and that human must not be the requester.
+  const principal = requirePrincipal(actor);
 
   const db = createAdminClient();
 
@@ -26,8 +30,13 @@ export const POST = route(async ({ actor, params }) => {
 
   // Four-eyes: the requester may not apply a rebaseline they raised (R-04).
   if (actor.type === "user" && rebaseline.requested_by && actor.id === rebaseline.requested_by) {
-    throw new RuleError("Four-eyes: you cannot apply a rebaseline you requested.");
+    throw new RuleError("Four-eyes: you cannot apply a rebaseline you requested.", "self_approval");
   }
+  assertNotRequesterPrincipal(
+    rebaseline.requested_principal_id,
+    principal,
+    "Four-eyes: you cannot apply a rebaseline you requested.",
+  );
 
   // Only approved rebaselines may be applied
   if (rebaseline.status !== "approved") {

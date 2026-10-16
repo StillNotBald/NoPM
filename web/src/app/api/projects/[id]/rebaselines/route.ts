@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
+import { principalOf } from "@/lib/governance/decide";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
@@ -108,6 +109,11 @@ export const POST = route(async ({ actor, params, request }) => {
       status,
       reason: parsed.data.reason,
       requested_by: actor.type === "user" ? actor.id : null,
+      // The HUMAN behind the requester (the user, or the token's creator). The
+      // legacy requested_by above is user-only, so a token-raised rebaseline
+      // used to carry no requester at all and sign-off four-eyes had nothing
+      // to compare against.
+      requested_principal_id: principalOf(actor),
       before: (parsed.data.before ?? null) as object | null,
       after: (parsed.data.after ?? null) as object | null,
       created_at: now,

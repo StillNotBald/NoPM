@@ -83,7 +83,7 @@ Try these, roughly in order:
 
 ## What you cannot do, and why
 
-**Claude can request a deletion. It can never approve one.** NoPM enforces "four-eyes" (maker-checker) governance: whoever asks for a task or project to be deleted cannot be the same actor who approves it, and that rule is enforced by the database itself, not just by the app. The least-privilege agent token described in Step 2 is deliberately built without any approve, admin, or token-management scope, so even if you asked Claude to approve its own deletion request, it structurally cannot: it doesn't hold the scope needed, and even a token that did would be rejected as a "different actor" check by the server.
+**Claude can request a deletion. Approving it takes a different person.** NoPM enforces "four-eyes" (maker-checker) governance: whoever asks for a task or project to be deleted cannot be the same person who approves it, and that rule is enforced by the database itself, not just by the app. A token counts as the person who minted it. The least-privilege agent token described in Step 2 is deliberately built without any approve, admin, or token-management scope, so even if you asked Claude to approve its own deletion request, it has no scope to do it with. Even a token that did hold an approve scope would be refused if you minted it, because it counts as you, the same person who raised the request.
 
 This is not a UI restriction you could work around by clicking a different button. It is a rule the API and the database both enforce independently.
 

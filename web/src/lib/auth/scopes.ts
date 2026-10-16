@@ -5,9 +5,11 @@
  * creation rather than silently granted (and never matched).
  *
  * hasScope() (auth/tokens.ts) still honours legacy wildcards ("<resource>:*" and
- * the global "*") for already-minted tokens, but isValidScope() — used at MINT
- * time — accepts only concrete scopes and per-resource "<resource>:*" wildcards.
- * The bare global "*" can no longer be minted (defense-in-depth).
+ * the global "*") for already-minted tokens — EXCEPT for PRIVILEGED_SCOPES
+ * (the approve/decide verbs), which wildcards never grant — but isValidScope()
+ * — used at MINT time — accepts only concrete scopes and per-resource
+ * "<resource>:*" wildcards. The bare global "*" can no longer be minted
+ * (defense-in-depth).
  */
 export const SCOPES = [
   "project:read", "project:write",
@@ -33,6 +35,26 @@ export const SCOPES = [
 ] as const;
 
 export type Scope = (typeof SCOPES)[number];
+
+/**
+ * Scopes that DECIDE a governed request (the "checker" half of every
+ * maker-checker flow). Wildcards NEVER grant these (2026-10-16, D2): the
+ * global `*` and any `<resource>:*` ("task:*", "project:*", "time:*",
+ * "change:*", "rebaseline:*") stop at the privileged boundary, so a
+ * token that was handed a convenient wildcard to read and write a resource
+ * cannot also approve its own work. A privileged scope must be granted by
+ * its exact name, which makes every approver token a deliberate act.
+ *
+ * Enforced in hasScope() (auth/tokens.ts); the mint UI's wildcard choices
+ * are unchanged, they simply no longer include these.
+ */
+export const PRIVILEGED_SCOPES: readonly Scope[] = [
+  "task:delete:approve",
+  "project:delete:approve",
+  "time:approve",
+  "change:decide",
+  "rebaseline:approve",
+];
 
 /** Resource prefixes that support a `<resource>:*` wildcard grant. */
 export const SCOPE_RESOURCES: ReadonlySet<string> = new Set(

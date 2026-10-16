@@ -103,7 +103,7 @@ async function verifyBearer(raw: string): Promise<Actor> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("api_tokens")
-    .select("id, workspace_id, name, scopes, revoked, expires_at")
+    .select("id, workspace_id, name, scopes, revoked, expires_at, created_by")
     .eq("token_hash", hashToken(raw))
     .maybeSingle();
 
@@ -126,6 +126,12 @@ async function verifyBearer(raw: string): Promise<Actor> {
     label: data.name,
     workspaceId: data.workspace_id,
     scopes: data.scopes ?? [],
+    // The human who minted this token (api_tokens.created_by). Four-eyes
+    // compares HUMANS, never actor ids: a person's token is that person, so
+    // it can never approve what the person (or another of their tokens)
+    // raised. NULL for legacy tokens with no recorded creator — those can
+    // never approve (fail-closed, enforced in @/lib/governance/decide).
+    principalId: data.created_by ?? null,
   };
 }
 
@@ -149,6 +155,8 @@ async function verifySession(): Promise<Actor> {
     label: profile.display_name || profile.email || user.email || user.id,
     workspaceId: profile.workspace_id,
     role: profile.role,
+    // A signed-in person is their own principal.
+    principalId: user.id,
   };
 }
 

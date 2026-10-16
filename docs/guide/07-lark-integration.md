@@ -1,0 +1,372 @@
+# Connect NoPM to Lark or Feishu
+
+This guide is for the person who owns or administers a NoPM workspace and wants approvals to reach people where they already chat. It covers what the integration does, what it will never do, how to set it up (hosted, or self-hosted with no public address), and what to check when something does not arrive.
+
+Two quick terms:
+
+- **Lark** is the international chat-and-work platform. **Feishu** is the same product family for mainland China. They are separate platforms with separate accounts and separate developer consoles. An app made on one cannot be used on the other.
+- A **self-built app** (also called a custom app) is a small app you create inside your own Lark or Feishu organization so NoPM can message people there. Nothing is published to a public store.
+
+## What you get
+
+| Moment | What happens |
+|---|---|
+| **Approval cards** | When someone raises a deletion request, a change request or a timesheet submission, each eligible approver who has linked their account gets a Lark direct message with the request details and **Approve** and **Reject** buttons. Reject asks for a reason. |
+| **One decision, everywhere** | When the request is decided from any place (the NoPM console, the API, the CLI, an agent, or another card), every card already sent updates in place to show who decided, through which channel, and when. The buttons disappear. |
+| **Weekly digest** | Once a week NoPM posts a status summary (project health, milestones due soon, open high risks, pending approvals) to a group chat you choose. There is also a **Send now** button. |
+| **Bot commands** | Message the bot directly: `help`, `link NPL-XXXX-XXXX` (connects your account) and `approvals` (lists what is waiting for you). |
+
+Who counts as an eligible approver: a workspace admin or manager, with a linked Lark account, who is not the person who raised the request.
+
+## The governance guarantees
+
+The integration is built so that adding a chat channel cannot weaken the rules in [guide 03](03-how-governance-works.md).
+
+1. **The decision is made in NoPM, not in Lark.** Lark only draws a card and passes a button click along. NoPM decides, using the same code path as the console, the API, the CLI and the agent tools.
+2. **Four-eyes is enforced between people.** A click is mapped to a NoPM account you linked on purpose (see "Link your account"). The person who raised a request can never approve it, whichever channel they use, and a click from a Lark account that is not linked is refused.
+3. **Buttons cannot be passed around.** Each card carries a single-use, expiring (7 days) token that is bound to one recipient and one request. Forward the card to a colleague and their click is refused. Click twice and the second click does nothing.
+4. **Every decision is audited once, with its channel.** The audit row records `channel = lark`, which connector, the Lark event id and which Lark user clicked. Filter the Trust Center by channel `lark` to review them. Replays of the same click (a double tap, a Lark retry) return the stored result and write nothing new.
+5. **The usual rules still apply at click time.** Role, scopes and project locks are checked when the button is pressed, not when the card was sent. If someone's role changed in between, the click is refused.
+6. **Secrets stay secret.** The app secret and keys are encrypted at rest, never returned by any API, and never logged. The relay secret (self-host only) is stored only as a one-way hash. Single-use button tokens are stored hashed.
+7. **The bot listens narrowly.** It reads only one-to-one direct messages sent to it, to recognise three commands. Group chat traffic and messages from other bots are ignored, and the text of a message is not stored.
+8. **Chat is best-effort, the record is not.** If Lark is down or a card fails to send, the request and its audit row still exist and the Approvals page in NoPM works as always. A delivery that fails is retried, then marked dead, without ever blocking or rolling back the governed change.
+
+## Before you start
+
+You need:
+
+- A NoPM account with the **admin** role.
+- Someone who can create and publish an app in your Lark or Feishu organization (usually a tenant admin). A self-built app has to be released and approved by a tenant admin before it can message anyone.
+- A decision on two things, below.
+
+### Lark or Feishu?
+
+Create the app on the platform your people actually use. The two are not interchangeable, and the choice is stored on the connector as its **region**.
+
+| | **Lark (international)** | **Feishu (China)** |
+|---|---|---|
+| Developer console | `open.larksuite.com/app` | `open.feishu.cn/app` |
+| Typical use | Teams outside mainland China, including Southeast Asia | Teams whose Feishu tenant is in mainland China |
+| Where the platform holds data | Singapore, per the vendor's published material | Beijing, per the vendor's published material |
+| NoPM setting | Region: **Lark (international)** | Region: **Feishu (China)** |
+
+Residency note: those locations come from public vendor material, and no Malaysia-specific region was found. If you have a data-residency requirement, confirm it with your Lark or Feishu admin before connecting.
+
+### Webhook or long connection?
+
+This is how Lark gets its events (messages and button clicks) to NoPM.
+
+| | **Webhook** | **Long connection** |
+|---|---|---|
+| Lark reaches NoPM by | Calling a public HTTPS address on your NoPM | Not at all: a small worker you run opens an outbound WebSocket to Lark |
+| NoPM must be reachable from the internet | Yes, over HTTPS | No. Works behind a firewall, on a laptop, on a private network |
+| Extra process to run | None | One worker (`web/scripts/lark-worker.mjs`) |
+| Choose it when | NoPM is hosted, or self-hosted behind a public domain | NoPM is self-hosted with no public address |
+| Works for | Self-built apps (and later store apps) | Self-built apps only |
+
+Both modes run the same approval code. The long-connection worker does not decide anything: it receives each event from Lark and forwards it to NoPM over a signed request, and NoPM does the rest.
+
+## Step 1: Create the app in the Lark or Feishu developer console
+
+1. Open the developer console for your platform (table above) and choose **Create custom app** (Feishu: create an enterprise self-built app).
+2. Give it a name people will recognise in a chat, for example "NoPM approvals", and a short description and icon.
+3. Open **Credentials and basic info** and keep the **App ID** (it starts with `cli_`) and **App Secret** to hand. You will paste both into NoPM. Treat the secret like a password.
+4. Open **Events and callbacks**, then **Encryption strategy**. Keep the **Verification Token** to hand. For webhook mode, also set an **Encrypt Key** and keep it. You will paste these into NoPM too.
+
+## Step 2: Turn on the bot
+
+In the app's **Add features** (or **Features**) area, enable **Bot**. The bot is what sends cards and receives direct messages. Without it, nothing below works.
+
+## Step 3: Add permissions
+
+Open **Permissions and scopes** and add the scopes below. Names differ slightly between console versions, so match them by meaning and use the console's search box.
+
+| What NoPM needs to do | Scope (as named in the console) |
+|---|---|
+| Send cards and replies as the bot | Send messages as an app: `im:message:send_as_bot` |
+| Update a card after it was decided | Update messages sent by the app: `im:message:update` |
+| Read direct messages sent to the bot (for `help`, `link`, `approvals`) | Read messages sent to the bot in direct chat: `im:message.p2p_msg:readonly` |
+
+NoPM does not need access to your contacts, documents, calendars or group history, and the integration does not ask for them. Add only the three above. (The exact scope identifiers are taken from the vendor's published names and have not yet been confirmed against a live tenant. If the console offers a differently named equivalent for the same action, use it, and report the mismatch.)
+
+## Step 4: Connect the app in NoPM
+
+1. In NoPM open **Integrations** (`/integrations`) and choose to connect Lark.
+2. Fill in the form:
+   - **Name**: anything, for example "Lark".
+   - **Region**: Lark (international) or Feishu (China), to match where you made the app.
+   - **How Lark reaches NoPM**: Webhook or Long connection (see above).
+   - **App ID** and **App Secret** from Step 1.
+   - **Verification Token** and, optionally, **Encrypt Key**, from Step 1. In webhook mode, use an Encrypt Key: with one, NoPM verifies a signature on every call and decrypts the body, and without it a verification token alone is the only proof a call came from Lark. In long-connection mode they are not used for delivery.
+3. Save, then choose **Test connection**. NoPM asks Lark for the bot's details with your App ID and secret, so a wrong secret or the wrong region shows up here.
+4. Keep the page open. Depending on the mode it now shows what to do next:
+   - **Webhook**: two web addresses (events and card callbacks) to paste into the Lark console in Step 5.
+   - **Long connection**: a **relay secret**, **shown only once**. Copy it now. It is stored only as a hash, so if you lose it you create a new connector.
+
+Only one Lark connector can be active per workspace.
+
+## Step 5: Tell Lark where to send events
+
+Open **Events and callbacks** in the Lark developer console.
+
+### Webhook mode
+
+1. Set the subscription method for events to **send events to a developer server** (the wording varies) and paste the events address:
+
+   ```
+   https://<your-nopm-host>/api/integrations/lark/<connector-id>/events
+   ```
+
+   Lark immediately sends a verification request. It succeeds only if the address is reachable over HTTPS and the Verification Token you saved in NoPM matches the console.
+2. Add the event **Message received** (`im.message.receive_v1`).
+3. Open **Callback configuration**, choose to send callbacks to a developer server, and paste the card address:
+
+   ```
+   https://<your-nopm-host>/api/integrations/lark/<connector-id>/card
+   ```
+
+4. Add the callback **Card interaction** (`card.action.trigger`). This is what makes the Approve and Reject buttons work.
+
+The connector id is shown in NoPM on the Integrations page after Step 4. Both addresses use it, which is why you create the connector in NoPM first. If Lark's verification request fails, check that the Verification Token (and Encrypt Key) in NoPM match the console exactly, then save again in the console.
+
+### Long-connection mode
+
+1. Set the subscription method for **events** to **receive events through persistent connection**. Add **Message received** (`im.message.receive_v1`).
+2. Open **Callback configuration**, set the subscription method to **persistent connection** as well, and add **Card interaction** (`card.action.trigger`).
+3. Run the worker (Step 6). The console usually refuses to save a long-connection setting until a client has connected at least once, so you may need to start the worker first, then come back and save.
+
+> **Known open question, please read.** The official SDK's own chat module registers `card.action.trigger` on the same long-connection channel, so card buttons are expected to work with no public address. However, the SDK's written documentation says long connection covers events and not callbacks, and this has not yet been confirmed against a live international tenant. If your console does not offer the persistent-connection method for card callbacks, the buttons will not work in long-connection mode. In that case, approvals still arrive as cards, the card carries a link to the request in NoPM, and the decision can be made there; or use webhook mode with a public HTTPS address. Test one approval end to end before telling your team the buttons work.
+
+## Step 6 (long connection only): run the worker
+
+The worker is one Node script. It needs Node 20 or newer, outbound internet access to Lark, and network access to your NoPM. It listens for nothing, so no port has to be opened.
+
+**Run exactly one worker per Lark app.** Lark delivers each event to one randomly chosen connected client. Two workers would each receive roughly half of the clicks, and a click that lands on a stopped or misconfigured copy is lost. The script refuses to start a second copy on the same machine, but it cannot see other machines. Do not run it on a serverless platform, in a cluster mode, or with more than one replica.
+
+### Settings
+
+| Variable | Required | Value |
+|---|---|---|
+| `LARK_APP_ID` | yes | The `cli_...` App ID from Step 1 |
+| `LARK_APP_SECRET` | yes | The App Secret from Step 1 |
+| `LARK_REGION` | yes | `lark` or `feishu`, matching the connector |
+| `NOPM_APP_URL` | yes | Where the worker reaches NoPM, for example `https://nopm.example.com` or `http://localhost:3000` |
+| `NOPM_LARK_CONNECTOR_ID` | yes | Shown on the Integrations page |
+| `NOPM_LARK_RELAY_SECRET` | yes | Shown once in Step 4 |
+| `LARK_LOG_LEVEL` | no | `error`, `warn` (default) or `info`. Debug is refused on purpose: the SDK's debug output contains message bodies |
+| `NOPM_LARK_RELAY_TIMEOUT_MS` | no | 500 to 2800, default 2500. Lark allows 3 seconds in total for a button click |
+| `NOPM_LARK_ALLOW_MULTI` | no | `1` skips the same-machine duplicate check. Leave unset |
+
+Put the secrets in a file that only the service user can read, never on a command line (command lines show up in process lists).
+
+### Run it by hand first
+
+From the `web/` folder of your NoPM checkout (after `npm install`, which brings in the one dependency the worker needs):
+
+```bash
+set -a; . /etc/nopm/lark-worker.env; set +a
+node scripts/lark-worker.mjs          # same as: npm run lark:worker
+```
+
+On start it checks everything it can before opening the socket: your settings, a signed test call to NoPM (which catches a wrong connector id, a wrong secret, a connector that is paused or still in webhook mode, and a clock that is off by more than five minutes), then it connects to Lark. A healthy start looks like:
+
+```
+... info starting region=lark app=cli_... connector=... relay=https://nopm.example.com
+... warn single instance only: Lark delivers each event to ONE random connected client. ...
+... info relay check ok connector=...
+... info connected to Lark region=lark
+```
+
+The worker never writes secrets, message text or button tokens to its log. It records only event types, status codes and timings.
+
+| Exit code | Meaning | Should a supervisor restart it? |
+|---|---|---|
+| `0` | Clean shutdown (Ctrl+C or SIGTERM). In-flight requests are given 5 seconds to finish | no |
+| `1` | A runtime failure, such as the connection to Lark giving up after retries, or NoPM staying unreachable at start | yes, with a delay |
+| `2` | A configuration or credential error: a missing variable, a connector that is in the wrong mode, or Lark refusing the App ID, secret or region. The message says what to change | no, fix it first |
+| `3` | Another worker for this connector is already running on this machine | no |
+
+### Keep it running: systemd
+
+```ini
+# /etc/systemd/system/nopm-lark-worker.service
+[Unit]
+Description=NoPM Lark long-connection worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nopm
+WorkingDirectory=/opt/nopm/web
+EnvironmentFile=/etc/nopm/lark-worker.env      # chmod 600, owned by root
+ExecStart=/usr/bin/node scripts/lark-worker.mjs
+Restart=on-failure
+RestartSec=10
+RestartPreventExitStatus=2 3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now nopm-lark-worker
+journalctl -u nopm-lark-worker -f
+```
+
+### Keep it running: pm2
+
+```bash
+set -a; . /etc/nopm/lark-worker.env; set +a
+cd /opt/nopm/web
+pm2 start scripts/lark-worker.mjs --name nopm-lark-worker --instances 1 --exp-backoff-restart-delay 1000
+```
+
+Never use `-i max` or cluster mode: that is several workers. pm2 restarts on every exit code, including `2` and `3`, so after a configuration change read `pm2 logs nopm-lark-worker` instead of assuming it is up. pm2 also keeps the environment it was started with in its saved process list (`pm2 save`), which means the secrets end up in a file in the pm2 home folder. Prefer systemd above if that matters to you.
+
+### Keep it running: Docker
+
+The worker is a single file plus one pinned dependency, so its image is tiny. Save this next to your NoPM checkout as `lark-worker.Dockerfile`:
+
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+RUN npm install --no-save --no-package-lock @larksuiteoapi/node-sdk@1.74.0
+COPY web/scripts/lark-worker.mjs ./lark-worker.mjs
+USER node
+CMD ["node", "lark-worker.mjs"]
+```
+
+Add it to your `docker-compose.yml` next to the `web` service:
+
+```yaml
+  lark-worker:
+    build:
+      context: .
+      dockerfile: lark-worker.Dockerfile
+    env_file: web/.env.lark-worker       # the six variables above, NOT committed
+    environment:
+      NOPM_APP_URL: http://web:3000      # the compose service name; plain http is fine on a private network
+    depends_on: [web]
+    restart: on-failure
+    deploy:
+      replicas: 1
+```
+
+Docker cannot tell a config error from a crash, so a bad setting restart-loops (with Docker's own back-off). Read `docker compose logs lark-worker`: the message names the problem.
+
+### Network allow-list
+
+The worker needs outbound HTTPS and WebSocket access to your platform's open-platform domain (`open.larksuite.com` for Lark, `open.feishu.cn` for Feishu) and the message-gateway hosts it hands out. If your network filters by domain, allow the whole `larksuite.com` (or `feishu.cn`) family; the exact gateway host names are issued by the platform at connect time and have not been listed here. A corporate HTTP proxy is not supported by the worker in this version.
+
+## Step 7: Publish the app
+
+Back in the developer console:
+
+1. Open **Version management and release**, create a version, and submit it. A tenant admin approves it.
+2. Set the **availability scope** to include everyone who should receive approval cards or talk to the bot. People outside the scope cannot be messaged.
+3. After release, search for the app's name in Lark, open the chat with the bot, and send `help`. A help card means events are flowing. No reply means go to the troubleshooting table.
+
+Changes to permissions, events or callbacks need a new version to take effect.
+
+## Step 8: Link your account
+
+Cards only reach, and clicks only count for, people who have proven which Lark account is theirs. Every approver does this once.
+
+1. In NoPM, on the **Integrations** page, choose **Link my Lark account**. NoPM shows a one-time code that looks like `NPL-XXXX-XXXX`. It works once and expires after 10 minutes.
+2. In Lark, send that to the bot as a direct message: `link NPL-XXXX-XXXX`.
+3. The bot replies with a confirmation card. The page now shows you as linked.
+
+Why a code and not an email match: an email address says nothing about who controls the chat account. The code proves that the person signed in to NoPM is the same person who can message the bot, and the platform supplies the sender identity itself, not the message text.
+
+You can unlink at any time from the same page. An admin can see and remove every link in the workspace. Linking grants nothing by itself: what a person may approve still follows their NoPM role and scopes. Revoking the connector also revokes every link on it.
+
+## Using it
+
+### Approving from a card
+
+A card shows the request title, the project, who raised it, a short summary, a link to open it in NoPM, and the two buttons. **Approve** decides at once. **Reject** opens a small form that requires a reason, which is recorded on the request.
+
+After you tap, the card shows the result straight away with a confirmation message, and every other copy of that card is updated.
+
+What you can see when a tap does not go through:
+
+| Message | Why | What to do |
+|---|---|---|
+| Account not linked | This Lark account is not linked to a NoPM user | Do Step 8 |
+| Expired | The card is more than 7 days old | Open the request in NoPM |
+| Not the recipient | The card was forwarded, or belongs to another person | Ask for your own card, or use NoPM |
+| Already decided | Someone decided it elsewhere first | Nothing: the card shows the outcome |
+| You raised this request | Four-eyes: the requester cannot approve | Ask another admin or manager |
+| Not allowed | Your role or scopes no longer permit the decision, or the project is locked | Check with a workspace admin |
+
+Every one of these leaves the request exactly as it was. The wording on screen may differ slightly from the table.
+
+### The weekly digest
+
+1. Add the bot to the group chat that should receive it, and make sure the group is inside the app's availability scope.
+2. You need the group's **chat id**, which starts with `oc_`. The Lark client does not show it. The simplest way is the developer console's API debugger: call the "get the chats the bot is in" request (`GET /open-apis/im/v1/chats`) with your app and copy the group's `chat_id`. That request may need an extra read scope, which you can add temporarily.
+3. In NoPM, on the Integrations page, turn on the digest, paste the chat id, and choose a weekday.
+4. **Send now** posts it immediately, which is the easiest way to check the setup.
+
+The digest and the retry of failed deliveries are driven by a once-a-day scheduled call (`GET /api/integrations/cron`, protected by a secret). The weekday is evaluated in UTC. On Vercel, including the deploy-button install, the daily call comes from the project's `vercel.json`; set a `CRON_SECRET` value in the project's environment and Vercel sends it for you. Anywhere else, set `CRON_SECRET` in the app's environment and schedule the call yourself, for example:
+
+```cron
+# every day at 01:07 UTC (avoid the exact hour and half hour: the platform sheds load then)
+7 1 * * *  curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://nopm.example.com/api/integrations/cron
+```
+
+Without this scheduled call, approval cards still go out immediately, but the weekly digest never sends on its own and a delivery that failed once is not retried. **Send now** still works.
+
+## If something does not arrive
+
+| What you see | Likely cause | What to do |
+|---|---|---|
+| Console says "request URL verification failed" (webhook) | The address is not reachable over HTTPS from the internet, the connector id in the URL is wrong, or the Verification Token differs | Open the events address in a browser from outside your network (a 405 or 401 is fine, a timeout is not). Re-copy the token into NoPM |
+| The bot does not answer `help` | App not released, you are outside the availability scope, `im.message.receive_v1` not subscribed, the read-DM scope missing, or (long connection) the worker is not running | Check each in that order. After any permission or event change, publish a new version |
+| A button shows a Lark error code instead of a result | The `card.action.trigger` callback is not configured, or NoPM did not answer within 3 seconds | Add the callback and publish. In long-connection mode, check the worker log for a slow or failed relay |
+| Tapping Approve says "account not linked" | You skipped Step 8, or the link was removed | Link again |
+| No card ever arrives | You are not linked, you raised the request yourself, your role is not admin or manager, the connector is paused, or you are outside the availability scope | Check the Integrations page for the connector's status and the delivery list, then each item |
+| Cards arrive, but some buttons seem to do nothing | More than one worker is running, so some clicks go to the wrong one | Stop every worker, start exactly one |
+| Worker exits with code `2` | A setting is missing or wrong, or Lark refused the credentials | Read the message: it names the variable or the NoPM setting. If it says Lark rejected the credentials, check the App ID, secret and region together |
+| Worker says the relay signature was rejected | `NOPM_LARK_RELAY_SECRET` is wrong, or the machine clock is more than 5 minutes off | Fix the clock (NTP). If the secret was lost, revoke the connector and create a new one |
+| Worker says the connector is not in long-connection mode, or has no relay secret | The connector was created for webhook mode | Create a connector in Long connection mode |
+| Worker says the connector is paused or revoked | Status changed in NoPM | Resume it, or create a new one |
+| Worker exits with code `3` | A worker for this connector is already running on this machine | Stop the other one. If it is a stale lock after a crash, delete the lock file named in the message |
+| The digest never sends | Digest off, wrong chat id, the bot is not in the group, or (self-host) no scheduled call | Use **Send now**; if it works, schedule the call |
+| Events stop after a Lark outage | The worker reconnects on its own | Watch the log for `reconnected`; if it gave up it exits with code `1` and your supervisor restarts it |
+
+Where to look: the Integrations page (connector status, deliveries and their last error), the Trust Center filtered by channel `lark` (every decision and link), and the worker's own log.
+
+## What is not in this version
+
+- **Sign in with Lark.** You still sign in to NoPM as before. Lark is only a notification and approval channel.
+- **Link previews.** Pasting a NoPM address into a chat does not expand into a card.
+- **Writing to Lark Calendar.** Milestone dates are available as a calendar subscription instead (a read-only feed any calendar app, including Lark Calendar, can subscribe to).
+- **Mirroring requests into the Lark Approval inbox.** The decision always lives in NoPM; there is no second approval record inside Lark.
+- **Group-chat approval cards.** Approval cards are direct messages to each eligible person.
+- **Richer bot commands.** Only `help`, `link` and `approvals`.
+- **Store listing.** Each organization creates its own self-built app. A shared, store-listed app (which must use webhooks) is later work.
+- **Mapping people by email, or syncing the contact directory.** Linking is by one-time code only.
+
+## For developers: the relay protocol
+
+The worker talks to NoPM with one signed request per event. This is the whole contract, in case you want to write your own relay.
+
+```
+POST {NOPM_APP_URL}/api/integrations/lark/{connectorId}/relay
+X-NoPM-Relay-Timestamp: <unix seconds>
+X-NoPM-Relay-Signature: v1=<hex(HMAC-SHA256(key, timestamp + "." + rawBody))>
+{ "type": "event" | "card" | "ping", "payload": <the Lark v2 event envelope> }
+```
+
+- `key` is the lowercase hex SHA-256 of the raw relay secret, which is exactly what NoPM stores as the connector's relay secret hash. The worker derives it from the secret it was given; NoPM never needs the raw secret again.
+- The timestamp must be within five minutes of NoPM's clock. The signature covers the exact bytes of the body.
+- A `card` response is passed back to Lark unchanged as the callback response (a toast and a replacement card). A `ping` verifies URL, connector id, secret and mode without changing anything.
+- Errors use NoPM's usual `{ "error", "code" }` shape: 401 (`invalid_relay_signature`, `stale_relay_timestamp`, `no_relay_secret`), 403 (`connector_inactive`, `wrong_mode`), 404 (`connector_not_found`), 413, 422, 429.
+- A replayed request is harmless: decisions are idempotent on the Lark event id, and button tokens and link codes are single use.
+
+The signing code is in `web/src/lib/integrations/lark/relay.ts` (server) and `web/scripts/lark-worker.mjs` (worker), kept byte-identical by a test.

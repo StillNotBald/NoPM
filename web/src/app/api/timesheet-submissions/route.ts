@@ -6,6 +6,7 @@ import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { assertHasEntriesToSubmit, assertNoOpenDuplicate } from "@/lib/governance/timesheet-decision";
+import { announceRequested, principalOf, timesheetEvent } from "@/lib/governance/decide";
 import { createTimesheetSubmissionSchema, TIMESHEET_STATUSES } from "./_schema";
 
 export const runtime = "nodejs";
@@ -155,6 +156,9 @@ export const POST = route(async ({ actor, request }) => {
       submitted_by: actor.id,
       submitted_by_type: actor.type,
       submitted_by_label: actor.label,
+      // The HUMAN behind the submitter (the user, or the token's creator) —
+      // four-eyes compares this, not the actor id.
+      submitted_principal_id: principalOf(actor),
     })
     .select()
     .single();
@@ -182,6 +186,10 @@ export const POST = route(async ({ actor, request }) => {
       payload: { timesheetSubmissionId: row.id, href: "/timesheets" },
     }),
   );
+
+  // Tell the integration hub (chat approval cards) — never throws, runs after
+  // the submission and its audit row are committed.
+  announceRequested(await timesheetEvent(db, actor.workspaceId, row, member.name));
 
   return created(row);
 });

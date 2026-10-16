@@ -55,23 +55,54 @@ await db.from("profiles").upsert({
 });
 console.log("admin user:", ADMIN_EMAIL, "(password from ADMIN_PASSWORD, not printed)");
 
+// 2b) The maker agent's own human owner. Four-eyes compares the HUMAN behind
+// each actor (api_tokens.created_by), not the token id — so two tokens minted
+// by the same person can never approve each other's requests. The demo pair
+// therefore needs two different owners: the checker belongs to the admin, the
+// maker to this separate low-privilege "agent owner" profile (a member, never
+// an approver; the account is never logged into, so its password is random
+// and never printed). Override the email with MAKER_OWNER_EMAIL.
+const MAKER_OWNER_EMAIL = env.MAKER_OWNER_EMAIL || "agent.owner@stillnotbald.com";
+let makerOwnerId;
+const makerOwner = await db.auth.admin.createUser({
+  email: MAKER_OWNER_EMAIL,
+  password: randomBytes(24).toString("base64url"),
+  email_confirm: true,
+});
+if (makerOwner.error) {
+  const { data: list } = await db.auth.admin.listUsers();
+  makerOwnerId = list.users.find((u) => u.email === MAKER_OWNER_EMAIL)?.id;
+} else {
+  makerOwnerId = makerOwner.data.user.id;
+}
+if (!makerOwnerId) throw new Error(`could not resolve the maker agent's owner (${MAKER_OWNER_EMAIL})`);
+await db.from("profiles").upsert({
+  id: makerOwnerId,
+  workspace_id: ws.id,
+  email: MAKER_OWNER_EMAIL,
+  display_name: "Agent Owner",
+  role: "member",
+});
+console.log("maker agent owner:", MAKER_OWNER_EMAIL, "(member)");
+
 // 3) Scoped tokens — wipe + re-mint the two demo tokens
 await db.from("api_tokens").delete().eq("workspace_id", ws.id).in("name", ["maker (agent)", "checker (agent)"]);
 const maker = mintToken();
 const checker = mintToken();
 await db.from("api_tokens").insert([
   {
-    workspace_id: ws.id, name: "maker (agent)", token_hash: maker.hash, prefix: TOKEN_PREFIX, created_by: userId,
-    // project scopes are EXPLICIT, never "project:*" — hasScope()'s resource
-    // wildcard would silently include project:delete:approve, letting the
-    // maker approve its own project deletions (four-eyes defeat at the token
-    // layer). Same rule for any future resource that grows an approve scope.
+    // created_by = the maker's OWN owner (see 2b) — different from the checker's.
+    workspace_id: ws.id, name: "maker (agent)", token_hash: maker.hash, prefix: TOKEN_PREFIX, created_by: makerOwnerId,
+    // project scopes are EXPLICIT, never "project:*" (belt and braces: since
+    // 2026-10-16 hasScope() never lets a wildcard grant an approve/decide
+    // scope, but the maker should read as least-privilege anyway).
     scopes: ["project:read", "project:write", "project:delete:request",
       "milestone:*", "task:read", "task:write", "task:delete:request",
       "risk:*", "issue:*", "clash:*", "resource:*", "budget:*", "time:*", "audit:read"],
   },
   {
     workspace_id: ws.id, name: "checker (agent)", token_hash: checker.hash, prefix: TOKEN_PREFIX, created_by: userId,
+    // Approve scopes are always granted by EXACT name — wildcards never grant them.
     scopes: ["project:read", "task:read", "task:delete:approve", "project:delete:approve", "rebaseline:approve", "audit:read"],
   },
 ]);

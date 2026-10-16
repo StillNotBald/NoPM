@@ -102,6 +102,7 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `list_resources` | GET /api/resources | `resource:read` |
 | `search_workspace` | GET /api/search | `project:read` |
 | `query_audit` | GET /api/audit | `audit:read` |
+| `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `time:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
 
 ### Recommended minimum scopes for a read-only agent
 

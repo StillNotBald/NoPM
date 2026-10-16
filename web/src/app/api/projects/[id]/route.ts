@@ -7,6 +7,8 @@ import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { actorLabel, announceRequested, principalOf } from "@/lib/governance/decide";
+import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { updateProjectSchema, ProjectDeleteRequestSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -131,6 +133,23 @@ export const DELETE = route(async ({ actor, params, request }) => {
   if (fetchError) throw fetchError;
   if (!project) throw new NotFoundError("Project not found");
 
+  // A locked project (baseline frozen) can't be deleted: refuse at REQUEST time
+  // — same pre-check, same 422 and same blocked-attempt audit row as the task
+  // path — instead of letting a doomed request sit in the approvers' queue until
+  // the commit RPC trips PROJECT_LOCKED. That commit-time check (migration 0032)
+  // stays as the backstop for a lock applied after the request was raised.
+  await assertProjectUnlocked(db, params.id, actor.workspaceId, () =>
+    writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "project.delete_request.blocked",
+      targetType: "project",
+      targetId: params.id,
+      before: null,
+      after: { reason: "project_locked", project_id: params.id },
+    }),
+  );
+
   // Check for an existing pending deletion request for this project
   // (uniq_pending_deletion also enforces this at the DB level — this check
   // just returns a clean 422 instead of a raw insert conflict).
@@ -173,6 +192,9 @@ export const DELETE = route(async ({ actor, params, request }) => {
       requested_by_type: actor.type,
       requested_by_id: actor.id,
       requested_by_label: actor.label,
+      // The HUMAN behind the requester (the user, or the token's creator) —
+      // four-eyes compares this, not the actor id.
+      requested_principal_id: principalOf(actor),
       before: project,
     })
     .select()
@@ -202,6 +224,20 @@ export const DELETE = route(async ({ actor, params, request }) => {
       body: reason ?? undefined,
       payload: { href: "/approvals", projectId: params.id, requestId: deletionRequest.id },
     });
+  });
+
+  // Tell the integration hub (chat approval cards) — never throws, runs after
+  // the request and its audit row are committed.
+  announceRequested({
+    workspaceId: actor.workspaceId,
+    kind: "project_deletion",
+    id: deletionRequest.id,
+    title: `Delete project "${project.name ?? params.id}"`,
+    summary: reason ?? null,
+    projectId: params.id,
+    projectName: project.name ?? null,
+    requestedByLabel: actorLabel(actor),
+    requesterPrincipalId: principalOf(actor),
   });
 
   // Return 202 Accepted with the deletion_request

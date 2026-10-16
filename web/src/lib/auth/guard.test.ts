@@ -69,8 +69,12 @@ describe("requireScope — token actor", () => {
     expect(() => requireScope(tokenActor(["task:*"]), "task:write")).not.toThrow();
   });
 
-  it("passes when token holds the admin wildcard *", () => {
-    expect(() => requireScope(tokenActor(["*"]), "task:delete:approve")).not.toThrow();
+  it("passes when token holds the admin wildcard * (non-privileged scope)", () => {
+    expect(() => requireScope(tokenActor(["*"]), "task:delete:request")).not.toThrow();
+  });
+
+  it("D2: the admin wildcard * does NOT grant a privileged approve scope", () => {
+    expect(() => requireScope(tokenActor(["*"]), "task:delete:approve")).toThrowError(ScopeError);
   });
 
   it("throws ScopeError when token holds no relevant scope", () => {
@@ -166,10 +170,13 @@ describe("requireScope — project:delete:request / project:delete:approve", () 
     ).not.toThrow();
   });
 
-  it("a project:* wildcard covers both — same resource-prefix matching as task:*", () => {
+  it("a project:* wildcard covers the maker scope but NOT the approve scope (D2)", () => {
+    expect(() =>
+      requireScope(tokenActor(["project:*"]), "project:delete:request"),
+    ).not.toThrow();
     expect(() =>
       requireScope(tokenActor(["project:*"]), "project:delete:approve"),
-    ).not.toThrow();
+    ).toThrowError(ScopeError);
   });
 
   it("holding project:delete:request does NOT imply project:delete:approve (distinct scopes)", () => {

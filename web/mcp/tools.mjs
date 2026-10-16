@@ -31,6 +31,16 @@ export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"];
 // Mirrors AuditChannel in web/src/lib/audit/channel.ts (R-82/R-85) — the
 // five channel values audit_log's DB check constraint accepts.
 export const AUDIT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant"];
+// Mirrors PENDING_KINDS in web/src/lib/review/pending.ts (the GET /api/review
+// `kind` filter); the first four are the kinds the governed decision path
+// accepts. Locked by web/src/lib/review/tool.test.ts.
+export const PENDING_APPROVAL_KINDS = [
+  "task_deletion",
+  "project_deletion",
+  "change_request",
+  "timesheet",
+  "rebaseline",
+];
 
 const DATE = "ISO date, YYYY-MM-DD";
 const DATETIME = "ISO 8601 datetime with timezone, e.g. 2026-09-30T00:00:00Z";
@@ -589,6 +599,38 @@ export const TOOL_REGISTRY = [
       params.set("page", String(args.page ?? 1));
       params.set("limit", String(args.limit ?? 20));
       return { path: `/api/audit?${params.toString()}`, method: "GET" };
+    },
+  },
+
+  // ── Approvals (read-only) ─────────────────────────────────────────────────
+  {
+    name: "list_pending_approvals",
+    description:
+      "List the governed decisions waiting on a human in this workspace, oldest first: task and " +
+      "project deletion requests, change requests (raised/under review), submitted timesheets, " +
+      "and rebaselines awaiting sign-off. Each item has can_decide plus reason_if_not " +
+      "(missing scope, or four-eyes: the requester cannot decide their own request). READ-ONLY — " +
+      "there is deliberately no approve/decide tool: a person decides in the console. Use this " +
+      "to answer \"what is waiting for me?\" and to tell the user what needs their decision. " +
+      "`hidden_kinds` lists kinds this token's scopes cannot read, so an empty list is not " +
+      "proof that nothing is pending.",
+    parameters: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: PENDING_APPROVAL_KINDS, description: "Only this kind (default: all readable kinds)" },
+        page,
+        limit: { type: "number", description: "Results per page (default 50, max 200)" },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const params = new URLSearchParams();
+      if (args.kind) params.set("kind", String(args.kind));
+      if (args.page) params.set("page", String(args.page));
+      if (args.limit) params.set("limit", String(args.limit));
+      const qs = params.toString();
+      return { path: qs ? `/api/review?${qs}` : "/api/review", method: "GET" };
     },
   },
 ];

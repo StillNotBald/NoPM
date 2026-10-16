@@ -72,7 +72,7 @@ export function readNavModeCookie(documentCookie: string): NavMode | null {
  *      unannounced (ClickUp complaint #7: defaults changed on users without
  *      a way back). The shared demo login has no row of its own, so it
  *      shows Essentials — which is the point of the demo: a small,
- *      legible first impression, not all 22 items at once.
+ *      legible first impression, not all 23 items at once.
  */
 export function resolveInitialNavMode(input: {
   cookie: NavMode | null;
