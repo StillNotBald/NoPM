@@ -9,7 +9,7 @@ import {
   type RebaselineStatus,
 } from "./rebaseline-lifecycle";
 
-const ALL: RebaselineStatus[] = ["draft", "pending_approval", "approved", "applied", "rejected"];
+const ALL: RebaselineStatus[] = ["draft", "pending_approval", "approved", "applied", "rejected", "cancelled"];
 
 function thrown(fn: () => void): RuleError {
   try {
@@ -25,13 +25,30 @@ describe("rebaseline state machine (R1/M2)", () => {
   it("allows exactly the forward moves and nothing else", () => {
     const legal = ALL.flatMap((from) => ALL.filter((to) => from !== to && isLegalRebaselineTransition(from, to)).map((to) => `${from}>${to}`));
     expect(legal.sort()).toEqual(
-      ["approved>applied", "draft>pending_approval", "pending_approval>approved", "pending_approval>rejected"].sort(),
+      [
+        "approved>applied",
+        "approved>cancelled",
+        "draft>pending_approval",
+        "pending_approval>approved",
+        "pending_approval>cancelled",
+        "pending_approval>rejected",
+      ].sort(),
     );
   });
 
-  it("rejected and applied are terminal", () => {
+  it("rejected, applied and cancelled are terminal", () => {
     expect(REBASELINE_TRANSITIONS.rejected).toEqual([]);
     expect(REBASELINE_TRANSITIONS.applied).toEqual([]);
+    expect(REBASELINE_TRANSITIONS.cancelled).toEqual([]);
+  });
+
+  it("a cancelled rebaseline cannot be revived, and a draft or rejected one cannot be cancelled (unlock voids only open sign-offs)", () => {
+    for (const to of ["draft", "pending_approval", "approved", "applied", "rejected"]) {
+      expect(isLegalRebaselineTransition("cancelled", to), `cancelled>${to}`).toBe(false);
+    }
+    expect(isLegalRebaselineTransition("draft", "cancelled")).toBe(false);
+    expect(isLegalRebaselineTransition("applied", "cancelled")).toBe(false);
+    expect(isLegalRebaselineTransition("rejected", "cancelled")).toBe(false);
   });
 
   it("the revive / regress moves the red-team used are all illegal", () => {
@@ -54,7 +71,7 @@ describe("assertSignoffOpen", () => {
   });
 
   it("refuses every other state with 422 rebaseline_not_pending", () => {
-    for (const status of ["draft", "approved", "applied", "rejected"]) {
+    for (const status of ["draft", "approved", "applied", "rejected", "cancelled"]) {
       const err = thrown(() => assertSignoffOpen(status));
       expect([err.status, err.code], status).toEqual([422, "rebaseline_not_pending"]);
     }
@@ -72,6 +89,12 @@ describe("assertApplicable", () => {
     for (const status of ["draft", "pending_approval", "rejected"]) {
       expect(thrown(() => assertApplicable(status)).message).toContain(`status is '${status}', must be 'approved'`);
     }
+  });
+
+  it("a cancelled rebaseline (its project was unlocked) is refused with 422 rule_violation", () => {
+    const err = thrown(() => assertApplicable("cancelled"));
+    expect([err.status, err.code]).toEqual([422, "rule_violation"]);
+    expect(err.message).toMatch(/cancelled/);
   });
 
   it("a second apply is 422 already_applied", () => {

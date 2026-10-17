@@ -2445,7 +2445,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Unlock a project timeline",
-        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row.",
+        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row. Unlock stays a single-person act (no four-eyes), but it CANCELS the project's pending_approval and approved rebaselines in the same transaction (status cancelled, terminal; owner decision 2026-10-17, migration 0058) — a sign-off can never be applied to dates edited after it, so a fresh proposal and fresh sign-off are needed. Applied, rejected and draft rebaselines are left alone. The project.unlock audit row's after lists cancelled_rebaselines (ids) and each one also gets a rebaseline.cancelled audit row (reason project_unlocked, plus unlock_reason). Atomic: if the cancellation cannot happen, the project stays locked.",
         operationId: "unlockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", minLength: 1, maxLength: 1000 } } } } } },
@@ -2479,7 +2479,7 @@ const spec = {
           "rebaseline four-eyes flow, so a token with no recorded owner cannot propose (403, code no_principal): its " +
           "requester principal would be null, comparable to nobody, and the same person could then sign off their own " +
           "proposal. Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected; " +
-          "applied and rejected are terminal.",
+          "applied and rejected are terminal. A pending_approval or approved rebaseline becomes cancelled (also terminal) when its project is unlocked.",
         operationId: "createRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string" }, before: { type: "object" }, after: { type: "object" } } } } } },
@@ -2508,7 +2508,7 @@ const spec = {
           "200": { description: "Signoff recorded; rebaseline status may update ({ signoff, rebaseline })", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Self-signoff by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error; the requester signing off their own rebaseline as the same user (self_approval); or the rebaseline is not pending_approval — a draft, or already approved / rejected / applied — so it can no longer be voted on (code rebaseline_not_pending, also returned when a concurrent sign-off decided it first)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; the requester signing off their own rebaseline as the same user (self_approval); or the rebaseline is not pending_approval — a draft, or already approved / rejected / applied / cancelled — so it can no longer be voted on (code rebaseline_not_pending, also returned when a concurrent sign-off decided it first)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2523,7 +2523,7 @@ const spec = {
           "200": { description: "Rebaseline applied", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Self-apply by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "The requester applying their own rebaseline as the same user (self_approval); the rebaseline is already applied (code already_applied — also returned to the loser of two concurrent applies); or it is not in status approved (code rule_violation)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The requester applying their own rebaseline as the same user (self_approval); the rebaseline is already applied (code already_applied — also returned to the loser of two concurrent applies); or it is not in status approved — a cancelled rebaseline included (code rule_violation)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

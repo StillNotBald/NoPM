@@ -53,6 +53,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "rebaseline.create", description: "A rebaseline was proposed" },
   { action: "rebaseline.signoff", description: "A rebaseline was signed off" },
   { action: "rebaseline.apply", description: "A rebaseline was applied to the plan" },
+  { action: "rebaseline.cancelled", description: "A pending or approved rebaseline was cancelled because its project was unlocked" },
   { action: "change_request.create", description: "A change request was raised" },
   { action: "change_request.update", description: "A change request was edited" },
   { action: "change_request.decide", description: "A change request was approved or rejected" },

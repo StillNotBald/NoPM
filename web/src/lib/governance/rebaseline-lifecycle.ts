@@ -12,20 +12,28 @@ import { RuleError } from "@/lib/api/errors";
  * 0049 (errcode P0014) — the file mirrors that trigger's allow-list.
  *
  *   draft ──────────► pending_approval ──► approved ──► applied   (terminal)
- *                              └──────────► rejected              (terminal)
+ *                              │                 └──────► cancelled (terminal)
+ *                              ├──────────► rejected              (terminal)
+ *                              └──────────► cancelled             (terminal)
+ *
+ * `cancelled` (migration 0058, owner decision 2026-10-17) is what unlocking a
+ * project does to its pending and approved rebaselines: apply copies the LIVE
+ * dates, so a sign-off must never outlive an unlock + edit + relock. Only
+ * POST /projects/:id/unlock produces it (atomically, nopm_unlock_project).
  *
  * `draft` is what a rebaseline proposed on an UNLOCKED project starts as (no
  * governed flow applies yet); only a locked project's proposal is born
  * `pending_approval`. Votes are accepted only while `pending_approval`.
  */
-export type RebaselineStatus = "draft" | "pending_approval" | "approved" | "applied" | "rejected";
+export type RebaselineStatus = "draft" | "pending_approval" | "approved" | "applied" | "rejected" | "cancelled";
 
 export const REBASELINE_TRANSITIONS: Readonly<Record<RebaselineStatus, readonly RebaselineStatus[]>> = {
   draft: ["pending_approval"],
-  pending_approval: ["approved", "rejected"],
-  approved: ["applied"],
+  pending_approval: ["approved", "rejected", "cancelled"],
+  approved: ["applied", "cancelled"],
   applied: [],
   rejected: [],
+  cancelled: [],
 };
 
 export function isLegalRebaselineTransition(from: string, to: string): boolean {
@@ -40,7 +48,9 @@ export function assertSignoffOpen(status: string): void {
     throw new RuleError(
       status === "draft"
         ? "This rebaseline is a draft (its project is not locked), so it is not awaiting sign-off."
-        : `This rebaseline is already ${status}, so it can no longer be signed off.`,
+        : status === "cancelled"
+          ? "This rebaseline was cancelled when its project was unlocked, so it can no longer be signed off. Propose a new one."
+          : `This rebaseline is already ${status}, so it can no longer be signed off.`,
       "rebaseline_not_pending",
     );
   }
@@ -52,7 +62,9 @@ export function assertApplicable(status: string): void {
     throw new RuleError(
       status === "applied"
         ? "This rebaseline has already been applied."
-        : `Rebaseline cannot be applied: status is '${status}', must be 'approved'`,
+        : status === "cancelled"
+          ? "Rebaseline cannot be applied: it was cancelled when its project was unlocked. Propose a new one."
+          : `Rebaseline cannot be applied: status is '${status}', must be 'approved'`,
       status === "applied" ? "already_applied" : "rule_violation",
     );
   }

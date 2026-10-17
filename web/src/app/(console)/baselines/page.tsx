@@ -24,7 +24,7 @@ import {
 
 export const metadata = { title: "Baselines" };
 
-type RebaselineStatus = "draft" | "pending_approval" | "approved" | "applied" | "rejected";
+type RebaselineStatus = "draft" | "pending_approval" | "approved" | "applied" | "rejected" | "cancelled";
 
 interface ProjectRow {
   id: string;
@@ -56,6 +56,8 @@ function statusTone(s: RebaselineStatus) {
 }
 
 function statusLabel(s: string) {
+  // A cancelled rebaseline is always the work of an unlock (migration 0058).
+  if (s === "cancelled") return "Cancelled — project unlocked";
   return s
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))

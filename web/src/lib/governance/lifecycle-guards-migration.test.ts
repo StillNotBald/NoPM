@@ -138,7 +138,19 @@ describe("H2 — timesheet freeze and content binding", () => {
 });
 
 describe("M2 — rebaseline lifecycle trigger", () => {
-  const fn = functionSource("nopm_enforce_rebaseline_lifecycle");
+  // The state machine was extended by 0058 (cancelled): the allow-list that has
+  // to agree with rebaseline-lifecycle.ts is the LATEST definition, not 0049's.
+  const latestFile = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .filter((f) => /create or replace function nopm_enforce_rebaseline_lifecycle\(/i.test(readFileSync(join(migrationsDir, f), "utf8")))
+    .pop() as string;
+  const latestSql = readFileSync(join(migrationsDir, latestFile), "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/--.*$/, ""))
+    .join("\n");
+  const start = latestSql.indexOf("create or replace function nopm_enforce_rebaseline_lifecycle(");
+  const fn = latestSql.slice(start, latestSql.indexOf("\n$$;", start) + 4);
 
   it("is a BEFORE UPDATE trigger that fires when the status changes", () => {
     const trigger = triggerStatement("trg_rebaseline_lifecycle");

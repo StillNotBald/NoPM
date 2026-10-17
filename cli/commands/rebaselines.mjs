@@ -7,6 +7,8 @@
 //   POST /api/rebaselines/:id/apply            rebaseline:approve — apply an approved rebaseline
 //
 // Status flow: draft → pending_approval → approved | rejected → applied
+// A pending_approval or approved rebaseline becomes `cancelled` (terminal) when
+// its project is unlocked (`nopm projects unlock`) — propose a new one after.
 // A rebaseline is pending_approval when the project is locked (governed flow).
 
 export const describe = "Governed rebaseline workflow: list, create, sign off, or apply";
