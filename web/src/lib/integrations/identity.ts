@@ -45,17 +45,18 @@ export function hashLinkCode(canonical: string): string {
 export { maskExternalId };
 
 /**
- * `lark:<tenant>:<user>` — the FULL external actor reference. It is the value of
+ * `lark:<tenant>:<user>` with the tenant key and the open id MASKED: the value of
  * the `audit_log.external_actor_ref` column, which exists so a chat-originated
- * action stays traceable to the platform account that took it. Do not put it in
- * a free-form audit `before`/`after`: the audit stream is readable by every
- * workspace member (see `maskedExternalRef`).
+ * action stays traceable to the platform account that took it (together with the
+ * connector and the platform's event id on the same row). The audit stream and
+ * the table itself are readable by every workspace member, so the raw platform
+ * ids are never stored there; nothing reads the column back to match on it.
  */
 export function externalActorRef(provider: string, tenant: string, userId: string): string {
-  return `${provider}:${tenant}:${userId}`;
+  return maskedExternalRef(provider, tenant, userId);
 }
 
-/** The same reference with the tenant key and the open id masked, for audit `before`/`after`. */
+/** The reference with the tenant key and the open id masked (also used in audit `before`/`after`). */
 export function maskedExternalRef(provider: string, tenant: string, userId: string): string {
   return `${provider}:${maskExternalId(tenant)}:${maskExternalId(userId)}`;
 }
@@ -101,6 +102,10 @@ export async function mintLinkCode(input: {
 export const LINK_ATTEMPT_WINDOW_SECONDS = 10 * 60;
 export const LINK_ATTEMPTS_PER_SENDER = 8;
 export const LINK_ATTEMPTS_PER_CONNECTOR = 120;
+
+/** The bot's answer when a code is presented for a NoPM user who is already linked to another chat account. */
+export const ALREADY_LINKED_MESSAGE =
+  "This NoPM account is already linked to another Lark account. Unlink it in NoPM (Integrations) first, then send a new code.";
 
 export type LinkOutcome =
   | {
@@ -191,6 +196,18 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
     if (profileError) throw profileError;
     if (!profile) return { status: "invalid_code" };
     const label: string = profile.display_name || profile.email || profile.id;
+    const actor: Actor = {
+      type: "user",
+      id: profile.id,
+      principalId: profile.id,
+      label,
+      workspaceId: connector.workspace_id,
+      role: profile.role,
+      channel: "lark",
+      viaConnectorId: connector.id,
+      externalEventId: input.externalEventId ?? undefined,
+      externalActorRef: externalActorRef(connector.kind, externalTenant, externalUserId),
+    };
 
     // Conflict checks BEFORE the code is burned, so a refused link leaves the
     // code usable for a corrected attempt.
@@ -215,6 +232,26 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
     // linked, pinned or audited, and the code is NOT burned (burning it would be
     // a state change with no audit row). The person is simply told it is linked.
     if (sameAccount) return { status: "linked", profileLabel: label, alreadyLinked: true };
+
+    // A code never REPLACES an existing link. If the person is already linked to
+    // another chat account, the account presenting the code is either them on a
+    // new device (who can unlink in NoPM and send a fresh code) or someone who
+    // got hold of a live code: silently moving the link would hand that holder
+    // the owner's approvals. Refused BEFORE the pin, and the code is spent.
+    const { data: held, error: heldError } = await db
+      .from("external_identities")
+      .select("id, external_tenant, external_user_id")
+      .eq("workspace_id", connector.workspace_id)
+      .eq("connector_id", connector.id)
+      .eq("profile_id", profile.id)
+      .is("revoked_at", null)
+      .limit(1);
+    if (heldError) throw heldError;
+    const existing = ((held ?? []) as { id: string; external_tenant: string; external_user_id: string }[])[0];
+    if (existing) {
+      await refuseReplacement(connector, row.id, actor, existing, externalTenant, externalUserId);
+      return { status: "conflict", message: ALREADY_LINKED_MESSAGE };
+    }
 
     // Pin the tenant on the first NEW link (before the code is burned, so a
     // refused tenant leaves the code usable) — but only when an admin or manager
@@ -277,18 +314,6 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
       throw insertError ?? new Error("Identity insert returned no row");
     }
 
-    const actor: Actor = {
-      type: "user",
-      id: profile.id,
-      principalId: profile.id,
-      label,
-      workspaceId: connector.workspace_id,
-      role: profile.role,
-      channel: "lark",
-      viaConnectorId: connector.id,
-      externalEventId: input.externalEventId ?? undefined,
-      externalActorRef: externalActorRef(connector.kind, externalTenant, externalUserId),
-    };
     try {
       await writeAudit({
         workspaceId: connector.workspace_id,
@@ -296,8 +321,7 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
         action: "integration.identity.link",
         targetType: "external_identity",
         targetId: inserted.id,
-        // Masked: the audit stream is readable by every member (the unmasked
-        // reference lives in the external_actor_ref column of the actor).
+        // Masked: the audit stream is readable by every member.
         before: replacedRows.length
           ? { external_ref: maskedExternalRef(connector.kind, replacedRows[0].external_tenant, replacedRows[0].external_user_id) }
           : null,
@@ -334,6 +358,52 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
   } finally {
     // Any exit that did not complete the link releases a pin taken for it.
     if (pinnedHere && !completed) await releasePin(connector, externalTenant).catch(() => {});
+  }
+}
+
+/**
+ * A code was presented for a user who already holds a link: spend the code and
+ * record the refused attempt (`integration.identity.link.blocked`, the code
+ * owner as actor, ids masked like every audit row the members can read). The
+ * record is best effort: a refusal changes nothing, so a failing audit write
+ * must not turn it into an error reply.
+ */
+async function refuseReplacement(
+  connector: ConnectorRow,
+  codeId: string,
+  actor: Actor,
+  existing: { id: string; external_tenant: string; external_user_id: string },
+  externalTenant: string,
+  externalUserId: string,
+): Promise<void> {
+  const db = createAdminClient();
+  const nowIso = new Date().toISOString();
+  try {
+    const { error } = await db
+      .from("identity_link_codes")
+      .update({ used_at: nowIso })
+      .eq("id", codeId)
+      .eq("workspace_id", connector.workspace_id)
+      .is("used_at", null);
+    if (error) throw error;
+    await writeAudit({
+      workspaceId: connector.workspace_id,
+      actor,
+      action: "integration.identity.link.blocked",
+      targetType: "external_identity",
+      targetId: existing.id,
+      before: null,
+      after: {
+        connector_id: connector.id,
+        provider: connector.kind,
+        profile_id: actor.id,
+        reason: "profile_already_linked",
+        external_ref: maskedExternalRef(connector.kind, externalTenant, externalUserId),
+        existing_external_ref: maskedExternalRef(connector.kind, existing.external_tenant, existing.external_user_id),
+      },
+    });
+  } catch (err) {
+    console.error("[integrations] could not record a refused link:", sanitizeError(err));
   }
 }
 

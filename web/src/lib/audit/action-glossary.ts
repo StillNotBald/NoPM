@@ -124,6 +124,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "integration.digest.send", description: "A workspace digest was queued for a chat group" },
   { action: "integration.identity.code", description: "A one-time code to link a chat account was issued" },
   { action: "integration.identity.link", description: "A chat account was linked to a NoPM user" },
+  { action: "integration.identity.link.blocked", description: "A chat account link was refused (the NoPM user is already linked to another chat account)" },
   { action: "integration.identity.unlink", description: "A chat account link was removed" },
   { action: "calendar_feed.create", description: "A calendar feed link was created" },
   { action: "calendar_feed.revoke", description: "A calendar feed link was revoked" },

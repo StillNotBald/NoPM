@@ -111,6 +111,22 @@ describe("handleLarkWebhook - authentication", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("answers the handshake BEFORE any database round trip (Lark allows about a second): no rate check, no context", async () => {
+    const buildContext = vi.fn();
+    const { wd, rateCheck } = setup({ buildContext });
+    const res = await handleLarkWebhook(plain(urlVerificationBody()), FIXTURE_CONNECTOR_ID, wd);
+    expect(await res.json()).toEqual({ challenge: "challenge-fixture-abc" });
+    expect(rateCheck).not.toHaveBeenCalled();
+    expect(buildContext).not.toHaveBeenCalled();
+  });
+
+  it("the handshake is still authenticated: a wrong token gets the generic 401, never the challenge", async () => {
+    const { wd } = setup();
+    const res = await handleLarkWebhook(plain({ ...urlVerificationBody(), token: "wrong" }), FIXTURE_CONNECTOR_ID, wd);
+    expect(res.status).toBe(401);
+    expect(JSON.stringify(await res.json())).not.toContain("challenge-fixture-abc");
+  });
+
   it("answers an encrypted, unsigned handshake when an Encrypt Key is configured", async () => {
     const { wd } = setup({ readSecrets: vi.fn(encSecrets) });
     const req = post(encryptBody(JSON.stringify(urlVerificationBody()), FIXTURE_ENCRYPT_KEY));

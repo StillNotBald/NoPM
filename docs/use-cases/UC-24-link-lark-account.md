@@ -18,14 +18,14 @@
 3. **Verify the sender.** The platform delivers the message to the hub, either through the webhook or through the self-hosted worker. The hub verifies the event. The sender's identifiers (`open_id` and `tenant_key`) come from the verified event, never from the message text.
 4. **Consume the code.** The hub hashes the submitted code, finds an unused, unexpired code on this connector, marks it used, and creates an active identity that links this Lark account to the code owner's profile.
 5. **Confirm.** The bot replies with a link-confirmation card.
-6. **Audit.** The link is audited as `integration.identity.link`, with the code owner as the actor, `channel='lark'`, and the Lark event id.
+6. **Audit.** The link is audited as `integration.identity.link`, with the code owner as the actor, `channel='lark'`, and the Lark message id (the id the bot message is de-duplicated on).
 
 ## Alternate and exception flows
 
 - **Code expired (more than 10 minutes old).** The bot replies that the code is not valid. No link is made. The member mints a new code.
 - **Code already used, or unknown.** The bot gives the same reply. The reply does not reveal whether a code exists.
 - **Lark account already linked to another profile on this connector.** Refused by the one-active-link rule. The existing link must be removed first, by its owner or an admin.
-- **Profile already linked on this connector through another Lark account.** Refused by the one-active-link-per-profile rule. The member removes the old link first.
+- **Profile already linked on this connector through another Lark account.** Refused by the one-active-link-per-profile rule: a code never replaces an existing link, so a leaked code cannot re-point someone's approvals. The bot answers "This NoPM account is already linked to another Lark account. Unlink it in NoPM (Integrations) first, then send a new code." The code is spent and the refusal is audited as `integration.identity.link.blocked` (code owner as actor, ids masked). The member removes the old link, mints a new code and sends it from the new account.
 - **Connector paused or revoked.** v1: the bot does not link, and the code stays unused until it expires.
 - **Message that is not a command.** The bot replies with its help card, which lists `help`, `link <code>` and `approvals`.
 - **Unlink.** The member, or an admin, calls `DELETE /api/integrations/identities/[id]`. The link is removed and audited as `integration.identity.unlink`. Later card clicks from that Lark account are refused as not linked. If the connector is revoked, its links are revoked with it.
@@ -34,7 +34,7 @@
 
 - At most one active link per Lark user on a connector, and at most one active link per profile on a connector.
 - The code row records when it was used. No plaintext code is stored.
-- Audit rows: `integration.identity.code` for the mint (with the channel of the request that made it), `integration.identity.link` for the bot-side link (`channel='lark'`), and `integration.identity.unlink` when a link is removed.
+- Audit rows: `integration.identity.code` for the mint (with the channel of the request that made it), `integration.identity.link` for the bot-side link (`channel='lark'`), `integration.identity.link.blocked` for a refused attempt, and `integration.identity.unlink` when a link is removed. The Lark ids in them (the audit stream and `audit_log.external_actor_ref` are member-readable) are masked.
 - Linking grants no scope. The linked person's approvals still follow their role and scopes.
 - Card clicks from the linked account resolve to this profile as the principal (ADR 0013).
 

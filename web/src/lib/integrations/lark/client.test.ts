@@ -107,12 +107,19 @@ describe("sendCard", () => {
     expect(h.calls).toHaveLength(0);
   });
 
-  it("returns a null message id when the platform omits it", async () => {
-    const h = makeHttp(() => ({ code: 0, data: {} }));
-    expect(await sendCard(fixtureConnector(), fixtureSecrets(), { receiveIdType: "open_id", receiveId: "ou_abc", body: card }, overrides(h))).toEqual({
-      ok: true,
-      externalMessageId: null,
-    });
+  it.each([
+    ["an empty object", {}],
+    ["an HTML page from a proxy", "<html><body>Bad gateway</body></html>"],
+    ["a null body", null],
+    ["a code that is not a number", { code: "0", data: { message_id: "om_x" } }],
+    ["success with no data", { code: 0 }],
+    ["success with no message id", { code: 0, data: {} }],
+    ["success with an empty message id", { code: 0, data: { message_id: "" } }],
+    ["success with a message id that is not text", { code: 0, data: { message_id: 42 } }],
+  ])("is never recorded as sent when the platform answers 200 with %s (retryable: nothing says it was delivered)", async (_label, body) => {
+    const h = makeHttp(() => body);
+    const res = await sendCard(fixtureConnector(), fixtureSecrets(), { receiveIdType: "open_id", receiveId: "ou_abc", body: card }, overrides(h));
+    expect(res).toEqual({ ok: false, retryable: true, error: "unexpected response" });
   });
 });
 
@@ -196,6 +203,25 @@ describe("patchCard", () => {
     expect(h.calls[0].method).toBe("PATCH");
     expect(h.calls[0].url).toBe("https://open.larksuite.com/open-apis/im/v1/messages/om_existing_9");
     expect(h.calls[0].data).toEqual({ content: JSON.stringify(card) });
+  });
+
+  it.each([
+    ["an empty object", {}],
+    ["an HTML page from a proxy", "<html><body>Bad gateway</body></html>"],
+    ["a null body", null],
+    ["a code that is not a number", { code: "0" }],
+  ])("is never recorded as patched when the platform answers 200 with %s (retryable)", async (_label, body) => {
+    const h = makeHttp(() => body);
+    const res = await patchCard(fixtureConnector(), fixtureSecrets(), "om_existing_9", card, overrides(h));
+    expect(res).toEqual({ ok: false, retryable: true, error: "unexpected response" });
+  });
+
+  it("needs no message id in the reply: a patch that answers code 0 succeeded", async () => {
+    const h = makeHttp(() => ({ code: 0 }));
+    expect(await patchCard(fixtureConnector(), fixtureSecrets(), "om_existing_9", card, overrides(h))).toEqual({
+      ok: true,
+      externalMessageId: "om_existing_9",
+    });
   });
 
   it("treats the 14-day edit window (230031) as permanent and a recalled message (230011) too", async () => {

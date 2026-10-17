@@ -144,11 +144,11 @@ export default async function ApprovalsPage({
     <PageContainer width="narrow" className="space-y-6">
       <PageHeader title="Approvals" />
 
-      <QueueCallout count={mine.length} noun="deletion request" className="mb-0">
+      <QueueCallout count={mine.length} noun="deletion request" className="mb-3">
         awaiting your decision · oldest waiting {oldestDays === 0 ? "today" : `${oldestDays} day${oldestDays === 1 ? "" : "s"}`}
       </QueueCallout>
 
-      <FourEyesNote variant="quiet" className="-mt-3" />
+      <FourEyesNote variant="quiet" />
 
       <UrlFilter
         label="Approval status"

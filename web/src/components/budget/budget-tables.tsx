@@ -244,9 +244,10 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
           <tbody>
             {rows.map((r) => (
               <TR key={r.projectId} className="hover:bg-sunken transition-colors duration-100 print:break-inside-avoid">
-                <TD className="whitespace-nowrap">
+                {/* wraps (no nowrap): the name column takes whatever the money columns leave, so the table fits without clipping or truncating names */}
+                <TD>
                   <span className="font-medium text-ink">{r.projectName}</span>
-                  <span className="ml-2 font-mono text-xs text-ink-muted">{r.currency}</span>
+                  <span className="ml-1.5 whitespace-nowrap font-mono text-xs text-ink-muted">{r.currency}</span>
                 </TD>
                 <TD align="right" numeric className="whitespace-nowrap text-ink-secondary">{r.plannedDisplay}</TD>
                 <TD align="right" numeric className="whitespace-nowrap text-ink-secondary">{r.committedDisplay}</TD>
@@ -261,7 +262,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                   )}
                 </TD>
                 <TD>
-                  <PacingBar burnPct={r.burnPct} expectedPct={r.completionPct} hasPlan={r.hasPlan} />
+                  <PacingBar burnPct={r.burnPct} expectedPct={r.completionPct} hasPlan={r.hasPlan} stacked />
                 </TD>
               </TR>
             ))}
@@ -283,7 +284,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                   {totals.varianceDisplay}
                 </TD>
                 <TD>
-                  <PacingBar burnPct={totals.burnPct} expectedPct={totals.completionPct} />
+                  <PacingBar burnPct={totals.burnPct} expectedPct={totals.completionPct} stacked />
                 </TD>
               </TR>
             </tfoot>

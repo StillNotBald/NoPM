@@ -44,10 +44,46 @@ export const POST = route(async ({ actor, params }) => {
   // could be applied, and re-snapshot the baselines, again).
   assertApplicable(rebaseline.status);
 
+  // ── Re-baseline snapshot ───────────────────────────────────────────────────
+  // When a rebaseline is applied, the newly-approved dates become the new
+  // baseline: set baseline_* = current schedule dates for all milestones and
+  // tasks in the project.  This overwrites any existing baseline (intentional —
+  // the governance trail lives in audit_log, not in the column history).
+  //
+  // Guard: rebaseline.project_id must exist; if the shape ever changes this
+  // block is skipped gracefully so the apply itself is never blocked.
+  //
+  // Runs as a single RPC (nopm_apply_rebaseline_snapshot, migration 0028)
+  // rather than a loop of individual `.update()` calls: this project may be
+  // locked (that's the normal case — applying a rebaseline is how a locked
+  // project's dates legitimately change), and the DB-level lock backstop
+  // (migration 0028) enforces that on every task/milestone write. The RPC
+  // sets a transaction-local nopm.lock_bypass at its start, which only holds
+  // for the one transaction the RPC call opens — a loop of separate
+  // supabase-js calls would each open their own transaction and the bypass
+  // would not carry across them.
+  //
+  // It runs BEFORE the status flip: `applied` is terminal (the 0049 trigger
+  // refuses any further transition), so flipping first and failing in the
+  // snapshot used to strand a rebaseline that was "applied" with its baselines
+  // unchanged and no way to retry. The snapshot is idempotent (baseline :=
+  // current dates), so a failure here leaves the rebaseline `approved` and a
+  // retry simply runs it again.
+  const projectId: string | null = rebaseline.project_id ?? null;
+
+  if (projectId) {
+    const { error: snapshotErr } = await db.rpc("nopm_apply_rebaseline_snapshot", {
+      p_project_id: projectId,
+      p_workspace_id: actor.workspaceId,
+    });
+    if (snapshotErr) throw snapshotErr;
+  }
+
   const now = new Date().toISOString();
 
   // Compare-and-set approved -> applied: two concurrent applies can't both win
-  // (the rebaselines trigger of migration 0049 is the DB backstop).
+  // (the rebaselines trigger of migration 0049 is the DB backstop). The loser
+  // may have re-run the idempotent snapshot above; that changes nothing.
   const { data: after, error: updateError } = await db
     .from("rebaselines")
     .update({
@@ -74,34 +110,6 @@ export const POST = route(async ({ actor, params }) => {
     before: rebaseline,
     after,
   });
-
-  // ── Re-baseline snapshot ───────────────────────────────────────────────────
-  // When a rebaseline is applied, the newly-approved dates become the new
-  // baseline: set baseline_* = current schedule dates for all milestones and
-  // tasks in the project.  This overwrites any existing baseline (intentional —
-  // the governance trail lives in audit_log, not in the column history).
-  //
-  // Guard: rebaseline.project_id must exist; if the shape ever changes this
-  // block is skipped gracefully so the apply itself is never blocked.
-  //
-  // Runs as a single RPC (nopm_apply_rebaseline_snapshot, migration 0028)
-  // rather than a loop of individual `.update()` calls: this project may be
-  // locked (that's the normal case — applying a rebaseline is how a locked
-  // project's dates legitimately change), and the DB-level lock backstop
-  // (migration 0028) enforces that on every task/milestone write. The RPC
-  // sets a transaction-local nopm.lock_bypass at its start, which only holds
-  // for the one transaction the RPC call opens — a loop of separate
-  // supabase-js calls would each open their own transaction and the bypass
-  // would not carry across them.
-  const projectId: string | null = rebaseline.project_id ?? null;
-
-  if (projectId) {
-    const { error: snapshotErr } = await db.rpc("nopm_apply_rebaseline_snapshot", {
-      p_project_id: projectId,
-      p_workspace_id: actor.workspaceId,
-    });
-    if (snapshotErr) throw snapshotErr;
-  }
 
   return ok(after);
 });

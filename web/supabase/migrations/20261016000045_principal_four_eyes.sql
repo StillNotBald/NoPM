@@ -197,20 +197,24 @@ alter table timesheet_submissions
 -- target (0006 created only a plain index), so Postgres rejects the upsert
 -- (42P10) — sign-off could never succeed. A token now signs as its owner
 -- (approver_id = the principal), which makes this index the DB guarantee that
--- a person holds exactly one vote however many identities they use. Created
--- only when no duplicates exist, so history can never block the migration.
+-- a person holds exactly one vote however many identities they use. Fail-closed:
+-- if duplicates exist the migration ABORTS (nothing is applied) instead of
+-- skipping the index, because a missing index leaves every sign-off failing
+-- 42P10 while the runner reports success. Remove the duplicates first with
+-- CUTOVER/sql/lark-wave/dedupe-signoffs.sql, then re-run the migration.
 do $$
 begin
   if exists (
     select 1 from rebaseline_signoffs
     group by rebaseline_id, approver_id having count(*) > 1
   ) then
-    raise warning '0045: duplicate rebaseline_signoffs (rebaseline_id, approver_id) rows exist; uniq_rebaseline_signoff_approver NOT created — dedupe, then create it by hand';
-  else
-    create unique index if not exists uniq_rebaseline_signoff_approver
-      on rebaseline_signoffs (rebaseline_id, approver_id);
+    raise exception '0045: duplicate rebaseline_signoffs (rebaseline_id, approver_id) rows exist, so the unique index cannot be created. Review and remove them with CUTOVER/sql/lark-wave/dedupe-signoffs.sql, then re-run the migration.'
+      using hint = 'Nothing was applied; this file is rolled back as a whole.';
   end if;
 end $$;
+
+create unique index if not exists uniq_rebaseline_signoff_approver
+  on rebaseline_signoffs (rebaseline_id, approver_id);
 
 -- Report (never fail on) history that predates the rule.
 do $$

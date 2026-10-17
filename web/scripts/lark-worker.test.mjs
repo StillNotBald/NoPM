@@ -229,7 +229,7 @@ test("relay: network failure and timeout are retryable and do not leak the URL",
 
 /* ---------------------------------------------------------------- callbacks */
 
-const flatMessage = (id = "ev_1") => ({
+const flatMessage = (id = "ev_1", messageId = undefined) => ({
   schema: "2.0",
   event_id: id,
   event_type: "im.message.receive_v1",
@@ -237,7 +237,7 @@ const flatMessage = (id = "ev_1") => ({
   tenant_key: "tk_1",
   app_id: "cli_a1b2c3d4e5f6a7b8",
   sender: { sender_id: { open_id: "ou_abc" } },
-  message: { content: '{"text":"SECRET CHAT TEXT"}' },
+  message: { ...(messageId ? { message_id: messageId } : {}), content: '{"text":"SECRET CHAT TEXT"}' },
 });
 
 const flatCard = (id = "ev_c1") => ({
@@ -269,6 +269,22 @@ test("callbacks: a message event is relayed once; a Lark re-push of the same eve
   for (const secret of ["SECRET CHAT TEXT", APP_SECRET, RELAY_SECRET, "verification-token-value", "ou_abc"]) {
     assert.ok(!logged.includes(secret), `log must not contain ${secret}`);
   }
+});
+
+test("callbacks: a Lark re-push of the same MESSAGE under a new event id is skipped (dedupe is on message_id)", async () => {
+  const { log } = recordingLog();
+  const calls = [];
+  const fetch = async (_u, init) => { calls.push(JSON.parse(init.body)); return reply(200, {}); };
+  const seen = w.createSeenCache();
+  const h = w.createHandlers({ cfg: cfgOf(), log, seen, deps: { fetch } });
+
+  await h["im.message.receive_v1"](flatMessage("ev_first", "om_same"));
+  await h["im.message.receive_v1"](flatMessage("ev_repush", "om_same"));
+  assert.equal(calls.length, 1);
+  assert.equal(seen.has("om_same"), true);
+
+  await h["im.message.receive_v1"](flatMessage("ev_other", "om_other")); // a different message is relayed
+  assert.equal(calls.length, 2);
 });
 
 test("callbacks: a retryable event failure throws (Lark re-pushes) and is not remembered", async () => {
@@ -459,6 +475,49 @@ test("toEnvelope: hoists header fields back, drops symbol keys and the verificat
 
 test("toEnvelope: tolerates a missing input", () => {
   assert.deepEqual(w.toEnvelope(undefined), { schema: "2.0", header: {}, event: {} });
+});
+
+/* ----------------------------------------------------------- frame probe */
+
+const frameOf = (type) => ({ headers: [{ key: "type", value: type }, { key: "message_id", value: "m1" }], payload: new Uint8Array([1]) });
+
+test("frame probe: a data frame whose type is not 'event' is logged (type only) and still handed to the SDK untouched", async () => {
+  const { log, lines } = recordingLog();
+  const handled = [];
+  const ws = { handleEventData: async (frame) => { handled.push(frame); return "sdk-result"; } };
+  assert.equal(w.installFrameProbe(ws, log), true);
+
+  const card = frameOf("card");
+  assert.equal(await ws.handleEventData(card), "sdk-result");
+  assert.equal(handled[0], card);
+  assert.equal(lines.filter((l) => l.startsWith("warn ws frame with a non-event type")).length, 1);
+  assert.ok(lines.join("\n").includes('"type":"card"'));
+  assert.ok(!lines.join("\n").includes("m1"), "nothing but the frame type is logged");
+
+  await ws.handleEventData(frameOf("event"));
+  assert.equal(lines.filter((l) => l.startsWith("warn ws frame")).length, 1, "a normal event frame logs nothing");
+  assert.equal(handled.length, 2);
+});
+
+test("frame probe: a frame with no readable type headers is passed through without logging", async () => {
+  const { log, lines } = recordingLog();
+  const ws = { handleEventData: async () => "ok" };
+  w.installFrameProbe(ws, log);
+  assert.equal(await ws.handleEventData({}), "ok");
+  assert.equal(await ws.handleEventData(undefined), "ok");
+  assert.equal(lines.filter((l) => l.startsWith("warn")).length, 0);
+});
+
+test("frame probe: does nothing when the SDK has no such method (a bump that renamed it)", () => {
+  const { log } = recordingLog();
+  assert.equal(w.installFrameProbe({}, log), false);
+  assert.equal(w.installFrameProbe(undefined, log), false);
+});
+
+test("frame probe: the pinned SDK still has the private handleEventData the probe wraps", async () => {
+  const Lark = await import("@larksuiteoapi/node-sdk");
+  const sdk = Lark.WSClient ? Lark : Lark.default;
+  assert.equal(typeof sdk.WSClient.prototype.handleEventData, "function");
 });
 
 /* ----------------------------------------------------------- lark failures */

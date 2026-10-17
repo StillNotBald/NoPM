@@ -1,6 +1,6 @@
 # Sprint Summary — 2026-10-16_lark-integration
 
-> **DRAFT** — written by the traceability worker from the tree and the round reports. Gate numbers are `TODO` until the orchestrator runs the gates; nothing below claims a gate result that was not observed.
+> Written by the traceability worker from the tree and the round reports. The orchestrator filled in the gate numbers after running the gates; nothing below claims a gate result that was not observed.
 
 **TL;DR:** Four-eyes now compares people instead of actor ids (and wildcard scopes can no longer grant an approve verb), governed tables are writable only through the audited API, and a Lark / Feishu integration lets an approver decide a governed request from a chat card — with a weekly digest, a "what is waiting for me" surface for agents and an ICS milestone feed. A second round then attacked it: three adversarial reviews found and closed lifecycle, tenancy, card-integrity and reliability gaps, and an impeccable UI audit with a five-way fix wave made the console accessible and its portfolio views correct. One migration (0048, the direct-write lockdown) was hotfixed to the live project on 2026-10-17; the rest are written and rehearsed locally but not applied, and the Lark adapter has never talked to a live tenant.
 
@@ -57,27 +57,99 @@
 - R2: stale-card bait-and-switch (F1) [R-107]; SDK tenant-token cache shared by app id (F2) [R-107]; silent link displacement and unthrottled code guessing (F3) [R-107]; XFF-keyed pre-auth limiter (F4) and the doubled rate window (F5) [R-105]; foreign tenant pinning the connector (F6), audit-stream and oracle exposure (F7), approver DM flood (F8), optional Encrypt Key (F9), bidi characters in reject reasons (F10) [R-107].
 - R3: calendar feed truncated at 1,000 rows and dropping the future, no ETag, unthrottled (F1, F10) [R-101]; duplicate cards (F2), serial unbounded cron (F3), lease from drain start (F4), mid-send decisions (F5), no pre-send state check (F6), non-atomic digest (F7), no retention and token churn (F8), no operator visibility (F9), fan-out capped at one page (F11), `npc_` not redacted in errors (F14) [R-106 / R-107].
 
-**What stays open** — see the owner-decision list below; in short: governed unlock without a second person, session members holding approve verbs implicitly, pre-existing cross-tenant data, calendar feeds outliving their creator, a cookie-mutation Origin check, manager-minted manager identities, document upload and storage paths (not exercised by the red team), one-tap change-request and timesheet cards, an event lost to a killed function, and a UTC-only digest weekday.
+**What stays open** — see the owner-decision list below; in short: governed unlock without a second person, session members holding approve verbs implicitly, pre-existing cross-tenant data, calendar feeds outliving their creator, manager-minted manager identities, document upload and storage paths (not exercised by the red team), one-tap change-request and timesheet cards, an event lost to a killed function, and a UTC-only digest weekday.
 
 ## UI audit (round 2)
 - Five auditors scored the console 11, 12, 11, 12 and 13 out of 20 ("Acceptable — significant work needed"), with 3 P0 (the notification bell clipped off-screen below 1024px; the Mainline Network lens that could never render because its dependency query failed silently; the inspector not height-bound so Save was unreachable), 40 P1, and the rest P2 / P3. The detector was blind to every P0 and P1: they are runtime and cascade defects.
-- The orchestrator's first pass (commit 8640176) moved every status text to the AA `-ink` tokens, layered the border-colour rule and made focus rings solid; five parallel fix workers then covered the five audited areas — shell and primitives, portfolio and tracking, registers and forms, governance and integrations, and the public pages. The post-fix verification render is the orchestrator's: **TODO** (re-score).
+- The orchestrator's first pass (commit 8640176) moved every status text to the AA `-ink` tokens, layered the border-colour rule and made focus rings solid; five parallel fix workers then covered the five audited areas — shell and primitives, portfolio and tracking, registers and forms, governance and integrations, and the public pages. **Re-render after the wave:** 128 captures across both themes and both viewports.
+  - **Closed:** 3 of 3 P0 and 36 of 40 P1.
+  - **Re-score:** 15, 16, 15, 15 and 16 out of 20 (mean 15.4, up from 11.8).
+  - **Clean:** no console error and no page overflow on any captured route, and axe is clean on every public page.
+  - **Regressions:** two, both caused by `tailwind-merge` letting a caller's `mb-0` win. A callout border struck through the intro on /review and /approvals.
+  - **Partials:** four (the slip label, phone Today, two register widths). Round 3 fixed them.
 - One dependency was admitted by the fix-wave brief: `tailwind-merge`, pinned exactly at 3.7.0, so a caller's class override replaces a primitive's instead of losing to CSS order. It needs the maintainer's sign-off because the CLAUDE.md list asks before any new dependency.
 
+## Round 3 (2026-10-17): code review, re-attack, one fix pass
+**What ran.**
+- Three read-only code reviewers: governance, API, MCP and CLI; the hub, calendar and notifications; the UI code.
+- A re-attack of every round-2 finding against a rebuilt local app.
+- A check of the Lark adapter against the official platform docs and the pinned SDK source.
+- A live-order migration rehearsal: 0048 first, as on the live project, then 0045 – 0047 and 0049 – 0054 on fresh scratch databases.
+- One fix pass.
+
+The owner then cut the review rounds: no further review or re-verify waves, and only the automated gates after the fix pass.
+
+**Found and fixed** (each with a test that fails on the old code)
+- **Governance and core:**
+  - The lock route locked BEFORE it snapshotted baselines, so the 0028 trigger refused the snapshot and every lock returned 500 with no baseline.
+  - An approver could rewrite a pending change request, then approve it. Only the requester may now edit or delete an open request (403 `not_requester`).
+  - The deletion scope missed `project_budget`, `clashes` and `calendar_feeds`, and its test was circular (migration 0054).
+  - `api_tokens.last_used_at` was never written, because a lazy query builder was never sent.
+  - Task and milestone PATCH blocked a no-op echo on a locked project.
+  - Any member could submit, and so freeze, someone else's week.
+  - A project could be created already locked.
+  - A partial budget PATCH reset committed amount and currency, and dropped the reserve fields.
+  - Malformed ids returned 500.
+  - Cookie-authenticated mutations get an Origin check (403 `bad_origin`).
+  - A task-deletion approval is refused when the task changed after the request (422 `target_changed`).
+  - The requester's human may withdraw what their token raised.
+  - A reopened timesheet can be resubmitted and re-approved.
+- **Hub:**
+  - An edit landing before the first card was sent left a live card showing old content with a token bound to the new version.
+  - The cron sent the weekly digest one tick (a day) late.
+  - Overlapping drains burned retry attempts ahead of the ladder.
+  - A 200 with no message id counted as a send.
+  - Patches to cards older than 14 days dead-lettered.
+  - Deleting an open change request left live cards.
+  - The calendar limiter keyed on a caller-written header.
+  - A leaked link code could silently displace an existing link (now refused until the member unlinks).
+  - `audit_log.external_actor_ref` held raw platform ids (now masked).
+- **Lark docs check:** 67 of 80 claims matched the docs, 2 did not, and 11 need a live tenant.
+  - The deletion card's `confirm` dialog never shows in Lark, so it was replaced by a notice on the card.
+  - Direct messages are de-duplicated on `message_id`.
+  - The URL handshake is answered before the rate check.
+  - A log-only probe records which frame type a card click arrives as.
+  - The owner setup checklist is `docs/runbooks/lark-first-live-test.md`.
+- **UI:**
+  - Opening the inspector for a second record reused the first record's form state, so it could PATCH B with A's values. It is now keyed per open.
+  - The account menu and project switcher lost clicks in Safari and Firefox on macOS.
+  - The phone filter sheet snapped back.
+  - Delete confirms were at 3.9:1 contrast.
+  - The slip label and the avatar failed AA.
+  - Save is pinned in every form panel.
+  - The /documents and /budget tables fit at 1280.
+- **Rollout:** the safe order is migrate, then deploy, as one window (`CUTOVER/07-LARK-WAVE-ROLLOUT.md`, with SQL in `CUTOVER/sql/lark-wave/`).
+  - The runner gained `--atomic` and `--dry-run` and now prints notices.
+  - 0045 now fails closed on duplicate sign-offs instead of silently skipping its unique index.
+  - 0054 removes the leftover write and PG17 `MAINTAIN` grants that API roles still held on nine deny-all tables.
+
+**Left open by the scope cut:**
+- `maxDuration` on the emitting routes.
+- Calendar feeds outliving their creator.
+- Cost and schedule impact shown on change-request cards.
+- The uuid dedup window versus the retry ladder.
+- The 503-versus-401 answer for a connector with unreadable secrets.
+- Zero-width characters in reject reasons.
+- Lark error hints, and the card-locked retry.
+- Rebaseline sign-off atomicity, draft rebaselines with no promote path, and whether an applied rebaseline moves the project baseline.
+- The stale debounced search after "Clear filters", and the remaining UI P2s.
+- Atomic audit on non-RPC routes.
+
 ## R-IDs touched
-- **New:** R-95 DONE · R-96 DONE · R-97 DONE · R-98 DONE · R-99 PARTIAL · R-100 DONE · R-101 DONE · R-102 DONE · R-103 DONE · R-104 DONE · R-105 DONE · R-106 DONE · R-107 DONE · R-108 DONE · R-109 DONE · R-110 DONE · R-111 DONE · R-112 DONE (DONE = code-complete; migrations 0045 – 0047 and 0049 – 0053 not yet applied to the live project, the F2a precedent; 0048 is live).
+- **New:** R-95 DONE · R-96 DONE · R-97 DONE · R-98 DONE · R-99 PARTIAL · R-100 DONE · R-101 DONE · R-102 DONE · R-103 DONE · R-104 DONE · R-105 DONE · R-106 DONE · R-107 DONE · R-108 DONE · R-109 DONE · R-110 DONE · R-111 DONE · R-112 DONE (DONE = code-complete; migrations 0045 – 0047 and 0049 – 0054 not yet applied to the live project, the F2a precedent; 0048 is live).
 - **Amended inline (2026-10-16 and 2026-10-17):** R-02 · R-03 · R-04 · R-06 · R-07 · R-21 / R-22 · R-23 · R-24 · R-25 · R-37 · R-38 · R-62 (health build, cron entry, ledger lock) · R-64 (tool id safety) · R-67 · R-74 · R-82 · R-83 · R-84 · R-93, and R-95 … R-102 themselves for the round-2 changes (R-102 rewritten: 24 tables, the ledger lock, the live hotfix).
 - `requirements/REQUIREMENTS.md` and `requirements/TRACEABILITY.md` were updated together; `npm run rtm:verify` from `web/` passed at drafting time (102 R-IDs status-matched, 1066 Code-file paths verified on disk); re-run at gate time: OK.
 
 ## Files
-- **Migrations:** `web/supabase/migrations/20261016000045_principal_four_eyes.sql` · `…046_integration_hub.sql` · `…047_calendar_feeds.sql` · `…048_rls_api_only_writes.sql` · `20261017000049_lifecycle_guards.sql` · `…050_truncate_guard.sql` · `…051_hub_reliability.sql` · `…052_api_tokens_kind.sql` · `…053_hub_card_integrity.sql`.
+- **Migrations:** `web/supabase/migrations/20261016000045_principal_four_eyes.sql` · `…046_integration_hub.sql` · `…047_calendar_feeds.sql` · `…048_rls_api_only_writes.sql` · `20261017000049_lifecycle_guards.sql` · `…050_truncate_guard.sql` · `…051_hub_reliability.sql` · `…052_api_tokens_kind.sql` · `…053_hub_card_integrity.sql` · `…054_lifecycle_guards_2.sql`.
 - **Governance:** `web/src/lib/governance/{decide,lock,period-lock,timesheet-decision,rebaseline-lifecycle,project-children,change-request-edit}.ts`, `web/src/lib/api/{workspace-refs,client-ip,rate-limit}.ts`, `web/src/lib/auth/{guard,tokens,scopes}.ts`, `web/src/lib/notify/publish.ts`, the deletion / change-request / timesheet / rebaseline / project / time-entry routes and the routes that now check foreign ids.
 - **Agent surface:** `web/src/app/api/review/route.ts`, `web/src/lib/review/{pending,four-eyes,gather}.ts`, `web/mcp/tools.mjs`, `web/src/lib/assistant/*`, `cli/commands/review.mjs`, `web/src/app/api/health/*`, `web/src/app/api/mcp/route.ts`.
 - **Integration Hub and Lark adapter:** `web/src/lib/integrations/*`, `web/src/lib/integrations/lark/*`, `web/src/app/api/integrations/**`, `web/scripts/lark-worker.mjs`, `web/vercel.json`, `web/package.json` (+ lockfile).
 - **Calendar feed:** `web/src/lib/calendar/*`, `web/src/app/api/calendar/[token]/route.ts`, `web/src/app/api/calendar-feeds/**`.
 - **Console and public UI:** `web/src/components/ui/*`, `web/src/components/layout/*`, `web/src/components/governance/*`, `web/src/components/registers/*`, `web/src/components/timeline/*`, `web/src/components/marketing/*`, `web/src/components/integrations/*`, `web/src/lib/timeline/*`, `web/src/lib/cn.ts`, `web/src/app/globals.css`, `web/src/app/(console)/**`, the public pages and OG image routes, `docs/product/DESIGN.md`.
 - **Docs / receipts:** `docs/adr/0012-*`, `docs/adr/0013-*`, `docs/use-cases/UC-23 … UC-26`, `docs/guide/07-lark-integration.md`, `docs/research/audit-2026-10-16/`, `requirements/*`, this folder.
-- **Probes and runner:** `web/scripts/local-db/*` (incl. `probe-rls-direct-write.mjs`), `web/scripts/apply-migrations.mjs` (ledger lock).
+- **Probes and runner:** `web/scripts/local-db/*` (incl. `probe-rls-direct-write.mjs`), `web/scripts/apply-migrations.mjs` (ledger lock; `--atomic`, `--dry-run`, notices).
+- **Rollout and live test:** `CUTOVER/07-LARK-WAVE-ROLLOUT.md`, `CUTOVER/sql/lark-wave/*.sql`, `docs/runbooks/lark-first-live-test.md`.
 
 ## Decisions (locked 2026-10-16 — see PLAN.md)
 - **D1** Principal-aware four-eyes, retroactive for every actor; a null principal can never approve (and, since round 2, can never raise).
@@ -94,14 +166,23 @@
 ## Tests / verification
 - `npx tsc --noEmit`: 0 errors
 - `npm run lint`: 0 errors (5 pre-existing warnings)
-- `npm run test` (vitest): 4611 passed / 4611, 181 files
-- CLI tests (`cli/`): 44/44 · worker tests (`npm run test:worker`): 35/35
-- `npm run rtm:verify`: OK at gate time (102 R-IDs status-matched, 1066 Code-file paths verified on disk)
-- `npm run build` (local-stack env): OK · `npm run gen:metrics`: regenerated (102 R-IDs, 98 endpoints, 4611 tests, 17 deps) and `--check` passes
-- Local Supabase (`npx supabase start`, seeded with the full demo chain): migrations 0001 – 0053 apply in order. Probes on a fresh production build: probe-migrations 9/9, probe-four-eyes 28/28, probe-rls-direct-write 23/23 (every direct member write blocked, reads intact), probe-api 15/15, probe-calendar 10/10, probe-lark 51/51 (real emit path against a loopback fake Lark; nothing reached a real Lark host)
+- `npm run test` (vitest): 4835 passed / 4835, 186 files (round 2 closed at 4611 / 4611, 181 files)
+- CLI tests (`cli/`): 49/49 · worker tests (`npm run test:worker`): 40/40
+- `npm run rtm:verify`: OK at gate time (102 R-IDs status-matched, 1068 Code-file paths verified on disk)
+- `npm run build` (local-stack env): OK · `npm run gen:metrics`: regenerated (102 R-IDs, 98 endpoints, 4835 tests, 17 deps) and `--check` passes
+- Local Supabase (`npx supabase start`, seeded with the full demo chain): migrations 0001 – 0054 apply in order. Probes on a fresh production build: probe-migrations 9/9, probe-four-eyes 28/28, probe-rls-direct-write 23/23 (every direct member write blocked, reads intact), probe-api 15/15, probe-calendar 10/10, probe-lark 51/51 (real emit path against a loopback fake Lark; nothing reached a real Lark host)
 - Live: 0048 applied 2026-10-17, authenticated page smoke 24 / 24 (reported by the orchestrator)
-- Adversarial rounds: R1, R2, R3 reports reviewed for this receipt; a re-attack of the fixed findings: TODO
-- UI re-render and re-score after the fix wave: TODO
+- Probes re-run after the round-3 fixes on a fresh production build: the same six pass (9/9, 28/28, 23/23, 15/15, 10/10, 51/51).
+- **Live-order rehearsal:** the tracked runner on fresh scratch databases built to the live state (0001 – 0044 plus 0048, 45 ledger rows).
+  - `--atomic --dry-run` applied the 9 pending files and rolled back, and `--atomic` committed them in one transaction in under 0.2 s.
+  - The post-check had every row `ok`.
+  - The catalog matches the fully ordered database: policies, grants, functions, constraints, triggers and RLS flags.
+- **Re-attack of the R1 / R2 / R3 findings against the rebuilt app:** every High and Medium is closed except these:
+  - one regression, the late digest, fixed in round 3;
+  - member-session approvals, an owner decision;
+  - three partials (link displacement, audit masking, a 503 oracle). The first two were fixed in round 3; the third is left open.
+- **What held:** self-approval through a second token, wildcard approve, the `X-NoPM-Client: lark` spoof, card-click replay and direct PostgREST writes as member and anon.
+- UI re-render and re-score after the round-2 wave: see the UI audit section above. Round 3 got one orchestrator spot check: 12 checks across both themes and both viewports, 0 flagged. The inspector-reuse fix is verified by code reading only, because the repo has no DOM test environment.
 - Not run by anyone, on purpose: anything against the live Supabase project other than the 0048 hotfix, a dev server, or a live Lark / Feishu tenant.
 
 ## Follow-ups
@@ -114,10 +195,23 @@
 - **Public copy** (UI audit A5): name MCP and the BYOK assistant on the landing; how and whether to mention Lark chat approvals and the calendar feed; keep, update or drop "shipped solo in eight waves"; confirm the demo account line on `/login` is the demo identity; relabel "Raise a change request"; show a real console screenshot (the audit's pick is the Trust Center stream).
 - **Caching:** `Cache-Control` on the public pages needs route-group layouts and a hash-based CSP; decide whether it is worth it.
 - **NOTICE:** the font section says no font files are committed, but two OFL font subsets now ship for the OG images with their licences beside them — list them in `NOTICE`.
-- Smaller: an Origin check on cookie-authenticated mutations; whether a manager may invite another manager (a second human identity that satisfies four-eyes); whether a calendar feed should die with its creator's access.
+- Smaller:
+  - Whether a manager may invite another manager, which creates a second human identity that satisfies four-eyes.
+  - Whether a calendar feed should die with its creator's access.
+  - Whether an applied rebaseline should move the project-level baseline; today no field carries proposed project dates.
+  - Confirm the round-3 rule that only the requester edits an open change request. The alternative is to record the last editor and refuse their approval.
+- **Live integrity check:** a read-only script looks for traces of direct writes made before the 0048 hotfix (it is kept out of the repo because its report lists admin emails). Running it against the live project needs the owner's go-ahead.
 
 **Before going live**
-- Apply 0045 → 0046 back to back (the deletion RPCs recreated in 0045 write the `audit_log` columns 0046 adds; no deletion approval may run between them), then 0047 and 0049 → 0053, before deploying this wave's code (it reads columns they add); reload the PostgREST schema cache; live-verify. 0048 is already live and is skipped by name.
+- Follow `CUTOVER/07-LARK-WAVE-ROLLOUT.md`:
+  1. Run the read-only pre-check.
+  2. Build without aliasing.
+  3. Apply 0045 – 0047 and 0049 – 0054 in ONE transaction (`--atomic`, after a `--dry-run`).
+  4. Run the post-check.
+  5. Promote.
+  6. Run the post-window backfill.
+
+  Never deploy first: the new build fails every governed decision on the old schema. 0048 is already live and is skipped by name.
 - Set `CRON_SECRET` and the public app URL in the host environment; set `NOPM_TRUSTED_PROXY_HOPS` when self-hosting behind a reverse proxy (otherwise the pre-auth limiters share one bucket); mint approver tokens that need to decide with the exact scope (a legacy token that relied on a wildcard to approve now gets 403 until re-minted); give `functions.maxDuration` to the routes that emit if the host is not on a long-running plan (the hub's `after()` work is bounded by the platform default).
 - A live-tenant test of the Lark adapter (R-99 stays PARTIAL until then), including card callbacks over the long connection, which are unverified.
 - Check the live project's `profiles.role` against who is expected (see the hotfix note).
@@ -129,7 +223,7 @@
 - Lark Approval mirror — deferred to phase 2 (D3); the decision stays in NoPM.
 - Generic signed outbound webhooks and an audit-table outbox — deferred to a later wave (ADR 0012); v1 fans out only the fixed approval and digest messages.
 - Atomic audit for non-RPC routes — a route that writes a domain row and its audit row still does it in two statements (fail-closed, not atomic); only the RPC-backed paths are single-transaction.
-- Unlock without a second person (above), and `createProjectSchema` still accepting `is_locked: true` at creation (a project locked with no baseline snapshot) — low.
+- Unlock without a second person (above).
 - A stakeholder role — deferred; not designed in this wave.
 - Rebaseline sign-off is not available from a chat card (multi-approver, not in v1); chat decides deletions, change requests and timesheets, and a change-request or timesheet card approves with one tap and no confirm step.
 - The Lark hub: nothing reconciles an event lost to a function killed before its inserts (safe — tokens stay dead — but the approver never gets the card); the digest weekday is UTC with no workspace timezone; the direct-message dedupe is in-process per instance.

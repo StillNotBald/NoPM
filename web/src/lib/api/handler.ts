@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { type Actor, requireAuth } from "@/lib/auth/guard";
-import { toErrorResponse } from "@/lib/api/errors";
+import { invalidInputError, toErrorResponse } from "@/lib/api/errors";
+import { assertSameOrigin } from "@/lib/api/origin";
 import { checkRateLimit } from "@/lib/api/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveRequestId } from "@/lib/audit/channel";
@@ -14,11 +15,16 @@ export type RouteCtx = {
 /**
  * Wrap a route handler with auth + rate limiting + uniform error handling.
  * - resolves the Actor (session or Bearer PAT) unless { auth: false }
+ * - refuses a cookie-session POST/PUT/PATCH/DELETE whose Origin names another
+ *   site (403 bad_origin, @/lib/api/origin). Bearer-token requests and the
+ *   { auth: false } routes (Lark webhook / relay / card, cron, invite accept,
+ *   calendar feeds), none of which use the session cookie, are not checked.
  * - applies the baseline DB-backed rate limit AFTER actor resolution, before
  *   the handler runs (@/lib/api/rate-limit — fail-open+audited, 429 contract)
  * - awaits Next 16 async `params`
  * - converts thrown ApiErrors (including RateLimitError) into the { error }
- *   contract, else a sanitized 500
+ *   contract, maps a malformed id / value (Postgres 22P02) to 404 (path id) or
+ *   422 instead of a 500, else a sanitized 500
  *
  * Routes NOT built on route() — /api/health, /api/openapi.json, /llms.txt,
  * and the auth endpoints under /api/auth/** that pre-date this wrapper — are
@@ -37,9 +43,12 @@ export function route(
     // handler body, or a rate-limit RuleError) can still stamp the
     // request-id correlation header on the error response below.
     let actor: Actor | undefined;
+    let params: Record<string, string> = {};
     try {
-      const params = context?.params ? await context.params : {};
+      params = context?.params ? await context.params : {};
       actor = opts.auth === false ? undefined : await requireAuth(request);
+      // A session actor is authenticated by an ambient cookie; a token is not.
+      if (actor?.type === "user") assertSameOrigin(request);
       if (opts.auth !== false && actor) {
         await checkRateLimit(createAdminClient(), actor, request);
       }
@@ -47,7 +56,7 @@ export function route(
       if (actor?.requestId) stampRequestId(response, actor.requestId);
       return response;
     } catch (error) {
-      const response = toErrorResponse(error);
+      const response = toErrorResponse(invalidInputError(error, Object.values(params)) ?? error);
       if (actor?.requestId) {
         stampRequestId(response, actor.requestId);
       } else if (opts.auth !== false) {

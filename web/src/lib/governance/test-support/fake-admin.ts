@@ -218,7 +218,7 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
   }
 }
 
-// ── project child counts, as migration 0049 defines them ──────────────────
+// ── project child counts, as migrations 0049 + 0054 define them ───────────
 
 const CHILD_TABLES = [
   "milestones",
@@ -233,12 +233,24 @@ const CHILD_TABLES = [
   "expenses",
   "allocations",
   "sprints",
+  // added by 0054: they cascade from projects too
+  "project_budget",
+  "calendar_feeds",
+  "clashes",
 ] as const;
 
-/** Mirrors nopm_project_child_counts (0049): one count per child table that hangs off a project. */
+/** Child tables that name the project in a column other than `project_id`: a clash cascades from EITHER project it names. */
+const CHILD_PROJECT_COLUMNS: Record<string, readonly string[]> = {
+  clashes: ["project_a_id", "project_b_id"],
+};
+
+/** Mirrors nopm_project_child_counts (0049, extended by 0054): one count per child table that hangs off a project. */
 export function projectChildCounts(db: FakeDb, projectId: string): Record<string, number> {
   return Object.fromEntries(
-    CHILD_TABLES.map((t) => [t, db.rows(t).filter((r) => r.project_id === projectId).length]),
+    CHILD_TABLES.map((t) => {
+      const columns = CHILD_PROJECT_COLUMNS[t] ?? ["project_id"];
+      return [t, db.rows(t).filter((r) => columns.some((c) => r[c] === projectId)).length];
+    }),
   );
 }
 

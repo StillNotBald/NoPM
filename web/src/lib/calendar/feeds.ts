@@ -108,17 +108,6 @@ export const FEED_RATE_PER_IP = Number(process.env.NOPM_RATE_CAL_IP_PER_MIN ?? 1
 export const FEED_RATE_PER_FEED = Number(process.env.NOPM_RATE_CAL_PER_MIN ?? 60);
 const RATE_WINDOW_SECONDS = 60;
 
-/**
- * The client address as the platform proxy reports it. Used only as a rate-limit
- * key, never as an identity: a spoofed value can at worst spend someone else's
- * bucket or dodge its own, and the per-feed bucket does not depend on it.
- */
-export function clientAddress(request: Request): string {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  const candidate = forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
-  return candidate.slice(0, 64).replace(/[^0-9a-zA-Z:.%-]/g, "_");
-}
-
 type RateDb = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> };
 
 /**

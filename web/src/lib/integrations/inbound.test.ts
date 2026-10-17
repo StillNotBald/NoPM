@@ -127,7 +127,7 @@ describe("handleApprovalAction — the happy path", () => {
       channel: "lark", // server-derived, never from a header
       viaConnectorId: CONNECTOR_ID,
       externalEventId: "evt-happy",
-      externalActorRef: "lark:tenant-1:ou_max",
+      externalActorRef: "lark:te…:ou…", // masked: audit_log.external_actor_ref is member-readable
     });
     expect(typeof actor.requestId).toBe("string");
     expect(ref).toEqual({ kind: "task_deletion", id: ids.approval }); // from the token row, not from the click
@@ -201,6 +201,10 @@ describe("idempotency", () => {
 
 describe("action token — single use, recipient-bound, approval-bound", () => {
   it("cannot be used twice (a second click with a new event id is already_decided)", async () => {
+    decideMock.mockImplementationOnce(async () => {
+      db.rows("deletion_requests")[0].status = "committed"; // what the real decision does
+      return { kind: "task_deletion", id: ids.approval, status: "committed", title: "t", requesterPrincipalId: ids.requester };
+    });
     expect((await handleApprovalAction(input({ externalEventId: "evt-a" }))).status).toBe("decided");
     expect(await handleApprovalAction(input({ externalEventId: "evt-b" }))).toEqual({ status: "already_decided" });
     expect(decideMock).toHaveBeenCalledTimes(1);
@@ -211,7 +215,7 @@ describe("action token — single use, recipient-bound, approval-bound", () => {
       handleApprovalAction(input({ externalEventId: "evt-race-1" })),
       handleApprovalAction(input({ externalEventId: "evt-race-2" })),
     ]);
-    expect([a.status, b.status].sort()).toEqual(["already_decided", "decided"]);
+    expect([a.status, b.status].filter((s) => s === "decided")).toHaveLength(1);
     expect(decideMock).toHaveBeenCalledTimes(1);
   });
 
@@ -240,8 +244,30 @@ describe("action token — single use, recipient-bound, approval-bound", () => {
 
   it("a token superseded by a decision from another channel reads as already_decided", async () => {
     token(RAW_TOKEN).used_at = new Date(Date.now() - 60_000).toISOString();
+    db.rows("deletion_requests")[0].status = "committed"; // decided elsewhere: that is what stamped the token
     expect(await handleApprovalAction(input())).toEqual({ status: "already_decided" });
     expect(decideMock).not.toHaveBeenCalled();
+  });
+
+  it("a used token whose request is STILL pending is not 'already decided': the run that spent it died before deciding", async () => {
+    token(RAW_TOKEN).used_at = new Date(Date.now() - 60_000).toISOString();
+    expect(db.rows("deletion_requests")[0].status).toBe("pending");
+
+    const out = await handleApprovalAction(input());
+
+    expect(out).toEqual({ status: "invalid", message: "This card could not be used. Open NoPM to decide." });
+    expect(decideMock).not.toHaveBeenCalled();
+  });
+
+  it("a used token whose request no longer exists says so rather than 'already decided'", async () => {
+    token(RAW_TOKEN).used_at = new Date(Date.now() - 60_000).toISOString();
+    db.tables.deletion_requests = [];
+    expect(await handleApprovalAction(input())).toEqual({ status: "invalid", message: "That request no longer exists." });
+  });
+
+  it("a token retired by an edit still answers 'changed', whatever the request looks like", async () => {
+    Object.assign(token(RAW_TOKEN), { used_at: new Date(Date.now() - 60_000).toISOString(), superseded_reason: "changed" });
+    expect(await handleApprovalAction(input())).toEqual({ status: "changed" });
   });
 
   it("never honours a token from another workspace", async () => {

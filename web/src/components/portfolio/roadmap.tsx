@@ -473,8 +473,9 @@ export function PortfolioRoadmap({ projects, milestones, axisSpan, filtered = fa
                               <DiamondIcon
                                 className={cn("w-3.5 h-3.5", milestoneColor(ms.status))}
                               />
+                              {/* solid canvas chip: the label sits over the project bar fill, where the ink alone fails AA */}
                               {hasSlip && slipLabel && (
-                                <span className="ml-0.5 font-mono text-xs font-semibold text-warning-ink select-none whitespace-nowrap pointer-events-none">
+                                <span className="ml-0.5 rounded-sm bg-canvas px-1 font-mono text-xs font-semibold leading-4 text-warning-ink select-none whitespace-nowrap pointer-events-none">
                                   {slipLabel}
                                 </span>
                               )}

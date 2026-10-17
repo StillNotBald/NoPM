@@ -219,9 +219,8 @@ export function DocumentsClient({
               <ScrollTable bare label="Documents">
                 <THead>
                   <TR>
-                    <TH>Ref</TH>
+                    <TH>Ref / Type</TH>
                     <TH>Title</TH>
-                    <TH>Type</TH>
                     <TH>Status</TH>
                     <TH>Project</TH>
                     <TH>Updated</TH>
@@ -234,14 +233,20 @@ export function DocumentsClient({
                       onClick={() => openDocument(doc)}
                       className="cursor-pointer transition-colors duration-100 hover:bg-sunken"
                     >
+                      {/* Type sits under the ref: a separate column pushed the table past the ~750px list column at 1280 */}
                       <TD className="whitespace-nowrap">
-                        {doc.reference_id ? (
-                          <span className="whitespace-nowrap rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink-muted">
-                            {doc.reference_id}
+                        <div className="flex flex-col items-start gap-0.5">
+                          {doc.reference_id ? (
+                            <span className="whitespace-nowrap rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink-muted">
+                              {doc.reference_id}
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                          <span className="text-xs text-ink-secondary">
+                            {DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}
                           </span>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
+                        </div>
                       </TD>
                       <TD>
                         {/* The row click is a mouse convenience; this button is the keyboard / screen-reader way in. */}
@@ -252,16 +257,13 @@ export function DocumentsClient({
                             openDocument(doc);
                           }}
                           title={doc.title}
-                          className="focus-ring block max-w-[16rem] truncate rounded text-left font-medium text-ink hover:text-accent"
+                          className="focus-ring block max-w-[13rem] truncate rounded text-left font-medium text-ink hover:text-accent"
                         >
                           {doc.title}
                         </button>
                         {doc.summary && (
-                          <p className="mt-0.5 max-w-[16rem] truncate text-xs text-ink-muted">{doc.summary}</p>
+                          <p className="mt-0.5 max-w-[13rem] truncate text-xs text-ink-muted">{doc.summary}</p>
                         )}
-                      </TD>
-                      <TD className="whitespace-nowrap text-ink-secondary">
-                        {DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}
                       </TD>
                       <TD className="whitespace-nowrap">
                         <Badge tone={statusTone(doc.status as DocStatus)}>
@@ -269,7 +271,10 @@ export function DocumentsClient({
                         </Badge>
                       </TD>
                       <TD className="text-ink-secondary">
-                        <span className="block max-w-[10rem] truncate">
+                        <span
+                          className="block max-w-[8rem] truncate"
+                          title={doc.project_id ? projectMap[doc.project_id] : undefined}
+                        >
                           {doc.project_id ? (projectMap[doc.project_id] ?? "—") : "—"}
                         </span>
                       </TD>

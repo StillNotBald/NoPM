@@ -175,7 +175,7 @@ export async function runCron(
       run.partial = true;
       return;
     }
-    const job = drainConnector(connector, now, deadline, run.drain);
+    const job = drainConnector(connector, deadline, run.drain);
     const settled = await raceTimeout(job, Math.max(1_000, deadline + CRON_GRACE_MS - Date.now()));
     if (settled === "timeout") {
       summary.timedOut += 1;
@@ -278,15 +278,19 @@ async function orderByBacklog(connectors: ConnectorRow[], now: Date): Promise<Co
   }
 }
 
-/** Drain one connector page by page until its due backlog is empty or the time is up. */
-async function drainConnector(connector: ConnectorRow, now: Date, deadline: number, into: DrainSummary): Promise<void> {
+/**
+ * Drain one connector page by page until its due backlog is empty or the time is up.
+ * The drain runs on the REAL clock, not the tick's start time: phase 1 queued this
+ * tick's digest a moment after the tick began, and a drain that looked at an
+ * earlier instant would not find it due (it would go out a day late).
+ */
+async function drainConnector(connector: ConnectorRow, deadline: number, into: DrainSummary): Promise<void> {
   for (let pass = 0; pass < CRON_MAX_PASSES; pass++) {
     if (Date.now() >= deadline) return;
     const drained = await drainDeliveries({
       workspaceId: connector.workspace_id,
       connectorId: connector.id,
       limit: CRON_DRAIN_LIMIT,
-      now,
       deadline,
     });
     mergeDrain(into, drained);
@@ -356,12 +360,16 @@ export type DigestPlan = { outcome: "skipped" } | { outcome: "queued"; deliveryI
  */
 export async function queueWeeklyDigest(connector: ConnectorRow, now: Date): Promise<DigestPlan> {
   const { digest } = normalizeConfig(connector.config);
-  if (!digest.enabled || !digest.chatId) return { outcome: "skipped" };
   const weekKey = ymd(isoWeekStart(now));
 
-  // A claim a dead tick left behind: finish it (this week's) or drop it (an old week's).
-  const resumed = await resumeAbandonedClaim(connector, digest.chatId, weekKey, now);
+  // A claim a dead tick left behind: finish it (this week's), or drop it (an old
+  // week's, or any when the digest has been switched off since). Settled BEFORE
+  // the enabled check, so a disabled digest cannot strand a held row forever.
+  const target = digest.enabled && digest.chatId ? digest.chatId : null;
+  const resumed = await resumeAbandonedClaim(connector, target, weekKey, now);
   if (resumed) return resumed;
+
+  if (!target) return { outcome: "skipped" };
 
   const due = digestDue(connector, digest.weekday, now);
   if (due === "no") return { outcome: "skipped" };
@@ -371,7 +379,7 @@ export async function queueWeeklyDigest(connector: ConnectorRow, now: Date): Pro
     const [row] = await insertDeliveries(connector.workspace_id, connector.id, [
       {
         kind: "digest",
-        external_target: digest.chatId,
+        external_target: target,
         payload: { trigger: "scheduled", week_start: weekKey, held: true },
         locked_until: new Date(now.getTime() + LEASE_MS).toISOString(),
       },
@@ -381,7 +389,7 @@ export async function queueWeeklyDigest(connector: ConnectorRow, now: Date): Pro
     if (err instanceof DuplicateDeliveryError) return { outcome: "skipped" }; // this week's slot is taken
     throw err;
   }
-  return completeDigest(connector, held, digest.chatId, weekKey, now, due === "catch_up");
+  return completeDigest(connector, held, target, weekKey, now, due === "catch_up");
 }
 
 /** Audit, gather and release a held digest. Any failure frees the slot again (nothing was sent). */
@@ -420,7 +428,8 @@ async function completeDigest(
     const data = await gatherDigestData(connector.workspace_id, { now });
     const { error } = await db
       .from("integration_deliveries")
-      .update({ payload: { trigger: "scheduled", week_start: weekKey, data }, locked_until: null })
+      // The target is refreshed too: a digest resumed after the admin changed the chat must go to the chat they chose.
+      .update({ payload: { trigger: "scheduled", week_start: weekKey, data }, external_target: chatId, locked_until: null })
       .eq("id", held.id)
       .eq("workspace_id", connector.workspace_id);
     if (error) throw error;
@@ -432,9 +441,10 @@ async function completeDigest(
   return { outcome: "queued", deliveryId: held.id };
 }
 
+/** `chatId` null = the digest is off now: any claim found is dropped, not resumed. */
 async function resumeAbandonedClaim(
   connector: ConnectorRow,
-  chatId: string,
+  chatId: string | null,
   weekKey: string,
   now: Date,
 ): Promise<DigestPlan | null> {
@@ -464,8 +474,8 @@ async function resumeAbandonedClaim(
       .or(`locked_until.is.null,locked_until.lte.${nowIso}`)
       .select("id");
     if (!won || won.length === 0) continue; // a live tick owns it
-    if (row.payload.week_start !== weekKey) {
-      // A previous week's digest: far too late to send.
+    if (row.payload.week_start !== weekKey || !chatId) {
+      // A previous week's digest (far too late to send), or one nobody wants any more.
       await db.from("integration_deliveries").delete().eq("id", row.id).eq("workspace_id", connector.workspace_id);
       continue;
     }

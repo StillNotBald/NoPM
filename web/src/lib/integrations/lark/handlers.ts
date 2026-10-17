@@ -312,10 +312,13 @@ async function processMessageEvent(ctx: LarkHandlerContext, envelope: LarkEnvelo
 
   const openId = str(senderId.open_id);
   const tenant = str(sender.tenant_key) || str(header.tenant_key);
-  const eventId = str(header.event_id) || str(message.message_id);
+  // The dedupe key is the MESSAGE id: when a push is not acknowledged in time Lark
+  // sends the same message again under a NEW event id (the docs say to dedupe on
+  // message_id). The event id is only the fallback for a message without one.
+  const eventId = str(message.message_id) || str(header.event_id);
   if (!openId || !eventId) return;
 
-  // Platform retries reuse the event id; process each delivery once.
+  // Process each message once.
   if (!(await deps.claimEvent(ctx.connector.id, eventId))) return;
 
   const reply = async (card: LarkCard): Promise<void> => {

@@ -198,9 +198,9 @@ export function TaskDetailPanel({
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="sm"
-            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            className="h-10"
             onClick={async () => {
               modal.close();
               try {
@@ -472,9 +472,9 @@ export function MilestoneDetailPanel({
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="sm"
-            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            className="h-10"
             onClick={async () => {
               modal.close();
               try {

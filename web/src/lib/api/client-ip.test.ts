@@ -6,11 +6,20 @@
  * tests pin the rule that fixes it: a caller-chosen header can never choose the
  * bucket.
  */
-import { describe, it, expect } from "vitest";
-import { clientIp, ipRateKey, trustedProxyHops } from "./client-ip";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import { clientIp, ipRateKey, resetNoTrustedProxyWarning, trustedProxyHops } from "./client-ip";
 
 const h = (init: Record<string, string>) => new Headers(init);
 const VERCEL = { VERCEL: "1" };
+
+// Off Vercel with no NOPM_TRUSTED_PROXY_HOPS, clientIp logs a one-time warning;
+// capture it so the suite stays quiet and the warning can be asserted.
+let warn: ReturnType<typeof vi.spyOn>;
+beforeEach(() => {
+  resetNoTrustedProxyWarning();
+  warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+afterEach(() => warn.mockRestore());
 
 describe("on Vercel — the platform sets the address", () => {
   it("prefers x-vercel-forwarded-for", () => {
@@ -156,5 +165,28 @@ describe("rate-limit.ts re-exports", () => {
     const mod = await import("./rate-limit");
     expect(mod.trustedClientIp).toBe(clientIp);
     expect(mod.ipRateKey).toBe(ipRateKey);
+  });
+});
+
+describe("the one-time warning when no proxy is trusted (CR-gov P2-17)", () => {
+  it("logs once per process when an address is wanted off Vercel with NOPM_TRUSTED_PROXY_HOPS unset, and still returns null", () => {
+    expect(clientIp(h({ "x-forwarded-for": "198.51.100.9" }), {})).toBeNull();
+    expect(clientIp(h({ "x-forwarded-for": "198.51.100.10" }), {})).toBeNull();
+    expect(ipRateKey(h({}), { NOPM_TRUSTED_PROXY_HOPS: "0" })).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    const message = String(warn.mock.calls[0][0]);
+    expect(message).toContain("NOPM_TRUSTED_PROXY_HOPS");
+    expect(message).toContain("shared rate-limit bucket");
+  });
+
+  it("is silent when proxies are configured, even if the request itself is distrusted", () => {
+    expect(clientIp(h({ "x-forwarded-for": "198.51.100.9" }), { NOPM_TRUSTED_PROXY_HOPS: "1" })).toBe("198.51.100.9");
+    expect(clientIp(h({}), { NOPM_TRUSTED_PROXY_HOPS: "1" })).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("is silent on Vercel", () => {
+    expect(clientIp(h({}), VERCEL)).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

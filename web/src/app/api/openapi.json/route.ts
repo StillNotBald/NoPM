@@ -85,8 +85,12 @@ const spec = {
       "Error bodies carry a stable machine-readable `code` beside `error` (e.g. unauthorized, " +
       "forbidden_scope, not_found, rule_violation, rate_limited, self_approval, no_principal, " +
       "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
-      "rebaseline_not_pending, already_applied, change_request_decided, children_changed, " +
-      "invalid_reference, decision_in_use) — branch on it, not on the message. " +
+      "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, " +
+      "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
+      "duplicate_deletion_request, has_timesheet_records) — branch on it, not on the message. " +
+      "A browser-session (cookie) POST/PUT/PATCH/DELETE whose Origin header is another site is refused " +
+      "(403, code bad_origin); Bearer-token requests are never origin-checked. A malformed id (not a UUID) in " +
+      "a path is 404 not_found, and a malformed value in a query filter or body is 422 validation_failed. " +
       "A request raised by a token with no recorded owner is refused up front (403, code no_principal) on every " +
       "route that RAISES a governed request — task / project deletion, change request, timesheet submission, " +
       "rebaseline proposal — not only on the deciding side, because a requester with no person behind it is " +
@@ -181,8 +185,9 @@ const spec = {
               "Stable machine-readable error code, present on most errors (e.g. unauthorized, forbidden_scope, " +
               "not_found, rule_violation, rate_limited, precondition_failed, self_approval, no_principal, " +
               "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
-              "rebaseline_not_pending, already_applied, change_request_decided, children_changed, " +
-              "invalid_reference, decision_in_use). Branch on this, not on the message.",
+              "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, " +
+              "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
+              "duplicate_deletion_request, has_timesheet_records). Branch on this, not on the message.",
           },
           fields: {
             type: "array",
@@ -578,7 +583,9 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Create a project",
-        description: "scope: project:write",
+        description:
+          "scope: project:write. A project is never created locked: is_locked (and locked_at / locked_by) in the body are " +
+          "ignored. Locking happens only through POST /projects/{id}/lock, which also snapshots the baselines.",
         operationId: "createProject",
         requestBody: zodBody(createProjectSchema),
         responses: {
@@ -886,15 +893,22 @@ const spec = {
           "longer match), and the week's entries are FROZEN while the sheet is submitted and awaiting a decision (422 " +
           "timesheet_locked on POST/DELETE /time-entries; a rejection unlocks the week). 422 if the member has no time " +
           "entries in the period (\"nothing to submit\"), or if an open (submitted|approved) submission already exists " +
-          "for this member+period. A token with no recorded owner cannot submit (403, code no_principal): the " +
-          "submitter's human is what four-eyes compares the approver against.",
+          "for this member+period. The one exception is a REOPENED sheet (status submitted with reopened_at set): POST " +
+          "again for that member and week after amending the entries and the sheet is re-snapshotted (hours, entry " +
+          "count, digest), reopened_at is cleared (the week freezes again), the caller becomes its submitter (so " +
+          "whoever re-snapshots the content can never approve it), and the approvers are asked again (201). A token with no recorded owner cannot submit (403, code no_principal): the " +
+          "submitter's human is what four-eyes compares the approver against. Submitting freezes the week, so it is " +
+          "restricted to the member themselves (the person whose profile is linked to the resource row, directly or " +
+          "through a token they minted) or an admin / manager acting for them; anyone else gets 403 not_your_timesheet " +
+          "(a resource row with no linked profile can be submitted for by an admin / manager only). Two concurrent " +
+          "submits for the same member and week: the loser gets the same 422 duplicate_submission, not a 500.",
         operationId: "submitTimesheet",
         requestBody: zodBody(createTimesheetSubmissionSchema),
         responses: {
           "201": { description: "Timesheet submission created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Missing time:submit (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing time:submit (forbidden_scope), the token has no recorded owner (no_principal), or the caller is neither the member nor an admin / manager (not_your_timesheet)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Resource member not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error, nothing to submit, or an open submission already exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, nothing to submit (nothing_to_submit), or an open submission already exists (duplicate_submission)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -918,7 +932,10 @@ const spec = {
           "reason and have the member resubmit. Rejection AND reopen both require a non-empty rationale; approval does not. " +
           "Reopen reverts status to 'submitted', marks the sheet open for amendment (reopened_at) and clears decided_by/" +
           "_type/_label/decided_at/decision_rationale, and notifies the workspace's approvers (the sheet re-enters the " +
-          "Review Queue as a fresh approval request) rather than the submitter.",
+          "Review Queue as a fresh approval request) rather than the submitter. The reopened sheet keeps its OLD " +
+          "snapshot until the member amends the entries and re-submits via POST /timesheet-submissions (which " +
+          "re-snapshots it); approving it before that fails with timesheet_changed once the entries differ. The " +
+          "alternative is to reject it with a reason and have the member submit a fresh row.",
         operationId: "decideTimesheetSubmission",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(timesheetDecisionSchema),
@@ -1436,12 +1453,16 @@ const spec = {
       delete: {
         tags: ["resources"],
         summary: "Delete a resource member",
-        description: "scope: resource:write",
+        description:
+          "scope: resource:write. A member's time entries and timesheet submissions cascade from the member, so a member " +
+          "who has ANY timesheet submission (submitted, approved or rejected) cannot be deleted: 422 has_timesheet_records " +
+          "— their approval history would be erased with them.",
         operationId: "deleteResource",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The member has timesheet records (has_timesheet_records), or a timesheet week lock refused the cascade (period_locked / timesheet_locked)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1578,10 +1599,13 @@ const spec = {
       put: {
         tags: ["budget"],
         summary: "Upsert budget for a project",
-        description: "scope: budget:write",
+        description:
+          "scope: budget:write. States the whole budget: planned_amount is required, committed_amount and currency fall " +
+          "back to 0 / USD when omitted. actual_amount, contingency_reserve and management_reserve are stored when sent " +
+          "and left as they were when not. For a partial change use PATCH.",
         operationId: "upsertProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["planned_amount", "committed_amount"], properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string", default: "USD" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["planned_amount"], properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0, default: 0 }, currency: { type: "string", default: "USD" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 } } } } } },
         responses: {
           "200": { description: "Budget upserted", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1589,13 +1613,18 @@ const spec = {
       },
       patch: {
         tags: ["budget"],
-        summary: "Upsert budget for a project (alias for PUT)",
-        description: "scope: budget:write",
+        summary: "Partially update the budget for a project",
+        description:
+          "scope: budget:write. Truly partial: ONLY the columns named in the body are written; nothing is defaulted, so " +
+          "omitting committed_amount or currency leaves the stored values alone. Send at least one of planned_amount, " +
+          "committed_amount, currency, actual_amount, contingency_reserve, management_reserve (an empty body is a 422). " +
+          "On a project with no budget row yet it creates one holding what was sent, with the column defaults for the rest.",
         operationId: "patchProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 } } } } } },
         responses: {
-          "200": { description: "Budget upserted", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "200": { description: "Budget updated", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Validation error, or nothing to change", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1674,7 +1703,8 @@ const spec = {
           "For target_type=project, also 422s project_locked if the project's schedule was frozen " +
           "after the deletion was requested, and 422s children_changed if the project gained records (tasks, " +
           "milestones, risks, ...) after the request was raised — the request no longer describes what would be " +
-          "deleted, so reject or withdraw it and raise a new one. A cascade that would remove time entries inside a " +
+          "deleted, so reject or withdraw it and raise a new one. For target_type=task, 422s target_changed if the task " +
+          "was edited after the request was raised (the request stored the task as it was). A cascade that would remove time entries inside a " +
           "submitted or approved timesheet week is refused the same way as deleting them directly " +
           "(period_locked / timesheet_locked).",
         operationId: "approveDeletionRequest",
@@ -1696,7 +1726,7 @@ const spec = {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Missing the per-type approve scope (forbidden_scope); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1720,12 +1750,12 @@ const spec = {
       post: {
         tags: ["deletion-requests"],
         summary: "Withdraw your own pending deletion request (maker step)",
-        description: "scope: task:delete:request for a task request, project:delete:request for a project request (per-type maker gate). Only the ORIGINAL requester (the same actor) may withdraw, and only while the request is pending. Cancels the request without a checker decision — the one self-act four-eyes permits; audited as deletion_request.withdrawn.",
+        description: "scope: task:delete:request for a task request, project:delete:request for a project request (per-type maker gate). Only the ORIGINAL requester may withdraw: the same actor, or the same PERSON through another identity (the human behind a token or assistant that raised it can cancel it from their session). Only while the request is pending. Cancels the request without a checker decision — the one self-act four-eyes permits; audited as deletion_request.withdrawn.",
         operationId: "withdrawDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Request withdrawn", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Caller is not the original requester, or lacks the per-type maker scope", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Caller is neither the original requester nor the person behind it, or lacks the per-type maker scope", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Request already decided (already_decided)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -1748,7 +1778,8 @@ const spec = {
           "also echoed on this response as the X-Request-Id header) — both nullable for rows " +
           "written before migration 20260906000042_audit_channel.sql. " +
           "A decision made from a chat card (Lark) is recorded with channel `lark`, plus via_connector_id, " +
-          "external_event_id and external_actor_ref — all SERVER-DERIVED from the verified connector binding, " +
+          "external_event_id and external_actor_ref (the platform tenant and user ids in it abbreviated, like every other " +
+          "audit row here) — all SERVER-DERIVED from the verified connector binding, " +
           "never accepted from X-NoPM-Client (a caller can only DECLARE ui|api|cli|mcp|assistant); ?channel=lark filters " +
           "to the decisions and account links made through the chat connector. The audit rows of connector management " +
           "carry the Lark app id, group chat id and platform user / tenant ids abbreviated, because this stream is " +
@@ -2261,7 +2292,11 @@ const spec = {
         tags: ["change-requests"],
         summary: "Update a change request",
         description:
-          "scope: change:write. `status` is NOT updatable here — every status transition goes through the four-eyes " +
+          "scope: change:write. ONLY THE REQUESTER'S PERSON may edit an open request (the user who raised it, or a token " +
+          "that user minted): anyone else — an approver, say — gets 403 code not_requester and must raise a new change " +
+          "request, so nobody can rewrite a pending request and then approve what they wrote; a token with no recorded " +
+          "owner is 403 no_principal; a legacy request with no recorded requester can be edited by anyone with the scope. " +
+          "`status` is NOT updatable here — every status transition goes through the four-eyes " +
           "POST /change-requests/{id}/decision. Editable ONLY while the request is still open (raised / under_review): once " +
           "decided it is part of the decision record, and editing its impact_cost after approval would rewrite what the " +
           "decider looked at — 422 change_request_decided (raise a new change request instead); the write is a " +
@@ -2275,6 +2310,7 @@ const spec = {
         requestBody: zodBody(updateChangeRequestSchema),
         responses: {
           "200": { description: "Updated change request", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not the requester's person (code not_requester), or a token with no recorded owner (code no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error, or the request is no longer open (code change_request_decided)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -2282,11 +2318,12 @@ const spec = {
       delete: {
         tags: ["change-requests"],
         summary: "Delete a change request",
-        description: "scope: change:write. Only while the request is still open (raised / under_review): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
+        description: "scope: change:write. Only while the request is still open (raised / under_review), and only by the requester's person (the user who raised it, or a token that user minted; anyone else is 403 code not_requester, an ownerless token 403 no_principal): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
         operationId: "deleteChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
+          "403": { description: "Not the requester's person (code not_requester), or a token with no recorded owner (code no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "The request is no longer open (code change_request_decided)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -2390,7 +2427,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Lock a project timeline",
-        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined.",
+        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
         operationId: "lockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
@@ -2475,7 +2512,7 @@ const spec = {
       post: {
         tags: ["rebaselines"],
         summary: "Apply an approved rebaseline (four-eyes)",
-        description: "scope: rebaseline:approve (a wildcard never grants it). Only approved rebaselines may be applied. The requester may not apply their own rebaseline — compared on the person, so a token the requester minted is refused too (403, code self_approval; the legacy same-user case is a 422 with the same code); a token with no recorded owner cannot apply (403, code no_principal). Overwrites baseline dates for all milestones and tasks in the project.",
+        description: "scope: rebaseline:approve (a wildcard never grants it). Only approved rebaselines may be applied. The requester may not apply their own rebaseline — compared on the person, so a token the requester minted is refused too (403, code self_approval; the legacy same-user case is a 422 with the same code); a token with no recorded owner cannot apply (403, code no_principal). Overwrites baseline dates for all milestones and tasks in the project. The baseline snapshot runs first and the status flips to applied only after it succeeds, so a failed snapshot (500) leaves the rebaseline approved and the call can simply be repeated.",
         operationId: "applyRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -2795,7 +2832,9 @@ const spec = {
           "REVALIDATION: the body carries a strong ETag (a hash of the deterministic serialisation); send it back as " +
           "If-None-Match and an unchanged feed answers 304 with no body. Cache-Control: private, max-age=900 and " +
           "Referrer-Policy: no-referrer on both 200 and 304. " +
-          "THROTTLING (this route is public, so it limits itself): 120 requests/min per client address, counted before " +
+          "THROTTLING (this route is public, so it limits itself): 120 requests/min per client address (only where the " +
+          "deployment can determine one that a caller cannot write: on Vercel, or behind NOPM_TRUSTED_PROXY_HOPS reverse " +
+          "proxies; otherwise only the per-feed cap applies), counted before " +
           "the token is looked up (NOPM_RATE_CAL_IP_PER_MIN), then 60/min per feed (NOPM_RATE_CAL_PER_MIN); over either " +
           "is 429 with Retry-After. Calendar apps poll every 15 minutes to a few hours, far below that. " +
           "Unknown, malformed and revoked tokens all get the same 404, so the response cannot be used to probe which " +
@@ -2940,7 +2979,9 @@ const spec = {
           "credentials and the connector will be in webhook mode, it must end up holding an encrypt_key — switching a " +
           "keyless long_connection connector to webhook without sending one, replacing credentials on a keyless webhook " +
           "connector without supplying one, or sending encrypt_key: null on a webhook connector is a 422 with " +
-          "fields[encrypt_key]. A pause, a rename or a digest change is never held up by this. Audited as " +
+          "fields[encrypt_key]. A pause, a rename or a digest change is never held up by this. The app id cannot be " +
+          "changed on an existing connector (422 code app_id_immutable): revoke it and create a new one for a different " +
+          "app. Audited as " +
           "integration.connector.update — the row records WHICH secrets changed, never their values, and the app id " +
           "and chat id appear abbreviated (the audit stream is readable by every member).",
         operationId: "updateIntegrationConnector",
@@ -3098,9 +3139,11 @@ const spec = {
           "at click time. Audited as integration.identity.code (the audit row never contains the code); the link itself " +
           "is audited as integration.identity.link with channel lark. Guarding the code: a failed or repeated `link` " +
           "attempt from the bot is rate-limited (8 per Lark account and 120 per connector per 10 minutes). If using a " +
-          "code REPLACES an earlier link of yours, you get an in-app notice (type integration.link_replaced) and the " +
-          "Lark account that just lost the link is told by direct message, so a leaked or phished code cannot silently " +
-          "re-point your approvals. The first link made by an admin or manager also pins the connector to that Lark " +
+          "code would REPLACE an earlier link of yours, the bot refuses (\"This NoPM account is already linked to another " +
+          "Lark account. Unlink it in NoPM (Integrations) first, then send a new code.\"): the code is spent, the refusal " +
+          "is audited as integration.identity.link.blocked, and your link is untouched, so a leaked or phished code cannot " +
+          "re-point your approvals. (If two codes race and a link is still replaced, you get an in-app notice, type " +
+          "integration.link_replaced, and the Lark account that lost it is told by direct message.) The first link made by an admin or manager also pins the connector to that Lark " +
           "tenant; a link by any other role never pins it.",
         operationId: "createIdentityLinkCode",
         responses: {
@@ -3158,7 +3201,8 @@ const spec = {
           "environment variable, which the host's cron scheduler attaches to its own calls — compared in constant time; an " +
           "unset CRON_SECRET authorises nobody (and is logged, because it otherwise looks like a cron that merely never " +
           "runs). For every ACTIVE connector (paused and revoked ones are skipped entirely) it drains deliveries that are " +
-          "due for retry, posts the weekly digest on the connector's configured weekday (UTC), once per ISO week, and " +
+          "due for retry, posts the weekly digest on the connector's configured weekday (UTC), once per ISO week (a weekday a tick missed " +
+          "is made up by a later tick in the same ISO week, unless the connector was edited after that day began), and " +
           "prunes old bookkeeping rows (sent / dead / superseded deliveries after 60 days, spent action tokens 14 days " +
           "after expiry, inbound idempotency rows after 90 days — audit_log is never touched). Idempotent: a second call " +
           "the same day re-drains (leases prevent double sends) and never repeats a digest. Runs daily at 01:07 UTC " +

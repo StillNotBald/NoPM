@@ -26,6 +26,21 @@ export function useElementWidth(ref: RefObject<HTMLElement | null>): number {
   return width;
 }
 
+/** Room the "Today" pill needs to the right of today's line (pill ~50px + a margin). */
+export const TODAY_PILL_ROOM_PX = 64;
+
+/**
+ * Scroll offset that opens a view on today. `scrollLeftForToday` leads in by at
+ * least 14 days, which is wider than a phone window (~190px beside the rail):
+ * today's pill would open just off the right edge. Never lead in by more than
+ * the window minus the pill's room, so today is always on screen.
+ */
+export function todayOpenScrollLeft(todayX: number, viewportPx: number, contentPx: number, dayW: number): number {
+  const lead = scrollLeftForToday(todayX, viewportPx, contentPx, dayW);
+  const pillFits = todayX - Math.max(viewportPx - TODAY_PILL_ROOM_PX, 0);
+  return Math.min(Math.max(lead, pillFits), Math.max(contentPx - viewportPx, 0));
+}
+
 /**
  * Open a time-axis view (Gantt, portfolio roadmap, Mainline Subway) on TODAY
  * instead of on the data's first date, and hand back a "jump to today".
@@ -55,7 +70,7 @@ export function useOpenOnToday({
   const targetLeft = useCallback((): number | null => {
     const el = scrollRef.current;
     if (!el || todayX === null) return null;
-    return scrollLeftForToday(todayX, Math.max(el.clientWidth - insetPx, 0), contentPx, dayW);
+    return todayOpenScrollLeft(todayX, Math.max(el.clientWidth - insetPx, 0), contentPx, dayW);
   }, [scrollRef, todayX, contentPx, dayW, insetPx]);
 
   // Keyed on resetKey only; every other input is read fresh at that moment.

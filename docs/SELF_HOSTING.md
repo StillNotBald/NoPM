@@ -75,9 +75,25 @@ Run `npm run setup` once against your Supabase project first (as in the fastest-
 
 Want Postgres/Auth/Realtime running locally too, instead of Supabase Cloud? Use the Supabase CLI's own compose setup (`npx supabase start`) and point the env vars above at that instead — this repo's `docker-compose.yml` deliberately doesn't duplicate that stack (see "Further self-hosting" below for why a from-scratch version is documented, not shipped).
 
+### Behind a reverse proxy: `NOPM_TRUSTED_PROXY_HOPS`
+
+A few endpoints are rate-limited per caller address **before** anyone is authenticated: accepting an invite (`POST /api/invites/accept`), the Lark relay, and failed webhook signature checks. The app cannot see the socket address, and `X-Forwarded-For` is a header the caller can write, so **off Vercel nothing is trusted by default**. Until you say otherwise:
+
+- invite-accept puts **every caller in one shared bucket** (10 attempts a minute in total), so anyone sending junk can keep a genuine invitee from accepting;
+- the Lark relay skips its per-address cap and leans on the signature check and the per-connector cap.
+
+The app logs a one-time warning the first time a request needs the address and none can be trusted. To fix it, set `NOPM_TRUSTED_PROXY_HOPS` to the number of reverse proxies **you** run in front of the app: `1` for a single nginx, Caddy or cloud load balancer, `2` for a CDN plus a load balancer, and so on. The address is then read from the right of `X-Forwarded-For` (each proxy you run appends the peer it saw), never from the caller's own first entry.
+
+```bash
+docker run -p 3000:3000 -e NOPM_TRUSTED_PROXY_HOPS=1 ... nopm-web      # nginx / Caddy in front
+# docker compose: add NOPM_TRUSTED_PROXY_HOPS=1 to web/.env.local
+```
+
+Leave it unset if you publish the container's port straight to the internet with no proxy (there is no trustworthy header to read). Do not set it higher than the proxies you really run: a number that is too high lets the caller choose its own address. It has no effect on Vercel, which supplies the address itself.
+
 ## Manual
 
-Clone, `npm install --prefix web`, copy `web/.env.example` to `web/.env.local` and fill it in, then `npm run migrate` and `node web/scripts/bootstrap.mjs` (or the combined `npm run setup`), then `npm run dev` / `npm run build && npm start`. The step-by-step version, written for someone who has never used Supabase or Next.js, with a full env-variable glossary and a troubleshooting section, lives in [`docs/guide/02-run-it-yourself.md`](guide/02-run-it-yourself.md) — start there if the fast paths above skip a step you need spelled out.
+Clone, `npm install --prefix web`, copy `web/.env.example` to `web/.env.local` and fill it in, then `npm run migrate` and `node web/scripts/bootstrap.mjs` (or the combined `npm run setup`), then `npm run dev` / `npm run build && npm start`. The step-by-step version, written for someone who has never used Supabase or Next.js, with a full env-variable glossary and a troubleshooting section, lives in [`docs/guide/02-run-it-yourself.md`](guide/02-run-it-yourself.md) — start there if the fast paths above skip a step you need spelled out. Running behind nginx, Caddy or a load balancer? Set `NOPM_TRUSTED_PROXY_HOPS` as described under Docker above.
 
 ## Further self-hosting: replacing Supabase itself
 

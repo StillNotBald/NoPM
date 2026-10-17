@@ -242,3 +242,15 @@ describe("Sanity — TOOL_SCOPES is well-formed", () => {
     expect(unique.size).toBe(toolScopesArray.length);
   });
 });
+
+// ---------------------------------------------------------------------------
+// query_audit — the channel filter lists every channel the API accepts
+// ---------------------------------------------------------------------------
+
+describe("query_audit channel filter", () => {
+  it("accepts all six audit channels, including the server-derived 'lark' (CR-gov P2-3)", () => {
+    const tool = TOOLS.find((t) => t.definition.name === "query_audit");
+    const props = (tool?.definition.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
+    expect(props.channel.enum).toEqual(["ui", "api", "cli", "mcp", "assistant", "lark"]);
+  });
+});

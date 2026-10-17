@@ -71,6 +71,9 @@ const DEFAULTS: Record<string, () => Row> = {
     sent_at: null,
   }),
   action_tokens: () => ({ used_at: null, created_at: nowIso() }),
+  // The governed tables carry a content version their trigger bumps on every write.
+  change_requests: () => ({ updated_at: nowIso() }),
+  timesheet_submissions: () => ({ updated_at: nowIso() }),
   inbound_actions: () => ({
     approval_kind: null,
     approval_id: null,

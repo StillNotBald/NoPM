@@ -494,11 +494,20 @@ describe("throttling (the route is public, so it limits itself)", () => {
   }
   const queued = () => ({ calendar_feeds: [{ data: feedRow() }], milestones: [{ data: [milestoneRow()] }] });
 
+  // One reverse proxy of ours sits in front: it appends the address it saw to x-forwarded-for.
+  beforeEach(() => {
+    vi.stubEnv("NOPM_TRUSTED_PROXY_HOPS", "1");
+    vi.stubEnv("VERCEL", "");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("counts the client address before the feed is even looked up, then the feed", async () => {
     const admin = createFakeAdmin(queued());
     const calls = withRate(admin, () => ({ allowed: true }));
 
-    const res = await fetchFeed(admin, { "x-forwarded-for": "203.0.113.7, 10.0.0.1" });
+    const res = await fetchFeed(admin, { "x-forwarded-for": "10.9.9.9, 203.0.113.7" });
 
     expect(res.status).toBe(200);
     expect(calls).toEqual([
@@ -507,11 +516,51 @@ describe("throttling (the route is public, so it limits itself)", () => {
     ]);
   });
 
+  it("keys on the address the trusted proxy saw: rotating the caller-writable leftmost entry buys no fresh bucket", async () => {
+    const admin = createFakeAdmin(queued());
+    const calls = withRate(admin, () => ({ allowed: true }));
+
+    for (const spoof of ["1.1.1.1", "2.2.2.2", "not-an-ip", "3.3.3.3, 4.4.4.4"]) {
+      await fetchFeed(admin, { "x-forwarded-for": `${spoof}, 203.0.113.7` });
+    }
+
+    expect(new Set(calls.filter((c) => c.key.startsWith("cal-ip:")).map((c) => c.key))).toEqual(new Set(["cal-ip:203.0.113.7"]));
+  });
+
+  it("with no trusted proxy configured nothing about the address can be trusted: the per-address bucket is skipped, the per-feed one still applies", async () => {
+    vi.stubEnv("NOPM_TRUSTED_PROXY_HOPS", "");
+    const admin = createFakeAdmin(queued());
+    const calls = withRate(admin, () => ({ allowed: true }));
+
+    const res = await fetchFeed(admin, { "x-forwarded-for": "198.51.100.77" });
+
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([{ key: "cal:cf_1", max: FEED_RATE_PER_FEED }]);
+  });
+
+  it("a spoofed header cannot mint counter rows when no proxy is trusted", async () => {
+    vi.stubEnv("NOPM_TRUSTED_PROXY_HOPS", "");
+    const admin = createFakeAdmin(queued());
+    const calls = withRate(admin, () => ({ allowed: true }));
+    for (let i = 0; i < 5; i++) await fetchFeed(admin, { "x-forwarded-for": `198.51.100.${i}` });
+    expect(calls.filter((c) => c.key.startsWith("cal-ip:"))).toHaveLength(0);
+  });
+
+  it("on Vercel the address the platform supplies is used, and x-forwarded-for is ignored", async () => {
+    vi.stubEnv("VERCEL", "1");
+    const admin = createFakeAdmin(queued());
+    const calls = withRate(admin, () => ({ allowed: true }));
+
+    await fetchFeed(admin, { "x-vercel-forwarded-for": "198.51.100.9", "x-forwarded-for": "6.6.6.6" });
+
+    expect(calls[0]).toEqual({ key: "cal-ip:198.51.100.9", max: FEED_RATE_PER_IP });
+  });
+
   it("answers 429 with Retry-After and does no feed lookup when the address is over its limit", async () => {
     const admin = createFakeAdmin(queued());
     withRate(admin, (c) => (c.key.startsWith("cal-ip:") ? { allowed: false, retry: 23 } : { allowed: true }));
 
-    const res = await fetchFeed(admin);
+    const res = await fetchFeed(admin, { "x-forwarded-for": "203.0.113.7" });
 
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("23");
@@ -533,9 +582,9 @@ describe("throttling (the route is public, so it limits itself)", () => {
   it("an unknown token only spends the address budget, and still gets the plain 404", async () => {
     const admin = createFakeAdmin({ calendar_feeds: [{ data: null }] });
     const calls = withRate(admin, () => ({ allowed: true }));
-    const res = await fetchFeed(admin);
+    const res = await fetchFeed(admin, { "x-forwarded-for": "203.0.113.7" });
     expect(res.status).toBe(404);
-    expect(calls.map((c) => c.key)).toEqual(["cal-ip:unknown"]);
+    expect(calls.map((c) => c.key)).toEqual(["cal-ip:203.0.113.7"]);
   });
 
   it("never puts the secret token in a rate-limit key", async () => {

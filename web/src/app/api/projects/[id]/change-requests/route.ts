@@ -179,6 +179,9 @@ export const POST = route(async ({ actor, params, request }) => {
     projectName: project.name ?? null,
     requestedByLabel: actorLabel(actor),
     requesterPrincipalId: requesterPrincipal,
+    // The version this card describes: the hub binds the card's buttons to it, so an
+    // edit that lands before the card goes out cannot be approved unseen.
+    version: row.updated_at ?? null,
   });
 
   return created(row);

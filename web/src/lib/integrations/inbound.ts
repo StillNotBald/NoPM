@@ -281,8 +281,23 @@ async function classifyTokenFailure(
   // Retired because the request was edited and a new card replaced this one.
   if (row.used_at && row.superseded_reason === "changed") return { status: "changed" };
   // Used covers both "I already clicked" and "decided from another channel"
-  // (a decision stamps every open token of the request as used).
-  if (row.used_at) return { status: "already_decided" };
+  // (a decision stamps every open token of the request as used). But a spent
+  // token only means "decided" if the request really is: a run that died between
+  // consuming the token and deciding (or whose release failed) leaves a request
+  // that is still waiting behind a card that can no longer be used, and telling
+  // the approver it was "already decided" would send them away from it.
+  if (row.used_at) {
+    const current = await readRequest({
+      workspace_id: workspaceId,
+      approval_kind: row.approval_kind,
+      approval_id: row.approval_id,
+    });
+    if (current.state === "pending") {
+      return { status: "invalid", message: "This card could not be used. Open NoPM to decide." };
+    }
+    if (current.state === "missing") return { status: "invalid", message: "That request no longer exists." };
+    return { status: "already_decided" };
+  }
   if (new Date(row.expires_at).getTime() <= Date.now()) return { status: "expired" };
   // Valid and unused yet the conditional consume matched nothing: lost a race.
   return { status: "already_decided" };

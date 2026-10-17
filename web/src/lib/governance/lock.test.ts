@@ -18,6 +18,7 @@ import {
   assertProjectUnlocked,
   touchesScheduleShape,
   changedScheduleShapeFields,
+  SCHEDULE_FIELD_KIND,
   SCHEDULE_SHAPE_PROJECT_FIELDS,
   SCHEDULE_SHAPE_TASK_FIELDS,
   SCHEDULE_SHAPE_MILESTONE_FIELDS,
@@ -274,5 +275,87 @@ describe("SCHEDULE_SHAPE_PROJECT_FIELDS / changedScheduleShapeFields", () => {
   it("every field is a real updatable project field", () => {
     const projectFields = new Set(Object.keys(updateProjectSchema.shape));
     for (const field of SCHEDULE_SHAPE_PROJECT_FIELDS) expect(projectFields.has(field)).toBe(true);
+  });
+});
+
+// ── R-CR P2-1: each field compares the way its column does ─────────────────
+
+describe("changedScheduleShapeFields — per-field comparator (task + milestone shape)", () => {
+  const MS_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  // Same first ten characters as MS_A: a truncating comparator would call these equal.
+  const MS_B = "aaaaaaaa-aaaa-4aaa-8aaa-bbbbbbbbbbbb";
+  const task = {
+    start_date: "2026-10-01",
+    due_date: "2026-10-15",
+    estimate_hours: 12.5,
+    milestone_id: MS_A,
+    name: "Migrate billing DB",
+  };
+  const changed = (input: Record<string, unknown>, current: Record<string, unknown> = task) =>
+    changedScheduleShapeFields(input, current, SCHEDULE_SHAPE_TASK_FIELDS);
+
+  it("classifies every field of the three schedule-shape lists (a new field cannot silently fall back to string compare)", () => {
+    for (const field of [
+      ...SCHEDULE_SHAPE_TASK_FIELDS,
+      ...SCHEDULE_SHAPE_MILESTONE_FIELDS,
+      ...SCHEDULE_SHAPE_PROJECT_FIELDS,
+    ]) {
+      expect(SCHEDULE_FIELD_KIND[field], field).toBeDefined();
+    }
+  });
+
+  it("a full-record echo is no change", () => {
+    expect(changed({ ...task })).toEqual([]);
+    expect(changed({ ...task, due_date: "2026-10-15T00:00:00.000Z", estimate_hours: 12.5 })).toEqual([]);
+  });
+
+  it("dates compare by day, numbers by value, ids by the whole string", () => {
+    expect(changed({ due_date: "2026-10-16" })).toEqual(["due_date"]);
+    expect(changed({ due_date: "2026-10-15T23:59:59Z" })).toEqual([]);
+    expect(changed({ estimate_hours: 13 })).toEqual(["estimate_hours"]);
+    expect(changed({ estimate_hours: 12.5 }, { ...task, estimate_hours: "12.50" })).toEqual([]);
+    expect(changed({ milestone_id: MS_B })).toEqual(["milestone_id"]);
+    expect(changed({ milestone_id: MS_A })).toEqual([]);
+  });
+
+  it("null, undefined and the empty string are one and the same 'no value'", () => {
+    const bare = { name: "x" }; // columns absent from the row = NULL
+    expect(changed({ start_date: null, estimate_hours: null, milestone_id: null }, bare)).toEqual([]);
+    expect(changed({ start_date: "", milestone_id: "" }, { start_date: null, milestone_id: undefined })).toEqual([]);
+    expect(changed({ start_date: undefined })).toEqual([]);
+  });
+
+  it("setting a value where there was none, or clearing one, IS a change", () => {
+    expect(changed({ estimate_hours: 4 }, { ...task, estimate_hours: null })).toEqual(["estimate_hours"]);
+    expect(changed({ estimate_hours: null })).toEqual(["estimate_hours"]);
+    expect(changed({ milestone_id: null })).toEqual(["milestone_id"]);
+    expect(changed({ start_date: "2026-10-01" }, { ...task, start_date: null })).toEqual(["start_date"]);
+  });
+
+  it("zero hours is a value, not 'no value'", () => {
+    expect(changed({ estimate_hours: 0 }, { ...task, estimate_hours: null })).toEqual(["estimate_hours"]);
+    expect(changed({ estimate_hours: 0 }, { ...task, estimate_hours: 0 })).toEqual([]);
+  });
+
+  it("a non-numeric estimate never matches a stored number", () => {
+    expect(changed({ estimate_hours: "twelve" })).toEqual(["estimate_hours"]);
+  });
+
+  it("reports every changed field, in list order, and ignores fields outside the list", () => {
+    expect(changed({ name: "Renamed", milestone_id: MS_B, start_date: "2026-11-01", estimate_hours: 1 })).toEqual([
+      "start_date",
+      "estimate_hours",
+      "milestone_id",
+    ]);
+  });
+
+  it("works for the milestone list too: an ISO timestamp for the stored day is not a change", () => {
+    const milestone = { start_date: null, target_date: "2027-03-01", baseline_target_date: "2027-03-01" };
+    expect(
+      changedScheduleShapeFields({ target_date: "2027-03-01T00:00:00.000Z" }, milestone, SCHEDULE_SHAPE_MILESTONE_FIELDS),
+    ).toEqual([]);
+    expect(
+      changedScheduleShapeFields({ target_date: "2027-04-01T00:00:00.000Z" }, milestone, SCHEDULE_SHAPE_MILESTONE_FIELDS),
+    ).toEqual(["target_date"]);
   });
 });

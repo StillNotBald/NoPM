@@ -18,12 +18,15 @@ import {
 } from "@/lib/governance/deletion-dispatch";
 import {
   assertDecidable,
+  assertHasEntriesToSubmit,
   assertNotSelfDecision,
   assertRationaleOnReject,
   assertReopenable,
   assertTimesheetContentUnchanged,
+  summariseEntries,
   TIMESHEET_CHANGED_MESSAGE,
   TIMESHEET_ENTRY_COLUMNS,
+  timesheetContentDigest,
   type TimesheetDecision,
   type TimesheetEntryRow,
 } from "@/lib/governance/timesheet-decision";
@@ -69,6 +72,8 @@ type Db = ReturnType<typeof createAdminClient>;
 
 export const CHILDREN_CHANGED_MESSAGE =
   "This project gained records (tasks, milestones, risks, ...) after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
+export const TARGET_CHANGED_MESSAGE =
+  "This task was edited after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 export const NO_PRINCIPAL_MESSAGE =
   "This token has no recorded owner, so it cannot approve (four-eyes)";
 export const SELF_APPROVAL_MESSAGE = "Self-approval is not allowed (four-eyes)";
@@ -295,6 +300,36 @@ function expectTarget(row: DeletionRow, want: "task" | "project" | undefined): v
 }
 
 /**
+ * Binds a task-deletion approval to the task AS REQUESTED (CR-gov P2-15). The
+ * request's `before` is the task row at request time, including `updated_at`
+ * (the table's trigger bumps it on every edit). If the live task has moved
+ * since, the approver is no longer looking at what would be deleted: refuse
+ * (422 `target_changed`), like `children_changed` does for projects. A legacy
+ * request with no recorded version cannot be compared and passes; a task that
+ * is already gone is left to the commit RPC to report.
+ *
+ * The commit happens inside the RPC, so an edit landing between this check and
+ * the RPC is not caught here (the window is one round trip; closing it needs a
+ * version argument on the RPC).
+ */
+async function assertTaskUnchangedSinceRequest(db: Db, workspaceId: string, row: DeletionRow): Promise<void> {
+  const requested = row.before?.updated_at;
+  if (typeof requested !== "string" || !requested) return;
+  const { data, error } = await db
+    .from("tasks")
+    .select("updated_at")
+    .eq("id", row.target_id)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const live = (data as { updated_at?: string | null } | null)?.updated_at;
+  if (!live) return;
+  if (live !== requested && Date.parse(live) !== Date.parse(requested)) {
+    throw new RuleError(TARGET_CHANGED_MESSAGE, "target_changed");
+  }
+}
+
+/**
  * Four-eyes checker step: approve and immediately commit the deletion. Scope is
  * per target type (task:delete:approve / project:delete:approve). The delete +
  * request commit + BOTH audit rows run in ONE Postgres transaction inside the
@@ -317,6 +352,7 @@ export async function approveDeletion(
   if (row.status !== "pending") throw new RuleError("Request already decided", "already_decided");
   if (isSameActor(actor, row.requested_by_type, row.requested_by_id)) throw selfApprovalError();
   assertNotRequesterPrincipal(row.requested_principal_id, principal);
+  if (row.target_type === "task") await assertTaskUnchangedSinceRequest(db, actor.workspaceId, row);
 
   const note = opts.note?.trim() ? opts.note.trim() : null;
   const { error } = await db.rpc(resolveDeletionCommitRpc(row.target_type), {
@@ -484,6 +520,11 @@ export async function rejectDeletion(
  * Maker step: withdraw your OWN still-pending deletion request. The one
  * self-decision four-eyes permits — it cancels the request rather than
  * deciding it, so no approver is recorded and no principal is needed.
+ *
+ * "Your own" is the same actor OR the same human: a request raised by a person's
+ * token or assistant (whose ephemeral token is gone by the time they look) can
+ * be withdrawn by the person behind it. Withdrawing decides nothing, so the
+ * four-eyes rule that bars that person from DECIDING does not apply.
  */
 export async function withdrawDeletion(actor: Actor, id: string): Promise<KindOutcome> {
   const db = createAdminClient();
@@ -492,8 +533,12 @@ export async function withdrawDeletion(actor: Actor, id: string): Promise<KindOu
   // Per-type maker gate — withdrawing a project request needs project:delete:request
   requireScope(actor, resolveDeletionRequestScope(row.target_type));
 
-  if (!isSameActor(actor, row.requested_by_type, row.requested_by_id)) {
-    throw new ScopeError("Only the original requester can withdraw a deletion request");
+  const principal = principalOf(actor);
+  const isRequester =
+    isSameActor(actor, row.requested_by_type, row.requested_by_id) ||
+    (!!principal && principal === row.requested_principal_id);
+  if (!isRequester) {
+    throw new ScopeError("Only the original requester (or the person behind it) can withdraw a deletion request");
   }
   if (row.status !== "pending") throw new RuleError("Request already decided", "already_decided");
 
@@ -662,7 +707,8 @@ export async function decideChangeRequest(
   void notify({
     workspaceId: actor.workspaceId,
     recipientIds: noticeRecipients(cr.requested_principal_id ?? cr.requested_by),
-    type: "approval.approved",
+    // approve -> approved; reject and defer are not an approval (bell icon + filters bucket on this)
+    type: input.decision === "approve" ? "approval.approved" : "approval.rejected",
     title: `Change request ${cr.reference_id ?? cr.id} was ${newStatus}`,
     body: input.rationale,
     payload: { changeRequestId: cr.id, decision: input.decision, status: newStatus },
@@ -695,6 +741,8 @@ export async function changeRequestEvent(db: Db, workspaceId: string, cr: Change
     projectName: await projectNameOf(db, workspaceId, cr.project_id),
     requestedByLabel: storedLabel(cr.requested_by_label, cr.requested_by_type),
     requesterPrincipalId: cr.requested_principal_id,
+    // The content version this event (and so its card) describes.
+    ...(cr.updated_at ? { version: cr.updated_at } : {}),
   };
 }
 
@@ -718,6 +766,10 @@ type TimesheetRow = {
   submitted_principal_id: string | null;
   /** Digest of the entries as submitted (null on rows that predate migration 0049). */
   content_digest?: string | null;
+  /** Set while an approved sheet is reopened for amendment; cleared by a resubmit. */
+  reopened_at?: string | null;
+  /** The content version: the table's trigger bumps it on every write. */
+  updated_at?: string | null;
 };
 
 /**
@@ -764,6 +816,8 @@ export async function timesheetEvent(
     projectName: null,
     requestedByLabel: storedLabel(row.submitted_by_label, row.submitted_by_type),
     requesterPrincipalId: row.submitted_principal_id,
+    // The content version this event (and so its card) describes.
+    ...(row.updated_at ? { version: row.updated_at } : {}),
   };
 }
 
@@ -890,7 +944,7 @@ export async function decideTimesheet(
     before: { status: submission.status },
     after:
       decision === "reopened"
-        ? { status: updated.status, rationale }
+        ? { status: updated.status, rationale, approver_principal_id: principal }
         : {
             status: updated.status,
             decision_rationale: updated.decision_rationale,
@@ -925,7 +979,12 @@ export async function decideTimesheet(
     });
   }
 
-  const base = await timesheetEvent(db, actor.workspaceId, submission);
+  // Built from the version the decision left behind: a reopen re-requests approval
+  // with this event, and a card bound to the pre-update version would be superseded.
+  const base = await timesheetEvent(db, actor.workspaceId, {
+    ...submission,
+    updated_at: updated.updated_at ?? submission.updated_at,
+  });
   announceDecided(decidedFrom(actor, base, decision));
 
   return {
@@ -938,6 +997,103 @@ export async function decideTimesheet(
     },
     row: updated as Record<string, unknown>,
   };
+}
+
+/**
+ * A member's resubmit of a REOPENED sheet (CR-gov P2-2). Reopen puts an approved
+ * sheet back to `submitted` but keeps the OLD snapshot, so once the member amends
+ * their entries the digest check refuses every approval (`timesheet_changed`).
+ * The resubmit takes a fresh snapshot (hours, entry count, digest) of the live
+ * entries, clears `reopened_at` (the week freezes again), makes the resubmitter
+ * the sheet's submitter — so whoever re-snapshots the content can never also
+ * approve it, which closes "reopen, edit the hours, re-snapshot, approve" — and
+ * announces it as requested again. One `timesheet.submitted` audit row whose
+ * non-null `before` (the previous snapshot) marks it as a resubmit.
+ *
+ * Called by POST /timesheet-submissions when the member + week already has a
+ * submitted sheet with `reopened_at` set (instead of the 422 duplicate).
+ */
+export async function resubmitReopenedTimesheet(actor: Actor, id: string): Promise<Record<string, unknown>> {
+  requireScope(actor, "time:submit");
+  const submitterPrincipal = requireMakerPrincipal(actor);
+  const db = createAdminClient();
+
+  const { data, error: fetchError } = await db
+    .from("timesheet_submissions")
+    .select("*")
+    .eq("id", id)
+    .eq("workspace_id", actor.workspaceId)
+    .maybeSingle();
+  if (fetchError) throw new Error(fetchError.message);
+  if (!data) throw new NotFoundError("Timesheet submission not found");
+  const previous = data as TimesheetRow;
+  if (previous.status !== "submitted" || !previous.reopened_at) {
+    throw new RuleError("An open timesheet submission already exists for this member and period", "duplicate_submission");
+  }
+
+  const { data: entries, error: entriesError } = await db
+    .from("time_entries")
+    .select(TIMESHEET_ENTRY_COLUMNS)
+    .eq("member_id", previous.member_id)
+    .eq("workspace_id", actor.workspaceId)
+    .gte("entry_date", previous.period_start)
+    .lte("entry_date", previous.period_end);
+  if (entriesError) throw new Error(entriesError.message);
+  const rows = (entries ?? []) as TimesheetEntryRow[];
+  assertHasEntriesToSubmit(rows.length);
+
+  const { data: updated, error: updateError } = await db
+    .from("timesheet_submissions")
+    .update({
+      hours_total: summariseEntries(rows).hoursTotal,
+      entry_count: rows.length,
+      content_digest: timesheetContentDigest(rows),
+      reopened_at: null,
+      submitted_by: actor.id,
+      submitted_by_type: actor.type,
+      submitted_by_label: actor.label,
+      submitted_principal_id: submitterPrincipal,
+      submitted_at: new Date().toISOString(),
+    })
+    .eq("id", id)
+    .eq("workspace_id", actor.workspaceId)
+    .eq("status", "submitted")
+    .not("reopened_at", "is", null)
+    .select()
+    .maybeSingle();
+  if (updateError) throw new Error(updateError.message);
+  if (!updated) throw new RuleError("Timesheet submission already decided", "already_decided");
+
+  await writeAudit({
+    workspaceId: actor.workspaceId,
+    actor,
+    action: "timesheet.submitted",
+    targetType: "timesheet_submission",
+    targetId: id,
+    before: {
+      status: previous.status,
+      hours_total: previous.hours_total,
+      entry_count: previous.entry_count,
+      content_digest: previous.content_digest ?? null,
+      reopened_at: previous.reopened_at,
+    },
+    after: updated,
+  });
+
+  const row = updated as TimesheetRow;
+  void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) =>
+    notify({
+      workspaceId: actor.workspaceId,
+      recipientIds: approverIds,
+      type: "approval.requested",
+      title: `Timesheet resubmitted after reopening (week of ${row.period_start})`,
+      body: `${Number(row.hours_total)} hours across ${row.entry_count} entr${row.entry_count === 1 ? "y" : "ies"}.`,
+      payload: { timesheetSubmissionId: id, href: "/timesheets" },
+    }),
+  );
+  announceRequested(await timesheetEvent(db, actor.workspaceId, row));
+
+  return updated as Record<string, unknown>;
 }
 
 // ── the single entry point (hub inbound, any future surface) ──────────────

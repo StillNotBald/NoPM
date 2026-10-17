@@ -33,6 +33,7 @@ import {
   CONNECTOR_ID,
   FakeDb,
   OTHER_WS,
+  REQUEST_VERSION,
   TEST_ENCRYPTION_KEY,
   WS,
   connectorRow,
@@ -59,6 +60,8 @@ const event: ApprovalEvent = {
   projectName: "Apollo",
   requestedByLabel: "Rae Requester",
   requesterPrincipalId: ids.requester,
+  // every raise-time emitter stamps the content version the card is built from
+  version: REQUEST_VERSION,
 };
 
 beforeEach(() => {
@@ -725,14 +728,28 @@ describe("content-version binding (approve what you saw)", () => {
     expect(tokenRow().superseded_reason ?? null).toBeNull();
   });
 
-  it("binds a token to the version current at mint time when the event does not know its version", async () => {
-    await queueCard(versioned());
-    await drain();
-    expect(tokenRow().approval_version).toBe(V1);
-  });
+  it.each([
+    ["change_request", "change_requests"],
+    ["timesheet", "timesheet_submissions"],
+  ] as const)(
+    "a %s card whose event carries no version is never bound to the version current at mint time (it cannot show what it binds)",
+    async (kind, table) => {
+      const queued = await queueCard({ ...versioned(null), approval_kind: kind });
+      db.rows(table)[0].updated_at = V2; // the request moved on since the event was built
+
+      const s = await drain();
+
+      expect(s).toMatchObject({ claimed: 1, dead: 1, sent: 0, retried: 0 });
+      expect(row(queued.id)).toMatchObject({ status: "dead", attempts: 1 });
+      expect(row(queued.id).last_error).toMatch(/content version/);
+      expect(fake.calls.sends).toHaveLength(0);
+      expect(fake.calls.cards).toHaveLength(0);
+      expect(db.rows("action_tokens")).toHaveLength(0);
+    },
+  );
 
   it("binds a timesheet token to the submission's version too", async () => {
-    await queueCard({ ...versioned(), approval_kind: "timesheet" });
+    await queueCard({ ...versioned(V2), approval_kind: "timesheet" });
     db.rows("timesheet_submissions")[0].updated_at = V2;
     await drain();
     expect(tokenRow().approval_version).toBe(V2);
@@ -764,7 +781,7 @@ describe("content-version binding (approve what you saw)", () => {
 
   it("a retry keeps the version the token was first bound to", async () => {
     fake.state.sendResult = async () => ({ ok: false, retryable: true, error: "503" });
-    const queued = await queueCard(versioned());
+    const queued = await queueCard(versioned(V1));
     await drain();
     expect(tokenRow().approval_version).toBe(V1);
 
@@ -835,10 +852,205 @@ describe("content-version binding (approve what you saw)", () => {
     expect(followUps[0].version).toBe(V2);
   });
 
+  it("a waiting 'changed' patch is run when the card settles even if the token already matches the current version", async () => {
+    // The patch queue is the source of truth: a queued 'changed' variant means the edit's fan-out already
+    // retired this card, so the settle path must patch it and issue the replacement whatever the token says.
+    const card = await queueCard(versioned(V1));
+    const followUps: ApprovalEvent[] = [];
+    setChangedFollowUp(async (ev) => {
+      followUps.push(ev);
+    });
+    fake.state.sendResult = async () => {
+      await insertDeliveries(WS, CONNECTOR_ID, [
+        {
+          kind: "decision_update",
+          approval_kind: "change_request",
+          approval_id: ids.approval,
+          recipient_profile_id: ids.manager,
+          external_target: "ou_max",
+          parent_delivery_id: card.id,
+          payload: { event: { ...event, version: V2 }, variant: "changed" },
+        },
+      ]);
+      return { ok: true, externalMessageId: "om_flight" };
+    };
+
+    try {
+      await drain({ ids: [card.id] });
+    } finally {
+      setChangedFollowUp(null);
+    }
+
+    expect(fake.calls.updates).toEqual([{ externalMessageId: "om_flight", body: { card: "changed", title: event.title } }]);
+    expect(tokenRow().used_at).not.toBeNull();
+    expect(tokenRow().superseded_reason).toBe("changed");
+    expect(followUps).toHaveLength(1);
+  });
+
   it("a request still at the token's version is left alone after the send", async () => {
     await queueCard(versioned(V1));
     await drain();
     expect(tokenRow().used_at).toBeNull();
+  });
+});
+
+describe("claiming a row", () => {
+  // Fake timers are on: let the pending promise chains run instead of waiting on a timer.
+  const settle = async (until: () => boolean) => {
+    for (let i = 0; i < 2000 && !until(); i++) await Promise.resolve();
+  };
+
+  it("does not take a row another drain just failed: it is not due again until its retry time", async () => {
+    // Drain B selected [X, R]. While B is busy with X, drain A takes R and fails it (retry in 1 min).
+    // B then reaches R: its candidate list is stale, so the claim itself must refuse a row that is not due.
+    const [x, r] = await insertDeliveries(WS, CONNECTOR_ID, [
+      { kind: "bot_reply", external_target: "ou_slow", payload: { receiveIdType: "open_id", body: { text: "x" } } },
+      { kind: "bot_reply", external_target: "ou_r", payload: { receiveIdType: "open_id", body: { text: "r" } } },
+    ]);
+    row(x.id).next_attempt_at = new Date(Date.now() - 2000).toISOString();
+    row(r.id).next_attempt_at = new Date(Date.now() - 1000).toISOString();
+    let release!: () => void;
+    const gate = new Promise<void>((res) => (release = res));
+    fake.state.sendResult = async () => {
+      const last = fake.calls.sends[fake.calls.sends.length - 1];
+      if (last.receiveId === "ou_slow") {
+        await gate;
+        return { ok: true, externalMessageId: "om_slow" };
+      }
+      return { ok: false, retryable: true, error: "boom" };
+    };
+
+    const b = drain({ workspaceId: WS });
+    await settle(() => fake.calls.sends.length > 0); // B is inside X's send
+    const a = await drain({ ids: [r.id] });
+    expect(a).toMatchObject({ claimed: 1, retried: 1 });
+    release();
+    await b;
+
+    expect(fake.calls.sends.filter((m) => m.receiveId === "ou_r")).toHaveLength(1);
+    expect(row(r.id)).toMatchObject({ status: "retry", attempts: 1 });
+    expect(Date.parse(row(r.id).next_attempt_at) - Date.now()).toBe(RETRY_DELAYS_MS[0]);
+  });
+});
+
+describe("the drain clock", () => {
+  it("never runs behind real time: a stale `now` from the caller does not hide a row queued after it", async () => {
+    const tickStart = new Date(); // a long-running caller captured this at its start...
+    vi.setSystemTime(new Date(tickStart.getTime() + 2000)); // ...and queued work two seconds later
+    const queued = await queueCard();
+
+    const s = await drainDeliveries({ workspaceId: WS, now: tickStart });
+
+    expect(s).toMatchObject({ claimed: 1, sent: 1 });
+    expect(row(queued.id).status).toBe("sent");
+  });
+
+  it("still lets a caller look into the future (a `now` ahead of real time is honoured)", async () => {
+    const queued = await queueCard();
+    row(queued.id).next_attempt_at = new Date(Date.now() + 10 * MIN).toISOString();
+
+    expect((await drainDeliveries({ workspaceId: WS, now: new Date() })).claimed).toBe(0);
+    expect((await drainDeliveries({ workspaceId: WS, now: new Date(Date.now() + 11 * MIN) })).sent).toBe(1);
+  });
+
+  it("stamps a new row's due time from the app clock, the same clock the drain compares it with", async () => {
+    const inserted: Record<string, unknown>[][] = [];
+    const realFrom = db.from.bind(db);
+    db.from = (table: string) => {
+      const q = realFrom(table);
+      if (table === "integration_deliveries") {
+        const insert = q.insert.bind(q);
+        q.insert = (data) => {
+          inserted.push(Array.isArray(data) ? data : [data]);
+          return insert(data);
+        };
+      }
+      return q;
+    };
+
+    await queueCard();
+
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0][0].next_attempt_at).toBe(new Date().toISOString());
+  });
+});
+
+describe("a kill switch pressed mid-drain", () => {
+  const queueThree = () =>
+    insertDeliveries(
+      WS,
+      CONNECTOR_ID,
+      ["a", "b", "c"].map((t) => ({
+        kind: "bot_reply" as const,
+        external_target: `ou_${t}`,
+        payload: { receiveIdType: "open_id", body: { text: t } },
+      })),
+    );
+
+  it("stops the sends that have not started: the remaining rows are released unsent", async () => {
+    const rows = await queueThree();
+    fake.state.sendResult = async () => {
+      db.rows("integration_connectors")[0].status = "paused"; // an admin presses the kill switch during the first send
+      return { ok: true, externalMessageId: "om_1" };
+    };
+
+    const s = await drain({ ids: rows.map((r) => r.id) });
+
+    expect(fake.calls.sends).toHaveLength(1);
+    expect(s).toMatchObject({ sent: 1, deferred: 2 });
+    for (const r of rows.slice(1)) expect(row(r.id)).toMatchObject({ status: "pending", attempts: 0, locked_until: null });
+  });
+
+  it("uses the connector as it is now, not as it was when the drain began", async () => {
+    const rows = await queueThree();
+    const seen: string[] = [];
+    const send = fake.adapter.send;
+    fake.adapter.send = async (connector, secrets, msg) => {
+      seen.push(`${connector.name}:${secrets.appSecret}`);
+      db.rows("integration_connectors")[0].name = "Renamed"; // edited while the drain runs
+      return send(connector, secrets, msg);
+    };
+
+    await drain({ ids: rows.map((r) => r.id) });
+
+    expect(seen).toEqual([`Team Lark:${APP_SECRET}`, `Renamed:${APP_SECRET}`, `Renamed:${APP_SECRET}`]);
+  });
+});
+
+describe("a patch to an old card", () => {
+  const decided: ApprovalDecidedEvent = { ...event, status: "approved", decidedByLabel: "Mia Manager", channel: "ui" };
+  async function sentCardAndUpdate(sentDaysAgo: number) {
+    const card = await queueCard();
+    await drain();
+    Object.assign(row(card.id), { sent_at: new Date(Date.now() - sentDaysAgo * 24 * 60 * MIN).toISOString() });
+    const [update] = await insertDeliveries(WS, CONNECTOR_ID, [
+      {
+        kind: "decision_update",
+        approval_kind: "change_request",
+        approval_id: ids.approval,
+        recipient_profile_id: ids.manager,
+        external_target: "ou_max",
+        parent_delivery_id: card.id,
+        payload: { event: decided },
+      },
+    ]);
+    return update;
+  }
+
+  it("is superseded, not sent to the platform, once the card is past the 14-day edit window", async () => {
+    const update = await sentCardAndUpdate(15);
+
+    const s = await drain({ ids: [update.id] });
+
+    expect(s).toMatchObject({ superseded: 1, dead: 0, retried: 0 });
+    expect(row(update.id)).toMatchObject({ status: "superseded", last_error: "card too old to edit" });
+    expect(fake.calls.updates).toHaveLength(0);
+  });
+
+  it("still patches a card inside the window", async () => {
+    const update = await sentCardAndUpdate(13);
+    expect((await drain({ ids: [update.id] })).sent).toBe(1);
+    expect(fake.calls.updates).toHaveLength(1);
   });
 });
 

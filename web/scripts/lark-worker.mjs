@@ -380,7 +380,8 @@ export function createHandlers({ cfg, log, seen, track = (p) => p, deps = {} }) 
       track(
         (async () => {
           const envelope = toEnvelope(flat);
-          const eventId = envelope.header.event_id;
+          // Dedupe on the MESSAGE id: Lark re-pushes an unacknowledged message under a new event id.
+          const eventId = envelope.event?.message?.message_id || envelope.header.event_id;
           if (seen.has(eventId)) return undefined;
           try {
             const started = Date.now();
@@ -389,7 +390,7 @@ export function createHandlers({ cfg, log, seen, track = (p) => p, deps = {} }) 
             log.info("relayed event", { type: MESSAGE_EVENT_TYPE, status, ms: Date.now() - started });
           } catch (err) {
             log.warn("event relay failed", { type: MESSAGE_EVENT_TYPE, status: err.status, code: err.code, retryable: err.retryable });
-            // Retryable: throw, so the SDK answers Lark with a 500 and Lark re-pushes (NoPM dedupes by event id).
+            // Retryable: throw, so the SDK answers Lark with a 500 and Lark re-pushes (NoPM dedupes by message id).
             // Not retryable (bad config / rejected): swallow, a re-push would fail identically.
             if (err.retryable) throw err;
           }
@@ -413,6 +414,30 @@ export function createHandlers({ cfg, log, seen, track = (p) => p, deps = {} }) 
         })(),
       ),
   };
+}
+
+/* ------------------------------------------------------------ frame probe */
+
+/**
+ * LOG-ONLY probe. SDK 1.74.0 silently drops every WebSocket data frame whose
+ * `type` header is not "event", and the docs do not say which type a card click
+ * arrives as. If a live click is dropped, this is the line that says so, with the
+ * frame type and nothing else (never the payload or any other header). The frame
+ * is always handed to the SDK untouched.
+ *
+ * It wraps the SDK's private `handleEventData`, which is acceptable only because
+ * the SDK is pinned to exactly one version: re-check this on every SDK bump (the
+ * test file asserts the method still exists).
+ */
+export function installFrameProbe(ws, log) {
+  const original = typeof ws?.handleEventData === "function" ? ws.handleEventData.bind(ws) : null;
+  if (!original) return false;
+  ws.handleEventData = (frame) => {
+    const type = Array.isArray(frame?.headers) ? frame.headers.find((h) => h?.key === "type")?.value : undefined;
+    if (type && type !== "event") log.warn("ws frame with a non-event type received (the SDK ignores it)", { type });
+    return original(frame);
+  };
+  return true;
 }
 
 /* -------------------------------------------------------- single instance */
@@ -591,6 +616,8 @@ export async function main(env = process.env) {
       void stop("lark-error", exitCode);
     },
   });
+
+  installFrameProbe(ws, log);
 
   process.once("SIGINT", () => void stop("SIGINT", 0));
   process.once("SIGTERM", () => void stop("SIGTERM", 0));

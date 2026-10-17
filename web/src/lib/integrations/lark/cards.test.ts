@@ -99,7 +99,7 @@ function buttons(card: LarkCard) {
 }
 
 describe("snapshots", () => {
-  it("approval request: task deletion (confirm dialog on approve)", () => {
+  it("approval request: task deletion (says what Approve does)", () => {
     expect(buildApprovalRequestCard(deletionEvent, { actionToken: TOKEN, appUrl: APP })).toMatchSnapshot();
   });
 
@@ -183,11 +183,17 @@ describe("approval request card contract", () => {
     expect(submit).toMatchObject({ form_action_type: "submit", name: "reject_submit", type: "danger" });
   });
 
-  it("asks for confirmation on deletions only", () => {
-    const approveDeletion = buttons(card)[0];
-    expect(approveDeletion.confirm).toBeDefined();
+  it("says what Approve does on deletion cards only (Lark ignores `confirm` outside form-submit buttons, so no button carries one)", () => {
+    const text = (c: LarkCard) => JSON.stringify(elements(c).filter((e) => e.tag === "markdown"));
     const change = buildApprovalRequestCard(changeEvent, { actionToken: TOKEN, appUrl: APP });
-    expect(buttons(change)[0].confirm).toBeUndefined();
+    expect(text(card)).toContain("Approving carries out the deletion in NoPM.");
+    expect(text(change)).not.toContain("carries out the deletion");
+    for (const c of [card, change]) {
+      for (const b of buttons(c)) expect(b.confirm).toBeUndefined();
+    }
+    // the notation sits right above the Approve button it describes
+    const order = elements(card).map((e) => (e.tag === "button" ? "button" : JSON.stringify(e).includes("carries out the deletion") ? "notice" : "other"));
+    expect(order.indexOf("notice")).toBe(order.indexOf("button") - 1);
   });
 
   it("uses unique, valid element ids", () => {

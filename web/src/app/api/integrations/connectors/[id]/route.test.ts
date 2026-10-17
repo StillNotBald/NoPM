@@ -358,6 +358,36 @@ describe("PATCH /api/integrations/connectors/[id] — webhook mode requires an E
   });
 });
 
+describe("the app id of a live connector is fixed", () => {
+  it("refuses to change it (422): linked accounts and sent cards belong to the old app", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    const before = JSON.stringify(connectorInDb());
+
+    const res = await patch({ app_id: "cli_brand_new_app_id" });
+    const body = (await res.json()) as { error: string; code?: string };
+
+    expect(res.status).toBe(422);
+    expect(body.error).toMatch(/new connector/i);
+    expect(body.error).not.toContain("cli_brand_new_app_id");
+    expect(JSON.stringify(connectorInDb())).toBe(before); // nothing was written
+    expect(db.rows("external_identities")[0].revoked_at).toBeNull(); // and nobody was unlinked
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses it alongside other changes too: the whole update is rejected, not half applied", async () => {
+    const res = await patch({ name: "Renamed", app_id: "cli_brand_new_app_id" });
+    expect(res.status).toBe(422);
+    expect(connectorInDb().name).toBe("Team Lark");
+  });
+
+  it("accepts the unchanged value (a client that echoes the whole connector back)", async () => {
+    const res = await patch({ app_id: "cli_a1b2c3", name: "Renamed" });
+    expect(res.status).toBe(200);
+    expect(connectorInDb()).toMatchObject({ name: "Renamed" });
+    expect(connectorInDb().config.appId).toBe("cli_a1b2c3");
+  });
+});
+
 describe("connector audit rows are member-readable, so the ids in them are masked", () => {
   it("masks app_id and chat_id in before AND after of an update, and in a revoke", async () => {
     await patch({ digest: { enabled: true, chat_id: "oc_privateroom99" } });
@@ -375,8 +405,8 @@ describe("connector audit rows are member-readable, so the ids in them are maske
   });
 
   it("still shows THAT an id changed", async () => {
-    await patch({ app_id: "cli_brand_new_app_id" });
-    expect(lastAudit().before.app_id).not.toBe(lastAudit().after.app_id);
-    expect(JSON.stringify(lastAudit())).not.toContain("cli_brand_new_app_id");
+    await patch({ digest: { enabled: true, chat_id: "oc_brandnewchat9" } });
+    expect(lastAudit().before.digest.chat_id).not.toBe(lastAudit().after.digest.chat_id);
+    expect(JSON.stringify(lastAudit())).not.toContain("oc_brandnewchat9");
   });
 });

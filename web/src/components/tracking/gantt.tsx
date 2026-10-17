@@ -495,7 +495,7 @@ export function GanttChart({
             {/* Slip indicator label to the right of the bar */}
             {taskSlip && (
               <span
-                className="absolute top-1/2 -translate-y-1/2 font-mono text-xs font-semibold text-warning-ink select-none pointer-events-none whitespace-nowrap"
+                className="absolute top-1/2 -translate-y-1/2 rounded-sm bg-canvas px-1 font-mono text-xs font-semibold leading-4 text-warning-ink select-none pointer-events-none whitespace-nowrap"
                 style={{ left: bp.left + bp.width + 4 }}
                 title={`Slipped ${taskSlip} vs baseline`}
               >
@@ -831,7 +831,7 @@ export function GanttChart({
                             />
                             {/* Slip indicator */}
                             {msSlip && (
-                              <span className="ml-0.5 font-mono text-xs font-semibold text-warning-ink select-none whitespace-nowrap">
+                              <span className="ml-0.5 rounded-sm bg-canvas px-1 font-mono text-xs font-semibold leading-4 text-warning-ink select-none whitespace-nowrap">
                                 {msSlip}
                               </span>
                             )}

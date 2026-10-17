@@ -99,11 +99,14 @@ async function assertMfaSatisfied(uid: string): Promise<void> {
   }
 }
 
+/** Do not rewrite api_tokens.last_used_at more often than this. */
+const LAST_USED_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
 async function verifyBearer(raw: string): Promise<Actor> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("api_tokens")
-    .select("id, workspace_id, name, scopes, revoked, expires_at, created_by")
+    .select("id, workspace_id, name, scopes, revoked, expires_at, created_by, last_used_at")
     .eq("token_hash", hashToken(raw))
     .maybeSingle();
 
@@ -113,11 +116,22 @@ async function verifyBearer(raw: string): Promise<Actor> {
     throw new AuthError("API token has expired");
   }
 
-  // fire-and-forget last_used_at
-  void admin
-    .from("api_tokens")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", data.id);
+  // Fire-and-forget last_used_at. supabase-js builders are lazy thenables:
+  // nothing is sent until `.then()` is called, so a bare `void builder` never
+  // wrote (the Tokens page always said "never"). Skip the write while the
+  // stored value is under TOUCH_INTERVAL_MS old, so a busy agent does not
+  // turn every request into an extra UPDATE.
+  const lastUsed = data.last_used_at ? Date.parse(data.last_used_at) : NaN;
+  if (!Number.isFinite(lastUsed) || Date.now() - lastUsed >= LAST_USED_TOUCH_INTERVAL_MS) {
+    admin
+      .from("api_tokens")
+      .update({ last_used_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .then(
+        () => {},
+        () => {},
+      );
+  }
 
   return {
     type: "token",

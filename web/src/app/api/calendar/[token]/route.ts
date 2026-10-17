@@ -1,6 +1,7 @@
 import { after } from "next/server";
 import { route } from "@/lib/api/handler";
 import { NotFoundError } from "@/lib/api/errors";
+import { ipRateKey } from "@/lib/api/client-ip";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { hashToken } from "@/lib/auth/tokens";
 import { buildMilestoneCalendar, type CalendarMilestone } from "@/lib/calendar/ics";
@@ -9,7 +10,6 @@ import {
   FEED_PAGE_SIZE,
   FEED_RATE_PER_FEED,
   FEED_RATE_PER_IP,
-  clientAddress,
   etagMatches,
   feedEtag,
   feedRateCheck,
@@ -134,8 +134,8 @@ function tooMany(retryAfterSeconds: number): Response {
  * get the same 404, so the response cannot be used to probe which tokens exist.
  *
  * Throttled (route() only limits authenticated callers, so this does it
- * itself): per client address before the token is looked up, then per feed.
- * 429 + Retry-After.
+ * itself): per client address before the token is looked up (when a trustworthy
+ * address is available), then per feed. 429 + Retry-After.
  *
  * Revalidation: the body carries a strong ETag (hash of the deterministic
  * serialisation) and honours If-None-Match with a body-less 304.
@@ -152,8 +152,16 @@ export const GET = route(
 
     const db = createAdminClient();
 
-    const byAddress = await feedRateCheck(db, `cal-ip:${clientAddress(request)}`, FEED_RATE_PER_IP);
-    if (!byAddress.allowed) return tooMany(byAddress.retryAfterSeconds);
+    // The caller's network, as far as it can be trusted (the same helper the relay and
+    // the invite limiter use): behind our own proxy hops, or the platform-supplied
+    // address on Vercel. When nothing can be trusted there is no per-address bucket
+    // (a caller-writable header would mint a fresh bucket, and a fresh counter row,
+    // per request); the per-feed bucket below still applies.
+    const address = ipRateKey(request.headers);
+    if (address) {
+      const byAddress = await feedRateCheck(db, `cal-ip:${address}`, FEED_RATE_PER_IP);
+      if (!byAddress.allowed) return tooMany(byAddress.retryAfterSeconds);
+    }
 
     // The lookup is by the secret's hash, which is unique. The workspace comes
     // from the row, and every milestone query below is scoped to it.

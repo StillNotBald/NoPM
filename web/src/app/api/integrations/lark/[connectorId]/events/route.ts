@@ -18,8 +18,9 @@ export const runtime = "nodejs";
  *   - anything else                     -> `{}`
  *
  * The body is the platform's contract, not NoPM's `{ data }` envelope. Errors:
- * 401 (any verification failure - one generic body), 403 wrong mode, 404
- * unknown / paused / revoked connector, 413, 429 (per-connector budget).
+ * 401 (any verification failure, and an unknown / paused / revoked connector,
+ * which looks the same - one generic body), 403 wrong mode, 404 (a malformed
+ * connector id only), 413, 429 (per-connector budget).
  */
 export const POST = route(
   async ({ request, params }) => handleLarkWebhook(request, params.connectorId ?? "", productionWebhookDeps()),

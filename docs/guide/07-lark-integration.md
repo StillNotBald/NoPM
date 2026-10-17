@@ -91,7 +91,7 @@ Open **Permissions and scopes** and add the scopes below. Names differ slightly 
 | Update a card after it was decided | Update messages sent by the app: `im:message:update` |
 | Read direct messages sent to the bot (for `help`, `link`, `approvals`) | Read messages sent to the bot in direct chat: `im:message.p2p_msg:readonly` |
 
-NoPM does not need access to your contacts, documents, calendars or group history, and the integration does not ask for them. Add only the three above. (The exact scope identifiers are taken from the vendor's published names and have not yet been confirmed against a live tenant. If the console offers a differently named equivalent for the same action, use it, and report the mismatch.)
+NoPM does not need access to your contacts, documents, calendars or group history, and the integration does not ask for them. Add only the three above. (The three scope keys are confirmed against the official documentation. Only the English display names the console shows for them are not, so match by the key if the wording differs.)
 
 ## Step 4: Connect the app in NoPM
 
@@ -104,7 +104,7 @@ NoPM does not need access to your contacts, documents, calendars or group histor
    - **Verification Token** and **Encrypt Key**, from Step 1. **In webhook mode the Encrypt Key is required**: NoPM refuses to save the connector without it (the form marks the field required for a webhook connection). Webhook mode puts your addresses on the public internet, and the verification token alone is only a shared string that sits in clear text in every event and is visible to everyone who collaborates on the Lark app. With the key, NoPM verifies a signature on every call and decrypts the body, so a stranger who learns the token still cannot fake a message. In long-connection mode no public address exists and events arrive over the worker's own outbound connection, so the key is optional and not used for delivery.
 3. Save, then choose **Test connection**. NoPM asks Lark for the bot's details with your App ID and secret, so a wrong secret or the wrong region shows up here.
 
-The same rule holds when you edit the connector later: switching a connector to webhook mode, or replacing its credentials while it is in webhook mode, needs an Encrypt Key to be present afterwards, and you cannot clear the key from a webhook connector. Pausing, renaming or changing the digest never asks for it. A connector created before this rule, without a key, keeps working until you next change its mode or credentials.
+The same rule holds when you edit the connector later: switching a connector to webhook mode, or replacing its credentials while it is in webhook mode, needs an Encrypt Key to be present afterwards, and you cannot clear the key from a webhook connector. Pausing, renaming or changing the digest never asks for it. The App ID itself cannot be changed on an existing connector (the accounts linked to it and the cards it already sent belong to that app): to move to a different Lark app, revoke the connector and create a new one. A connector created before this rule, without a key, keeps working until you next change its mode or credentials.
 4. Keep the page open. Depending on the mode it now shows what to do next:
    - **Webhook**: two web addresses (events and card callbacks) to paste into the Lark console in Step 5.
    - **Long connection**: a **relay secret**, **shown only once**. Copy it now. It is stored only as a hash, so if you lose it you create a new connector.
@@ -131,7 +131,7 @@ Open **Events and callbacks** in the Lark developer console.
    https://<your-nopm-host>/api/integrations/lark/<connector-id>/card
    ```
 
-4. Add the callback **Card interaction** (`card.action.trigger`). This is what makes the Approve and Reject buttons work.
+4. Add the callback **Card interaction** (`card.action.trigger`; in the Chinese console 卡片回传交互). This is what makes the Approve and Reject buttons work. Choose this NEW callback, not the older "消息卡片回传交互（旧）" (`card.action.trigger_v1`): NoPM does not handle the old one.
 
 The connector id is shown in NoPM on the Integrations page after Step 4. Both addresses use it, which is why you create the connector in NoPM first. If Lark's verification request fails, check that the Verification Token and Encrypt Key in NoPM match the console exactly, then save again in the console. A connector that is paused or revoked answers Lark exactly like a wrong signature (a bare 401), so a paused connector shows up here as a failed verification: resume it first.
 
@@ -141,7 +141,7 @@ The connector id is shown in NoPM on the Integrations page after Step 4. Both ad
 2. Open **Callback configuration**, set the subscription method to **persistent connection** as well, and add **Card interaction** (`card.action.trigger`).
 3. Run the worker (Step 6). The console usually refuses to save a long-connection setting until a client has connected at least once, so you may need to start the worker first, then come back and save.
 
-> **Known open question, please read.** The official SDK's own chat module registers `card.action.trigger` on the same long-connection channel, so card buttons are expected to work with no public address. However, the SDK's written documentation says long connection covers events and not callbacks, and this has not yet been confirmed against a live international tenant. If your console does not offer the persistent-connection method for card callbacks, the buttons will not work in long-connection mode. In that case, approvals still arrive as cards, the card carries a link to the request in NoPM, and the decision can be made there; or use webhook mode with a public HTTPS address. Test one approval end to end before telling your team the buttons work.
+> **Known open question, please read.** The official documentation (open.feishu.cn and open.larksuite.com, checked 2026-10-17) lists `card.action.trigger` as supported over the long connection for self-built apps. In the console it has its own subscription method, under Events and callbacks, Callback configuration, separate from Event configuration: choose the persistent connection there too. The Node SDK's README still says callbacks are not supported; that text is out of date. This has not yet been confirmed on a live tenant: test one approval end to end before telling your team the buttons work (the checklist is in [the first live test runbook](../runbooks/lark-first-live-test.md)). If your console does not offer the persistent-connection method for card callbacks, the buttons will not work in long-connection mode. In that case, approvals still arrive as cards, the card carries a link to the request in NoPM, and the decision can be made there; or use webhook mode with a public HTTPS address.
 
 ## Step 6 (long connection only): run the worker
 
@@ -173,7 +173,7 @@ The relay endpoint rate-limits unauthenticated callers by their network address 
 NOPM_TRUSTED_PROXY_HOPS=1
 ```
 
-NoPM then reads the client address from the right-hand end of `X-Forwarded-For`, which only your own proxies write, and uses it for the relay's per-address cap, the invite-accept limiter and the failed-verification cap on the public webhook addresses. Set it to the real number: too high and a caller can pick its own address, too low and every request looks like it comes from your proxy. Leave it unset if NoPM is exposed directly, or if the worker and NoPM talk over a private network with no proxy. On Vercel nothing needs setting: the platform supplies the address. If the worker and NoPM sit on the same machine, point `NOPM_APP_URL` at `http://localhost:3000` and ignore this.
+NoPM then reads the client address from the right-hand end of `X-Forwarded-For`, which only your own proxies write, and uses it for the relay's per-address cap, the invite-accept limiter, the calendar feed's per-address cap and the failed-verification cap on the public webhook addresses. Set it to the real number: too high and a caller can pick its own address, too low and every request looks like it comes from your proxy. Leave it unset if NoPM is exposed directly, or if the worker and NoPM talk over a private network with no proxy. On Vercel nothing needs setting: the platform supplies the address. If the worker and NoPM sit on the same machine, point `NOPM_APP_URL` at `http://localhost:3000` and ignore this.
 
 ### Run it by hand first
 
@@ -302,7 +302,7 @@ You can unlink at any time from the same page. An admin can see and remove every
 
 Three safeguards you may notice:
 
-- **A new link replaces the old one, and both sides are told.** Each person has one active Lark link per connector. If a code links a different Lark account to you, the earlier link is removed, you get an in-app notification ("Your Lark account link was changed"), and the Lark account that just lost the link receives a direct message saying it was unlinked. A leaked or phished code therefore cannot quietly re-point your approvals. If the notice was not about something you did, unlink the new account under Integrations and tell an admin.
+- **A code never moves an existing link.** Each person has one active Lark link per connector. If a code is sent from a different Lark account while you are already linked, the bot refuses: "This NoPM account is already linked to another Lark account. Unlink it in NoPM (Integrations) first, then send a new code." The code is spent, the refusal is recorded in the audit trail (`integration.identity.link.blocked`), and your link is untouched, so a leaked or phished code cannot re-point your approvals. To move to a new Lark account, unlink the old one under Integrations, then create a new code and send it from the new account. (If two codes race and a link does get replaced, you still get an in-app notification, "Your Lark account link was changed", and the account that lost the link gets a direct message.)
 - **Which Lark organization is trusted is decided by an admin or manager.** The first link made by a workspace **admin or manager** pins the connector to that Lark tenant; after that, codes from any other tenant are refused. A link by anyone else (a member or viewer) never pins the connector, so someone with no approval rights cannot lock your real organization out by linking from a different one. A link from a different tenant than the pinned one is refused for everybody. To move the connector to another tenant, an admin clears the tenant pin on the connector, and the next admin or manager link pins the new one.
 - **Guessing is throttled.** A link code is short-lived and single use, and `link` attempts are limited to 8 per Lark account and 120 per connector in any 10 minutes. Past that the bot asks the person to wait a few minutes and send the newest code.
 
@@ -330,12 +330,12 @@ Every one of these leaves the request exactly as it was. The wording on screen m
 
 ### The weekly digest
 
-1. Add the bot to the group chat that should receive it, and make sure the group is inside the app's availability scope.
+1. Add the bot to the group chat that should receive it, and make sure the group is inside the app's availability scope. On Lark, add the bot from the desktop client (Group settings, then Group bots, then Add bot, and search for the app's name); it cannot be added from the mobile client.
 2. You need the group's **chat id**, which starts with `oc_`. The Lark client does not show it. The simplest way is the developer console's API debugger: call the "get the chats the bot is in" request (`GET /open-apis/im/v1/chats`) with your app and copy the group's `chat_id`. That request may need an extra read scope, which you can add temporarily.
 3. In NoPM, on the Integrations page, turn on the digest, paste the chat id, and choose a weekday.
 4. **Send now** posts it immediately, which is the easiest way to check the setup.
 
-The digest and the retry of failed deliveries are driven by a once-a-day scheduled call (`GET /api/integrations/cron`, protected by a secret). The weekday is evaluated in UTC. On Vercel, including the deploy-button install, the daily call comes from the project's `vercel.json`; set a `CRON_SECRET` value in the project's environment and Vercel sends it for you. Anywhere else, set `CRON_SECRET` in the app's environment and schedule the call yourself, for example:
+The digest and the retry of failed deliveries are driven by a once-a-day scheduled call (`GET /api/integrations/cron`, protected by a secret). The weekday is evaluated in UTC. If a scheduled call misses that day, the next call later in the same ISO week (Monday to Sunday) posts the digest, unless the connector's settings were changed after that day began: switching the digest on or rescheduling it midweek never fires it at once. On Vercel, including the deploy-button install, the daily call comes from the project's `vercel.json`; set a `CRON_SECRET` value in the project's environment and Vercel sends it for you. Anywhere else, set `CRON_SECRET` in the app's environment and schedule the call yourself, for example:
 
 ```cron
 # every day at 01:07 UTC (avoid the exact hour and half hour: the platform sheds load then)
@@ -360,6 +360,7 @@ An admin can see how this is going without opening a database. The connector car
 | The bot does not answer `help` | App not released, you are outside the availability scope, `im.message.receive_v1` not subscribed, the read-DM scope missing, or (long connection) the worker is not running | Check each in that order. After any permission or event change, publish a new version |
 | A button shows a Lark error code instead of a result | The `card.action.trigger` callback is not configured, or NoPM did not answer within 3 seconds | Add the callback and publish. In long-connection mode, check the worker log for a slow or failed relay |
 | Tapping Approve says "account not linked" | You skipped Step 8, or the link was removed | Link again |
+| A tap shows a Lark client error code, for example 200340, 200341, 200671, 200672, 200673, 200830 or 200530 | These come from Lark, not from NoPM: **200340** the callback address is not configured or invalid (on a long connection, the click never reached the handler); **200341** no answer within 3 seconds; **200671** a non-200 status came back; **200672** the response body was malformed; **200673** the returned card was invalid; **200830** a 2.0 card was replaced by a 1.0 card; **200530** a form component has an empty name | 200340: re-check the callback configuration and, for a long connection, that the worker is running. 200341: look at how long NoPM and the relay took. The others: report them, with the code, to whoever maintains the integration |
 | No card ever arrives | You are not linked, you raised the request yourself, your role is not admin or manager, the connector is paused, or you are outside the availability scope | Check the Integrations page for the connector's status and the delivery list, then each item |
 | Cards arrive, but some buttons seem to do nothing | More than one worker is running, so some clicks go to the wrong one | Stop every worker, start exactly one |
 | Worker exits with code `2` | A setting is missing or wrong, or Lark refused the credentials | Read the message: it names the variable or the NoPM setting. If it says Lark rejected the credentials, check the App ID, secret and region together |

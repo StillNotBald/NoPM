@@ -1,5 +1,5 @@
 /**
- * Lifecycle guards — migration-text drift test (migration 0049).
+ * Lifecycle guards — migration-text drift test (migrations 0049 and 0054).
  *
  * There is no live Postgres in this suite, so — same source-text approach as
  * lock-db-backstop.test.ts and principal-migration.test.ts — this reads the
@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { SCHEDULE_SHAPE_PROJECT_FIELDS } from "./lock";
 import { REBASELINE_TRANSITIONS } from "./rebaseline-lifecycle";
 import { FakeDb, projectChildCounts } from "./test-support/fake-admin";
+import { CHILD_COUNTS_KEY } from "./project-children";
 
 const migrationsDir = join(__dirname, "..", "..", "..", "supabase", "migrations");
 const FILE = "20261017000049_lifecycle_guards.sql";
@@ -24,7 +25,7 @@ const text = readFileSync(join(migrationsDir, FILE), "utf8");
 
 /** SQL with `--` comments stripped, so assertions only see executable text. */
 const sql = text
-  .split("\n")
+  .split(/\r?\n/)
   .map((line) => line.replace(/--.*$/, ""))
   .join("\n");
 
@@ -158,13 +159,9 @@ describe("M2 — rebaseline lifecycle trigger", () => {
 });
 
 describe("M4 — project deletion is bound to the requested scope", () => {
-  it("counts exactly the child tables the TypeScript fake (and so the route tests) assume", () => {
-    const fn = functionSource("nopm_project_child_counts");
-    const sqlTables = [...fn.matchAll(/'(\w+)',\s+\(select count\(\*\) from (\w+)\s+where project_id = p_project_id\)/g)];
-    expect(sqlTables.length).toBeGreaterThan(0);
-    for (const [, key, table] of sqlTables) expect(key).toBe(table);
-    expect(sqlTables.map((m) => m[1]).sort()).toEqual(Object.keys(projectChildCounts(new FakeDb(), "p")).sort());
-  });
+  // The child-count function itself is checked against the schema, across every
+  // migration that redefines it, in "nopm_project_child_counts covers every table"
+  // below — a list typed in this file would only ever agree with itself.
 
   it("a BEFORE DELETE trigger on projects compares the live counts with the pending request's snapshot (P0016)", () => {
     const trigger = triggerStatement("trg_project_delete_scope");
@@ -196,5 +193,223 @@ describe("errcodes are unique to their meaning", () => {
       expect([...sql.matchAll(new RegExp(`errcode = '${code}'`, "g"))].length, code).toBe(1);
     }
     expect(sql).not.toMatch(/P0015/);
+  });
+});
+
+// ── M4/P1-3: the child-count function covers every table that cascades ──────
+//
+// 0049 counted 12 tables by hand; three more (project_budget, clashes,
+// calendar_feeds) cascaded from projects unseen, and the test that was meant to
+// catch it compared the SQL list with the fake's list, both typed from the same
+// 12. This suite derives the truth from the schema itself: every
+// `references projects ... on delete cascade` in supabase/migrations/*.sql names
+// a table whose rows a project deletion destroys, and each must be counted by
+// the LATEST definition of nopm_project_child_counts.
+
+const migrationFiles = readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort();
+
+/** A migration's executable text: `--` comments removed. */
+function stripComments(source: string): string {
+  return source
+    .split(/\r?\n/) // a Windows checkout has CRLF: `.` does not match \r, so `--.*$` would miss every comment
+    .map((line) => line.replace(/--.*$/, ""))
+    .join("\n");
+}
+
+/**
+ * Every table with a foreign key to projects that is ON DELETE CASCADE, mapped to
+ * the migration that declares it. The reader tracks the nearest preceding
+ * `create table X` / `alter table X`, so it also finds columns declared
+ * mid-table and constraints added by a later ALTER.
+ */
+function tablesCascadingFromProjects(): Map<string, string> {
+  const found = new Map<string, string>();
+  const token =
+    /create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?(\w+)|alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:public\.)?(\w+)|(references\s+(?:public\.)?projects\b[^,;]*?on\s+delete\s+cascade)/gi;
+  for (const file of migrationFiles) {
+    let current = "";
+    for (const m of stripComments(readFileSync(join(migrationsDir, file), "utf8")).matchAll(token)) {
+      if (m[1] || m[2]) current = (m[1] ?? m[2]).toLowerCase();
+      else if (current) found.set(current, file);
+    }
+  }
+  return found;
+}
+
+/** The latest migration (up to `upTo`, if given) that defines nopm_project_child_counts, with the body it left behind. */
+function latestChildCountsDefinition(upTo?: string): { file: string; body: string } {
+  let latest: { file: string; body: string } | null = null;
+  for (const file of migrationFiles) {
+    if (upTo && file > upTo) break;
+    const src = stripComments(readFileSync(join(migrationsDir, file), "utf8"));
+    const start = src.search(/create or replace function nopm_project_child_counts\(/i);
+    if (start < 0) continue;
+    latest = { file, body: src.slice(start, src.indexOf("\n$$;", start) + 4) };
+  }
+  if (!latest) throw new Error("no migration defines nopm_project_child_counts");
+  return latest;
+}
+
+/** The `'key', (select count(*) from table ...)` pairs of a function body. */
+function countedTables(body: string): { key: string; table: string }[] {
+  return [...body.matchAll(/'(\w+)',\s+\(select count\(\*\) from (?:public\.)?(\w+)/gi)].map((m) => ({
+    key: m[1],
+    table: m[2].toLowerCase(),
+  }));
+}
+
+describe("M4 — nopm_project_child_counts covers every table that cascades from projects", () => {
+  const cascading = tablesCascadingFromProjects();
+  const latest = latestChildCountsDefinition();
+  const counted = countedTables(latest.body);
+
+  it("the schema reader finds the cascade children (it is not vacuously empty)", () => {
+    expect(cascading.size).toBeGreaterThanOrEqual(15);
+    for (const known of ["milestones", "tasks", "clashes", "project_budget", "calendar_feeds", "sprints", "time_entries"]) {
+      expect(cascading.has(known), known).toBe(true);
+    }
+  });
+
+  it("the latest definition counts every one of them", () => {
+    const countedSet = new Set(counted.map((c) => c.table));
+    const missing = [...cascading.entries()]
+      .filter(([table]) => !countedSet.has(table))
+      .map(([table, file]) => `${table} (${file})`);
+    expect(missing, `${latest.file} must count these tables or a project deletion destroys their rows unannounced`).toEqual([]);
+  });
+
+  it("every counted table is a real table, and each result key is the table's own name", () => {
+    const created = new Set<string>();
+    for (const file of migrationFiles) {
+      const src = stripComments(readFileSync(join(migrationsDir, file), "utf8"));
+      for (const m of src.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?(\w+)/gi)) {
+        created.add(m[1].toLowerCase());
+      }
+    }
+    expect(counted.length).toBeGreaterThan(0);
+    for (const { key, table } of counted) {
+      expect(created.has(table), table).toBe(true);
+      expect(key, table).toBe(table);
+    }
+  });
+
+  it("canary: the 0049 definition alone is caught — it missed exactly the three tables 0054 adds", () => {
+    const at0049 = new Set(countedTables(latestChildCountsDefinition(FILE).body).map((c) => c.table));
+    const missing = [...cascading.keys()].filter((table) => !at0049.has(table)).sort();
+    expect(missing).toEqual(["calendar_feeds", "clashes", "project_budget"]);
+  });
+
+  it("the TypeScript fake counts the same tables as the latest SQL (so the route tests exercise the real contract)", () => {
+    expect(Object.keys(projectChildCounts(new FakeDb(), "p")).sort()).toEqual(counted.map((c) => c.table).sort());
+  });
+
+  it("a clash is counted from EITHER project it names", () => {
+    expect(latest.body).toMatch(
+      /'clashes',\s+\(select count\(\*\) from clashes\s+where project_a_id = p_project_id or project_b_id = p_project_id\)/,
+    );
+    const db = new FakeDb({
+      clashes: [
+        { id: "c1", project_a_id: "p", project_b_id: "other" },
+        { id: "c2", project_a_id: "other", project_b_id: "p" },
+        { id: "c3", project_a_id: "other", project_b_id: "other" },
+      ],
+    });
+    expect(projectChildCounts(db, "p").clashes).toBe(2);
+  });
+});
+
+// ── 0054 ────────────────────────────────────────────────────────────────────
+
+describe("0054 file", () => {
+  const FILE_54 = "20261017000054_lifecycle_guards_2.sql";
+  const sql54 = stripComments(readFileSync(join(migrationsDir, FILE_54), "utf8"));
+
+  it("sorts after the migrations that existed when it was written (0053)", () => {
+    expect(migrationFiles.indexOf(FILE_54)).toBeGreaterThan(migrationFiles.indexOf("20261017000053_hub_card_integrity.sql"));
+  });
+
+  it("redefines the count function with 0049's signature and attributes, and keeps it closed to anon / authenticated", () => {
+    expect(latestChildCountsDefinition().file).toBe(FILE_54);
+    const fn49 = latestChildCountsDefinition(FILE).body;
+    const fn54 = latestChildCountsDefinition().body;
+    for (const attr of [/returns jsonb/i, /language plpgsql/i, /\bstable\b/i, /set search_path = public/i]) {
+      expect(fn49, `0049 ${attr}`).toMatch(attr);
+      expect(fn54, `0054 ${attr}`).toMatch(attr);
+    }
+    // Only the TRIGGER that calls it is security definer; the count function is not (0049 made the same choice).
+    expect(fn49).not.toMatch(/security definer/i);
+    expect(fn54).not.toMatch(/security definer/i);
+    expect(sql54).toMatch(/revoke execute on function nopm_project_child_counts\(uuid\) from public, anon, authenticated/);
+    expect(sql54).toMatch(/grant\s+execute on function nopm_project_child_counts\(uuid\) to service_role/);
+  });
+
+  it("keeps every key 0049 had and adds project_budget, clashes and calendar_feeds", () => {
+    const keys49 = countedTables(latestChildCountsDefinition(FILE).body).map((c) => c.key);
+    const keys54 = countedTables(latestChildCountsDefinition().body).map((c) => c.key);
+    expect(keys54).toEqual(expect.arrayContaining(keys49));
+    expect(keys54.filter((k) => !keys49.includes(k)).sort()).toEqual(["calendar_feeds", "clashes", "project_budget"]);
+  });
+
+  it("re-snapshots the pending project deletions under the key the trigger reads, and only those", () => {
+    expect(CHILD_COUNTS_KEY).toBe("child_counts");
+    expect(sql54).toMatch(
+      /update deletion_requests dr\s+set before = coalesce\(dr\.before, '\{\}'::jsonb\)\s+\|\|\s+jsonb_build_object\('child_counts', nopm_project_child_counts\(dr\.target_id\)\)/,
+    );
+    expect(sql54).toMatch(/dr\.target_type = 'project'\s+and dr\.status = 'pending'/);
+    // 0049's trigger reads the very same key.
+    expect(sql).toMatch(/dr\.before -> 'child_counts'/);
+  });
+
+  it("F-09: takes insert / update / delete on the nine API-only tables away from anon and authenticated", () => {
+    const m = sql54.match(/revoke\s+insert,\s*update,\s*delete\s+on\s+([\w\s,]+?)\s+from\s+anon,\s*authenticated\s*;/i);
+    expect(m, "0054 has no table-level revoke of insert, update, delete").not.toBeNull();
+    const tables = m![1].split(",").map((t) => t.trim()).sort();
+    expect(tables).toEqual(
+      [
+        "api_tokens",
+        "assistant_conversations",
+        "assistant_credentials",
+        "assistant_demo_usage",
+        "assistant_messages",
+        "audit_log",
+        "user_mfa",
+        "user_preferences",
+        "workspaces",
+      ].sort(),
+    );
+    // Every one of them is a table some migration creates (a revoke on a missing table aborts the whole migration).
+    const created = new Set<string>();
+    for (const file of migrationFiles) {
+      for (const t of stripComments(readFileSync(join(migrationsDir, file), "utf8")).matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?(\w+)/gi)) {
+        created.add(t[1].toLowerCase());
+      }
+    }
+    for (const table of tables) expect(created.has(table), table).toBe(true);
+  });
+
+  it("F-09: MAINTAIN is revoked from client roles (existing tables and the default ACL), only where the server knows the privilege, and nothing grants it back", () => {
+    const block = sql54.match(/do\s+\$\$([\s\S]*?)\$\$\s*;/i);
+    expect(block, "0054 has no do-block").not.toBeNull();
+    expect(block![1]).toMatch(/server_version_num'\)::int\s*>=\s*170000/);
+    expect(block![1]).toMatch(/execute\s+'revoke maintain on all tables in schema public from anon, authenticated'/);
+    expect(block![1]).toMatch(/execute\s+'alter default privileges in schema public revoke maintain on tables from anon, authenticated'/);
+    for (const file of migrationFiles) {
+      const text = stripComments(readFileSync(join(migrationsDir, file), "utf8"));
+      expect(text, file).not.toMatch(/\bgrant\b[^;]*\bmaintain\b/i);
+    }
+  });
+
+  it("closes EXECUTE on nopm_recompute_project_completion to client roles without redefining it", () => {
+    expect(sql54).toMatch(/revoke execute on function nopm_recompute_project_completion\(uuid\) from public, anon, authenticated/);
+    expect(sql54).toMatch(/grant\s+execute on function nopm_recompute_project_completion\(uuid\) to service_role/);
+    expect(sql54).not.toMatch(/create or replace function nopm_recompute_project_completion/i);
+  });
+
+  it("creates no policy, trigger, write grant or audit row (0048's lockdown and the provenance tests stay true)", () => {
+    expect(sql54).not.toMatch(/create\s+(or\s+replace\s+)?(policy|trigger)/i);
+    expect(sql54).not.toMatch(/drop\s+(policy|trigger)/i);
+    expect(sql54).not.toMatch(/grant\s+(all|insert|update|delete|truncate)/i);
+    expect(sql54).not.toMatch(/insert into audit_log/i);
+    expect(sql54).not.toMatch(/function nopm_commit_(task|project)_deletion/i);
   });
 });

@@ -4,7 +4,7 @@
 //   POST /api/deletion-requests/:id/approve   task:delete:approve
 //   POST /api/deletion-requests/:id/reject    task:delete:approve
 
-export const describe = "Approve or reject a pending deletion request (checker — different token)";
+export const describe = "Approve or reject a pending deletion request (checker — a different person; a token counts as the human who created it)";
 
 export const usage = [
   "nopm approve <requestId>                  approve and commit the deletion",

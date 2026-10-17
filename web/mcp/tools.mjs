@@ -29,8 +29,9 @@ export const ISSUE_PRIORITIES = ["low", "medium", "high", "urgent"];
 export const ISSUE_STATUSES = ["open", "in_progress", "resolved", "closed"];
 export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"];
 // Mirrors AuditChannel in web/src/lib/audit/channel.ts (R-82/R-85) — the
-// five channel values audit_log's DB check constraint accepts.
-export const AUDIT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant"];
+// six channel values audit_log's DB check constraint accepts ("lark" is
+// server-derived for chat-card decisions; it can be filtered on, never declared).
+export const AUDIT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant", "lark"];
 // Mirrors PENDING_KINDS in web/src/lib/review/pending.ts (the GET /api/review
 // `kind` filter); the first four are the kinds the governed decision path
 // accepts. Locked by web/src/lib/review/tool.test.ts.

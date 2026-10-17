@@ -18,8 +18,10 @@ export const runtime = "nodejs";
  * Replies HTTP 200 within the platform's 3 s deadline with
  * `{ toast: { type, content }, card?: { type: "raw", data } }` - the toast is
  * shown to the person, the card (if any) replaces the one they pressed. Even a
- * rate-limited or refused click gets a 200 toast. Verification failures are
- * 401, unknown / paused / revoked connectors 404, wrong mode 403.
+ * rate-limited or refused click gets a 200 toast. Verification failures and
+ * unknown / paused / revoked connectors are ONE generic 401 (so the address
+ * cannot be used to find out which connectors exist); a malformed connector id
+ * is 404, wrong mode 403.
  */
 export const POST = route(
   async ({ request, params }) => handleLarkWebhook(request, params.connectorId ?? "", productionWebhookDeps()),

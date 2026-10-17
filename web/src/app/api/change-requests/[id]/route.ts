@@ -1,11 +1,17 @@
 import { route } from "@/lib/api/handler";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { RAISE_TIME_STATUSES, updateChangeRequestSchema } from "@/app/api/change-requests/_schema";
-import { announceChanged, changeRequestEvent } from "@/lib/governance/decide";
+import {
+  actorLabel,
+  announceChanged,
+  announceDecided,
+  changeRequestEvent,
+  requireMakerPrincipal,
+} from "@/lib/governance/decide";
 import { changedMaterialFields } from "@/lib/governance/change-request-edit";
 
 export const runtime = "nodejs";
@@ -27,6 +33,19 @@ function assertStillOpen(status: string, verb: "edited" | "deleted"): void {
       `This change request is ${status} and is part of the decision record, so it can no longer be ${verb} — raise a new change request instead.`,
       "change_request_decided",
     );
+  }
+}
+
+/**
+ * Four-eyes needs the content an approver decides on to be the requester's, not
+ * the approver's: anyone with change:write could otherwise rewrite a pending
+ * request and then approve what they wrote. So an open request is edited or
+ * deleted only by the requester's PERSON (the user, or a token that user minted).
+ * A legacy request with no recorded requester has nobody to compare with.
+ */
+function assertRequester(existing: { requested_principal_id?: string | null }, editor: string): void {
+  if (existing.requested_principal_id && existing.requested_principal_id !== editor) {
+    throw new ScopeError("Only the requester can edit an open change request; raise a new one instead", "not_requester");
   }
 }
 
@@ -52,6 +71,7 @@ export const GET = route(async ({ actor, params }) => {
 /** PATCH /api/change-requests/:id — update a change request */
 export const PATCH = route(async ({ actor, params, request }) => {
   requireScope(actor, "change:write");
+  const editor = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
 
@@ -66,6 +86,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (!existing) throw new NotFoundError("Change request not found");
 
   assertStillOpen(existing.status, "edited");
+  assertRequester(existing, editor);
 
   const body = await safeJson(request);
   const parsed = updateChangeRequestSchema.safeParse(body);
@@ -129,6 +150,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
 /** DELETE /api/change-requests/:id — delete a change request */
 export const DELETE = route(async ({ actor, params }) => {
   requireScope(actor, "change:write");
+  const editor = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
 
@@ -143,6 +165,7 @@ export const DELETE = route(async ({ actor, params }) => {
   if (!existing) throw new NotFoundError("Change request not found");
 
   assertStillOpen(existing.status, "deleted");
+  assertRequester(existing, editor);
 
   const { data: removed, error: deleteError } = await db
     .from("change_requests")
@@ -166,6 +189,22 @@ export const DELETE = route(async ({ actor, params }) => {
     before: existing,
     after: null,
   });
+
+  // An open request that is deleted still has approval cards out. Close them like
+  // a withdrawal: their tokens die and the cards are patched, instead of sitting
+  // in chat with live buttons that answer "no longer exists". Never throws; it
+  // runs after the delete and its audit row are committed.
+  try {
+    const base = await changeRequestEvent(db, actor.workspaceId, existing);
+    announceDecided({
+      ...base,
+      status: "withdrawn",
+      decidedByLabel: actorLabel(actor),
+      channel: actor.channel ?? (actor.type === "token" ? "api" : "ui"),
+    });
+  } catch (err) {
+    console.error("[change-requests] could not announce the deletion to the integration hub", err);
+  }
 
   return noContent();
 });

@@ -331,13 +331,26 @@ export function classifyLarkError(err: unknown): Extract<DeliverResult, { ok: fa
   return { ok: false, retryable: true, error: clip(`unexpected error${text ? `: ${text}` : ""}`) };
 }
 
-function interpretBody(res: unknown): { ok: true; messageId: string | null } | Extract<DeliverResult, { ok: false }> {
+/**
+ * Read a 200 reply. Success is POSITIVE evidence only: `code` is the number 0
+ * (and, for a send, there is a message id to patch later). An empty object, an
+ * HTML page from a proxy or a body with no code says nothing about delivery, so
+ * it is a retryable "unexpected response": the send's idempotency key makes the
+ * retry safe if the first attempt did land.
+ */
+function interpretBody(
+  res: unknown,
+  need: { messageId: boolean },
+): { ok: true; messageId: string | null } | Extract<DeliverResult, { ok: false }> {
+  const unexpected = { ok: false, retryable: true, error: "unexpected response" } as const;
   const body = (res && typeof res === "object" ? res : {}) as { code?: unknown; msg?: unknown; data?: { message_id?: unknown } };
-  if (typeof body.code === "number" && body.code !== 0) {
+  if (typeof body.code !== "number") return unexpected;
+  if (body.code !== 0) {
     return classifyLarkError({ response: { status: 200, data: { code: body.code, msg: body.msg } } });
   }
+  if (!need.messageId) return { ok: true, messageId: null };
   const id = body.data?.message_id;
-  return { ok: true, messageId: typeof id === "string" && id ? id : null };
+  return typeof id === "string" && id ? { ok: true, messageId: id } : unexpected;
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
@@ -388,7 +401,7 @@ export async function sendCard(
       }),
       overrides.timeoutMs ?? LARK_CALL_TIMEOUT_MS,
     );
-    const parsed = interpretBody(res);
+    const parsed = interpretBody(res, { messageId: true });
     return parsed.ok ? { ok: true, externalMessageId: parsed.messageId } : parsed;
   } catch (err) {
     return classifyLarkError(err);
@@ -426,7 +439,7 @@ export async function patchCard(
       client.im.v1.message.patch({ path: { message_id: externalMessageId }, data: { content } }),
       overrides.timeoutMs ?? LARK_CALL_TIMEOUT_MS,
     );
-    const parsed = interpretBody(res);
+    const parsed = interpretBody(res, { messageId: false });
     return parsed.ok ? { ok: true, externalMessageId } : parsed;
   } catch (err) {
     return classifyLarkError(err);

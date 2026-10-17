@@ -248,6 +248,9 @@ export function buildApprovalRequestCard(ev: ApprovalEvent, ctx: { actionToken: 
   if (details) elements.push(md(ids, details));
   if (ev.summary) elements.push(md(ids, `> ${escapeLarkMd(ev.summary, 400)}`));
 
+  // Lark only honours `confirm` on form-submit buttons, so a dialog on this tap would never
+  // appear: say what Approve does on the card itself instead.
+  if (isDeletion) elements.push(notation(ids, "Approving carries out the deletion in NoPM."));
   elements.push({
     tag: "button",
     element_id: ids.next("approve"),
@@ -255,9 +258,6 @@ export function buildApprovalRequestCard(ev: ApprovalEvent, ctx: { actionToken: 
     type: "primary_filled",
     size: "medium",
     behaviors: [{ type: "callback", value: { t: ctx.actionToken, a: "approve" } }],
-    ...(isDeletion
-      ? { confirm: { title: plain("Approve this deletion?"), text: plain("Approving carries out the deletion in NoPM.") } }
-      : {}),
   });
 
   elements.push({

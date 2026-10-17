@@ -49,8 +49,35 @@ export function clientIp(headers: Headers, env: Record<string, string | undefine
     );
   }
   const hops = trustedProxyHops(env.NOPM_TRUSTED_PROXY_HOPS);
-  if (hops === 0) return null;
+  if (hops === 0) {
+    warnNoTrustedProxyOnce();
+    return null;
+  }
   return fromForwardedFor(headers.get("x-forwarded-for"), hops);
+}
+
+let warnedNoTrustedProxy = false;
+
+/**
+ * One line per process, the first time an address is wanted and none can be
+ * trusted (off Vercel, NOPM_TRUSTED_PROXY_HOPS unset/0). Without it a self-host
+ * operator never learns that invite-accept shares ONE bucket across all callers.
+ * Behaviour is unchanged: the caller still gets `null`.
+ */
+function warnNoTrustedProxyOnce(): void {
+  if (warnedNoTrustedProxy) return;
+  warnedNoTrustedProxy = true;
+  console.warn(
+    "[client-ip] NOPM_TRUSTED_PROXY_HOPS is not set and this is not Vercel, so no client address can be trusted: " +
+      "POST /api/invites/accept puts every caller in one shared rate-limit bucket, and the Lark relay skips its per-address cap. " +
+      "Set NOPM_TRUSTED_PROXY_HOPS to the number of reverse proxies in front of the app (1 for a single nginx, Caddy or load balancer); " +
+      "see docs/SELF_HOSTING.md.",
+  );
+}
+
+/** Test seam: forget that the warning was already logged. */
+export function resetNoTrustedProxyWarning(): void {
+  warnedNoTrustedProxy = false;
 }
 
 /** Number of reverse proxies in front of the app that append to x-forwarded-for. 0 (default) = trust none. */

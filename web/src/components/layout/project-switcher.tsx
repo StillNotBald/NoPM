@@ -68,9 +68,13 @@ export function ProjectSwitcher({ collapsed = false }: { collapsed?: boolean }) 
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // Tabbing out of the trigger + panel closes it.
+  // Tabbing out of the trigger + panel closes it. A blur with no new target (a mouse
+  // press on a non-focusing button in Safari / Firefox on macOS) must not: it would
+  // close the panel before the click on a project row lands. The mousedown
+  // listener above handles outside presses.
   function onBlur(e: FocusEvent<HTMLDivElement>) {
-    if (open && !panelRef.current?.contains(e.relatedTarget as Node | null)) {
+    const next = e.relatedTarget as Node | null;
+    if (open && next && !panelRef.current?.contains(next)) {
       setOpen(false);
       setQuery("");
     }

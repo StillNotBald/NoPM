@@ -58,6 +58,8 @@ export function urlVerificationBody(token = FIXTURE_VERIFICATION_TOKEN, challeng
 export function messageEvent(overrides: {
   text?: string;
   eventId?: string;
+  /** The message id (default om_fixture_msg_1); null leaves the message without one. */
+  messageId?: string | null;
   openId?: string;
   chatType?: string;
   messageType?: string;
@@ -84,7 +86,7 @@ export function messageEvent(overrides: {
         tenant_key: FIXTURE_TENANT,
       },
       message: {
-        message_id: "om_fixture_msg_1",
+        ...(overrides.messageId === null ? {} : { message_id: overrides.messageId ?? "om_fixture_msg_1" }),
         chat_id: "oc_fixture_dm_1",
         chat_type: overrides.chatType ?? "p2p",
         message_type: overrides.messageType ?? "text",

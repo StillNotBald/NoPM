@@ -155,7 +155,8 @@ describe("gatherReviewItems — four-eyes verdict for the signed-in viewer", () 
     });
     const items = await gatherReviewItems(db, me);
     const byId = Object.fromEntries(items.map((i) => [i.id, i.decide]));
-    expect(byId["dr-mine"]).toEqual({ canDecide: false, block: "your_token_raised", canWithdraw: false });
+    // ...but it is theirs to withdraw: the person behind a token may cancel what it raised.
+    expect(byId["dr-mine"]).toEqual({ canDecide: false, block: "your_token_raised", canWithdraw: true });
     expect(byId["dr-theirs"]).toEqual({ canDecide: true, block: null, canWithdraw: false });
   });
 

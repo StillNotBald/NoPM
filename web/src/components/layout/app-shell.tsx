@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
+import { createContext, Fragment, useContext, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { PanelLeftClose, PanelLeft, Sparkles } from "lucide-react";
 import { Sidebar } from "./sidebar";
 import { BottomNav } from "./bottom-nav";
@@ -23,7 +23,10 @@ import { MAIN_CONTENT_ID } from "@/lib/hooks/use-sheet";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
 
-type InspectorPayload = { title: string; content: ReactNode };
+// `seq` is bumped on every open: it keys the content so React remounts it. Without it,
+// opening the same form type for a different record while the panel is open (lg+,
+// non-modal) reuses the instance, so "Edit task B" shows (and saves) task A's values.
+type InspectorPayload = { title: string; content: ReactNode; seq: number };
 
 const InspectorCtx = createContext<{
   open: (content: ReactNode, title?: string) => void;
@@ -55,6 +58,7 @@ export function AppShell({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [inspector, setInspector] = useState<InspectorPayload | null>(null);
+  const inspectorSeq = useRef(0);
   const [expanded, setExpanded] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
   const openCmd = useCallback(() => setCmdOpen(true), []);
@@ -68,7 +72,7 @@ export function AppShell({
   const inspectorApi = useMemo(
     () => ({
       open: (content: ReactNode, title?: string) => {
-        setInspector({ content, title: title ?? "Details" });
+        setInspector({ content, title: title ?? "Details", seq: ++inspectorSeq.current });
         setExpanded(false);
       },
       close: () => setInspector(null),
@@ -198,7 +202,7 @@ export function AppShell({
           expanded={expanded}
           onToggleExpand={() => setExpanded((v) => !v)}
         >
-          {inspector?.content}
+          {inspector && <Fragment key={inspector.seq}>{inspector.content}</Fragment>}
         </RightPushPanel>
 
         {/* AI assistant panel */}

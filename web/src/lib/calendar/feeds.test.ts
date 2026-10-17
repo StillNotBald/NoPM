@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import type { Actor } from "@/lib/auth/guard";
 import {
   FEED_PAST_DAYS,
-  clientAddress,
   etagMatches,
   feedEtag,
   feedOwner,
@@ -150,23 +149,6 @@ describe("feedEtag and etagMatches", () => {
     expect(etagMatches(feedEtag("other body"), tag)).toBe(false);
     expect(etagMatches("", tag)).toBe(false);
     expect(etagMatches(null, tag)).toBe(false);
-  });
-});
-
-describe("clientAddress", () => {
-  const req = (headers: Record<string, string>) => new Request("http://x.test/", { headers });
-
-  it("takes the first address of x-forwarded-for, then x-real-ip, then 'unknown'", () => {
-    expect(clientAddress(req({ "x-forwarded-for": "203.0.113.7, 10.0.0.1", "x-real-ip": "198.51.100.2" }))).toBe("203.0.113.7");
-    expect(clientAddress(req({ "x-real-ip": "198.51.100.2" }))).toBe("198.51.100.2");
-    expect(clientAddress(req({}))).toBe("unknown");
-  });
-
-  it("keeps the value harmless as a counter key: bounded length, no odd characters", () => {
-    const key = clientAddress(req({ "x-forwarded-for": `${"9".repeat(200)}';select 1;--` }));
-    expect(key.length).toBeLessThanOrEqual(64);
-    expect(key).toMatch(/^[0-9a-zA-Z:.%_-]+$/);
-    expect(clientAddress(req({ "x-forwarded-for": "2001:db8::1" }))).toBe("2001:db8::1");
   });
 });
 

@@ -75,7 +75,7 @@ const TRANSCRIPT: readonly Row[] = [
   null,
   ["$ nopm approve req_2c91"],
   ["✓ approved & committed", "ok"],
-  ["  # a different token", "muted"],
+  ["  # a different person's token", "muted"],
   ["  # one immutable audit row", "muted"],
   null,
   ["$ nopm audit --limit 1"],

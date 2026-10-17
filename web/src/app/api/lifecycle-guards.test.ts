@@ -582,12 +582,15 @@ describe("M2 — rebaseline lifecycle", () => {
     expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")).toHaveLength(0);
   });
 
-  it("losing the compare-and-set race on apply is a 422, not a second snapshot", async () => {
+  it("losing the compare-and-set race on apply is a 422 and writes no audit row of its own", async () => {
     db.afterNextSelect("rebaselines", (d) => {
       d.rows("rebaselines").find((r) => r.id === "rb-approved")!.status = "applied";
     });
     await expectRule(await call(applyRebaseline, bobPat(), "rb-approved", {}), "already_applied");
-    expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")).toHaveLength(0);
+    // The snapshot runs BEFORE the status flip (CR-gov P2-9) so a failed snapshot cannot strand an
+    // "applied" rebaseline; it is idempotent (baseline := current dates), so the loser's run is harmless.
+    expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")).toHaveLength(1);
+    expect(auditActions()).not.toContain("rebaseline.apply");
   });
 });
 

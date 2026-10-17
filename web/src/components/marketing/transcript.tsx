@@ -26,7 +26,7 @@ export function ProofTranscript({ className }: { className?: string }) {
 
 $ nopm approve req_2c91
 ✓ approved & committed
-  # a different token: task:delete:approve
+  # a different person's token: task:delete:approve
   # one immutable audit row written
 
 $ nopm audit --limit 1

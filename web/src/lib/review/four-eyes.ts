@@ -72,7 +72,11 @@ export function judgeDecision(input: {
     scopeProblem: viewer.role === "viewer" ? VIEWER_READ_ONLY : null,
   });
 
-  const canWithdraw = (kind === "task_deletion" || kind === "project_deletion") && sameActor(viewer, requester);
+  // Withdraw cancels (it decides nothing), so the person behind a token or the
+  // assistant may do it: same actor OR same human (decide.ts `withdrawDeletion`).
+  const canWithdraw =
+    (kind === "task_deletion" || kind === "project_deletion") &&
+    (sameActor(viewer, requester) || (!!requester.principal && requester.principal === viewer.id));
 
   if (verdict.can_decide) {
     if (kind === "timesheet" && subjectProfileId && subjectProfileId === viewer.id) {

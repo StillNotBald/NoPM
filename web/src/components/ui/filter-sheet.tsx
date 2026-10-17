@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useModal } from "@/components/ui/modal";
@@ -20,6 +21,11 @@ import { cn } from "@/lib/cn";
  * "Apply / Clear" footer. `onApply`/`onClear` are optional — omit `onApply`
  * for callers whose filters already apply live as the caller's own state
  * changes (Apply then just closes the sheet).
+ *
+ * The sheet is LIVE: the modal only hosts two empty slots and `children` /
+ * the footer are portalled into them from here, so they re-render with this
+ * component. (Handing `modal.open` the element would freeze it at open time:
+ * controlled selects snapped back and `onChange` kept a stale query.)
  */
 export function FilterSheet({
   activeCount,
@@ -39,70 +45,73 @@ export function FilterSheet({
   // pre-JS baseline, and avoids a mobile-first flash on desktop.
   const isDesktop = useMediaQuery(QUERY_MD_UP, true);
   const modal = useModal();
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // The modal's slots; each is null until the sheet is open and again once it
+  // closes (Escape, backdrop, Apply), so "open" is derived, never tracked.
+  const [bodySlot, setBodySlot] = useState<HTMLElement | null>(null);
+  const [footerSlot, setFooterSlot] = useState<HTMLElement | null>(null);
+  const sheetOpen = bodySlot !== null;
+
+  // Widened past `md` while the sheet is open: the filters render inline now.
+  useEffect(() => {
+    if (isDesktop && sheetOpen) modal.close();
+  }, [isDesktop, sheetOpen, modal]);
 
   if (isDesktop) {
     return <div className="contents">{children}</div>;
   }
 
   function openSheet() {
-    setSheetOpen(true);
-    modal.open(children, {
-      title,
-      footer: (
-        <div className="flex items-center gap-2">
-          {onClear && (
-            <Button
-              type="button"
-              variant="secondary"
-              className="h-11 flex-1"
-              onClick={() => {
-                onClear();
-              }}
-            >
-              Clear
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="primary"
-            className="h-11 flex-1"
-            onClick={() => {
-              onApply?.();
-              modal.close();
-              setSheetOpen(false);
-            }}
-          >
-            Apply
-          </Button>
-        </div>
-      ),
-    });
+    modal.open(<div ref={setBodySlot} />, { title, footer: <div ref={setFooterSlot} /> });
   }
 
   return (
-    <Button
-      type="button"
-      variant="secondary"
-      onClick={openSheet}
-      aria-expanded={sheetOpen}
-      className="relative h-11 w-11 shrink-0 p-0 sm:h-11 sm:w-auto sm:px-3.5"
-      aria-label={activeCount > 0 ? `${title} (${activeCount} active)` : title}
-    >
-      <SlidersHorizontal size={16} className="sm:mr-1.5" />
-      <span className="hidden sm:inline">{title}</span>
-      {activeCount > 0 && (
-        <span
-          aria-hidden="true"
-          className={cn(
-            "absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full",
-            "bg-accent px-1 font-mono text-2xs font-semibold leading-none text-accent-ink",
-            "sm:static sm:ml-1.5 sm:-mr-0.5",
-          )}
-        >
-          {activeCount}
-        </span>
-      )}
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="secondary"
+        onClick={openSheet}
+        aria-expanded={sheetOpen}
+        className="relative h-11 w-11 shrink-0 p-0 sm:h-11 sm:w-auto sm:px-3.5"
+        aria-label={activeCount > 0 ? `${title} (${activeCount} active)` : title}
+      >
+        <SlidersHorizontal size={16} className="sm:mr-1.5" />
+        <span className="hidden sm:inline">{title}</span>
+        {activeCount > 0 && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full",
+              "bg-accent px-1 font-mono text-2xs font-semibold leading-none text-accent-ink",
+              "sm:static sm:ml-1.5 sm:-mr-0.5",
+            )}
+          >
+            {activeCount}
+          </span>
+        )}
+      </Button>
+      {bodySlot && createPortal(children, bodySlot)}
+      {footerSlot &&
+        createPortal(
+          <div className="flex items-center gap-2">
+            {onClear && (
+              <Button type="button" variant="secondary" className="h-11 flex-1" onClick={onClear}>
+                Clear
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="primary"
+              className="h-11 flex-1"
+              onClick={() => {
+                onApply?.();
+                modal.close();
+              }}
+            >
+              Apply
+            </Button>
+          </div>,
+          footerSlot,
+        )}
+    </>
   );
 }

@@ -47,10 +47,12 @@ export type ApprovalEvent = {
    * The request's content version when this event was built: the request row's
    * `updated_at`, which the table's trigger bumps on every edit. The card's
    * action token is bound to it, so a card describing an OLD version can never
-   * approve a request that has been edited since (the bait-and-switch). Absent
-   * on events from code that does not know it: the hub then reads the current
-   * value when it mints the token. Request kinds with no editable content
-   * (deletions) carry none.
+   * approve a request that has been edited since (the bait-and-switch). EVERY
+   * emitter of a change request or timesheet event stamps it from the row the
+   * content was read from; the hub never substitutes the version current at
+   * send time (the card would then bind buttons to content it does not show), so
+   * a queued card for such a kind without one fails instead of being sent.
+   * Request kinds with no editable content (deletions) carry none.
    */
   version?: string | null;
 };

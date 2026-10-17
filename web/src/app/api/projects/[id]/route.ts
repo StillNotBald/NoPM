@@ -242,6 +242,14 @@ export const DELETE = route(async ({ actor, params, request }) => {
     .select()
     .single();
 
+  // Two concurrent requests both pass the pre-check above; uniq_pending_deletion
+  // lets one win and refuses the other (23505) — answer with the pre-check's 422.
+  if (insertError?.code === "23505") {
+    throw new RuleError(
+      "A pending deletion request already exists for this project",
+      "duplicate_deletion_request",
+    );
+  }
   if (insertError || !deletionRequest) {
     throw new Error(insertError?.message ?? "Failed to create deletion request");
   }

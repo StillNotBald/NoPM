@@ -84,6 +84,36 @@ export class RateLimitError extends ApiError {
   }
 }
 
+/**
+ * Postgres `invalid_text_representation` (SQLSTATE 22P02) reaches us as the
+ * caller's own malformed input: a non-UUID id in a path or filter
+ * (`invalid input syntax for type uuid: "123"`), a bad enum value, a bad number.
+ * It used to fall through to a sanitized 500. Routes often re-wrap the
+ * PostgREST error as `new Error(error.message)`, which drops the code, so the
+ * message is matched as well.
+ *
+ *  - the offending value is one of the route's PATH params (or an empty/NUL
+ *    value, which Postgres quotes as "") -> 404 `not_found`: no such record;
+ *  - anywhere else (a query filter, a body field) -> 422 `validation_failed`.
+ *
+ * Neither echoes the value back. Returns null for anything else, so the normal
+ * error mapping applies.
+ */
+const INVALID_INPUT = /invalid input (syntax for type|value for enum)/i;
+
+export function invalidInputError(error: unknown, pathValues: readonly string[] = []): ApiError | null {
+  if (error instanceof ApiError || typeof error !== "object" || error === null) return null;
+  const { code, message } = error as { code?: unknown; message?: unknown };
+  const text = typeof message === "string" ? message : "";
+  if (code !== "22P02" && !INVALID_INPUT.test(text)) return null;
+
+  const quoted = text.match(/: "([\s\S]*)"/)?.[1];
+  const inPath = quoted !== undefined && pathValues.length > 0 && (quoted === "" || pathValues.includes(quoted));
+  return inPath
+    ? new NotFoundError("Not found")
+    : new ApiError(422, "Invalid id or value format in the request", "validation_failed");
+}
+
 export function toErrorResponse(error: unknown): NextResponse {
   if (error instanceof PreconditionFailedError) {
     return NextResponse.json(

@@ -8,6 +8,7 @@
 |---|---|---|
 | [`user-provisioning.md`](user-provisioning.md) | ACTIVE | How a person's login + role gets created today (Supabase Auth + `profiles` row), and the planned link-based invite flow |
 | [`backup-restore-drill.md`](backup-restore-drill.md) | DRAFT | Step-by-step DB backup/restore drill procedure + evidence/sign-off; canonical owner of the drill steps — [`CUTOVER/04-BACKUP-RESTORE.md`](../../CUTOVER/04-BACKUP-RESTORE.md) links here rather than restating them |
+| [`lark-first-live-test.md`](lark-first-live-test.md) | DRAFT | The first end-to-end run of the Lark / Feishu integration against a real tenant: app setup, long connection then webhook, smoke test, and the open questions only a live tenant can settle |
 
 ## Status legend
 

@@ -31,7 +31,7 @@ function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" }) {
     <span
       aria-hidden
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-full bg-accent/20 font-semibold text-accent",
+        "inline-flex shrink-0 items-center justify-center rounded-full bg-accent/20 font-semibold text-ink",
         size === "sm" ? "h-7 w-7 text-xs" : "h-8 w-8 text-sm",
       )}
     >
@@ -115,8 +115,13 @@ export function AccountMenu() {
   }
 
   // Focus moving out of the whole widget (Tab / Shift+Tab past the menu) closes it.
+  // A blur with no new target is NOT that: Safari / Firefox on macOS do not focus a
+  // button on mouse-down, so pressing "Sign out" blurs the open item to null and
+  // closing here would unmount the menu before the click lands. Outside presses
+  // are the mousedown listener's job.
   function onBlur(e: FocusEvent<HTMLDivElement>) {
-    if (open && !menuRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
+    const next = e.relatedTarget as Node | null;
+    if (open && next && !menuRef.current?.contains(next)) setOpen(false);
   }
 
   const handleSignOut = useCallback(async () => {

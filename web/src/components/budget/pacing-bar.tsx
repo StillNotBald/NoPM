@@ -46,11 +46,14 @@ export function PacingBar({
   burnPct,
   expectedPct,
   hasPlan = true,
+  stacked = false,
   className,
 }: {
   burnPct: number;
   expectedPct: number;
   hasPlan?: boolean;
+  /** Percent over the status word (not beside it): a ~100px narrower row, for tables. */
+  stacked?: boolean;
   className?: string;
 }) {
   const status = pacingStatus(burnPct, expectedPct, hasPlan);
@@ -59,7 +62,10 @@ export function PacingBar({
   return (
     <div className={cn("flex items-center gap-3", className)}>
       <div
-        className="relative h-2 min-w-[80px] flex-1 rounded-full bg-sunken print:border print:border-border-subtle"
+        className={cn(
+          "relative h-2 flex-1 rounded-full bg-sunken print:border print:border-border-subtle",
+          stacked ? "min-w-[56px]" : "min-w-[80px]",
+        )}
         role="img"
         aria-label={`${burnPct.toFixed(1)}% of budget spent, ${expectedPct.toFixed(0)}% complete: ${WORD[status]}`}
       >
@@ -72,10 +78,21 @@ export function PacingBar({
           />
         )}
       </div>
-      <span className="w-12 shrink-0 text-right font-mono text-xs font-medium tabular-nums text-ink-secondary">
-        {burnPct.toFixed(1)}%
-      </span>
-      <span className={cn("w-24 shrink-0 text-xs font-medium", TONE[status])}>{WORD[status]}</span>
+      {stacked ? (
+        <div className="w-[5.25rem] shrink-0 text-right">
+          <span className="block font-mono text-xs font-medium leading-4 tabular-nums text-ink-secondary">
+            {burnPct.toFixed(1)}%
+          </span>
+          <span className={cn("block text-xs font-medium leading-4", TONE[status])}>{WORD[status]}</span>
+        </div>
+      ) : (
+        <>
+          <span className="w-12 shrink-0 text-right font-mono text-xs font-medium tabular-nums text-ink-secondary">
+            {burnPct.toFixed(1)}%
+          </span>
+          <span className={cn("w-24 shrink-0 text-xs font-medium", TONE[status])}>{WORD[status]}</span>
+        </>
+      )}
     </div>
   );
 }

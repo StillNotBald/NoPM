@@ -37,6 +37,17 @@ describe("describeRefusal", () => {
     expect(describeRefusal(apiError("m", { code: "project_locked" }), "x").stale).toBe(false);
   });
 
+  it("reads target_changed as a stale task, with the server's message as the detail", () => {
+    const r = describeRefusal(apiError("This task was edited after the deletion was requested", { status: 422, code: "target_changed" }), "x");
+    expect(r).toMatchObject({
+      code: "target_changed",
+      title: "The task changed after this request",
+      detail: "This task was edited after the deletion was requested",
+      terminal: true,
+      stale: true,
+    });
+  });
+
   it("reads a 412 as 'changed after you opened it', with or without a code", () => {
     const coded = describeRefusal(apiError("Record changed since you loaded it", { status: 412, code: "precondition_failed" }), "x");
     const bare = describeRefusal(apiError("Record changed since you loaded it", { status: 412 }), "x");

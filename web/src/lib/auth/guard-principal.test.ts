@@ -122,3 +122,94 @@ describe("requireAuth — principalId", () => {
     expect(selectSpy.mock.calls[0][0]).toContain("created_by");
   });
 });
+
+/**
+ * last_used_at (CR-gov P1-4): supabase-js builders are LAZY thenables — the
+ * request is only sent when `.then()` is called. The old `void builder` never
+ * called it, so no token ever got a last_used_at. This mock only "sends" the
+ * update when something subscribes, exactly like the real builder.
+ */
+describe("requireAuth — api_tokens.last_used_at", () => {
+  const sent: Array<Record<string, unknown>> = [];
+
+  function mockLazyToken(lastUsedAt: string | null) {
+    const row = {
+      id: "tok-1",
+      workspace_id: "ws-1",
+      name: "agent",
+      scopes: ["task:read"],
+      revoked: false,
+      expires_at: null,
+      created_by: "owner-1",
+      last_used_at: lastUsedAt,
+    };
+    createAdminClientMock.mockReturnValue({
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error: null }) }) }),
+        update: (patch: Record<string, unknown>) => ({
+          eq: () => ({
+            then(onFulfilled?: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) {
+              sent.push(patch); // the "network request" happens only here
+              return Promise.resolve({ data: null, error: null }).then(onFulfilled, onRejected);
+            },
+          }),
+        }),
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    sent.length = 0;
+  });
+
+  it("actually sends the update (a lazy builder that is never awaited sends nothing)", async () => {
+    mockLazyToken(null);
+    await requireAuth(bearer());
+    expect(sent).toHaveLength(1);
+    expect(typeof sent[0].last_used_at).toBe("string");
+  });
+
+  it("sends when the stored value is older than 5 minutes", async () => {
+    mockLazyToken(new Date(Date.now() - 6 * 60 * 1000).toISOString());
+    await requireAuth(bearer());
+    expect(sent).toHaveLength(1);
+  });
+
+  it("skips the write when the stored value is under 5 minutes old", async () => {
+    mockLazyToken(new Date(Date.now() - 60 * 1000).toISOString());
+    await requireAuth(bearer());
+    expect(sent).toHaveLength(0);
+  });
+
+  it("a failing touch never breaks authentication", async () => {
+    createAdminClientMock.mockReturnValue({
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: {
+                id: "tok-1",
+                workspace_id: "ws-1",
+                name: "agent",
+                scopes: [],
+                revoked: false,
+                expires_at: null,
+                created_by: "owner-1",
+                last_used_at: null,
+              },
+              error: null,
+            }),
+          }),
+        }),
+        update: () => ({
+          eq: () => ({
+            then(_ok?: unknown, onRejected?: (e: unknown) => unknown) {
+              return Promise.reject(new Error("db down")).then(undefined, onRejected);
+            },
+          }),
+        }),
+      }),
+    });
+    await expect(requireAuth(bearer())).resolves.toMatchObject({ type: "token", id: "tok-1" });
+  });
+});

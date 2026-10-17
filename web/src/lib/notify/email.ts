@@ -62,6 +62,8 @@ const TYPE_SUBJECT_PREFIXES: Record<string, string> = {
   "approval.rejected": "Rejected",
   "risk.escalated": "Risk escalated",
   "clash.detected": "Clash detected",
+  // A chat account link was replaced: a security notice, not a feature event.
+  "integration.link_replaced": "Security notice",
 };
 
 function buildSubject(type: string, title: string): string {

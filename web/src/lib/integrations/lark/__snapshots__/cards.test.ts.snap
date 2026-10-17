@@ -217,7 +217,7 @@ exports[`snapshots > approval request: change request 1`] = `
 }
 `;
 
-exports[`snapshots > approval request: task deletion (confirm dialog on approve) 1`] = `
+exports[`snapshots > approval request: task deletion (says what Approve does) 1`] = `
 {
   "body": {
     "direction": "vertical",
@@ -239,6 +239,12 @@ exports[`snapshots > approval request: task deletion (confirm dialog on approve)
         "tag": "markdown",
       },
       {
+        "content": "Approving carries out the deletion in NoPM.",
+        "element_id": "md_4",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+      {
         "behaviors": [
           {
             "type": "callback",
@@ -248,17 +254,7 @@ exports[`snapshots > approval request: task deletion (confirm dialog on approve)
             },
           },
         ],
-        "confirm": {
-          "text": {
-            "content": "Approving carries out the deletion in NoPM.",
-            "tag": "plain_text",
-          },
-          "title": {
-            "content": "Approve this deletion?",
-            "tag": "plain_text",
-          },
-        },
-        "element_id": "approve_4",
+        "element_id": "approve_5",
         "size": "medium",
         "tag": "button",
         "text": {
@@ -269,10 +265,10 @@ exports[`snapshots > approval request: task deletion (confirm dialog on approve)
       },
       {
         "direction": "vertical",
-        "element_id": "form_5",
+        "element_id": "form_6",
         "elements": [
           {
-            "element_id": "reason_6",
+            "element_id": "reason_7",
             "input_type": "multiline_text",
             "label": {
               "content": "Reason (required to reject)",
@@ -299,7 +295,7 @@ exports[`snapshots > approval request: task deletion (confirm dialog on approve)
                 },
               },
             ],
-            "element_id": "reject_7",
+            "element_id": "reject_8",
             "form_action_type": "submit",
             "name": "reject_submit",
             "tag": "button",
@@ -315,12 +311,12 @@ exports[`snapshots > approval request: task deletion (confirm dialog on approve)
       },
       {
         "content": "[Open in NoPM](https://nopm.example.test/approvals)",
-        "element_id": "md_8",
+        "element_id": "md_9",
         "tag": "markdown",
       },
       {
         "content": "Your decision is recorded in NoPM's audit log. You cannot approve a request you raised.",
-        "element_id": "md_9",
+        "element_id": "md_10",
         "tag": "markdown",
         "text_size": "notation",
       },

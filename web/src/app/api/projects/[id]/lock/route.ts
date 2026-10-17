@@ -36,6 +36,70 @@ export const POST = route(async ({ actor, params, request }) => {
     );
   }
 
+  // ── Baseline snapshot ──────────────────────────────────────────────────────
+  // Capture the approved plan dates exactly once: only rows where the baseline
+  // is still null (i.e. never been baselined).  A subsequent rebaseline.apply
+  // will overwrite these with the newly-approved dates.
+  //
+  // This MUST run while the project is still open. Once is_locked is true the
+  // 0028 triggers reject any baseline_* write (PROJECT_LOCKED, P0010) unless
+  // nopm.lock_bypass is set — and only the rebaseline snapshot RPC sets it. So
+  // the order is snapshot -> lock -> audit: a failure before the lock leaves an
+  // open project with some baselines set (a retry finishes the rest, the
+  // null-only filter makes it idempotent); locking first used to 500 here and
+  // leave a locked project with NO baselines. An already-locked project has
+  // nothing left to freeze and the triggers would refuse the write, so it skips
+  // the snapshot (unlock and lock again to capture one).
+  if (!before.is_locked) {
+    // Milestones: snapshot target_date → baseline_target_date (null only)
+    const { data: milestones, error: msErr } = await db
+      .from("milestones")
+      .select("id, target_date")
+      .eq("project_id", params.id)
+      .eq("workspace_id", actor.workspaceId)
+      .is("baseline_target_date", null);
+
+    if (msErr) throw msErr;
+
+    if (milestones && milestones.length > 0) {
+      for (const ms of milestones) {
+        if (ms.target_date == null) continue; // nothing to snapshot
+        const { error: msUpdateErr } = await db
+          .from("milestones")
+          .update({ baseline_target_date: ms.target_date })
+          .eq("id", ms.id)
+          .eq("workspace_id", actor.workspaceId);
+        if (msUpdateErr) throw msUpdateErr;
+      }
+    }
+
+    // Tasks: snapshot start_date/due_date → baseline_start_date/baseline_due_date (null only)
+    const { data: tasks, error: tasksErr } = await db
+      .from("tasks")
+      .select("id, start_date, due_date")
+      .eq("project_id", params.id)
+      .eq("workspace_id", actor.workspaceId)
+      .is("baseline_start_date", null)
+      .is("baseline_due_date", null);
+
+    if (tasksErr) throw tasksErr;
+
+    if (tasks && tasks.length > 0) {
+      for (const task of tasks) {
+        if (task.start_date == null && task.due_date == null) continue;
+        const { error: taskUpdateErr } = await db
+          .from("tasks")
+          .update({
+            baseline_start_date: task.start_date ?? null,
+            baseline_due_date: task.due_date ?? null,
+          })
+          .eq("id", task.id)
+          .eq("workspace_id", actor.workspaceId);
+        if (taskUpdateErr) throw taskUpdateErr;
+      }
+    }
+  }
+
   const now = new Date().toISOString();
 
   const { data: after, error: updateError } = await db
@@ -62,59 +126,6 @@ export const POST = route(async ({ actor, params, request }) => {
     before,
     after,
   });
-
-  // ── Baseline snapshot ──────────────────────────────────────────────────────
-  // Capture the approved plan dates exactly once: only rows where the baseline
-  // is still null (i.e. never been baselined).  A subsequent rebaseline.apply
-  // will overwrite these with the newly-approved dates.
-
-  // Milestones: snapshot target_date → baseline_target_date (null only)
-  const { data: milestones, error: msErr } = await db
-    .from("milestones")
-    .select("id, target_date")
-    .eq("project_id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .is("baseline_target_date", null);
-
-  if (msErr) throw msErr;
-
-  if (milestones && milestones.length > 0) {
-    for (const ms of milestones) {
-      if (ms.target_date == null) continue; // nothing to snapshot
-      const { error: msUpdateErr } = await db
-        .from("milestones")
-        .update({ baseline_target_date: ms.target_date })
-        .eq("id", ms.id)
-        .eq("workspace_id", actor.workspaceId);
-      if (msUpdateErr) throw msUpdateErr;
-    }
-  }
-
-  // Tasks: snapshot start_date/due_date → baseline_start_date/baseline_due_date (null only)
-  const { data: tasks, error: tasksErr } = await db
-    .from("tasks")
-    .select("id, start_date, due_date")
-    .eq("project_id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .is("baseline_start_date", null)
-    .is("baseline_due_date", null);
-
-  if (tasksErr) throw tasksErr;
-
-  if (tasks && tasks.length > 0) {
-    for (const task of tasks) {
-      if (task.start_date == null && task.due_date == null) continue;
-      const { error: taskUpdateErr } = await db
-        .from("tasks")
-        .update({
-          baseline_start_date: task.start_date ?? null,
-          baseline_due_date: task.due_date ?? null,
-        })
-        .eq("id", task.id)
-        .eq("workspace_id", actor.workspaceId);
-      if (taskUpdateErr) throw taskUpdateErr;
-    }
-  }
 
   return ok(after);
 });

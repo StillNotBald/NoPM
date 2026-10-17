@@ -272,7 +272,7 @@ function QuickAddRow({
           placeholder={label}
           aria-label={label.replace(/^\+\s*/, "")}
           disabled={saving}
-          className="h-7 border-border-subtle bg-canvas text-sm focus-visible:ring-1"
+          className="h-11 border-border-subtle bg-canvas text-sm focus-visible:ring-1 sm:h-7"
           onKeyDown={(e) => {
             if (e.key === "Enter") { e.preventDefault(); commit(); }
             if (e.key === "Escape") { setActive(false); setValue(""); }
@@ -704,9 +704,9 @@ export function ActivityTable({
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="sm"
-            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            className="h-10"
             onClick={async () => {
               modal.close();
               try {
@@ -741,9 +741,9 @@ export function ActivityTable({
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="sm"
-            className="h-10 bg-danger hover:bg-danger/90 text-white"
+            className="h-10"
             onClick={async () => {
               modal.close();
               try {

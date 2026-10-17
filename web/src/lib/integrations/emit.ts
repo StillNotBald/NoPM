@@ -58,8 +58,12 @@ export function emitApprovalChanged(ev: ApprovalEvent): void {
 
 export function emitApprovalDecided(ev: ApprovalDecidedEvent): void {
   schedule("approval decided", ev.workspaceId, async () => {
-    await runApprovalDecided(ev);
-    if (REOPEN_STATUSES.has(ev.status)) await runApprovalRequested(ev);
+    try {
+      await runApprovalDecided(ev);
+    } finally {
+      // A failure closing the old cards must not also cost the approvers their new one.
+      if (REOPEN_STATUSES.has(ev.status)) await runApprovalRequested(ev);
+    }
   });
 }
 
@@ -106,8 +110,13 @@ export function schedule(label: string, workspaceId: string, task: () => Promise
  * when the request came from your agent token), with an ACTIVE link to a
  * platform identity on the workspace's active connector. Unlinked approvers
  * are skipped — they still see the request in the console and the bell.
+ *
+ * `replacement`: the card stands in for one that an edit just retired (see
+ * `runApprovalChanged`). It does not count against the hourly card budget and is
+ * never turned into the roll-up: the approver already had a card for this
+ * request, so their pile does not grow.
  */
-export async function runApprovalRequested(ev: ApprovalEvent): Promise<void> {
+export async function runApprovalRequested(ev: ApprovalEvent, opts: { replacement?: boolean } = {}): Promise<void> {
   const connector = await getActiveConnector(ev.workspaceId);
   if (!connector || !connector.config.approvals.enabled) return;
 
@@ -141,7 +150,9 @@ export async function runApprovalRequested(ev: ApprovalEvent): Promise<void> {
 
   // One person cannot be buried: past the hourly budget an approver gets a
   // single roll-up message instead of more cards.
-  const { fresh, over } = await splitByCardBudget(ev, connector.id, wanting);
+  const { fresh, over } = opts.replacement
+    ? { fresh: wanting, over: [] as Recipient[] }
+    : await splitByCardBudget(ev, connector.id, wanting);
   const notices = await queueBacklogNotices(ev, connector, over);
 
   const cards: NewDelivery[] = fresh.map((l) => ({
@@ -150,7 +161,7 @@ export async function runApprovalRequested(ev: ApprovalEvent): Promise<void> {
     approval_id: ev.id,
     recipient_profile_id: l.profile_id,
     external_target: l.external_user_id,
-    payload: { event: ev },
+    payload: opts.replacement ? { event: ev, variant: "changed" } : { event: ev },
   }));
   const queued = await insertBatch(ev.workspaceId, connector.id, cards);
 
@@ -163,7 +174,12 @@ export async function runApprovalRequested(ev: ApprovalEvent): Promise<void> {
   });
 }
 
-/** Approval cards one approver may be sent per hour before the roll-up takes over. */
+/**
+ * Approval cards one approver may be sent per hour before the roll-up takes over.
+ * Only cards that reached (or are about to reach) the approver count: a card that
+ * is dead or waiting to retry has not added to their pile, and a replacement for
+ * a card an edit retired is not a new request to look at.
+ */
 export const CARD_BUDGET_PER_HOUR = 20;
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -178,16 +194,17 @@ async function splitByCardBudget(
   const since = new Date(Date.now() - HOUR_MS).toISOString();
   const { data, error } = await db
     .from("integration_deliveries")
-    .select("recipient_profile_id")
+    .select("recipient_profile_id, payload")
     .eq("workspace_id", ev.workspaceId)
     .eq("connector_id", connectorId)
     .eq("kind", "approval_card")
     .in("recipient_profile_id", recipients.map((r) => r.profile_id))
     .gte("created_at", since)
-    .neq("status", "superseded");
+    .in("status", ["sent", "pending"]);
   if (error) throw error;
   const sent = new Map<string, number>();
-  for (const r of (data ?? []) as { recipient_profile_id: string }[]) {
+  for (const r of (data ?? []) as { recipient_profile_id: string; payload: Record<string, unknown> | null }[]) {
+    if (r.payload?.variant === "changed") continue; // a replacement, not a new request
     sent.set(r.recipient_profile_id, (sent.get(r.recipient_profile_id) ?? 0) + 1);
   }
   const fresh: Recipient[] = [];
@@ -291,6 +308,18 @@ async function recipientsWithOpenCard(
   const sentIds = rows.filter((r) => r.status === "sent").map((r) => r.id);
   let openSent = new Set<string>();
   if (sentIds.length > 0) {
+    // A sent card that already has an update (an edit's "see the new card" patch or a
+    // decision's) queued or sent against it is retired, whatever its token says: the
+    // token of a card whose send was in flight can be minted after the kill pass.
+    const { data: children, error: childError } = await db
+      .from("integration_deliveries")
+      .select("parent_delivery_id")
+      .eq("workspace_id", ev.workspaceId)
+      .eq("kind", "decision_update")
+      .in("parent_delivery_id", sentIds);
+    if (childError) throw childError;
+    const retired = new Set(((children ?? []) as { parent_delivery_id: string }[]).map((c) => c.parent_delivery_id));
+
     // A sent card is still open while one of its tokens is unused + unexpired.
     const { data: tokens, error: tokenError } = await db
       .from("action_tokens")
@@ -302,7 +331,9 @@ async function recipientsWithOpenCard(
       .is("used_at", null)
       .gt("expires_at", new Date().toISOString());
     if (tokenError) throw tokenError;
-    openSent = new Set(((tokens ?? []) as { delivery_id: string }[]).map((t) => t.delivery_id));
+    openSent = new Set(
+      ((tokens ?? []) as { delivery_id: string }[]).map((t) => t.delivery_id).filter((id) => !retired.has(id)),
+    );
   }
   // A card still waiting in the queue is "open" only for the content version it
   // was queued with: one queued for an older version is stale and must not
@@ -330,8 +361,14 @@ async function recipientsWithOpenCard(
  */
 export async function runApprovalChanged(input: ApprovalEvent): Promise<void> {
   const db = createAdminClient();
-  const version =
-    input.version ?? (await readRequest({ workspace_id: input.workspaceId, approval_kind: input.kind, approval_id: input.id })).version;
+  const current = await readRequest({ workspace_id: input.workspaceId, approval_kind: input.kind, approval_id: input.id });
+  // An event describes the request as of ITS version. If the request has moved on
+  // since, a newer edit has its own event: this one must neither retire the newer
+  // cards nor stamp its older content with the newer version. A request that is
+  // no longer pending has nothing to replace (the decision's fan-out closes the cards).
+  if (current.state !== "pending") return;
+  if (input.version && current.version && !sameVersion(input.version, current.version)) return;
+  const version = input.version ?? current.version;
   const ev: ApprovalEvent = { ...input, version };
   const nowIso = new Date().toISOString();
 
@@ -406,12 +443,12 @@ export async function runApprovalChanged(input: ApprovalEvent): Promise<void> {
     }
   }
 
-  await runApprovalRequested(ev);
+  await runApprovalRequested(ev, { replacement: true });
 }
 
 // A card whose send was still in flight when its request was edited is patched
 // when that send settles; that is also the moment its replacement can be issued.
-setChangedFollowUp(runApprovalRequested);
+setChangedFollowUp((ev) => runApprovalRequested(ev, { replacement: true }));
 
 /**
  * A request was decided from ANY channel (console, CLI, MCP, Lark):

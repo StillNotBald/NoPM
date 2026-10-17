@@ -31,13 +31,20 @@ describe("judgeDecision — deletion requests", () => {
     });
   });
 
-  it("refuses a request raised by the viewer's OWN token (a token counts as its creator) — and cannot withdraw it from a session", () => {
+  it("refuses a request raised by the viewer's OWN token (a token counts as its creator) — but lets them withdraw it", () => {
     const row = deletion({ requested_by_type: "token", requested_by_id: "tok-1", requested_principal_id: ME });
     expect(judgeDecision({ viewer, kind: "project_deletion", row })).toEqual({
       canDecide: false,
       block: "your_token_raised",
-      canWithdraw: false,
+      canWithdraw: true,
     });
+  });
+
+  it("does not offer withdraw for someone else's token request, or a legacy token row with no recorded principal", () => {
+    const theirs = deletion({ requested_by_type: "token", requested_by_id: "tok-9", requested_principal_id: OTHER });
+    expect(judgeDecision({ viewer, kind: "task_deletion", row: theirs }).canWithdraw).toBe(false);
+    const legacy = deletion({ requested_by_type: "token", requested_by_id: "tok-9", requested_principal_id: null });
+    expect(judgeDecision({ viewer, kind: "task_deletion", row: legacy }).canWithdraw).toBe(false);
   });
 
   it("lets the viewer decide a request raised by someone else's token", () => {

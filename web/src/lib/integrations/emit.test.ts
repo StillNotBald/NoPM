@@ -430,8 +430,9 @@ describe("reopened requests (e.g. a reopened timesheet)", () => {
     status: "reopened",
     decidedByLabel: "Max Manager",
     channel: "ui",
+    version: REQUEST_VERSION,
   };
-  const submitted: ApprovalEvent = { ...event, kind: "timesheet" };
+  const submitted: ApprovalEvent = { ...event, kind: "timesheet", version: REQUEST_VERSION };
 
   it("closes the old cards AND sends a fresh card to the approvers (the governed code emits only Decided for a reopen)", async () => {
     linkIdentity(db, ids.manager, "ou_max");
@@ -459,6 +460,22 @@ describe("reopened requests (e.g. a reopened timesheet)", () => {
     const live = db.rows("action_tokens").filter((t) => t.used_at === null);
     expect(live).toHaveLength(2);
     expect(live.map((t) => t.recipient_profile_id).sort()).toEqual([ids.manager, ids.manager2].sort());
+  });
+
+  it("still sends the fresh card when closing the old ones failed (the approvers are not left with nothing)", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    db.failNext({ table: "action_tokens", op: "update", error: { message: "db unavailable" } }); // the close-out step throws
+
+    const tasks: Promise<void>[] = [];
+    afterMock.mockImplementation((fn: () => Promise<void>) => {
+      tasks.push(fn());
+    });
+    emitApprovalDecided(reopened);
+    await Promise.all(tasks);
+
+    expect(console.error).toHaveBeenCalled(); // the failure is still reported
+    expect(fake.calls.sends.map((m) => m.receiveId)).toEqual(["ou_max"]);
+    expect(deliveries("approval_card")).toHaveLength(1);
   });
 
   it("an ordinary decision (approved / rejected / committed / withdrawn) never re-requests", async () => {
@@ -659,6 +676,68 @@ describe("emitApprovalChanged — a pending request is edited after its cards we
     expect(fresh[0].status).toBe("sent");
   });
 
+  it("drops an older edit's event that arrives after a newer one: it must not retire the newer cards", async () => {
+    await raised();
+    edit();
+    await runApprovalChanged(edited); // the newer edit's fan-out: replacement cards bound to V2
+    const live = tokens().filter((t) => t.used_at === null).map((t) => t.id).sort();
+    expect(live).toHaveLength(2);
+    const before = { sends: fake.calls.sends.length, updates: fake.calls.updates.length, cards: deliveries("approval_card").length };
+
+    // the OLDER edit's task only gets to run now; its content is not the request any more
+    await runApprovalChanged({ ...crEvent, title: "Change request CR-7: the older edit", version: V1 });
+
+    expect(tokens().filter((t) => t.used_at === null).map((t) => t.id).sort()).toEqual(live);
+    expect(fake.calls.sends).toHaveLength(before.sends);
+    expect(fake.calls.updates).toHaveLength(before.updates);
+    expect(deliveries("approval_card")).toHaveLength(before.cards);
+  });
+
+  it("does nothing for a request that was decided meanwhile (the decision's fan-out closes its cards)", async () => {
+    await raised();
+    edit();
+    crRow().status = "approved";
+
+    await runApprovalChanged(edited);
+
+    expect(fake.calls.updates).toHaveLength(0); // no 'see the new card' on a request nobody can act on
+    expect(fake.calls.sends).toHaveLength(2);
+    expect(tokens().every((t) => t.used_at === null)).toBe(true); // left for runApprovalDecided to kill
+  });
+
+  it("a sent card that already has an edit's patch waiting is not 'open': its approver still gets the replacement", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    await runApprovalRequested(crEvent);
+    const [card] = deliveries("approval_card");
+    expect(tokens().filter((t) => t.used_at === null)).toHaveLength(1);
+    // The edit's fan-out queued its patch for this card, but the card's token was minted after the
+    // fan-out's kill pass, so it is still unused.
+    db.seed("integration_deliveries", [
+      {
+        id: "patch-1",
+        workspace_id: WS,
+        connector_id: CONNECTOR_ID,
+        kind: "decision_update",
+        approval_kind: "change_request",
+        approval_id: ids.approval,
+        recipient_profile_id: ids.manager,
+        external_target: "ou_max",
+        parent_delivery_id: card.id,
+        status: "retry",
+        attempts: 1,
+        payload: { event: edited, variant: "changed" },
+        next_attempt_at: new Date(Date.now() + 60_000).toISOString(),
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    edit();
+
+    await runApprovalRequested(edited);
+
+    expect(deliveries("approval_card")).toHaveLength(2);
+    expect(fake.calls.cards.at(-1)?.ev.title).toBe(edited.title);
+  });
+
   it("retires the tokens even when the connector is paused (security does not depend on the kill switch)", async () => {
     await raised();
     db.rows("integration_connectors")[0].status = "paused";
@@ -771,6 +850,43 @@ describe("per-approver hourly card budget", () => {
     await runApprovalRequested(event);
     expect(notices()).toHaveLength(0);
     expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("does not count cards that never reached the approver (dead, or still waiting to retry)", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR / 2, { status: "dead" });
+    db.seed(
+      "integration_deliveries",
+      Array.from({ length: CARD_BUDGET_PER_HOUR / 2 }, (_, i) => OLD_CARD(100 + i, ids.manager, { status: "retry" })),
+    );
+    await runApprovalRequested(event);
+    expect(notices()).toHaveLength(0);
+    expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("does not charge the replacement cards an edit issued (they stand in for a card the approver already had)", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR, { payload: { variant: "changed" } });
+    await runApprovalRequested(event);
+    expect(notices()).toHaveLength(0);
+    expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("an edit's replacement card is never turned into the roll-up, even for an approver at the limit", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR - 1);
+    const V2 = "2026-10-16T10:15:00.000Z";
+    const cr: ApprovalEvent = { ...event, kind: "change_request", version: REQUEST_VERSION };
+    await runApprovalRequested(cr); // the 20th card of the hour
+    expect(fake.calls.cards).toHaveLength(1);
+
+    db.rows("change_requests")[0].updated_at = V2;
+    await runApprovalChanged({ ...cr, title: "Change request: edited", version: V2 });
+
+    expect(notices()).toHaveLength(0);
+    expect(fake.calls.cards).toHaveLength(2); // the old card was patched, the replacement is a card
+    expect(fake.calls.cards[1].ev.title).toBe("Change request: edited");
+    expect(db.rows("action_tokens").filter((t) => t.used_at === null)).toHaveLength(1);
   });
 
   it("does not count superseded cards against the budget", async () => {

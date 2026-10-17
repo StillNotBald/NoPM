@@ -9,7 +9,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
-import { assertProjectUnlocked, SCHEDULE_SHAPE_TASK_FIELDS, touchesScheduleShape } from "@/lib/governance/lock";
+import { assertProjectUnlocked, changedScheduleShapeFields, SCHEDULE_SHAPE_TASK_FIELDS } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
@@ -71,10 +71,13 @@ export const PATCH = route(async ({ actor, params, request }) => {
   const { expected_updated_at, ...fields } = input;
   checkOptimisticConcurrency(existing.updated_at, expected_updated_at);
 
-  // Schedule-shape changes (dates, estimate, milestone re-assignment) are
+  // Schedule-shape CHANGES (dates, estimate, milestone re-assignment) are
   // blocked while the parent project is locked; status/checklist/assignee/etc
-  // stay live so day-to-day work continues under a frozen baseline.
-  if (touchesScheduleShape(input, SCHEDULE_SHAPE_TASK_FIELDS)) {
+  // stay live so day-to-day work continues under a frozen baseline. Only a real
+  // value change counts — the DB trigger (0028) and the project route compare
+  // values too, so a form that echoes the whole record back is not blocked.
+  const frozenFields = changedScheduleShapeFields(fields, existing, SCHEDULE_SHAPE_TASK_FIELDS);
+  if (frozenFields.length > 0) {
     await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
       writeAudit({
         workspaceId: actor.workspaceId,
@@ -83,7 +86,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
         targetType: "task",
         targetId: params.id,
         before: null,
-        after: { reason: "project_locked", project_id: existing.project_id },
+        after: { reason: "project_locked", project_id: existing.project_id, fields: frozenFields },
       }),
     );
   }
@@ -234,6 +237,15 @@ export const DELETE = route(async ({ actor, params, request }) => {
     .select()
     .single();
 
+  // Two concurrent requests both pass the pre-check above; the partial unique
+  // index uniq_pending_deletion lets one win and refuses the other (23505) —
+  // the same clean 422 as the pre-check, not a raw 500.
+  if (insertError?.code === "23505") {
+    throw new RuleError(
+      "A pending deletion request already exists for this task",
+      "duplicate_deletion_request",
+    );
+  }
   if (insertError || !deletionRequest) {
     throw new Error(insertError?.message ?? "Failed to create deletion request");
   }

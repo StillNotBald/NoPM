@@ -288,22 +288,30 @@ describe("bot DMs (im.message.receive_v1)", () => {
     expect((await run("help", {}, dup)).sent).toHaveLength(0);
   });
 
-  it("dedupes on the event id", async () => {
+  it("dedupes on the MESSAGE id (Lark re-pushes an unacknowledged message under a new event id)", async () => {
     const d = fakeHandlerDeps();
-    await run("help", { eventId: "evt_abc" }, d);
+    await run("help", { eventId: "evt_abc", messageId: "om_abc" }, d);
+    await run("help", { eventId: "evt_def_retry", messageId: "om_abc" }, d);
+    expect(d.deps.claimEvent).toHaveBeenNthCalledWith(1, fixtureConnector().id, "om_abc");
+    expect(d.deps.claimEvent).toHaveBeenNthCalledWith(2, fixtureConnector().id, "om_abc");
+  });
+
+  it("falls back to the event id when the message carries no id", async () => {
+    const d = fakeHandlerDeps();
+    await run("help", { eventId: "evt_abc", messageId: null }, d);
     expect(d.deps.claimEvent).toHaveBeenCalledWith(fixtureConnector().id, "evt_abc");
   });
 
   it("link: passes the code + verified identity to the hub and confirms", async () => {
     const d = fakeHandlerDeps();
-    const { sent } = await run("link npl-abcd-2345", { eventId: "evt_link" }, d);
+    const { sent } = await run("link npl-abcd-2345", { eventId: "evt_link", messageId: "om_link" }, d);
     expect(d.deps.consumeLinkCode).toHaveBeenCalledWith({
       connector: expect.objectContaining({ id: fixtureConnector().id }),
       rawCode: "NPL-ABCD-2345",
       externalTenant: FIXTURE_TENANT,
       externalUserId: FIXTURE_OPEN_ID,
       externalUnionId: "on_fixture_union_1",
-      externalEventId: "evt_link",
+      externalEventId: "om_link", // the dedupe key: the Lark message id
     });
     expect(titleOf(sent[0])).toBe("Account linked");
     expect(JSON.stringify(sent[0].body)).toContain("Sam Approver");

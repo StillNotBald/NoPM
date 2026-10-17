@@ -37,6 +37,8 @@ vi.mock("@/lib/auth/mfa", () => ({
 import {
   approveDeletion,
   assertNotRequesterPrincipal,
+  changeRequestEvent,
+  timesheetEvent,
   decideApproval,
   decideChangeRequest,
   decideTimesheet,
@@ -44,10 +46,12 @@ import {
   rejectDeletion,
   requireMakerPrincipal,
   requirePrincipal,
+  resubmitReopenedTimesheet,
   withdrawDeletion,
   CHILDREN_CHANGED_MESSAGE,
   NO_MAKER_PRINCIPAL_MESSAGE,
   NO_PRINCIPAL_MESSAGE,
+  TARGET_CHANGED_MESSAGE,
 } from "./decide";
 
 // ── fixtures ──────────────────────────────────────────────────────────────
@@ -1100,5 +1104,297 @@ describe("decideApproval", () => {
     const res = await fresh.decideApproval(larkActor(), { kind: "timesheet", id: "ts-1" }, "approve");
     expect(res.status).toBe("approved");
     vi.doUnmock("@/lib/integrations/emit");
+  });
+});
+
+// ── CR-gov fixes (P2-15, P2-6, P2-16, P2-7, P2-2) ─────────────────────────
+
+describe("approveDeletion — a task approval is bound to the task as requested (P2-15)", () => {
+  const REQUESTED = "2026-10-16T09:00:00.123456+00:00";
+
+  function taskRequest(updatedAt: string | undefined = REQUESTED) {
+    db.tables.deletion_requests = [
+      deletionRow({
+        before: { id: "task-1", name: "Migrate billing DB", project_id: "proj-1", ...(updatedAt ? { updated_at: updatedAt } : {}) },
+      }),
+    ];
+  }
+
+  it("the task was edited after the request -> 422 target_changed; nothing deleted, request still pending, nothing announced", async () => {
+    taskRequest();
+    db.rows("tasks")[0].updated_at = "2026-10-16T09:30:00.000000+00:00";
+    const err = await caught(approveDeletion(bobPat(), "del-1"));
+    expect([err.status, err.code, err.message]).toEqual([422, "target_changed", TARGET_CHANGED_MESSAGE]);
+    expect(db.rpcCallsTo("nopm_commit_task_deletion")).toHaveLength(0);
+    expect(db.rows("tasks")).toHaveLength(1);
+    expect(db.rows("deletion_requests")[0].status).toBe("pending");
+    expect(db.rows("audit_log")).toHaveLength(0);
+    expect(emitted.decided).toHaveLength(0);
+  });
+
+  it("the task is exactly as requested -> the approval commits", async () => {
+    taskRequest();
+    db.rows("tasks")[0].updated_at = REQUESTED;
+    const out = await approveDeletion(bobPat(), "del-1");
+    expect(out.result.status).toBe("committed");
+    expect(db.rows("tasks")).toHaveLength(0);
+  });
+
+  it("the same instant written with different precision still matches", async () => {
+    taskRequest("2026-10-16T09:00:00Z");
+    db.rows("tasks")[0].updated_at = "2026-10-16T09:00:00.000+00:00";
+    await expect(approveDeletion(bobPat(), "del-1")).resolves.toBeTruthy();
+  });
+
+  it("a legacy request with no recorded version cannot be compared and still commits", async () => {
+    taskRequest("");
+    db.rows("tasks")[0].updated_at = "2026-10-16T09:30:00.000+00:00";
+    await expect(approveDeletion(bobPat(), "del-1")).resolves.toBeTruthy();
+  });
+
+  it("the check runs after the four-eyes guards: the requester still gets self_approval, not target_changed", async () => {
+    taskRequest();
+    db.rows("tasks")[0].updated_at = "2026-10-16T09:30:00.000+00:00";
+    const err = await caught(approveDeletion(aliceOwnPat(), "del-1"));
+    expect(err.code).toBe("self_approval");
+  });
+
+  it("rejecting or withdrawing a stale request is still allowed (only an approval is bound)", async () => {
+    taskRequest();
+    db.rows("tasks")[0].updated_at = "2026-10-16T09:30:00.000+00:00";
+    expect((await rejectDeletion(bobPat(), "del-1", { reason: "stale" })).result.status).toBe("rejected");
+    taskRequest();
+    expect((await withdrawDeletion(session(ALICE), "del-1")).result.status).toBe("withdrawn");
+  });
+
+  it("project deletions are untouched by the task check", async () => {
+    db.tables.deletion_requests = [
+      deletionRow({
+        id: "del-p",
+        target_type: "project",
+        target_id: "proj-1",
+        before: { id: "proj-1", name: "Billing Migration", updated_at: REQUESTED },
+      }),
+    ];
+    db.rows("projects")[0].updated_at = "2026-10-16T09:30:00.000+00:00";
+    await expect(approveDeletion(bobPat(), "del-p")).resolves.toBeTruthy();
+  });
+});
+
+describe("withdrawDeletion — the person behind a token may withdraw (P2-6)", () => {
+  const tokenRaised = () =>
+    deletionRow({ requested_by_type: "token", requested_by_id: "tok-alice", requested_principal_id: ALICE });
+
+  it("Alice's session withdraws a request raised by her (now gone) token", async () => {
+    db.tables.deletion_requests = [tokenRaised()];
+    const out = await withdrawDeletion(session(ALICE), "del-1");
+    expect(out.result.status).toBe("withdrawn");
+    expect(db.rows("deletion_requests")[0].status).toBe("withdrawn");
+    expect(db.rows("audit_log").map((r) => r.action)).toEqual(["deletion_request.withdrawn"]);
+  });
+
+  it("another token of Alice's also withdraws it (same human)", async () => {
+    db.tables.deletion_requests = [tokenRaised()];
+    await expect(withdrawDeletion(pat("tok-alice-2", ALICE, ["task:delete:request"]), "del-1")).resolves.toBeTruthy();
+  });
+
+  it("a different human still cannot, by session or token", async () => {
+    db.tables.deletion_requests = [tokenRaised()];
+    expect((await caught(withdrawDeletion(session(BOB), "del-1"))).status).toBe(403);
+    expect((await caught(withdrawDeletion(pat("tok-bob", BOB, ["task:delete:request"]), "del-1"))).status).toBe(403);
+    expect(db.rows("deletion_requests")[0].status).toBe("pending");
+  });
+
+  it("a token with no recorded owner has no human to match and cannot withdraw", async () => {
+    db.tables.deletion_requests = [tokenRaised()];
+    expect((await caught(withdrawDeletion(pat("tok-orphan", null, ["task:delete:request"]), "del-1"))).status).toBe(403);
+  });
+
+  it("a legacy request with no stored principal can only be withdrawn by the same actor", async () => {
+    db.tables.deletion_requests = [
+      deletionRow({ requested_by_type: "token", requested_by_id: "tok-alice", requested_principal_id: null }),
+    ];
+    expect((await caught(withdrawDeletion(session(ALICE), "del-1"))).status).toBe(403);
+    await expect(withdrawDeletion(pat("tok-alice", ALICE, ["task:delete:request"]), "del-1")).resolves.toBeTruthy();
+  });
+
+  it("it still needs the maker scope for the request's type", async () => {
+    db.tables.deletion_requests = [tokenRaised()];
+    expect((await caught(withdrawDeletion(pat("tok-alice-3", ALICE, ["task:read"]), "del-1"))).status).toBe(403);
+  });
+});
+
+describe("decideChangeRequest — the requester's notice type (P2-16)", () => {
+  it("approve -> approval.approved; reject and defer -> approval.rejected", async () => {
+    for (const [decision, type] of [
+      ["approve", "approval.approved"],
+      ["reject", "approval.rejected"],
+      ["defer", "approval.rejected"],
+    ] as const) {
+      db.tables.change_requests = [changeRow()];
+      db.tables.notifications = [];
+      await decideChangeRequest(session(BOB), "cr-1", { decision, rationale: "because" });
+      await flush();
+      expect(db.rows("notifications")).toHaveLength(1);
+      expect(db.rows("notifications")[0]).toMatchObject({ recipient_id: ALICE, type });
+    }
+  });
+});
+
+describe("decideTimesheet — reopen records the human (P2-7)", () => {
+  it("the timesheet.reopened audit row carries approver_principal_id, like approve and reject", async () => {
+    db.tables.timesheet_submissions = [sheetRow({ status: "approved" })];
+    await decideTimesheet(bobPat(), "ts-1", { decision: "reopened", rationale: "missed a day" });
+    expect(db.rows("audit_log")[0]).toMatchObject({
+      action: "timesheet.reopened",
+      after: { status: "submitted", rationale: "missed a day", approver_principal_id: BOB },
+    });
+  });
+});
+
+describe("resubmitReopenedTimesheet (P2-2)", () => {
+  const CASEY = "33333333-3333-4333-8333-333333333333";
+  const casey = () => session(CASEY, { label: "Casey", role: "member" });
+  const reopened = (over: Row = {}) =>
+    sheetRow({ content_digest: "stale-digest", reopened_at: "2026-10-16T09:00:00Z", ...over });
+
+  beforeEach(() => {
+    db.tables.timesheet_submissions = [reopened()];
+  });
+
+  it("re-snapshots the live entries, clears reopened_at, and makes the resubmitter the submitter", async () => {
+    // The member amended the week after the reopen: one entry changed, one added.
+    const entries = db.rows("time_entries");
+    entries[4].hours = 4;
+    entries.push({
+      id: "te-6",
+      workspace_id: WS,
+      member_id: "member-1",
+      project_id: "proj-1",
+      entry_date: "2026-10-17",
+      hours: 2,
+      billable: true,
+    });
+
+    const row = await resubmitReopenedTimesheet(casey(), "ts-1");
+
+    expect(row).toMatchObject({
+      status: "submitted",
+      entry_count: 6,
+      reopened_at: null,
+      submitted_by: CASEY,
+      submitted_principal_id: CASEY,
+    });
+    expect(Number(row.hours_total)).toBe(38);
+    expect(row.content_digest).not.toBe("stale-digest");
+    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ reopened_at: null, submitted_by_label: "Casey" });
+  });
+
+  it("the amended sheet can now be approved by a third person (it was stuck on timesheet_changed before)", async () => {
+    db.rows("time_entries")[4].hours = 4;
+    // Stuck: the old snapshot no longer matches.
+    expect((await caught(decideTimesheet(bobPat(), "ts-1", { decision: "approved" }))).code).toBe("timesheet_changed");
+    await resubmitReopenedTimesheet(casey(), "ts-1");
+    const out = await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
+    expect(out.result.status).toBe("approved");
+  });
+
+  it("writes ONE timesheet.submitted audit row whose before holds the previous snapshot", async () => {
+    await resubmitReopenedTimesheet(casey(), "ts-1");
+    const audit = db.rows("audit_log");
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      action: "timesheet.submitted",
+      target_id: "ts-1",
+      before: { status: "submitted", content_digest: "stale-digest", reopened_at: "2026-10-16T09:00:00Z" },
+    });
+  });
+
+  it("announces it as requested again and fans out to approvers", async () => {
+    await resubmitReopenedTimesheet(casey(), "ts-1");
+    await flush();
+    expect(emitted.requested).toHaveLength(1);
+    expect(emitted.requested[0]).toMatchObject({ kind: "timesheet", id: "ts-1", requesterPrincipalId: CASEY });
+    expect(db.rows("notifications").map((n) => n.type)).toEqual(["approval.requested", "approval.requested"]);
+  });
+
+  it("whoever re-snapshots the content can never approve it (an approver cannot reopen, edit and approve)", async () => {
+    await resubmitReopenedTimesheet(session(BOB), "ts-1");
+    const err = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "approved" }));
+    expect([err.status, err.code]).toEqual([403, "self_approval"]);
+    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
+  });
+
+  it("only a reopened sheet: a plain submitted or approved one is still the duplicate 422", async () => {
+    for (const over of [{ reopened_at: null }, { status: "approved", reopened_at: null }]) {
+      db.tables.timesheet_submissions = [reopened(over)];
+      const err = await caught(resubmitReopenedTimesheet(casey(), "ts-1"));
+      expect([err.status, err.code]).toEqual([422, "duplicate_submission"]);
+    }
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+
+  it("needs entries to submit (nothing_to_submit), the time:submit scope, and a maker principal", async () => {
+    db.tables.time_entries = [];
+    expect((await caught(resubmitReopenedTimesheet(casey(), "ts-1"))).code).toBe("nothing_to_submit");
+    db.tables.time_entries = weekEntries();
+    expect((await caught(resubmitReopenedTimesheet(session(CASEY, { role: "viewer" }), "ts-1"))).status).toBe(403);
+    expect(
+      (await caught(resubmitReopenedTimesheet(pat("tok-orphan", null, ["time:submit"]), "ts-1"))).code,
+    ).toBe("no_principal");
+    expect(db.rows("timesheet_submissions")[0].reopened_at).not.toBeNull();
+  });
+
+  it("is workspace-scoped and compare-and-set", async () => {
+    expect(
+      (await caught(resubmitReopenedTimesheet(session(CASEY, { workspaceId: "ws-other" }), "ts-1"))).status,
+    ).toBe(404);
+    db.afterNextSelect("time_entries", (d) => {
+      d.rows("timesheet_submissions")[0].status = "approved";
+    });
+    const err = await caught(resubmitReopenedTimesheet(casey(), "ts-1"));
+    expect([err.status, err.code]).toEqual([422, "already_decided"]);
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+});
+
+// ── hub events carry the content version ──────────────────────────────────
+
+describe("hub events carry the content version (a card is bound to what it shows)", () => {
+  const V1 = "2026-10-16T08:00:00.000Z";
+  const V2 = "2026-10-16T09:30:00.000Z";
+
+  it("a change request event is stamped with the row's updated_at", async () => {
+    const ev = await changeRequestEvent(db.client as never, WS, changeRow({ updated_at: V1 }) as never);
+    expect(ev.version).toBe(V1);
+  });
+
+  it("a timesheet event is stamped with the submission's updated_at", async () => {
+    const ev = await timesheetEvent(db.client as never, WS, sheetRow({ updated_at: V1 }) as never, "Casey Member");
+    expect(ev.version).toBe(V1);
+  });
+
+  it("a row that carries no version yields an event with none (the hub refuses to bind a card to that)", async () => {
+    expect((await changeRequestEvent(db.client as never, WS, changeRow() as never)).version).toBeUndefined();
+    expect((await timesheetEvent(db.client as never, WS, sheetRow() as never, "Casey Member")).version).toBeUndefined();
+  });
+
+  it("the decision event of a REOPEN carries the version the reopen left behind, so the re-request is not born stale", async () => {
+    db.tables.timesheet_submissions = [sheetRow({ status: "approved", updated_at: V1 })];
+    // the table's trigger bumps updated_at on the reopen's UPDATE
+    const realFrom = db.client.from;
+    db.client.from = (table: string) => {
+      const q = realFrom(table) as unknown as { update: (patch: Row) => unknown };
+      if (table === "timesheet_submissions") {
+        const update = q.update.bind(q);
+        q.update = (patch: Row) => update({ ...patch, updated_at: V2 });
+      }
+      return q as never;
+    };
+
+    await decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "missed a day" });
+
+    expect(emitted.decided).toHaveLength(1);
+    expect(emitted.decided[0]).toMatchObject({ kind: "timesheet", status: "reopened", version: V2 });
   });
 });

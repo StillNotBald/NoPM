@@ -18,6 +18,10 @@ Tokens are scoped Personal Access Tokens (PATs) with prefix npm_.
 Scopes follow the pattern resource:action (e.g. task:read, project:write).
 A token may hold multiple scopes. Admin/manager user sessions bypass scope checks for token management.
 Tokens are SHA-256 hashed at rest and shown exactly once at creation time.
+A browser session (cookie) may not write cross-site: a POST/PUT/PATCH/DELETE carrying an Origin header that is
+not this site is refused 403 (code bad_origin). Bearer-token requests are never origin-checked.
+A malformed id (not a UUID) in a path is 404 not_found; a malformed value in a query filter or body is 422
+validation_failed.
 Wildcard scopes (* and resource:*) NEVER grant the five approve/decide scopes: task:delete:approve,
 project:delete:approve, time:approve, change:decide, rebaseline:approve. Each must be granted by exact name.
 
@@ -33,7 +37,8 @@ Error:     { "error": "<message>", ["code": "<stable_code>"], ["fields": [{"fiel
 Branch on code, not on the message: unauthorized, forbidden_scope, not_found, rule_violation, rate_limited,
 precondition_failed, self_approval, no_principal, already_decided, project_locked, period_locked,
 timesheet_locked, timesheet_changed, rebaseline_not_pending, already_applied, change_request_decided,
-children_changed, invalid_reference, decision_in_use.
+children_changed, target_changed, bad_origin, invalid_reference, decision_in_use, not_your_timesheet,
+duplicate_submission, duplicate_deletion_request, has_timesheet_records, not_requester, app_id_immutable.
 Exception: the three /integrations/lark/{connectorId}/* routes answer in the PLATFORM's contract
 (a challenge, {}, or { toast, card }), not the { data } envelope.
 
@@ -128,9 +133,12 @@ when the same person via another identity (four-eyes binds both decisions). A lo
 REQUEST time (422, code project_locked) for both task and project deletion, and again at approval as a backstop.
 A project deletion request also records how many records of each kind hang off the project; if it gained any
 before approval, the approval is refused (422 children_changed) — withdraw it and raise a new request.
-A checker cancels via POST /deletion-requests/{id}/reject; the ORIGINAL requester may cancel
-their own pending request via POST /deletion-requests/{id}/withdraw (per-type maker scope:
-task:delete:request or project:delete:request).
+A task deletion request records the task as it was; if the task is edited before approval, the approval is
+refused (422 target_changed) for the same reason.
+A checker cancels via POST /deletion-requests/{id}/reject; the ORIGINAL requester — or the person behind
+the token or assistant that raised it — may cancel the pending request via
+POST /deletion-requests/{id}/withdraw (per-type maker scope: task:delete:request or
+project:delete:request).
 Owner-locked (Decision 3, requirements/devops-wave1/README.md): maker-checker extends to
 PROJECTS ONLY — milestones/risks/issues stay single-step hard deletes and never create a
 deletion_request row.
@@ -194,11 +202,11 @@ POST   /invites/{id}/revoke                — admin/manager session — revoke 
 POST   /invites/accept                     — scope:none — public, unauthenticated. Provisions a brand-new login (createUser THEN the atomic nopm_accept_invite RPC — writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). Body: { token, password (>=12 chars), display_name } — NO email field, the invite's own email is always used. Rate-limited 10/min per client network (the address your own proxy appended to X-Forwarded-For — on Vercel read from the platform; self-hosted, set NOPM_TRUSTED_PROXY_HOPS to your proxy count, else every caller shares one conservative bucket; this endpoint has no actor to key the baseline limiter on). No session is returned — sign in via /login afterwards. Anti-enumeration (T3, F2c-mini): not-found/already-used/revoked/expired ALL return the same uniform 422 (never a distinct 404) — the /invite/[token] page keeps distinct friendly copy, an intentional asymmetry.
 
 GET    /projects                           — scope:project:read  — list projects in workspace. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match; NoPM is the governed record beside Jira/Slack/Teams, not a replacement for them).
-POST   /projects                           — scope:project:write — create a project
+POST   /projects                           — scope:project:write — create a project (never created locked: is_locked in the body is ignored; locking is POST /projects/{id}/lock)
 GET    /projects/{id}                      — scope:project:read  — get a project
 PATCH  /projects/{id}                      — scope:project:write — update a project. On a LOCKED project, changing start_date, target_date or either baseline_* date is 422 project_locked (name, owner, RAG, commentary stay editable); owner_id must be in this workspace
 DELETE /projects/{id}                      — scope:project:delete:request — request project deletion (maker step, returns 202, creates deletion_request); 422 project_locked if the project is locked
-POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only)
+POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only); baselines are snapshotted first, then the project is locked
 POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline; body { "reason": "<why>" } is REQUIRED (R-83 — recorded in the audit trail's after.unlock_reason, not stored on the row)
 
 GET    /programs                           — scope:program:read  — list programs in workspace
@@ -262,7 +270,7 @@ GET    /resources                          — scope:resource:read  — list res
 POST   /resources                          — scope:resource:write — create a resource member
 GET    /resources/{id}                     — scope:resource:read  — get a resource member
 PATCH  /resources/{id}                     — scope:resource:write — update a resource member
-DELETE /resources/{id}                     — scope:resource:write — delete a resource member
+DELETE /resources/{id}                     — scope:resource:write — delete a resource member; 422 has_timesheet_records if the member has any timesheet submission (their approval history would be erased)
 
 GET    /allocations                        — scope:resource:read  — list allocations
 POST   /allocations                        — scope:resource:write — create an allocation (triggers over-allocation clash detection)
@@ -275,12 +283,12 @@ POST   /time-entries                       — scope:time:write — log a time e
 DELETE /time-entries/{id}                  — scope:time:write — delete a time entry; 422 if the entry's week is locked (period_locked / timesheet_locked, same locks as POST)
 
 GET    /timesheet-submissions              — scope:time:read    — list timesheet submissions. Filters: ?member_id, ?status=submitted|approved|rejected, ?period=YYYY-MM-DD (period_start exact match). Ordered submitted_at desc.
-POST   /timesheet-submissions              — scope:time:submit  — submit a weekly timesheet for a member (four-eyes maker step, L-31); period_start must be a Monday; snapshots hours_total/entry_count and a content digest from that week's time_entries, never recomputed afterwards (the approval is bound to it, and the week's entries are frozen while the sheet awaits a decision); 422 if nothing to submit or an open submission already exists for this member+period; 403 no_principal for a token with no recorded owner
-POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject|reopen a timesheet submission (four-eyes checker step, L-31; reopen is the R-76/L-32 period-close-lock unlock verb); the decider must be a different PERSON from the submitter (principal compare plus the legacy compound id+type comparison, guard symmetry on ALL THREE verbs — 403 self_approval otherwise; a token with no recorded owner is 403 no_principal); approve/reject require status=submitted (422 already_decided), reopen requires the INVERSE (status=approved, 422 not_reopenable); the member whose hours these are cannot decide the sheet (403 self_approval); approve is refused (422 timesheet_changed) if the time entries changed since submission — reject it and have the member resubmit; rationale required on reject and reopen; reopen reverts to submitted, marks it open for amendment and clears the prior decision
+POST   /timesheet-submissions              — scope:time:submit  — submit a weekly timesheet for a member (four-eyes maker step, L-31); period_start must be a Monday; snapshots hours_total/entry_count and a content digest from that week's time_entries, never recomputed afterwards (the approval is bound to it, and the week's entries are frozen while the sheet awaits a decision); 422 if nothing to submit or an open submission already exists for this member+period (the one exception: a REOPENED sheet — POST again for that member and week after amending the entries and it is re-snapshotted, you become its submitter, and it goes back to the approvers; the loser of two concurrent submits gets the same 422 duplicate_submission); 403 no_principal for a token with no recorded owner; 403 not_your_timesheet unless the caller is the member themselves (the profile linked to the resource row) or an admin / manager — submitting freezes the week
+POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject|reopen a timesheet submission (four-eyes checker step, L-31; reopen is the R-76/L-32 period-close-lock unlock verb); the decider must be a different PERSON from the submitter (principal compare plus the legacy compound id+type comparison, guard symmetry on ALL THREE verbs — 403 self_approval otherwise; a token with no recorded owner is 403 no_principal); approve/reject require status=submitted (422 already_decided), reopen requires the INVERSE (status=approved, 422 not_reopenable); the member whose hours these are cannot decide the sheet (403 self_approval); approve is refused (422 timesheet_changed) if the time entries changed since submission — reject it and have the member resubmit; rationale required on reject and reopen; reopen reverts to submitted, marks it open for amendment and clears the prior decision (the member amends the entries and re-submits via POST /timesheet-submissions; until then an approval is refused with timesheet_changed — or reject it with a reason and resubmit a fresh row)
 
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual, variance, burn_pct)
-PUT    /projects/{id}/budget               — scope:budget:write — upsert project budget (planned_amount, committed_amount, currency)
-PATCH  /projects/{id}/budget               — scope:budget:write — upsert project budget (alias for PUT)
+PUT    /projects/{id}/budget               — scope:budget:write — set the project budget: planned_amount required, committed_amount / currency default to 0 / USD when omitted; actual_amount, contingency_reserve, management_reserve are stored when sent
+PATCH  /projects/{id}/budget               — scope:budget:write — PARTIAL update: only the fields in the body are written (nothing is defaulted); 422 on an empty body
 GET    /projects/{id}/expenses             — scope:budget:read  — list expenses for a project
 POST   /projects/{id}/expenses             — scope:budget:write — create an expense for a project
 DELETE /expenses/{id}                      — scope:budget:write — delete an expense
@@ -304,8 +312,8 @@ DELETE /decisions/{id}                     — scope:decision:write — delete a
 GET    /projects/{id}/change-requests      — scope:change:read  — list change requests for a project
 POST   /projects/{id}/change-requests      — scope:change:write — raise a change request. Only title is required; status may only be raised|under_review (default raised) — any other value is a 422, never a raw database error
 GET    /change-requests/{id}               — scope:change:read  — get a change request
-PATCH  /change-requests/{id}               — scope:change:write — update a change request (status is NOT updatable here); only while raised/under_review (422 change_request_decided once decided). Editing what an approver decides on retires any approval card already sent and issues a fresh one
-DELETE /change-requests/{id}               — scope:change:write — delete a change request; only while raised/under_review (422 change_request_decided once decided)
+PATCH  /change-requests/{id}               — scope:change:write — update a change request (status is NOT updatable here); only while raised/under_review (422 change_request_decided once decided) and only by the requester's person - the user who raised it or a token that user minted (403 not_requester for anyone else, 403 no_principal for an ownerless token). Editing what an approver decides on retires any approval card already sent and issues a fresh one
+DELETE /change-requests/{id}               — scope:change:write — delete a change request; only while raised/under_review (422 change_request_decided once decided) and only by the requester's person (403 not_requester otherwise); the approval cards already sent for it are closed
 POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (approve | reject | defer + rationale, audited); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
 
 GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
@@ -324,7 +332,7 @@ GET    /notifications                      — scope:notification:read — list 
 PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
 POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
-GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant|lark — R-82, unrecognized values ignored; ?since ISO 8601 timestamp — 422 if unparsable, ?after_id uuid of a row already seen — 404 if absent from this workspace, ?order asc|desc default desc — 422 otherwise; since/after_id combine — R-85). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql. A decision made from a Lark card is recorded with channel=lark plus via_connector_id / external_event_id / external_actor_ref (server-derived, never taken from X-NoPM-Client — a caller can only declare ui|api|cli|mcp|assistant); ?channel=lark filters to them. Connector audit rows carry the Lark app id, chat id and platform ids abbreviated (the stream is member-readable).
+GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant|lark — R-82, unrecognized values ignored; ?since ISO 8601 timestamp — 422 if unparsable, ?after_id uuid of a row already seen — 404 if absent from this workspace, ?order asc|desc default desc — 422 otherwise; since/after_id combine — R-85). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql. A decision made from a Lark card is recorded with channel=lark plus via_connector_id / external_event_id / external_actor_ref (platform ids abbreviated; server-derived, never taken from X-NoPM-Client — a caller can only declare ui|api|cli|mcp|assistant); ?channel=lark filters to them. Connector audit rows carry the Lark app id, chat id and platform ids abbreviated (the stream is member-readable).
 GET    /search                            — scope:project:read — full-workspace search (?q=) across projects, tasks, programs, sprints, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
@@ -348,18 +356,18 @@ GET    /api/openapi.json                   — scope:none — OpenAPI 3.1 spec f
 GET    /calendar-feeds                     — scope:milestone:read — list YOUR active milestone calendar feeds (the subscription URL is never returned here)
 POST   /calendar-feeds                     — scope:milestone:write — create a feed; body { name, project_id? } (project_id omitted = whole workspace). Returns the feed plus url (…/api/calendar/npc_<secret>.ics) ONCE — the URL is the credential. A token owns the feed as the user who minted it; a token with no recorded owner is 403.
 DELETE /calendar-feeds/{id}                — scope:milestone:write — revoke a feed (its owner or a workspace admin; the URL stops working at once; 422 already_revoked if repeated)
-GET    /calendar/{token}                   — scope:none — PUBLIC (the secret in the URL is the credential): the feed as text/calendar, one all-day event per milestone with a target date. token = npc_… with an optional .ics suffix. Window: milestones from 90 days ago onward, in date order, at most 2000 events (header X-NoPM-Feed-Truncated: 1 when the cap cut the far end). Strong ETag: send it back as If-None-Match and an unchanged feed is a body-less 304. Throttled: 429 + Retry-After (120/min per client address, 60/min per feed). Unknown, malformed and revoked tokens all get the same 404.
+GET    /calendar/{token}                   — scope:none — PUBLIC (the secret in the URL is the credential): the feed as text/calendar, one all-day event per milestone with a target date. token = npc_… with an optional .ics suffix. Window: milestones from 90 days ago onward, in date order, at most 2000 events (header X-NoPM-Feed-Truncated: 1 when the cap cut the far end). Strong ETag: send it back as If-None-Match and an unchanged feed is a body-less 304. Throttled: 429 + Retry-After (120/min per client address where one can be trusted - on Vercel, or behind NOPM_TRUSTED_PROXY_HOPS proxies - and 60/min per feed). Unknown, malformed and revoked tokens all get the same 404.
 
 GET    /integrations/connectors            — signed-in user session — list the workspace's chat connectors. Admin: full masked view (presence flags, config, callback_urls, revoked history, and a health block { pending, retry, dead, last_sent_at, last_error, last_cron_at, last_cron } — never a secret). Any other member: a redacted view of live connectors only (id, name, kind, status, region, mode, approvals.enabled, digest.enabled).
 POST   /integrations/connectors            — admin session — connect a Lark/Feishu app (one live connector per workspace; 422 connector_exists). encrypt_key is REQUIRED in webhook mode (422 on fields[encrypt_key]); long_connection may omit it. Credentials are encrypted at rest and never returned; the relay_secret for the self-host worker is returned ONCE.
-PATCH  /integrations/connectors/{id}       — admin session — rename, pause/resume (status active|paused — the kill switch for both directions), change config, replace credentials (write-only), clear_tenant_pin (the admin view reports tenant_pinned: true once the first admin/manager account link locks the connector to that Lark tenant; clearing lets the next such link re-pin it), or rotate_relay_secret (returned once). A webhook connector must still hold an encrypt_key after any update that touches the mode or credentials (422 on fields[encrypt_key]); a pause or rename is never held up by it
+PATCH  /integrations/connectors/{id}       — admin session — rename, pause/resume (status active|paused — the kill switch for both directions), change config, replace credentials (write-only), clear_tenant_pin (the admin view reports tenant_pinned: true once the first admin/manager account link locks the connector to that Lark tenant; clearing lets the next such link re-pin it), or rotate_relay_secret (returned once). A webhook connector must still hold an encrypt_key after any update that touches the mode or credentials (422 on fields[encrypt_key]); a pause or rename is never held up by it. The app id cannot be changed (422 app_id_immutable): revoke the connector and create a new one for a different app
 DELETE /integrations/connectors/{id}       — admin session — revoke the connector (irreversible; unlinks every account, supersedes queued deliveries)
 POST   /integrations/connectors/{id}/test  — admin session — check the stored credentials against the platform; always 200 with data.ok true|false; not audited (read-style)
 POST   /integrations/connectors/{id}/digest — admin session — send the workspace digest to the configured group chat now (audited integration.digest.send); data = { delivery_id, status }
 GET    /integrations/identities            — signed-in user session — linked platform accounts: your own, or every member's for an admin (?mine=1 for just yours); platform ids masked
 POST   /integrations/identities/link-code  — signed-in user session — mint a one-time NPL-XXXX-XXXX code (10 minutes, single use); DM "link <code>" to the bot to bind that Lark account to YOU (never by email)
 DELETE /integrations/identities/{id}       — signed-in user session — unlink a platform account (your own, or any for an admin)
-GET    /integrations/cron                  — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — daily tick (01:07 UTC): retry due deliveries, send each connector's weekly digest on its weekday, prune old bookkeeping rows; idempotent. Only the FLOOR of the retry ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead) — due retries also drain whenever the workspace has approval traffic. Stops starting work at 40 s of its 60 s budget; the rest stays queued. Summary: { connectors, deliveries, digests, skippedForDeadline, timedOut, pruned, elapsedMs }
+GET    /integrations/cron                  — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — daily tick (01:07 UTC): retry due deliveries, send each connector's weekly digest on its weekday (a missed weekday is made up by a later tick in the same ISO week, unless the connector was edited after that day began), prune old bookkeeping rows; idempotent. Only the FLOOR of the retry ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead) — due retries also drain whenever the workspace has approval traffic. Stops starting work at 40 s of its 60 s budget; the rest stays queued. Summary: { connectors, deliveries, digests, skippedForDeadline, timedOut, pruned, elapsedMs }
 POST   /integrations/lark/{connectorId}/events — public, signed by Lark/Feishu (verification token, plus Encrypt Key signature when set) — event subscription endpoint: url_verification handshake, bot DM commands (help, link <code>, approvals). Answers in the platform's contract, NOT { data }: { challenge }, {} or { toast, card }. One generic 401 { error: "Invalid request" } for any verification failure AND for an unknown, paused or revoked connector (404 only for a malformed id); 503 if the active connector cannot decrypt its own secrets; failed verifications are capped per connector and per client network (429).
 POST   /integrations/lark/{connectorId}/card — public, signed by Lark/Feishu — card.action.trigger callback: the Approve / Reject button click. Replies 200 { toast, card? } within 3 s; a refused click (unlinked, expired, not the recipient, self-approval, already decided, or "changed" — the request was edited after the card was sent, so nothing was decided and a fresh card follows) is a toast, not an HTTP error.
 POST   /integrations/lark/{connectorId}/relay — public, HMAC-signed by the self-host worker (headers X-NoPM-Relay-Timestamp, X-NoPM-Relay-Signature: v1=hex(HMAC-SHA256 over "<timestamp>.<raw body>", key = the 64-char hex text of SHA-256(relay secret)), within ±300 s) — body { type: ping | event | card, payload }. Same governed path as the webhooks. An unknown connector id is the same 401 invalid_relay_signature as a wrong signature; 404 only for a malformed id; 403 connector_inactive / wrong_mode only to an authenticated caller; 503 connector_unavailable if its secrets cannot be decrypted. The pre-auth per-network cap keys on the address your own proxy appended to X-Forwarded-For (self-host: set NOPM_TRUSTED_PROXY_HOPS).
@@ -385,8 +393,9 @@ An admin connects ONE Lark or Feishu self-built app per workspace (POST /integra
   and a fresh one with the current content is issued; a tap on a stale card decides NOTHING (a "changed" toast),
   and the decision write is pinned to the version the card showed. One approver gets at most 20 cards an hour;
   past that, one "N approvals are waiting" roll-up message replaces further cards.
-- Linking: using a code that REPLACES your earlier link notifies you in NoPM and DMs the Lark account that just
-  lost the link. Only a link made by an admin or manager pins the connector to its Lark tenant; failed link
+- Linking: a code never moves an existing link. If you are already linked to another Lark account the bot
+  refuses ("This NoPM account is already linked to another Lark account. Unlink it in NoPM (Integrations) first,
+  then send a new code."), spends the code and audits integration.identity.link.blocked. Only a link made by an admin or manager pins the connector to its Lark tenant; failed link
   attempts are rate-limited (8 per Lark account, 120 per connector, per 10 minutes).
 - A weekly digest goes to a configured group chat (and can be sent now); the bot also answers the DM commands
   help, link <code> and approvals.
@@ -453,7 +462,7 @@ create a deletion_request row.
                   target_type=task or target_type=project)
                   The target is NOT deleted yet.
 
-2. Checker step — a DIFFERENT token with the scope matching the request's
+2. Checker step — a DIFFERENT PERSON (a token counts as the human who created it) with the scope matching the request's
                   target_type (task:delete:approve or project:delete:approve) calls
                   POST /deletion-requests/{id}/approve
                   The API enforces approver != requester (403 on self-approval).
@@ -463,11 +472,11 @@ create a deletion_request row.
                   status=committed, and two audit_log rows are written:
                   task.delete or project.delete, and deletion_request.approved.
                   Project deletions also 422 as PROJECT_LOCKED if the project's schedule
-                  was frozen after the deletion was requested (checked at commit time only —
-                  unlike task deletion, the project maker step does not pre-check is_locked).
+                  was frozen after the deletion was requested (a locked project is also
+                  refused at request time).
 
 To cancel instead: a DIFFERENT checker POSTs /deletion-requests/{id}/reject (self-rejection
-is 422), or the original requester POSTs /deletion-requests/{id}/withdraw (their one
+is 422), or the original requester (or the person behind the token that raised it) POSTs /deletion-requests/{id}/withdraw (their one
 permitted self-act — cancels without a decision, audited as deletion_request.withdrawn).
 `;
 

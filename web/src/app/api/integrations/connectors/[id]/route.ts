@@ -43,6 +43,15 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   // Non-secret config: shallow-merge over what is stored.
   const current = normalizeConfig(connector.config);
+  // The app id is the connector's identity on the platform: linked accounts are
+  // app-scoped ids and sent cards can only be edited by the app that sent them.
+  // Swapping it would strand both, so a different app is a new connector.
+  if (input.app_id !== undefined && input.app_id !== current.appId) {
+    throw new RuleError(
+      "The app id of a connector cannot be changed: the accounts linked to it and the cards it already sent belong to that app. Revoke this connector and create a new connector for the new app.",
+      "app_id_immutable",
+    );
+  }
   const nextConfig: LarkConfig = {
     region: input.region ?? current.region,
     appId: input.app_id ?? current.appId,

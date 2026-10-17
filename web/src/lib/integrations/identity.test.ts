@@ -9,6 +9,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
 vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
 
 import {
+  ALREADY_LINKED_MESSAGE,
   LINK_ATTEMPTS_PER_CONNECTOR,
   LINK_ATTEMPTS_PER_SENDER,
   LINK_ATTEMPT_WINDOW_SECONDS,
@@ -54,6 +55,25 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+/**
+ * A link of this profile that lands AFTER the refusal check but before the write (two codes
+ * racing): the only way an existing link can still be replaced.
+ */
+function oldLinkAppearsWhenCodeIsSpent(profileId: string, openId: string) {
+  const realFrom = db.from.bind(db);
+  db.from = (table: string) => {
+    const q = realFrom(table);
+    if (table === "identity_link_codes") {
+      const update = q.update.bind(q);
+      q.update = (patch) => {
+        linkIdentity(db, profileId, openId);
+        return update(patch);
+      };
+    }
+    return q;
+  };
+}
+
 const link = (over: Partial<Parameters<typeof consumeLinkCode>[0]> & { rawCode: string }) =>
   consumeLinkCode({
     connector,
@@ -87,7 +107,12 @@ describe("link code format", () => {
     expect(hashLinkCode("NPL-ABCD-EFGH")).toBe(createHash("sha256").update("NPL-ABCD-EFGH").digest("hex"));
     expect(maskExternalId("ou_1234567890abcdef")).toBe("ou_123…cdef");
     expect(maskExternalId("short")).toBe("sh…");
-    expect(externalActorRef("lark", "t1", "ou_x")).toBe("lark:t1:ou_x");
+    // the reference stored on audit rows is the MASKED one (the audit stream is member-readable)
+    expect(externalActorRef("lark", "t1", "ou_x")).toBe("lark:t1…:ou…");
+    expect(externalActorRef("lark", "tenant-abcdef123456", "ou_0123456789abcdef")).toBe("lark:tenant…3456:ou_012…cdef");
+    expect(externalActorRef("lark", "tenant-abcdef123456", "ou_0123456789abcdef")).toBe(
+      maskedExternalRef("lark", "tenant-abcdef123456", "ou_0123456789abcdef"),
+    );
   });
 });
 
@@ -148,7 +173,7 @@ describe("consumeLinkCode", () => {
       channel: "lark",
       viaConnectorId: CONNECTOR_ID,
       externalEventId: "evt-1",
-      externalActorRef: "lark:tenant-1:ou_alice",
+      externalActorRef: "lark:te…:ou…",
     });
     // no code anywhere in the audit payload
     expect(JSON.stringify(audit)).not.toContain(code);
@@ -213,16 +238,85 @@ describe("consumeLinkCode", () => {
     expect(db.rows("identity_link_codes")[0].used_at).toBeNull(); // not consumed
     expect(JSON.stringify(db.tables)).toBe(before); // nothing at all changed
 
-    // the still-live code keeps working for its real purpose (e.g. a second platform account)
+    // the still-live code is NOT a way to move the link to a second platform account
     const next = await link({ rawCode: code, externalUserId: "ou_alice_phone" });
-    expect(next.status).toBe("linked");
+    expect(next.status).toBe("conflict");
     expect(db.rows("identity_link_codes")[0].used_at).not.toBeNull();
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    expect(writeAuditMock.mock.calls[0][0]).toMatchObject({ action: "integration.identity.link.blocked" });
+    expect(db.rows("external_identities").filter((r) => r.revoked_at == null).map((r) => r.external_user_id)).toEqual(["ou_alice"]);
   });
 
-  it("keeps one active link per profile: a new platform account replaces the old one", async () => {
+  it("never moves an existing link: a user already linked to another account is refused, the code is spent, and the refusal is audited", async () => {
+    linkIdentity(db, ids.manager, "ou_old_open_id_value");
+    const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    const identitiesBefore = JSON.stringify(db.rows("external_identities"));
+
+    const out = await link({ rawCode: code, externalTenant: "tenant-abcdef123456", externalUserId: "ou_new_open_id_value", externalEventId: "evt-leak" });
+
+    expect(out).toEqual({ status: "conflict", message: ALREADY_LINKED_MESSAGE });
+    expect(ALREADY_LINKED_MESSAGE).toBe(
+      "This NoPM account is already linked to another Lark account. Unlink it in NoPM (Integrations) first, then send a new code.",
+    );
+    expect(JSON.stringify(db.rows("external_identities"))).toBe(identitiesBefore); // the owner's link is untouched
+    expect(db.rows("identity_link_codes")[0].used_at).not.toBeNull(); // a leaked code is dead after one try
+    expect(db.rows("notifications")).toHaveLength(0);
+    expect(db.rows("integration_connectors")[0].tenant_key ?? null).toBeNull(); // and nothing was pinned
+
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    const audit = writeAuditMock.mock.calls[0][0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(audit).toMatchObject({
+      workspaceId: WS,
+      action: "integration.identity.link.blocked",
+      targetType: "external_identity",
+      after: { profile_id: ids.manager, reason: "profile_already_linked", connector_id: CONNECTOR_ID },
+    });
+    expect(audit.actor).toMatchObject({ id: ids.manager, channel: "lark", viaConnectorId: CONNECTOR_ID, externalEventId: "evt-leak" });
+    // masked like every audit row the members can read
+    const text = JSON.stringify({ before: audit.before, after: audit.after });
+    expect(text).not.toContain("ou_old_open_id_value");
+    expect(text).not.toContain("ou_new_open_id_value");
+    expect(text).not.toContain("tenant-abcdef123456");
+    expect(audit.after.external_ref).toBe(maskedExternalRef("lark", "tenant-abcdef123456", "ou_new_open_id_value"));
+  });
+
+  it("a refused link is still answered if its audit row cannot be written (a refusal changes nothing)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
     linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
+    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("conflict");
+    expect(db.rows("external_identities").filter((r) => r.revoked_at == null).map((r) => r.external_user_id)).toEqual(["ou_old"]);
+  });
+
+  it("after the owner unlinks in NoPM, a fresh code links the new account normally", async () => {
+    const old = linkIdentity(db, ids.manager, "ou_old");
+    const first = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    expect((await link({ rawCode: first.code, externalUserId: "ou_new" })).status).toBe("conflict");
+
+    old.revoked_at = "2026-10-16T09:00:00.000Z";
+    db.rows("external_identities")[0].revoked_at = "2026-10-16T09:00:00.000Z"; // unlinked under Integrations
+    const second = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    expect((await link({ rawCode: second.code, externalUserId: "ou_new" })).status).toBe("linked");
+    expect(db.rows("external_identities").filter((r) => r.revoked_at == null).map((r) => r.external_user_id)).toEqual(["ou_new"]);
+  });
+
+  it("the throttle still counts a refused attempt", async () => {
+    linkIdentity(db, ids.manager, "ou_old");
+    const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    const calls: string[] = [];
+    const rpc = db.rpc.bind(db);
+    db.rpc = async (...args: unknown[]) => {
+      calls.push(String((args[1] as { p_key?: string } | undefined)?.p_key));
+      return rpc();
+    };
+    await link({ rawCode: code, externalUserId: "ou_new" });
+    expect(calls.some((k) => k.startsWith("lark-link:"))).toBe(true);
+  });
+
+  it("if two codes race and an old link appears after the check, the old link is still replaced (and announced)", async () => {
+    const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
     expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("linked");
 
     const active = db.rows("external_identities").filter((r) => r.revoked_at == null);
@@ -236,8 +330,8 @@ describe("consumeLinkCode", () => {
   });
 
   it("fails closed: if the audit row cannot be written the link is rolled back and the old link restored", async () => {
-    linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
     writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -532,8 +626,8 @@ describe("consumeLinkCode — a replaced link is announced", () => {
   const notices = () => db.rows("notifications") as Record<string, any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
 
   it("reports the displaced account to the adapter and tells the profile in NoPM", async () => {
-    linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
 
     const out = await link({ rawCode: code, externalUserId: "ou_new" });
 
@@ -563,8 +657,8 @@ describe("consumeLinkCode — a replaced link is announced", () => {
 
   it("a failed notification never undoes the link", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
     db.failNext({ table: "notifications", op: "insert", error: { message: "notifications down" } });
 
     const out = await link({ rawCode: code, externalUserId: "ou_new" });
@@ -575,8 +669,8 @@ describe("consumeLinkCode — a replaced link is announced", () => {
 
   it("a rolled-back link (audit down) announces nothing", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
     writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
     expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("error");
     expect(notices()).toHaveLength(0);
@@ -584,9 +678,9 @@ describe("consumeLinkCode — a replaced link is announced", () => {
 });
 
 describe("consumeLinkCode — the audit row masks platform ids but the actor keeps the full reference", () => {
-  it("masks tenant and open id in before/after, and records the full external_actor_ref on the actor", async () => {
-    linkIdentity(db, ids.manager, "ou_old_open_id_value");
+  it("masks tenant and open id in before/after AND in the external_actor_ref the actor carries into audit_log", async () => {
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old_open_id_value");
     await link({ rawCode: code, externalTenant: "tenant-abcdef123456", externalUserId: "ou_new_open_id_value" });
 
     const audit = writeAuditMock.mock.calls[0][0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -595,7 +689,10 @@ describe("consumeLinkCode — the audit row masks platform ids but the actor kee
     expect(text).not.toContain("ou_old_open_id_value");
     expect(text).not.toContain("tenant-abcdef123456");
     expect(audit.after.external_ref).toBe(maskedExternalRef("lark", "tenant-abcdef123456", "ou_new_open_id_value"));
-    expect(audit.actor.externalActorRef).toBe("lark:tenant-abcdef123456:ou_new_open_id_value");
+    // audit_log.external_actor_ref is readable by every member too: nothing raw is stored in it
+    expect(audit.actor.externalActorRef).toBe(maskedExternalRef("lark", "tenant-abcdef123456", "ou_new_open_id_value"));
+    expect(JSON.stringify(audit.actor)).not.toContain("ou_new_open_id_value");
+    expect(JSON.stringify(audit.actor)).not.toContain("tenant-abcdef123456");
   });
 });
 

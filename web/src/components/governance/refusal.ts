@@ -47,6 +47,7 @@ const KNOWN: Record<string, { title: string; detail: string | null; stale?: bool
   },
   project_locked: { title: "The project is locked", detail: null },
   children_changed: { title: "The project has changed", detail: null, stale: true },
+  target_changed: { title: "The task changed after this request", detail: null, stale: true },
   timesheet_changed: { title: "The timesheet has changed", detail: null, stale: true },
   forbidden_scope: { title: "You can't decide this", detail: null },
 };

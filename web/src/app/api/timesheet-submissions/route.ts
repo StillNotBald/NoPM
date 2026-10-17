@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { NotFoundError, ScopeError } from "@/lib/api/errors";
 import {
   assertHasEntriesToSubmit,
   assertNoOpenDuplicate,
@@ -13,7 +13,12 @@ import {
   timesheetContentDigest,
   type TimesheetEntryRow,
 } from "@/lib/governance/timesheet-decision";
-import { announceRequested, requireMakerPrincipal, timesheetEvent } from "@/lib/governance/decide";
+import {
+  announceRequested,
+  requireMakerPrincipal,
+  resubmitReopenedTimesheet,
+  timesheetEvent,
+} from "@/lib/governance/decide";
 import { createTimesheetSubmissionSchema, TIMESHEET_STATUSES } from "./_schema";
 
 export const runtime = "nodejs";
@@ -24,6 +29,38 @@ function addDaysIso(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Who may submit a member's week (red-team N2). Submitting FREEZES the week
+ * (the entries cannot change while the sheet is under review), so "any
+ * non-viewer may submit anyone's" let one person lock a colleague out of their
+ * own time entries. Allowed: the member themselves — the person whose profile is
+ * linked to the resource row, whether acting directly or through a token they
+ * minted — or an admin / manager acting for them. Everyone else: 403
+ * `not_your_timesheet`. A member row with no linked profile can be submitted
+ * for by an admin / manager only.
+ */
+async function assertMayActForMember(
+  db: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  principal: string,
+  member: { profile_id?: string | null },
+): Promise<void> {
+  if (member.profile_id && member.profile_id === principal) return;
+
+  const { data: profile } = await db
+    .from("profiles")
+    .select("role")
+    .eq("id", principal)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (profile && (profile.role === "admin" || profile.role === "manager")) return;
+
+  throw new ScopeError(
+    "You can submit only your own timesheet; a manager or admin can submit one on a team member's behalf.",
+    "not_your_timesheet",
+  );
 }
 
 /**
@@ -120,11 +157,12 @@ export const POST = route(async ({ actor, request }) => {
   // Verify the member exists and belongs to this workspace.
   const { data: member } = await db
     .from("resource_members")
-    .select("id, name")
+    .select("id, name, profile_id")
     .eq("id", parsed.data.member_id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
   if (!member) throw new NotFoundError("Resource member not found");
+  await assertMayActForMember(db, actor.workspaceId, submitterPrincipal, member);
 
   const periodStart = parsed.data.period_start;
   const periodEnd = addDaysIso(periodStart, 6);
@@ -132,11 +170,17 @@ export const POST = route(async ({ actor, request }) => {
   // Clean 422 pre-check (DB uniq_open_timesheet index is the backstop).
   const { data: existing } = await db
     .from("timesheet_submissions")
-    .select("id, status")
+    .select("id, status, reopened_at")
     .eq("member_id", parsed.data.member_id)
     .eq("period_start", periodStart)
     .in("status", ["submitted", "approved"])
     .maybeSingle();
+  // A REOPENED sheet (an approver unlocked it so the member could amend their
+  // entries) is resubmitted in place: fresh snapshot + digest, so it can be
+  // approved again. Any other open sheet is the duplicate 422.
+  if (existing?.status === "submitted" && existing.reopened_at) {
+    return created(await resubmitReopenedTimesheet(actor, existing.id));
+  }
   assertNoOpenDuplicate(existing);
 
   // Snapshot hours_total + entry_count from time_entries in the period.
@@ -176,6 +220,11 @@ export const POST = route(async ({ actor, request }) => {
     .select()
     .single();
 
+  // Two concurrent submits both pass the pre-check above; the partial unique
+  // index uniq_open_timesheet lets one win and refuses the other (23505) —
+  // answer with the pre-check's 422 instead of a raw 500 (assertNoOpenDuplicate
+  // throws for any row it is handed, so the code and message stay in one place).
+  if (error?.code === "23505") assertNoOpenDuplicate({ status: "submitted" });
   if (error) throw error;
 
   await writeAudit({

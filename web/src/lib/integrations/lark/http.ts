@@ -123,6 +123,12 @@ export async function handleLarkWebhook(request: NextRequest, rawConnectorId: st
   }
 
   const envelope = verdict.envelope;
+  if (envelope.type === "url_verification") {
+    // Already authenticated (token and, when set, decryption) and free of side effects:
+    // answer at once rather than wait on a rate-limit round trip, because the console
+    // gives the handshake only about a second.
+    return json({ challenge: typeof envelope.challenge === "string" ? envelope.challenge : "" }, 200);
+  }
   const isCard = envelope.header?.event_type === "card.action.trigger";
   const budget = await wd.rateCheck(`lark:${connectorId}`, WEBHOOK_RATE_MAX);
   if (!budget.allowed) {

@@ -35,12 +35,12 @@ export default async function ReviewQueuePage() {
     <PageContainer width="narrow" className="space-y-6">
       <PageHeader title="Review Queue" />
 
-      <QueueCallout count={items.length} noun="item" href="#queue" actionLabel="Jump to queue" className="mb-0">
+      <QueueCallout count={items.length} noun="item" href="#queue" actionLabel="Jump to queue" className="mb-3">
         Oldest waiting {oldest === 0 ? "today" : `${oldest} day${oldest === 1 ? "" : "s"}`}
       </QueueCallout>
 
       {/* Intro line — one sentence explaining purpose */}
-      <p className="-mt-3 text-sm text-ink-muted">
+      <p className="text-sm text-ink-muted">
         Every decision waiting for a human — approvals, rebaselines, risks,
         clashes, and documents in review — in one place, priority-sorted.
       </p>

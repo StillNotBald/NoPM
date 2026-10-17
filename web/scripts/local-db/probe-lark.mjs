@@ -23,6 +23,11 @@ import { startFakeLark } from "./fake-lark.mjs";
 import { createReport, expect, expectEqual } from "./report.mjs";
 import { connect, createFixtures, hashToken, makeUser, must, newTaskDeletionRequest } from "./fixtures.mjs";
 
+// Mirrors maskExternalId / maskedExternalRef in web/src/lib/integrations: the
+// audit column holds the MASKED platform reference, never the raw ids.
+const maskId = (id) => (id.length <= 10 ? `${id.slice(0, 2)}…` : `${id.slice(0, 6)}…${id.slice(-4)}`);
+const maskedRef = (tenant, openId) => `lark:${maskId(tenant)}:${maskId(openId)}`;
+
 needAnonKey();
 const { db, pgc, close } = await connect();
 await requireApp();
@@ -293,7 +298,7 @@ for (const kind of ["change_request", "task_deletion"]) {
     expect(rows.every((r) => r.channel === "lark"), `channels: ${JSON.stringify(rows.map((r) => r.channel))}`);
     expect(rows.every((r) => r.actor_id === fx.b.id && r.actor_type === "user"), "actor must be the linked human (B), not a token");
     expect(rows.every((r) => r.via_connector_id === connector.id), "via_connector_id must name the connector");
-    expect(rows.every((r) => r.external_actor_ref === `lark:${TENANT}:${OPEN_B}`), `external_actor_ref: ${JSON.stringify(rows.map((r) => r.external_actor_ref))}`);
+    expect(rows.every((r) => r.external_actor_ref === maskedRef(TENANT, OPEN_B)), `external_actor_ref: ${JSON.stringify(rows.map((r) => r.external_actor_ref))}`);
     return `${rows.length} audit row(s): ${rows.map((r) => r.action).join(", ")}`;
   });
 
@@ -797,7 +802,7 @@ for (const kind of ["change_request", "task_deletion"]) {
       (x) =>
         x.external_event_id !== e.eventId ||
         x.via_connector_id !== connector.id ||
-        x.external_actor_ref !== `lark:${TENANT}:${OPEN_B}` ||
+        x.external_actor_ref !== maskedRef(TENANT, OPEN_B) ||
         x.actor_type !== "user" ||
         x.actor_id !== fx.b.id,
     );

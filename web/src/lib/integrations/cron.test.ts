@@ -189,6 +189,27 @@ describe("runCron — weekly digest", () => {
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
   });
 
+  it("sends a digest queued part-way through the tick in the SAME tick (the drain does not look at the tick's start time)", async () => {
+    const tickStart = new Date();
+    // Time passes between the start of the tick and the moment the digest row is written (the
+    // connector read, the resume check, ...): the first read of the digest step takes two seconds.
+    const realFrom = db.from.bind(db);
+    let elapsed = false;
+    db.from = (table: string) => {
+      if (!elapsed && table === "integration_deliveries") {
+        elapsed = true;
+        vi.setSystemTime(new Date(tickStart.getTime() + 2000));
+      }
+      return realFrom(table);
+    };
+
+    const summary = await runCron({ now: tickStart });
+
+    expect(summary.digests).toEqual({ sent: 1, skipped: 0, queued: 0, failed: 0 });
+    expect(fake.calls.sends).toHaveLength(1);
+    expect(digests()[0].status).toBe("sent");
+  });
+
   it("sends again the next ISO week", async () => {
     await runCron({ now: new Date() });
     vi.setSystemTime(new Date(FRIDAY.getTime() + 7 * DAY));
@@ -353,6 +374,37 @@ describe("runCron — a tick that died mid-way does not lose the week", () => {
     const second = await runCron({ now: new Date() });
     expect(second.digests.sent).toBe(1);
     expect(digests()).toHaveLength(1);
+  });
+
+  it("clears an abandoned claim even when the digest was switched off since (it must not sit pending forever)", async () => {
+    db.seed("integration_deliveries", [heldRow()]);
+    setConfig(digestConfig({ enabled: false }));
+
+    const summary = await runCron({ now: new Date() });
+
+    expect(summary.digests.skipped).toBe(1);
+    expect(digests()).toHaveLength(0);
+    expect(fake.calls.sends).toHaveLength(0);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("clears an abandoned claim when the group chat was removed since", async () => {
+    db.seed("integration_deliveries", [heldRow()]);
+    setConfig(digestConfig({ chatId: null }));
+    await runCron({ now: new Date() });
+    expect(digests()).toHaveLength(0);
+  });
+
+  it("posts a resumed digest to the chat configured NOW, not the one it was claimed for", async () => {
+    db.seed("integration_deliveries", [heldRow({ external_target: "oc_old" })]);
+    setConfig(digestConfig({ chatId: "oc_new" }));
+
+    const summary = await runCron({ now: new Date() });
+
+    expect(summary.digests.sent).toBe(1);
+    expect(fake.calls.sends).toHaveLength(1);
+    expect(fake.calls.sends[0]).toMatchObject({ receiveIdType: "chat_id", receiveId: "oc_new" });
+    expect(digests()[0].external_target).toBe("oc_new");
   });
 
   it("never sends a held (unaudited) digest through a plain drain", async () => {

@@ -184,7 +184,8 @@ export function RightPushPanel({
         {/* ── Body ────────────────────────────────────────────────────────────── */}
         <div
           className={[
-            "min-h-0 flex-1 overflow-auto p-4",
+            // scroll-pb: a focused field is scrolled clear of a pinned form-actions bar
+            "min-h-0 flex-1 overflow-auto p-4 scroll-pb-24",
             footer ? "" : "pb-[max(1rem,env(safe-area-inset-bottom))]",
           ].join(" ")}
         >
