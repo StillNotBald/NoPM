@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { renderNotificationEmail } from "@/lib/notify/email";
 
-export const metadata = { title: "Email Previews — NoPM" };
+export const metadata = { title: "Email Previews" };
 
 interface NotificationRow {
   id: string;

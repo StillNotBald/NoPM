@@ -45,6 +45,7 @@ const ENTITY_SCOPES = {
   audit: "audit:read",
   time_entries: "time:read",
   programs: "program:read",
+  projects: "project:read",
 } as const;
 
 type Entity = keyof typeof ENTITY_SCOPES;
@@ -82,7 +83,20 @@ const ENTITY_COLUMNS: Record<Entity, string[]> = {
   programs: [
     "id", "workspace_id", "code", "name", "rag_status", "owner_id", "created_at",
   ],
+  projects: [
+    "id", "workspace_id", "code", "name", "description", "program", "program_id",
+    "owner_id", "rag_status", "phase", "completion_pct", "start_date", "target_date",
+    "currency", "is_locked", "sponsor", "project_manager", "created_at", "updated_at",
+  ],
 };
+
+/** Sort whitelist for entity=projects (GET /projects has a fixed created_at desc order). */
+const PROJECT_SORT_FIELDS = ["name", "code", "rag_status", "phase", "completion_pct", "target_date", "created_at"] as const;
+
+/** Free-text search term — same `%q%` ilike shape the tasks export uses. */
+function ilikeTerm(q: string): string {
+  return `%${q}%`;
+}
 
 function isEntity(value: string | null): value is Entity {
   return !!value && Object.prototype.hasOwnProperty.call(ENTITY_SCOPES, value);
@@ -143,19 +157,19 @@ async function assertProjectInWorkspace(db: Db, projectId: string, workspaceId: 
 }
 
 async function fetchRisksRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+  // project_id is OPTIONAL: given -> that project's risks (validated in-workspace);
+  // omitted -> every risk in the actor's workspace (cross-project register).
   const projectId = sp.get("project_id");
-  if (!projectId) throw new RuleError("project_id is required to export risks (risks are project-scoped)");
-  await assertProjectInWorkspace(db, projectId, workspaceId);
+  if (projectId) await assertProjectInWorkspace(db, projectId, workspaceId);
 
   const sort = parseSort(sp.get("sort"), RISK_SORT_FIELDS, { field: "created_at", ascending: false });
   const filters = parseRiskFilters(sp);
-  let query = db
-    .from("risks")
-    .select("*", { count: "exact" })
-    .eq("workspace_id", workspaceId)
-    .eq("project_id", projectId);
+  const q = sp.get("q")?.trim() || undefined;
+  let query = db.from("risks").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
+  if (projectId) query = query.eq("project_id", projectId);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.severity) query = query.eq("severity", filters.severity);
+  if (q) query = query.ilike("title", ilikeTerm(q));
   const { data, error, count } = await query
     .order(sort.field, orderOptions(sort))
     .range(0, MAX_EXPORT_ROWS - 1);
@@ -163,25 +177,24 @@ async function fetchRisksRows(sp: URLSearchParams, workspaceId: string, db: Db):
   return {
     rows: (data ?? []) as Record<string, unknown>[],
     total: count ?? (data ?? []).length,
-    filters: { project_id: projectId, ...filters, sort: sp.get("sort") ?? undefined },
+    filters: { project_id: projectId ?? undefined, ...filters, q, sort: sp.get("sort") ?? undefined },
   };
 }
 
 async function fetchIssuesRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+  // project_id OPTIONAL — same posture as fetchRisksRows.
   const projectId = sp.get("project_id");
-  if (!projectId) throw new RuleError("project_id is required to export issues (issues are project-scoped)");
-  await assertProjectInWorkspace(db, projectId, workspaceId);
+  if (projectId) await assertProjectInWorkspace(db, projectId, workspaceId);
 
   const sort = parseSort(sp.get("sort"), ISSUE_SORT_FIELDS, { field: "created_at", ascending: false });
   const filters = parseIssueFilters(sp);
-  let query = db
-    .from("issues")
-    .select("*", { count: "exact" })
-    .eq("workspace_id", workspaceId)
-    .eq("project_id", projectId);
+  const q = sp.get("q")?.trim() || undefined;
+  let query = db.from("issues").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
+  if (projectId) query = query.eq("project_id", projectId);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.severity) query = query.eq("severity", filters.severity);
   if (filters.priority) query = query.eq("priority", filters.priority);
+  if (q) query = query.ilike("title", ilikeTerm(q));
   const { data, error, count } = await query
     .order(sort.field, orderOptions(sort))
     .range(0, MAX_EXPORT_ROWS - 1);
@@ -189,7 +202,7 @@ async function fetchIssuesRows(sp: URLSearchParams, workspaceId: string, db: Db)
   return {
     rows: (data ?? []) as Record<string, unknown>[],
     total: count ?? (data ?? []).length,
-    filters: { project_id: projectId, ...filters, sort: sp.get("sort") ?? undefined },
+    filters: { project_id: projectId ?? undefined, ...filters, q, sort: sp.get("sort") ?? undefined },
   };
 }
 
@@ -203,6 +216,28 @@ async function fetchClashesRows(_sp: URLSearchParams, workspaceId: string, db: D
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
   return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters: {} };
+}
+
+async function fetchProjectsRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+  const sort = parseSort(sp.get("sort"), PROJECT_SORT_FIELDS, { field: "created_at", ascending: false });
+  const q = sp.get("q")?.trim() || undefined;
+  const ragStatus = sp.get("rag_status") || undefined;
+  const phase = sp.get("phase") || undefined;
+  const programId = sp.get("program_id") || undefined;
+  let query = db.from("projects").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
+  if (ragStatus) query = query.eq("rag_status", ragStatus);
+  if (phase) query = query.eq("phase", phase);
+  if (programId) query = query.eq("program_id", programId);
+  if (q) query = query.ilike("name", ilikeTerm(q));
+  const { data, error, count } = await query
+    .order(sort.field, orderOptions(sort))
+    .range(0, MAX_EXPORT_ROWS - 1);
+  if (error) throw new Error(`Export query failed: ${error.message}`);
+  return {
+    rows: (data ?? []) as Record<string, unknown>[],
+    total: count ?? (data ?? []).length,
+    filters: { rag_status: ragStatus, phase, program_id: programId, q, sort: sp.get("sort") ?? undefined },
+  };
 }
 
 async function fetchTimeEntriesRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
@@ -285,6 +320,8 @@ async function fetchEntityRows(entity: Entity, url: URL, workspaceId: string, db
       return fetchAuditRows(sp, workspaceId, db);
     case "programs":
       return fetchProgramsRows(sp, workspaceId, db);
+    case "projects":
+      return fetchProjectsRows(sp, workspaceId, db);
   }
 }
 

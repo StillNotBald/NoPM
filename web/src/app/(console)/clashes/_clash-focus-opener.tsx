@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useFocusParam } from "@/lib/nav/use-focus-param";
-import type { ClashRow } from "@/app/(console)/clashes/page";
+import type { ClashRow } from "./_types";
 
 interface Props {
   clashes: ClashRow[];

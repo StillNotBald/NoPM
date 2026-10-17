@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
+import { KpiTile } from "@/components/ui/kpi-tile";
+import { CsvDownloadButton } from "@/components/budget/csv-download-button";
 import { cn } from "@/lib/cn";
 import { computeEvm, type EvmResult } from "@/lib/evm";
 import { EvmTable, BudgetTable, type EvmTableRow, type BudgetTableRow } from "@/components/budget/budget-tables";
@@ -56,17 +61,17 @@ function fmt(amount: number, currency: string): string {
 function fmtVariance(variance: number, currency: string): React.ReactNode {
   const formatted = fmt(Math.abs(variance), currency);
   if (variance < 0) {
-    return <span className="text-danger">-{formatted}</span>;
+    return <span className="text-danger-ink">-{formatted}</span>;
   }
-  return <span className="text-success">+{formatted}</span>;
+  return <span className="text-success-ink">+{formatted}</span>;
 }
 
 // EVM index (CPI/SPI): ≥1 good (green), 0.9–1 watch (amber), <0.9 bad (red).
 function indexTone(value: number | null): string {
   if (value === null) return "text-ink-muted";
-  if (value >= 1) return "text-success";
-  if (value >= 0.9) return "text-warning";
-  return "text-danger";
+  if (value >= 1) return "text-success-ink";
+  if (value >= 0.9) return "text-warning-ink";
+  return "text-danger-ink";
 }
 
 function fmtIndex(value: number | null): string {
@@ -76,8 +81,10 @@ function fmtIndex(value: number | null): string {
 // VAC: positive (under budget) green, negative (over budget) red.
 function vacTone(value: number | null): string {
   if (value === null) return "text-ink-muted";
-  return value < 0 ? "text-danger" : "text-success";
+  return value < 0 ? "text-danger-ink" : "text-success-ink";
 }
+
+export const metadata: Metadata = { title: "Budget" };
 
 export default async function BudgetPage() {
   const db = await createClient();
@@ -96,11 +103,7 @@ export default async function BudgetPage() {
     .order("name");
 
   if (projectsError) {
-    return (
-      <div className="px-4 py-5 sm:px-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load projects.</p>
-      </div>
-    );
+    return <QueryError what="projects" message={projectsError.message} />;
   }
 
   const projectList = (projects ?? []) as Project[];
@@ -108,8 +111,8 @@ export default async function BudgetPage() {
 
   if (projectIds.length === 0) {
     return (
-      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-        <div className="mx-auto max-w-6xl space-y-6">
+      <PageContainer className="space-y-6">
+        <div className="space-y-6">
           <PageHeader title="Budget" />
           <Card>
             <CardBody>
@@ -119,15 +122,17 @@ export default async function BudgetPage() {
             </CardBody>
           </Card>
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
   // Fetch project_budget rows
-  const { data: budgetRows } = await db
+  const { data: budgetRows, error: budgetError } = await db
     .from("project_budget")
     .select("project_id, planned_amount, committed_amount, currency")
     .in("project_id", projectIds);
+
+  if (budgetError) return <QueryError what="budgets" message={budgetError.message} />;
 
   const budgetByProject: Record<string, ProjectBudget> = {};
   for (const b of (budgetRows ?? []) as ProjectBudget[]) {
@@ -135,10 +140,12 @@ export default async function BudgetPage() {
   }
 
   // Fetch time_entries grouped — sum cost per project
-  const { data: timeEntries } = await db
+  const { data: timeEntries, error: timeError } = await db
     .from("time_entries")
     .select("project_id, cost")
     .in("project_id", projectIds);
+
+  if (timeError) return <QueryError what="time entries" message={timeError.message} />;
 
   const timeEntryCostByProject: Record<string, number> = {};
   for (const te of (timeEntries ?? []) as TimeEntryRow[]) {
@@ -149,10 +156,12 @@ export default async function BudgetPage() {
   }
 
   // Fetch expenses grouped — sum amount per project
-  const { data: expenses } = await db
+  const { data: expenses, error: expenseError } = await db
     .from("expenses")
     .select("project_id, amount")
     .in("project_id", projectIds);
+
+  if (expenseError) return <QueryError what="expenses" message={expenseError.message} />;
 
   const expensesByProject: Record<string, number> = {};
   for (const exp of (expenses ?? []) as ExpenseRow[]) {
@@ -258,9 +267,6 @@ export default async function BudgetPage() {
   }
 
   const budgetTableRows: BudgetTableRow[] = rows.map((row) => {
-    const clamped = Math.min(row.burnPct, 100);
-    const isOver = row.burnPct > 100;
-    const isNear = row.burnPct >= 80 && !isOver;
     return {
       projectId: row.projectId,
       projectName: row.projectName,
@@ -272,17 +278,28 @@ export default async function BudgetPage() {
         row.planned === 0 ? null : `${row.variance < 0 ? "-" : "+"}${fmt(Math.abs(row.variance), row.currency)}`,
       varianceIsNegative: row.variance < 0,
       burnPct: row.burnPct,
-      burnClampedPct: clamped,
-      isOver,
-      isNear,
+      completionPct: row.completionPct,
+      hasPlan: row.planned > 0,
     };
   });
 
+  const csvHeader = [
+    "Project", "Currency", "Planned", "Committed", "Actual", "Variance", "Burn %", "Completion %", "CPI", "SPI", "EAC", "VAC",
+  ];
+  const csvRows = rows.map((r) => [
+    r.projectName, r.currency, r.planned, r.committed, r.actual, r.variance,
+    Number(r.burnPct.toFixed(1)), Number(r.completionPct.toFixed(0)),
+    r.evm.cpi === null ? null : Number(r.evm.cpi.toFixed(2)),
+    r.evm.spi === null ? null : Number(r.evm.spi.toFixed(2)),
+    r.evm.eac, r.evm.vac,
+  ]);
+
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-6">
+      <div className="space-y-6">
       <PageHeader
         title="Budget"
+        exports={<CsvDownloadButton filename={`budget-${asOfDate}.csv`} header={csvHeader} rows={csvRows} />}
         action={
           (overBudgetCount > 0 || nearBudgetCount > 0) ? (
             <>
@@ -293,51 +310,21 @@ export default async function BudgetPage() {
         }
       />
 
-      {/* Summary cards — 2-col on phones, 1-col below 360px (long currency
-          amounts wrap awkwardly in a ~140px cell on the smallest Android
-          widths), 4-col at lg+ */}
-      <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 sm:gap-4 lg:grid-cols-4">
-        <Card>
-          <CardBody className="py-4">
-            <p className="text-xs text-ink-muted uppercase tracking-wide">Total Planned</p>
-            <p className="mt-1 text-lg font-semibold text-ink tabular-nums">
-              {allSameCurrency ? fmt(totalPlanned, totalCurrency) : "—"}
-            </p>
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody className="py-4">
-            <p className="text-xs text-ink-muted uppercase tracking-wide">Committed</p>
-            <p className="mt-1 text-lg font-semibold text-ink tabular-nums">
-              {allSameCurrency ? fmt(totalCommitted, totalCurrency) : "—"}
-            </p>
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody className="py-4">
-            <p className="text-xs text-ink-muted uppercase tracking-wide">Actual Spend</p>
-            <p className="mt-1 text-lg font-semibold text-ink tabular-nums">
-              {allSameCurrency ? fmt(totalActual, totalCurrency) : "—"}
-            </p>
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody className="py-4">
-            <p className="text-xs text-ink-muted uppercase tracking-wide">Overall Burn</p>
-            <p
-              className={cn(
-                "mt-1 text-lg font-semibold tabular-nums",
-                totalBurnPct > 100
-                  ? "text-danger"
-                  : totalBurnPct >= 80
-                  ? "text-warning"
-                  : "text-accent",
-              )}
-            >
-              {totalBurnPct.toFixed(1)}%
-            </p>
-          </CardBody>
-        </Card>
+      {/* Summary KPI row: planned / committed / actual / variance / burn */}
+      <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 sm:gap-4 lg:grid-cols-5 print:grid-cols-5">
+        <KpiTile label="Planned" value={allSameCurrency ? fmt(totalPlanned, totalCurrency) : "—"} />
+        <KpiTile label="Committed" value={allSameCurrency ? fmt(totalCommitted, totalCurrency) : "—"} />
+        <KpiTile label="Actual spend" value={allSameCurrency ? fmt(totalActual, totalCurrency) : "—"} />
+        <KpiTile
+          label="Variance"
+          value={allSameCurrency ? `${totalVariance < 0 ? "-" : "+"}${fmt(Math.abs(totalVariance), totalCurrency)}` : "—"}
+          sub={totalVariance < 0 ? "Over plan" : "Under plan"}
+        />
+        <KpiTile
+          label="Burn"
+          value={`${totalBurnPct.toFixed(1)}%`}
+          sub={`${totalCompletionPct.toFixed(0)}% complete`}
+        />
       </div>
 
       {/* Earned Value (EVM) strip — read-only cost-performance, computed from stored data */}
@@ -351,7 +338,7 @@ export default async function BudgetPage() {
 
         {/* Portfolio roll-up */}
         {allSameCurrency && (
-          <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 border-b border-border-subtle px-5 py-4 sm:gap-4 lg:grid-cols-4 [&>*]:min-w-0 [&_p]:break-words">
             <div>
               <p className="text-xs text-ink-muted uppercase tracking-wide">Portfolio CPI</p>
               <p className={cn("mt-1 text-lg font-semibold tabular-nums", indexTone(portfolioEvm.cpi))}>
@@ -402,13 +389,13 @@ export default async function BudgetPage() {
                   varianceDisplay: `${totalVariance < 0 ? "-" : "+"}${fmt(Math.abs(totalVariance), totalCurrency)}`,
                   varianceIsNegative: totalVariance < 0,
                   burnPct: totalBurnPct,
-                  burnClampedPct: Math.min(totalBurnPct, 100),
+                  completionPct: totalCompletionPct,
                 }
               : null
           }
         />
       </Card>
       </div>
-    </div>
+    </PageContainer>
   );
 }

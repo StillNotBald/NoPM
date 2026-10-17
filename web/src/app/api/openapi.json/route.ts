@@ -1417,13 +1417,14 @@ const spec = {
         summary: "Governed CSV export (L-27 / L-36)",
         description:
           "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
-          "audit:read, time:read, or program:read). Streams text/csv with Content-Disposition " +
+          "audit:read, time:read, program:read, or project:read). Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
           "export): tasks accept project_id/assignee_id/status_type/priority/" +
-          "due_before/due_after/overdue/q/sort; risks/issues REQUIRE project_id (they are " +
-          "project-scoped) plus status/severity(/priority for issues)/sort; clashes take no " +
+          "due_before/due_after/overdue/q/sort; risks/issues take an OPTIONAL project_id (omitted = every risk/issue in the workspace, " +
+          "for cross-project registers) plus status/severity(/priority for issues)/q (title ilike)/sort; projects accept " +
+          "rag_status/phase/program_id/q (name ilike)/sort (name|code|rag_status|phase|completion_pct|target_date|created_at); clashes take no " +
           "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
           "project_id/member_id/date_from/date_to/billable; audit accepts " +
           "target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, leniently: an " +
@@ -1438,17 +1439,20 @@ const spec = {
           "audited (L-36).",
         operationId: "exportCsv",
         parameters: [
-          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "time_entries", "programs"] } },
-          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Required for entity=risks|issues; optional filter for entity=tasks|time_entries" },
-          { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues (whitelisted per entity, same as the list API)" },
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "time_entries", "programs", "projects"] } },
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Optional filter for entity=tasks|risks|issues|time_entries (risks/issues: omitted = whole workspace; a project outside the workspace 404s)" },
+          { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues|projects (whitelisted per entity, same as the list API)" },
           { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=tasks" },
           { name: "status_type", in: "query", schema: { type: "string" }, description: "entity=tasks" },
           { name: "priority", in: "query", schema: { type: "string" }, description: "entity=tasks|issues" },
           { name: "due_before", in: "query", schema: { type: "string", format: "date" }, description: "entity=tasks" },
           { name: "due_after", in: "query", schema: { type: "string", format: "date" }, description: "entity=tasks" },
           { name: "overdue", in: "query", schema: { type: "string", enum: ["true"] }, description: "entity=tasks" },
-          { name: "q", in: "query", schema: { type: "string" }, description: "entity=tasks (name ilike)" },
+          { name: "q", in: "query", schema: { type: "string" }, description: "entity=tasks|projects (name ilike) | risks|issues (title ilike)" },
           { name: "status", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
+          { name: "rag_status", in: "query", schema: { type: "string", enum: ["not_started", "red", "amber", "green", "complete"] }, description: "entity=projects" },
+          { name: "phase", in: "query", schema: { type: "string" }, description: "entity=projects" },
+          { name: "program_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=projects" },
           { name: "severity", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
           { name: "member_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=time_entries" },
           { name: "date_from", in: "query", schema: { type: "string", format: "date" }, description: "entity=time_entries (entry_date >=, inclusive)" },
@@ -1465,7 +1469,7 @@ const spec = {
         responses: {
           "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present)", content: { "text/csv": { schema: { type: "string" } } } },
           "403": { description: "Forbidden — missing the entity's read scope", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Invalid/missing entity, or missing project_id for entity=risks|issues, or an invalid sort field", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invalid/missing entity, or an invalid sort field", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "project_id not found in this workspace (entity=risks|issues)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },

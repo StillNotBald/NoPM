@@ -379,3 +379,24 @@ describe("size cap (register: 'size-capped')", () => {
     expect(isConfigWithinSizeCap(rawBody)).toBe(false); // raw body alone WOULD exceed it
   });
 });
+
+describe("preferencesConfigSchema — nav.shortcuts (bottom-bar persistence)", () => {
+  it("accepts in-app paths and rejects non-paths / oversize lists", () => {
+    expect(preferencesConfigSchema.safeParse({ nav: { shortcuts: ["/risks", "/change-control"] } }).success).toBe(true);
+    expect(preferencesConfigSchema.safeParse({ nav: { shortcuts: ["https://evil.example"] } }).success).toBe(false);
+    expect(preferencesConfigSchema.safeParse({ nav: { shortcuts: ["risks"] } }).success).toBe(false);
+    expect(
+      preferencesConfigSchema.safeParse({ nav: { shortcuts: Array.from({ length: 9 }, () => "/risks") } }).success,
+    ).toBe(false);
+  });
+
+  it("merges nav one level deep so mode and shortcuts do not clobber each other", () => {
+    const merged = mergePreferencesConfig(
+      { nav: { shortcuts: ["/risks"] } },
+      { nav: { mode: "essentials" } },
+    );
+    expect(merged.nav).toEqual({ mode: "essentials", shortcuts: ["/risks"] });
+    const merged2 = mergePreferencesConfig(merged, { nav: { shortcuts: ["/issues"] } });
+    expect(merged2.nav).toEqual({ mode: "essentials", shortcuts: ["/issues"] });
+  });
+});

@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Plus, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
@@ -488,7 +488,7 @@ function OverviewTab({
                   <span className="font-mono text-xs font-medium text-ink tabular-nums">
                     {fmtDate(project.target_date)}
                   </span>
-                  {daysRemaining !== null && (
+                  {daysRemaining !== null && project.rag_status !== "complete" && (
                     <Badge
                       tone={isOverdue ? "danger" : daysRemaining <= 14 ? "warning" : "success"}
                     >
@@ -616,10 +616,8 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
               {risks.map((r, i) => (
                 <tr
                   key={r.id}
-                  role="button"
-                  tabIndex={0}
                   className={cn(
-                    "transition-colors hover:bg-sunken/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                    "transition-colors hover:bg-sunken/40 cursor-pointer focus-within:bg-sunken/40",
                     i < risks.length - 1 && "border-b border-border-subtle"
                   )}
                   onClick={() =>
@@ -628,15 +626,6 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                       r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
                     )
                   }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      inspector.open(
-                        <RiskDetail risk={r} projectName={project.name} />,
-                        r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
-                      );
-                    }
-                  }}
                 >
                   <td className="py-3 px-4 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
@@ -645,7 +634,19 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                           {r.reference_id}
                         </span>
                       )}
-                      <p className="font-medium text-ink truncate">{r.title}</p>
+                      <button
+                        type="button"
+                        className="focus-ring rounded-sm text-left font-medium text-ink truncate hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          inspector.open(
+                            <RiskDetail risk={r} projectName={project.name} />,
+                            r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
+                          );
+                        }}
+                      >
+                        {r.title}
+                      </button>
                     </div>
                     {r.category && (
                       <p className="text-xs text-ink-muted mt-0.5 truncate">{r.category}</p>
@@ -726,10 +727,8 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
               {issues.map((iss, i) => (
                 <tr
                   key={iss.id}
-                  role="button"
-                  tabIndex={0}
                   className={cn(
-                    "transition-colors hover:bg-sunken/40 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                    "transition-colors hover:bg-sunken/40 cursor-pointer focus-within:bg-sunken/40",
                     i < issues.length - 1 && "border-b border-border-subtle"
                   )}
                   onClick={() =>
@@ -738,15 +737,6 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                       iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
                     )
                   }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      inspector.open(
-                        <IssueDetail issue={iss} projectName={project.name} />,
-                        iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
-                      );
-                    }
-                  }}
                 >
                   <td className="py-3 px-4 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
@@ -755,7 +745,19 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                           {iss.reference_id}
                         </span>
                       )}
-                      <p className="font-medium text-ink truncate">{iss.title}</p>
+                      <button
+                        type="button"
+                        className="focus-ring rounded-sm text-left font-medium text-ink truncate hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          inspector.open(
+                            <IssueDetail issue={iss} projectName={project.name} />,
+                            iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
+                          );
+                        }}
+                      >
+                        {iss.title}
+                      </button>
                     </div>
                   </td>
                   <td className="py-3 px-4">
@@ -800,8 +802,37 @@ export function ProjectTabs({
   actualHoursByTask?: Record<string, number>;
 }) {
   const searchParams = useSearchParams();
-  // A ?task= deep link lands on the Activity tab, where the task panel opens.
-  const [active, setActive] = useState<Tab>(() => (searchParams.get("task") ? "activity" : "charter"));
+  const router = useRouter();
+  const pathname = usePathname();
+  // Active tab lives in the URL (?tab=). A ?task= deep link with no explicit
+  // tab lands on Activity, where the task panel opens; otherwise Overview.
+  const tabParam = searchParams.get("tab");
+  const active: Tab = TABS.some((t) => t.id === tabParam)
+    ? (tabParam as Tab)
+    : searchParams.get("task")
+      ? "activity"
+      : "overview";
+  const tabRefs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
+  const setActive = useCallback(
+    (id: Tab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", id);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+  function onTabKeyDown(e: React.KeyboardEvent, index: number) {
+    let next = -1;
+    if (e.key === "ArrowRight") next = (index + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") next = (index - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    if (next < 0) return;
+    e.preventDefault();
+    const id = TABS[next].id;
+    setActive(id);
+    tabRefs.current[id]?.focus();
+  }
 
   // Resolve owner/assignee UUIDs to display names. Tasks/milestones reference
   // profiles(id), so we key the map by both resource-member id AND the linked
@@ -863,37 +894,57 @@ export function ProjectTabs({
 
   return (
     <div className="space-y-6">
-      {/* Segmented tab bar — scrollable on mobile, snaps to whole tabs so a
-          swipe lands cleanly instead of stopping mid-label. */}
-      <div className="flex gap-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-lg bg-sunken p-1 border border-border-subtle">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActive(tab.id)}
-            className={cn(
-              "shrink-0 snap-start rounded-md px-4 py-2.5 sm:py-1.5 text-sm font-medium transition-colors duration-150 min-h-[44px] sm:min-h-0",
-              active === tab.id
-                ? "bg-surface text-ink shadow-sm"
-                : "text-ink-secondary hover:text-ink hover:bg-surface/50"
-            )}
-          >
-            {tab.label}
-            {/* Count badges for risks/issues */}
-            {tab.id === "risks" && risks.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-warning/20 text-warning px-1.5 py-0.5 text-2xs font-semibold tabular-nums">
-                {risks.filter((r) => r.status === "open" || r.status === "mitigating").length}
-              </span>
-            )}
-            {tab.id === "issues" && issues.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-danger/20 text-danger px-1.5 py-0.5 text-2xs font-semibold tabular-nums">
-                {issues.filter((i) => i.status === "open" || i.status === "in_progress").length}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* Tab bar: WAI-ARIA tabs, URL-driven. Scrolls horizontally on small
+          screens; the edge fade signals there are more tabs off-screen. */}
+      <div className="relative">
+        <div
+          role="tablist"
+          aria-label="Project sections"
+          className="flex gap-1 overflow-x-auto snap-x snap-mandatory whitespace-nowrap [scrollbar-width:thin] rounded-lg bg-sunken p-1 border border-border-subtle"
+        >
+          {TABS.map((tab, i) => (
+            <button
+              key={tab.id}
+              ref={(el) => {
+                tabRefs.current[tab.id] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`project-tab-${tab.id}`}
+              aria-selected={active === tab.id}
+              aria-controls="project-tabpanel"
+              tabIndex={active === tab.id ? 0 : -1}
+              onClick={() => setActive(tab.id)}
+              onKeyDown={(e) => onTabKeyDown(e, i)}
+              className={cn(
+                "focus-ring shrink-0 snap-start rounded-md px-4 py-2.5 sm:py-1.5 text-sm font-medium transition-colors duration-150 min-h-[44px] sm:min-h-0",
+                active === tab.id
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-secondary hover:text-ink hover:bg-surface/50"
+              )}
+            >
+              {tab.label}
+              {tab.id === "risks" && risks.length > 0 && (
+                <Badge tone="warning" size="sm" className="ml-1.5 tabular-nums">
+                  {risks.filter((r) => r.status === "open" || r.status === "mitigating").length}
+                </Badge>
+              )}
+              {tab.id === "issues" && issues.length > 0 && (
+                <Badge tone="danger" size="sm" className="ml-1.5 tabular-nums">
+                  {issues.filter((i) => i.status === "open" || i.status === "in_progress").length}
+                </Badge>
+              )}
+            </button>
+          ))}
+        </div>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-y-px right-px w-8 rounded-r-lg bg-gradient-to-l from-sunken to-transparent sm:hidden"
+        />
       </div>
 
       {/* Tab content */}
+      <div role="tabpanel" id="project-tabpanel" aria-labelledby={`project-tab-${active}`} tabIndex={0} className="space-y-6 focus-ring rounded-lg">
       {active === "charter" && (
         <CharterSection
           project={project}
@@ -951,6 +1002,7 @@ export function ProjectTabs({
       {active === "history" && (
         <HistoryTimeline projectId={project.id} />
       )}
+      </div>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { PageContainer } from "@/components/ui/page-container";
 import { TableSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 /**
@@ -6,8 +7,8 @@ import { TableSkeleton, Skeleton } from "@/components/ui/skeleton";
  */
 export default function ChangeControlLoading() {
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-6">
+      <div className="space-y-6">
         {/* page header */}
         <div className="flex items-center justify-between gap-3">
           <Skeleton variant="text" width="w-36" height="h-7" />
@@ -17,6 +18,6 @@ export default function ChangeControlLoading() {
         {/* change requests table: ref, title, project, impact, priority, status, requested by, date */}
         <TableSkeleton rows={7} cols={8} />
       </div>
-    </div>
+    </PageContainer>
   );
 }

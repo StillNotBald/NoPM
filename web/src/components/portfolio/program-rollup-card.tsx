@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import type { ProgramRollup } from "@/lib/insight/program-rollup";
 import { useInspector } from "@/components/layout/app-shell";
+import { PacingBar } from "@/components/budget/pacing-bar";
 import { ProgramForm, type Program } from "@/components/forms/program-form";
 
 export interface ProgramRollupCardProps {
@@ -16,7 +17,12 @@ export interface ProgramRollupCardProps {
 
 function fmtMoney(amount: number, currency: string | null): string {
   if (currency === null) return "—";
-  return `${currency} ${amount.toLocaleString("en-US", {
+  // Long amounts go compact (USD 4.5M); the NBSP keeps currency + number together.
+  if (Math.abs(amount) >= 1_000_000) {
+    const c = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 }).format(amount);
+    return `${currency} ${c}`;
+  }
+  return `${currency} ${amount.toLocaleString("en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   })}`;
@@ -34,7 +40,7 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
   return (
     <div className="rounded-lg border border-border-subtle bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border-subtle px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 max-w-full items-center gap-2">
           {program.code && (
             <span className="font-mono text-xs text-ink-muted shrink-0">{program.code}</span>
           )}
@@ -44,9 +50,9 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
           </span>
         </div>
 
-        <div className="flex shrink-0 items-center gap-4">
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-4 gap-y-2">
           {/* Declared vs computed RAG, side by side (L-02) */}
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
             <span className="text-ink-muted">Declared</span>
             <Badge size="sm" tone={ragTone(program.rag_status)}>
               {ragLabel(program.rag_status)}
@@ -96,12 +102,12 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
             <p className="text-[11px] uppercase tracking-wide text-ink-muted">Budget Variance</p>
             <p
               className={cn(
-                "mt-0.5 font-mono text-base font-semibold tabular-nums",
+                "mt-0.5 whitespace-nowrap font-mono text-base font-semibold tabular-nums",
                 rollup.currency === null
                   ? "text-ink-muted"
                   : rollup.budgetVariance < 0
-                  ? "text-danger"
-                  : "text-success",
+                  ? "text-danger-ink"
+                  : "text-success-ink",
               )}
             >
               {rollup.currency === null
@@ -116,14 +122,32 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
           {/* Actual vs planned cost */}
           <div>
             <p className="text-[11px] uppercase tracking-wide text-ink-muted">Actual / Planned</p>
-            <p className="mt-0.5 font-mono text-base font-semibold text-ink tabular-nums">
-              {rollup.currency === null
-                ? "—"
-                : `${fmtMoney(rollup.actualAmount, rollup.currency)} / ${fmtMoney(
-                    rollup.plannedAmount,
-                    rollup.currency,
-                  )}`}
+            <p
+              className="mt-0.5 font-mono text-base font-semibold text-ink tabular-nums"
+              title={
+                rollup.currency === null
+                  ? undefined
+                  : `${rollup.currency} ${rollup.actualAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })} / ${rollup.plannedAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+              }
+            >
+              {rollup.currency === null ? (
+                "—"
+              ) : (
+                <>
+                  <span className="whitespace-nowrap">{fmtMoney(rollup.actualAmount, rollup.currency)}</span>
+                  {" / "}
+                  <span className="whitespace-nowrap">{fmtMoney(rollup.plannedAmount, rollup.currency)}</span>
+                </>
+              )}
             </p>
+            {rollup.currency !== null && (
+              <PacingBar
+                className="mt-1.5"
+                burnPct={rollup.burnPct ?? 0}
+                expectedPct={rollup.completionPct ?? 0}
+                hasPlan={rollup.plannedAmount > 0}
+              />
+            )}
           </div>
 
           {/* Allocated effort vs capacity */}

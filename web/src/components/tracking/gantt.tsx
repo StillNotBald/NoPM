@@ -9,6 +9,22 @@ import {
   toCpmMap,
   type CpmInputDep,
 } from "@/lib/schedule/cpm";
+import {
+  barLayout as calcBarLayout,
+  computeBounds,
+  describeBar,
+  fmtDate,
+  fmtRange,
+  fmtSlip,
+  iterDays,
+  monthTicks,
+  slipDays,
+  toDay,
+  type Span,
+} from "@/lib/timeline";
+import { TimelineBar, type TimelineBarPattern } from "@/components/timeline/timeline-bar";
+import { TimelineTable } from "@/components/timeline/timeline-table";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
 
@@ -71,48 +87,6 @@ const DAY_W: Record<"week" | "month", number> = {
   week: 36,
   month: 16,
 };
-
-// ── Date utilities ────────────────────────────────────────────────────────────
-
-function startOfDay(iso: string): Date {
-  const d = new Date(iso);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
-
-function toDay(d: Date | string): number {
-  const dt = typeof d === "string" ? startOfDay(d) : d;
-  return Math.floor(dt.getTime() / 86_400_000);
-}
-
-function addDays(base: Date, n: number): Date {
-  const d = new Date(base);
-  d.setDate(d.getDate() + n);
-  return d;
-}
-
-// isoDate removed (unused)
-
-function fmtShort(d: string | null): string {
-  if (!d) return "—";
-  return startOfDay(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-/** Returns the slip in calendar days (positive = current is later than baseline). */
-function slipDays(current: string | null, baseline: string | null): number | null {
-  if (!current || !baseline) return null;
-  return toDay(current) - toDay(baseline);
-}
-
-function fmtSlip(days: number | null): string | null {
-  if (days === null || days === 0) return null;
-  return days > 0 ? `+${days}d` : `${days}d`;
-}
-
-/** Iterate calendar days from startDay number inclusive. */
-function iterDays(startDay: number, count: number): Date[] {
-  const base = new Date(startDay * 86_400_000);
-  return Array.from({ length: count }, (_, i) => addDays(base, i));
-}
 
 // ── Bar colour families ───────────────────────────────────────────────────────
 
@@ -191,6 +165,7 @@ export function GanttChart({
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const dayW = DAY_W[view];
+  const pref = useDateDisplayPref();
 
   // ── CPM: critical path + dep arrows ───────────────────────────────────────
 
@@ -252,48 +227,17 @@ export function GanttChart({
     const allDates = [
       ...milestones.flatMap((m) => [m.target_date, m.baseline_target_date]),
       ...tasks.flatMap((t) => [t.start_date, t.due_date, t.baseline_start_date, t.baseline_due_date]),
-    ].filter(Boolean) as string[];
-
-    if (allDates.length === 0) {
-      return { minDay: todayDay - 14, maxDay: todayDay + 60, totalDays: 75 };
-    }
-
-    const days = allDates.map((d) => toDay(d));
-    const rawMin = Math.min(...days);
-    const rawMax = Math.max(...days);
-    // Pad a bit
-    const minDay = rawMin - 14;
-    const maxDay = rawMax + 28;
-    return { minDay, maxDay, totalDays: maxDay - minDay + 1 };
+    ];
+    return computeBounds(allDates, todayDay);
   }, [milestones, tasks, todayDay]);
 
   // ── Header ticks ──────────────────────────────────────────────────────────
 
-  interface MonthTick { label: string; col: number; isMajor: true }
-  interface WeekTick  { col: number; isMajor: false }
-  type Tick = MonthTick | WeekTick;
-
-  const ticks = useMemo((): Tick[] => {
-    const result: Tick[] = [];
-    const days = iterDays(minDay, totalDays);
-    let lastMonth = -1;
-    days.forEach((d, i) => {
-      const month = d.getMonth();
-      if (month !== lastMonth) {
-        result.push({
-          label: d.toLocaleDateString("en-US", { month: "long", year: "numeric" }),
-          col: i,
-          isMajor: true,
-        });
-        lastMonth = month;
-      }
-      // Week boundary (Monday)
-      if (d.getDay() === 1 && i > 0) {
-        result.push({ col: i, isMajor: false });
-      }
-    });
-    return result;
-  }, [minDay, totalDays]);
+  const monthHeaderTicks = useMemo(() => monthTicks(minDay, totalDays), [minDay, totalDays]);
+  const weekTickCols = useMemo(
+    () => iterDays(minDay, totalDays).flatMap((d, i) => (d.getDay() === 1 && i > 0 ? [i] : [])),
+    [minDay, totalDays],
+  );
 
   // Sub-header labels (weeks in month view, day numbers in week view)
   const subLabels = useMemo(() => {
@@ -304,7 +248,7 @@ export function GanttChart({
       days.forEach((d, i) => {
         if (d.getDay() === 1 || i === 0) {
           result.push({
-            label: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+            label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
             col: i,
           });
         }
@@ -330,27 +274,18 @@ export function GanttChart({
    * without re-calling barLayout inside the SVG pass (minDay is now in scope).
    */
   const taskBarPixels = useMemo(() => {
-    const map = new Map<string, { left: number; width: number }>();
+    const map = new Map<string, Span>();
     for (const t of tasks) {
-      if (!t.start_date && !t.due_date) continue;
-      const s = t.start_date ? (toDay(t.start_date) - minDay) * dayW : null;
-      const e = t.due_date ? (toDay(t.due_date) - minDay) * dayW + dayW : null;
-      const left = s ?? e!;
-      const right = e ?? (s! + dayW);
-      map.set(t.id, { left, width: Math.max(right - left, dayW) });
+      const sp = calcBarLayout(t.start_date, t.due_date, minDay, dayW);
+      if (sp) map.set(t.id, sp);
     }
     return map;
   }, [tasks, minDay, dayW]);
 
   // ── Bar layout helpers ─────────────────────────────────────────────────────
 
-  function barLayout(start: string | null, end: string | null): { left: number; width: number } | null {
-    if (!start && !end) return null;
-    const s = start ? (toDay(start) - minDay) * dayW : null;
-    const e = end   ? (toDay(end)   - minDay) * dayW + dayW : null;
-    const left  = s ?? e!;
-    const right = e ?? (s! + dayW);
-    return { left, width: Math.max(right - left, dayW) };
+  function barLayout(start: string | null, end: string | null): Span | null {
+    return calcBarLayout(start, end, minDay, dayW);
   }
 
   // ── Milestone bracket (span across its tasks) ──────────────────────────────
@@ -381,6 +316,130 @@ export function GanttChart({
     );
   }
 
+  // ── Task row (shared by milestone-nested and standalone tasks) ─────────────
+
+  const PATTERN: Record<Task["status_type"], TimelineBarPattern> = {
+    completed: "solid",
+    started: "plain",
+    unstarted: "dashed",
+    backlog: "dashed",
+    canceled: "striped",
+  };
+  const STATUS_TEXT: Record<Task["status_type"], string> = {
+    completed: "completed",
+    started: "in progress",
+    unstarted: "not started",
+    backlog: "backlog",
+    canceled: "canceled",
+  };
+
+  function taskTableRow(t: Task) {
+    return [
+      t.name,
+      "Task",
+      fmtRange(t.start_date, t.due_date, pref),
+      STATUS_TEXT[t.status_type],
+      `${t.completion_pct}%`,
+      cpmMap.get(t.id)?.isCritical ? "yes" : "no",
+      fmtSlip(slipDays(t.due_date, t.baseline_due_date)) ?? "none",
+    ];
+  }
+
+  function renderTaskRow(t: Task) {
+    const bp = barLayout(t.start_date, t.due_date);
+    const bpBaseline = barLayout(t.baseline_start_date, t.baseline_due_date);
+    const cls = taskBarClasses(t.status_type);
+    const showPct = (bp?.width ?? 0) >= 32;
+    const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
+    const slip = slipDays(t.due_date, t.baseline_due_date);
+    const taskSlip = fmtSlip(slip);
+
+    return (
+      <div
+        key={t.id}
+        className="relative border-b border-border-subtle"
+        style={{ height: ROW_H_TASK, width: totalPx }}
+      >
+        {bp && (
+          <>
+            {/* Baseline ghost bar (behind current bar) */}
+            {bpBaseline && (
+              <div
+                className="absolute top-1/2 -translate-y-1/2 h-4 rounded-full opacity-25 pointer-events-none"
+                style={{
+                  left:       bpBaseline.left,
+                  width:      bpBaseline.width,
+                  background: "var(--color-border-strong)",
+                }}
+                aria-hidden
+              />
+            )}
+
+            {/* Critical-path ring (outline) */}
+            {isCritical && (
+              <div
+                className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full pointer-events-none"
+                style={{
+                  left:   bp.left - 2,
+                  width:  bp.width + 4,
+                  outline: "2px solid var(--color-danger)",
+                  outlineOffset: 1,
+                }}
+                aria-hidden
+              />
+            )}
+
+            {/* Track bar */}
+            <TimelineBar
+              label={describeBar({
+                name: t.name,
+                start: t.start_date,
+                end: t.due_date,
+                status: STATUS_TEXT[t.status_type],
+                progressPct: t.completion_pct,
+                critical: isCritical,
+                slip,
+                pref,
+              })}
+              pattern={PATTERN[t.status_type]}
+              className={cn(
+                "absolute top-1/2 -translate-y-1/2 h-5 rounded-full overflow-hidden flex items-center",
+                cls.track
+              )}
+              style={{ left: bp.left, width: bp.width }}
+            >
+              {/* Progress fill */}
+              <div
+                className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
+                style={{ width: `${Math.min(t.completion_pct, 100)}%` }}
+              />
+              {/* % label */}
+              {showPct && t.completion_pct > 0 && (
+                <span className="absolute inset-0 flex items-center justify-center select-none pointer-events-none">
+                  {/* ink on a canvas chip: >=4.5:1 over any track/fill, both themes */}
+                  <span className="rounded-sm bg-canvas/85 px-1 text-xs font-semibold leading-4 text-ink">
+                    {t.completion_pct}%
+                  </span>
+                </span>
+              )}
+            </TimelineBar>
+
+            {/* Slip indicator label to the right of the bar */}
+            {taskSlip && (
+              <span
+                className="absolute top-1/2 -translate-y-1/2 font-mono text-xs font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
+                style={{ left: bp.left + bp.width + 4 }}
+                title={`Slipped ${taskSlip} vs baseline`}
+              >
+                {taskSlip}
+              </span>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
@@ -401,8 +460,9 @@ export function GanttChart({
             <button
               key={v}
               onClick={() => setView(v)}
+              aria-pressed={view === v}
               className={cn(
-                "rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[44px] sm:min-h-[36px]",
+                "focus-ring rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[44px] sm:min-h-[36px]",
                 view === v
                   ? "bg-surface text-ink shadow-sm"
                   : "text-ink-secondary hover:text-ink"
@@ -431,18 +491,19 @@ export function GanttChart({
               style={{ height: HEADER_H }}
             >
               {!leftCollapsed && (
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted select-none">
+                <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted select-none">
                   Name
                 </span>
               )}
               <button
                 onClick={() => setLeftCollapsed((c) => !c)}
-                className="relative ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150 before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
-                title={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                className="focus-ring relative ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150 before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
+                aria-label={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-expanded={!leftCollapsed}
               >
                 {leftCollapsed
-                  ? <ChevronRight size={13} />
-                  : <ChevronLeft size={13} />
+                  ? <ChevronRight size={13} aria-hidden />
+                  : <ChevronLeft size={13} aria-hidden />
                 }
               </button>
             </div>
@@ -522,9 +583,9 @@ export function GanttChart({
               >
                 {/* Row 1: month labels */}
                 <div className="relative" style={{ height: HEADER_H / 2 }}>
-                  {ticks.filter((t) => t.isMajor).map((t) => (
+                  {monthHeaderTicks.map((t) => (
                     <div
-                      key={(t as MonthTick).label + t.col}
+                      key={t.label + t.col}
                       className="absolute top-0 bottom-0 flex items-center px-2 pointer-events-none"
                       style={{ left: t.col * dayW }}
                     >
@@ -533,8 +594,8 @@ export function GanttChart({
                         className="absolute left-0 top-0 bottom-0 w-px bg-border-subtle"
                         style={{ opacity: 0.6 }}
                       />
-                      <span className="text-[11px] font-semibold text-ink-secondary whitespace-nowrap select-none">
-                        {(t as MonthTick).label}
+                      <span className="text-xs font-semibold text-ink-secondary whitespace-nowrap select-none">
+                        {t.label}
                       </span>
                     </div>
                   ))}
@@ -556,7 +617,7 @@ export function GanttChart({
                         paddingLeft: view === "month" ? 4 : 0,
                       }}
                     >
-                      <span className="text-2xs text-ink-muted whitespace-nowrap select-none">
+                      <span className="text-xs text-ink-muted whitespace-nowrap select-none">
                         {sl.label}
                       </span>
                     </div>
@@ -569,7 +630,7 @@ export function GanttChart({
                       style={{ left: todayOffset }}
                     >
                       <div className="rounded-full bg-accent px-1.5 py-0.5">
-                        <span className="text-2xs font-bold text-white whitespace-nowrap select-none">
+                        <span className="text-xs font-bold text-accent-ink whitespace-nowrap select-none">
                           Today
                         </span>
                       </div>
@@ -584,7 +645,7 @@ export function GanttChart({
                 style={{ top: HEADER_H, bottom: 0 }}
               >
                 {/* Month strong lines */}
-                {ticks.filter((t) => t.isMajor).map((t) => (
+                {monthHeaderTicks.map((t) => (
                   <div
                     key={`grid-major-${t.col}`}
                     className="absolute top-0 bottom-0 w-px bg-border-subtle"
@@ -592,11 +653,11 @@ export function GanttChart({
                   />
                 ))}
                 {/* Week faint lines */}
-                {ticks.filter((t) => !t.isMajor).map((t, i) => (
+                {weekTickCols.map((col, i) => (
                   <div
                     key={`grid-minor-${i}`}
                     className="absolute top-0 bottom-0 w-px bg-border-subtle"
-                    style={{ left: t.col * dayW, opacity: 0.25 }}
+                    style={{ left: col * dayW, opacity: 0.25 }}
                   />
                 ))}
                 {/* Today line */}
@@ -655,7 +716,8 @@ export function GanttChart({
                           <div
                             className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center justify-center"
                             style={{ left: baselineDiamondLeft, opacity: 0.3 }}
-                            title={`Baseline target: ${fmtShort(ms.baseline_target_date)}`}
+                            title={`Baseline target: ${fmtDate(ms.baseline_target_date, pref)}`}
+                            aria-hidden
                           >
                             <DiamondIcon className="w-3.5 h-3.5 text-ink-muted" />
                           </div>
@@ -663,110 +725,33 @@ export function GanttChart({
 
                         {/* Diamond at target_date */}
                         {diamondLeft !== null && (
-                          <div
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center"
+                          <TimelineBar
+                            label={describeBar({
+                              kind: "Milestone",
+                              name: ms.name,
+                              end: ms.target_date,
+                              status: ms.status.replace("_", " "),
+                              slip: slipDays(ms.target_date, ms.baseline_target_date),
+                              pref,
+                            })}
+                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center rounded-sm"
                             style={{ left: diamondLeft }}
-                            title={`Target: ${fmtShort(ms.target_date)}${ms.baseline_target_date ? ` · Baseline: ${fmtShort(ms.baseline_target_date)}` : ""}`}
                           >
                             <DiamondIcon
                               className={cn("w-3.5 h-3.5", milestoneTrackClass(ms.status))}
                             />
                             {/* Slip indicator */}
                             {msSlip && (
-                              <span
-                                className="ml-0.5 font-mono text-2xs font-semibold text-warning select-none whitespace-nowrap"
-                                title={`Slipped ${msSlip} vs baseline`}
-                              >
+                              <span className="ml-0.5 font-mono text-xs font-semibold text-warning select-none whitespace-nowrap">
                                 {msSlip}
                               </span>
                             )}
-                          </div>
+                          </TimelineBar>
                         )}
                       </div>
 
                       {/* Task rows */}
-                      {msTasks.map((t) => {
-                        const bp = barLayout(t.start_date, t.due_date);
-                        const bpBaseline = barLayout(t.baseline_start_date, t.baseline_due_date);
-                        const cls = taskBarClasses(t.status_type);
-                        const barPx = bp?.width ?? 0;
-                        const showPct = barPx >= 32;
-                        const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
-
-                        // Slip: compare due_date vs baseline_due_date
-                        const taskSlip = fmtSlip(slipDays(t.due_date, t.baseline_due_date));
-
-                        return (
-                          <div
-                            key={t.id}
-                            className="relative border-b border-border-subtle"
-                            style={{ height: ROW_H_TASK, width: totalPx }}
-                          >
-                            {bp && (
-                              <>
-                                {/* Baseline ghost bar (behind current bar) */}
-                                {bpBaseline && (
-                                  <div
-                                    className="absolute top-1/2 -translate-y-1/2 h-4 rounded-full opacity-25 pointer-events-none"
-                                    style={{
-                                      left:       bpBaseline.left,
-                                      width:      bpBaseline.width,
-                                      background: "var(--color-border-strong)",
-                                    }}
-                                    title={`Baseline: ${fmtShort(t.baseline_start_date)} – ${fmtShort(t.baseline_due_date)}`}
-                                  />
-                                )}
-
-                                {/* Critical-path ring (coral outline) */}
-                                {isCritical && (
-                                  <div
-                                    className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full pointer-events-none"
-                                    style={{
-                                      left:   bp.left - 2,
-                                      width:  bp.width + 4,
-                                      outline: "2px solid var(--color-danger)",
-                                      outlineOffset: 1,
-                                    }}
-                                  />
-                                )}
-
-                                {/* Track bar */}
-                                <div
-                                  className={cn(
-                                    "absolute top-1/2 -translate-y-1/2 h-5 rounded-full overflow-hidden flex items-center",
-                                    cls.track
-                                  )}
-                                  style={{ left: bp.left, width: bp.width }}
-                                  title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}${taskSlip ? ` · Slip ${taskSlip}` : ""}`}
-                                >
-                                  {/* Progress fill */}
-                                  <div
-                                    className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
-                                    style={{ width: `${Math.min(t.completion_pct, 100)}%` }}
-                                  />
-                                  {/* % label */}
-                                  {showPct && t.completion_pct > 0 && (
-                                    <span className="absolute inset-0 flex items-center justify-center text-2xs font-semibold text-white/80 select-none pointer-events-none">
-                                      {t.completion_pct}%
-                                    </span>
-                                  )}
-                                </div>
-
-                                {/* Slip indicator label to the right of the bar */}
-                                {taskSlip && (
-                                  <span
-                                    className="absolute top-1/2 -translate-y-1/2 font-mono text-2xs font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
-                                    style={{ left: bp.left + bp.width + 4 }}
-                                    title={`Slipped ${taskSlip} vs baseline`}
-                                  >
-                                    {taskSlip}
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {msTasks.map(renderTaskRow)}
                     </div>
                   );
                 })}
@@ -775,82 +760,7 @@ export function GanttChart({
                 {tasks
                   .filter((t) => !t.milestone_id)
                   .sort((a, b) => a.sort_order - b.sort_order)
-                  .map((t) => {
-                    const bp = barLayout(t.start_date, t.due_date);
-                    const bpBaseline = barLayout(t.baseline_start_date, t.baseline_due_date);
-                    const cls = taskBarClasses(t.status_type);
-                    const barPx = bp?.width ?? 0;
-                    const showPct = barPx >= 32;
-                    const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
-
-                    // Slip: compare due_date vs baseline_due_date
-                    const taskSlip = fmtSlip(slipDays(t.due_date, t.baseline_due_date));
-
-                    return (
-                      <div
-                        key={t.id}
-                        className="relative border-b border-border-subtle"
-                        style={{ height: ROW_H_TASK, width: totalPx }}
-                      >
-                        {bp && (
-                          <>
-                            {/* Baseline ghost bar (behind current bar) */}
-                            {bpBaseline && (
-                              <div
-                                className="absolute top-1/2 -translate-y-1/2 h-4 rounded-full opacity-25 pointer-events-none"
-                                style={{
-                                  left:       bpBaseline.left,
-                                  width:      bpBaseline.width,
-                                  background: "var(--color-border-strong)",
-                                }}
-                                title={`Baseline: ${fmtShort(t.baseline_start_date)} – ${fmtShort(t.baseline_due_date)}`}
-                              />
-                            )}
-                            {/* Critical-path ring (coral outline) */}
-                            {isCritical && (
-                              <div
-                                className="absolute top-1/2 -translate-y-1/2 h-5 rounded-full pointer-events-none"
-                                style={{
-                                  left:   bp.left - 2,
-                                  width:  bp.width + 4,
-                                  outline: "2px solid var(--color-danger)",
-                                  outlineOffset: 1,
-                                }}
-                              />
-                            )}
-                            <div
-                              className={cn(
-                                "absolute top-1/2 -translate-y-1/2 h-5 rounded-full overflow-hidden flex items-center",
-                                cls.track
-                              )}
-                              style={{ left: bp.left, width: bp.width }}
-                              title={`${t.name} · ${fmtShort(t.start_date)} – ${fmtShort(t.due_date)}${isCritical ? " · Critical path" : ""}${taskSlip ? ` · Slip ${taskSlip}` : ""}`}
-                            >
-                              <div
-                                className={cn("h-full rounded-full transition-all duration-300", cls.fill)}
-                                style={{ width: `${Math.min(t.completion_pct, 100)}%` }}
-                              />
-                              {showPct && t.completion_pct > 0 && (
-                                <span className="absolute inset-0 flex items-center justify-center text-2xs font-semibold text-white/80 select-none pointer-events-none">
-                                  {t.completion_pct}%
-                                </span>
-                              )}
-                            </div>
-                            {/* Slip indicator label to the right of the bar */}
-                            {taskSlip && (
-                              <span
-                                className="absolute top-1/2 -translate-y-1/2 font-mono text-2xs font-semibold text-warning select-none pointer-events-none whitespace-nowrap"
-                                style={{ left: bp.left + bp.width + 4 }}
-                                title={`Slipped ${taskSlip} vs baseline`}
-                              >
-                                {taskSlip}
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
+                  .map(renderTaskRow)}
 
                 {/* ── Dependency arrows SVG overlay ─────────────────────────── */}
                 {dependencies.length > 0 && (() => {
@@ -975,6 +885,33 @@ export function GanttChart({
         </div>
       </div>
 
+      {/* Text alternative for the chart */}
+      <TimelineTable
+        caption="Schedule: milestones and tasks with dates, status, critical path and slip against baseline"
+        columns={["Item", "Type", "Dates", "Status", "Progress", "Critical path", "Slip vs baseline"]}
+        rows={[
+          ...sortedMs.flatMap((ms) => [
+            [
+              ms.name,
+              "Milestone",
+              fmtDate(ms.target_date, pref),
+              ms.status.replace("_", " "),
+              `${ms.completion_pct}%`,
+              "-",
+              fmtSlip(slipDays(ms.target_date, ms.baseline_target_date)) ?? "none",
+            ],
+            ...tasks
+              .filter((t) => t.milestone_id === ms.id)
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map(taskTableRow),
+          ]),
+          ...tasks
+            .filter((t) => !t.milestone_id)
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map(taskTableRow),
+        ]}
+      />
+
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1">
         {[
@@ -985,19 +922,19 @@ export function GanttChart({
         ].map(({ label, bg }) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className={cn("h-2 w-4 rounded-full", bg)} />
-            <span className="text-[11px] text-ink-muted">{label}</span>
+            <span className="text-xs text-ink-muted">{label}</span>
           </div>
         ))}
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-px bg-accent/60" style={{ display: "inline-block" }} />
-          <span className="text-[11px] text-ink-muted">Today</span>
+          <span className="text-xs text-ink-muted">Today</span>
         </div>
         {/* Baseline legend entry — shown when any task/milestone has baseline data */}
         {(tasks.some((t) => t.baseline_start_date || t.baseline_due_date) ||
           milestones.some((m) => m.baseline_target_date)) && (
           <div className="flex items-center gap-1.5">
             <span className="h-2 w-4 rounded-full bg-border-strong opacity-30" />
-            <span className="text-[11px] text-ink-muted">Baseline</span>
+            <span className="text-xs text-ink-muted">Baseline</span>
           </div>
         )}
         {dependencies.length > 0 && (
@@ -1007,14 +944,14 @@ export function GanttChart({
                 className="inline-block h-0 w-4 rounded-full"
                 style={{ borderTop: "2px solid var(--color-danger)", opacity: 0.85 }}
               />
-              <span className="text-[11px] text-ink-muted">Critical path</span>
+              <span className="text-xs text-ink-muted">Critical path</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span
                 className="inline-block h-0 w-4 rounded-full"
                 style={{ borderTop: "2px solid var(--color-border-strong)", opacity: 0.5 }}
               />
-              <span className="text-[11px] text-ink-muted">Dependency</span>
+              <span className="text-xs text-ink-muted">Dependency</span>
             </div>
           </>
         )}

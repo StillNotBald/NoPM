@@ -50,10 +50,10 @@ const BAND_LABEL: Record<ExposureBand, string> = {
 
 // Solid fill (the cell background) + a readable foreground for the count.
 const BAND_FILL: Record<ExposureBand, string> = {
-  low: "bg-success/15 text-success",
-  medium: "bg-warning/15 text-warning",
-  high: "bg-[var(--danger)]/15 text-danger",
-  critical: "bg-danger/25 text-danger",
+  low: "bg-success/15 text-success-ink",
+  medium: "bg-warning/15 text-warning-ink",
+  high: "bg-[var(--danger)]/15 text-danger-ink",
+  critical: "bg-danger/25 text-danger-ink",
 };
 
 // The dot in the legend / band key.
@@ -105,7 +105,31 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
     // overflow" clipping quirk. Desktop (room for the full 460px) is
     // pixel-identical: mx-auto centers exactly like justify-center did.
     <div className="overflow-x-auto">
-      <div className="mx-auto flex items-stretch gap-3 max-w-[460px] w-full min-w-[420px]">
+      {/* Text alternative: per-cell counts for assistive tech (the visual grid is aria-hidden) */}
+      <div className="sr-only"><table>
+        <caption>Risk counts by impact (rows) and probability band (columns)</caption>
+        <thead>
+          <tr>
+            <th scope="col">Impact</th>
+            {probAxis.map((label) => (
+              <th key={label} scope="col">
+                Probability {label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {impactAxis.map((impactLabel, rowIdx) => (
+            <tr key={impactLabel}>
+              <th scope="row">Impact {impactLabel}</th>
+              {counts[4 - rowIdx].map((n, colIdx) => (
+                <td key={colIdx}>{n}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table></div>
+      <div aria-hidden="true" className="mx-auto flex items-stretch gap-3 max-w-[460px] w-full min-w-[420px]">
         {/* Y axis label */}
         <div className="flex items-center">
           <span className="rotate-180 text-2xs font-medium uppercase tracking-wide text-ink-muted [writing-mode:vertical-rl]">

@@ -15,6 +15,7 @@ import { AssistantPanel } from "@/components/assistant/panel";
 import { TrafficLights } from "@/components/ui/terminal-card";
 import { ToastProvider } from "@/components/ui/toast";
 import type { NavMode } from "@/lib/nav/nav-mode";
+import type { PendingCounts } from "@/lib/governance/pending-counts";
 import { PageHint } from "@/components/onboarding/page-hint";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
@@ -38,10 +39,13 @@ export const useInspector = () => useContext(InspectorCtx);
 export function AppShell({
   children,
   initialNavMode = "all",
+  pendingCounts = null,
 }: {
   children: ReactNode;
   /** Server-resolved sidebar mode (R-78) — defaults to "all" so any other caller is unaffected. */
   initialNavMode?: NavMode;
+  /** Server-computed governance queue counts for the nav badges (fail-soft). */
+  pendingCounts?: PendingCounts | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [inspector, setInspector] = useState<InspectorPayload | null>(null);
@@ -64,7 +68,7 @@ export function AppShell({
         close: () => setInspector(null),
       }}
     >
-      <div className="flex h-dvh overflow-hidden bg-canvas text-ink">
+      <div data-shell-root className="flex h-dvh overflow-hidden bg-canvas text-ink">
         {/* data-app-shell — the background region made `inert` while a sheet
             (RightPushPanel/Modal) is open below lg (useInertShell). Scoped to
             sidebar + header + content + bottom nav; the overlay layers below
@@ -73,29 +77,31 @@ export function AppShell({
         <div data-app-shell className="flex min-w-0 flex-1">
           {/* sidebar — desktop only */}
           <div
+            data-shell-chrome
             className={cn(
               "hidden shrink-0 lg:block lg:transition-[width]",
               collapsed ? "lg:w-[64px]" : "lg:w-60",
             )}
           >
-            <Sidebar collapsed={collapsed} initialNavMode={initialNavMode} />
+            <Sidebar collapsed={collapsed} initialNavMode={initialNavMode} pendingCounts={pendingCounts} />
           </div>
 
           {/* main column — margin pushed right when panel is open on desktop */}
           <div
+            data-shell-column
             className={cn(
               "flex min-w-0 flex-1 flex-col",
               isOpen && !expanded ? PUSH_MARGIN : PUSH_MARGIN_NONE,
             )}
           >
-            <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle bg-canvas/80 px-3 backdrop-blur-xl sm:px-4">
+            <header data-shell-chrome className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b border-border-subtle bg-canvas/80 px-3 backdrop-blur-xl sm:px-4">
               {/* macOS window chrome — terminal motif */}
               <div className="hidden pr-1 sm:flex">
                 <TrafficLights size="md" />
               </div>
               {/* brand shown when there's no sidebar (mobile/tablet) */}
               <div className="flex items-center gap-1.5 lg:hidden">
-                <span className="inline-block h-4 w-[3px] animate-pulse rounded-[1px] bg-accent" />
+                <span className="inline-block h-4 w-[3px] animate-pulse motion-reduce:animate-none rounded-[1px] bg-accent" />
                 <span className="font-mono font-semibold tracking-tight text-ink">nopm</span>
               </div>
               {/* collapse toggle — desktop only (44px tap area below lg is a no-op
@@ -104,7 +110,8 @@ export function AppShell({
               <button
                 onClick={() => setCollapsed((v) => !v)}
                 className="hidden h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid lg:h-10 lg:w-10"
-                aria-label="Collapse sidebar"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-expanded={!collapsed}
               >
                 {collapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
               </button>
@@ -145,13 +152,13 @@ export function AppShell({
 
             {/* content — grouped grey bg so white cards lift off it (iOS layering);
                 pad bottom on mobile so the bottom nav never covers it */}
-            <main className="min-h-0 flex-1 overflow-auto bg-grouped pb-20 lg:pb-0">
+            <main data-shell-main className="min-h-0 flex-1 overflow-auto bg-grouped pb-20 lg:pb-0">
               {children}
             </main>
           </div>
 
           {/* bottom nav — mobile + tablet */}
-          <BottomNav />
+          <BottomNav pendingCounts={pendingCounts} />
         </div>
 
         {/* command palette — singleton, Cmd/Ctrl-K — outside data-app-shell so

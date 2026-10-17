@@ -1,280 +1,71 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { Badge } from "@/components/ui/badge";
-import { Severity } from "@/components/ui/severity";
-import { Card } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
-import { EntityLink } from "@/components/ui/entity-link";
-import { ClashFocusOpener } from "@/app/(console)/clashes/_clash-focus-opener";
-import { EmptyState } from "@/components/ui/empty-state";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
+import { ClashFocusOpener } from "./_clash-focus-opener";
+import { ClashesView } from "./_clashes-view";
+import type { ClashRow } from "./_types";
 
-type ClashType = "schedule" | "resource" | "dependency";
-type ClashSeverity = "low" | "medium" | "high" | "critical";
-type ClashStatus = "open" | "investigating" | "resolved";
+export const metadata: Metadata = { title: "Clashes" };
 
-export type ClashRow = {
-  id: string;
-  reference_id: string | null;
-  title: string;
-  type: string;
-  severity: string;
-  status: string;
-  description: string | null;
-  over_allocation_pct: number | null;
-  recommended_action: string | null;
-  project_a_id: string | null;
-  project_b_id: string | null;
-};
+type SP = Record<string, string | string[] | undefined>;
 
-function typeTone(t: ClashType) {
-  if (t === "resource") return "warning" as const;
-  if (t === "dependency") return "danger" as const;
-  return "info" as const; // schedule
+const TYPES = new Set(["schedule", "resource", "dependency"]);
+const STATUSES = new Set(["open", "investigating", "resolved"]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function first(v: string | string[] | undefined): string | undefined {
+  const s = Array.isArray(v) ? v[0] : v;
+  return s && s.trim() ? s.trim() : undefined;
 }
 
-function statusTone(s: ClashStatus) {
-  if (s === "resolved") return "success" as const;
-  if (s === "investigating") return "info" as const;
-  return "warning" as const; // open
-}
-
-function typeLabel(t: ClashType) {
-  return t.charAt(0).toUpperCase() + t.slice(1);
-}
-
-function statusLabel(s: ClashStatus) {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
-
-export default async function ClashesPage() {
+export default async function ClashesPage({ searchParams }: { searchParams: Promise<SP> }) {
+  const sp = await searchParams;
   const db = await createClient();
   const {
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: clashes }, { data: projects }] = await Promise.all([
-    db
-      .from("clashes")
-      .select("id, reference_id, title, type, severity, project_a_id, project_b_id, status, description, over_allocation_pct, recommended_action")
-      .order("created_at", { ascending: false }),
+  // Whitelisted URL filters (written by the register toolbar); RLS scopes to the workspace.
+  const type = first(sp.type);
+  const status = first(sp.status);
+  const projectId = first(sp.project_id);
+
+  let clashQuery = db
+    .from("clashes")
+    .select(
+      "id, reference_id, title, type, severity, project_a_id, project_b_id, status, description, over_allocation_pct, recommended_action",
+    )
+    .order("created_at", { ascending: false });
+  if (type && TYPES.has(type)) clashQuery = clashQuery.eq("type", type);
+  if (status && STATUSES.has(status)) clashQuery = clashQuery.eq("status", status);
+  // A clash spans two projects — match either side. UUID-validated before interpolation.
+  if (projectId && UUID.test(projectId)) {
+    clashQuery = clashQuery.or(`project_a_id.eq.${projectId},project_b_id.eq.${projectId}`);
+  }
+
+  const [{ data: clashes, error: clashError }, { data: projects, error: projectsError }] = await Promise.all([
+    clashQuery,
     db.from("projects").select("id, name").order("name"),
   ]);
+
+  if (clashError) return <QueryError what="clashes" message={clashError.message} />;
+  if (projectsError) return <QueryError what="projects" message={projectsError.message} />;
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
   const clashList = (clashes ?? []) as ClashRow[];
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader title="Clash Register" />
-
-      {/* Deep-link auto-open: ?clash=<id> opens the matching row detail */}
+    <PageContainer className="space-y-5">
+      {/* Deep-link auto-open: ?clash=<id> scrolls to and highlights the matching row */}
       <Suspense fallback={null}>
         <ClashFocusOpener clashes={clashList} projectMap={projectMap} />
       </Suspense>
 
-      {/* Legend */}
-      <div className="flex items-center gap-2 text-xs text-ink-muted">
-        <Badge tone="neutral" size="sm">auto</Badge>
-        <span>= system-detected resource over-allocation</span>
-      </div>
-
-      {/* List — table ≥md, cards <md (F5). Hand-rolled rather than <DataList>
-          because the deep-link opener (?clash=<id>) scrolls to and highlights
-          a specific row by DOM id, which DataList's row API does not expose;
-          both renders below carry that same `id`. */}
-      <Card>
-        {clashList.length > 0 ? (
-          <>
-          <ul className="divide-y divide-border-subtle md:hidden">
-            {clashList.map((clash) => {
-              const isAuto = clash.type === "resource";
-              return (
-                <li key={clash.id} id={`clash-m-${clash.id}`} className="flex min-h-[44px] flex-col gap-1.5 px-4 py-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-ink">{clash.title}</span>
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                        {clash.reference_id && (
-                          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
-                            {clash.reference_id}
-                          </span>
-                        )}
-                        {isAuto && (
-                          <Badge tone="neutral" size="sm">
-                            auto
-                          </Badge>
-                        )}
-                        <Badge size="sm" tone={typeTone(clash.type as ClashType)}>
-                          {typeLabel(clash.type as ClashType)}
-                        </Badge>
-                        <Badge size="sm" tone={statusTone(clash.status as ClashStatus)}>
-                          {statusLabel(clash.status as ClashStatus)}
-                        </Badge>
-                      </div>
-                    </div>
-                    <Severity level={clash.severity as ClashSeverity} />
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs">
-                    <span className="shrink-0 text-ink-muted">Projects</span>
-                    {clash.project_a_id ? (
-                      <EntityLink kind="project" id={clash.project_a_id} muted>
-                        {projectMap[clash.project_a_id] ?? clash.project_a_id.slice(0, 8) + "…"}
-                      </EntityLink>
-                    ) : null}
-                    {clash.project_a_id && clash.project_b_id && <span className="text-ink-muted">/</span>}
-                    {clash.project_b_id ? (
-                      <EntityLink kind="project" id={clash.project_b_id} muted>
-                        {projectMap[clash.project_b_id] ?? clash.project_b_id.slice(0, 8) + "…"}
-                      </EntityLink>
-                    ) : null}
-                    {!clash.project_a_id && !clash.project_b_id && <span className="text-ink-muted">—</span>}
-                  </div>
-                  {clash.over_allocation_pct != null && (
-                    <span className="inline-flex w-fit items-center gap-1 text-xs font-medium text-warning bg-warning/10 border border-warning/25 rounded px-1.5 py-0.5 tabular-nums">
-                      +{Number(clash.over_allocation_pct).toFixed(0)}% over
-                    </span>
-                  )}
-                  {clash.description && (
-                    <p className="text-xs text-ink-secondary leading-snug line-clamp-2">{clash.description}</p>
-                  )}
-                  {clash.recommended_action && (
-                    <p className="text-xs text-ink-muted leading-snug line-clamp-2 italic">
-                      {clash.recommended_action}
-                    </p>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-          <div className="hidden overflow-x-auto md:block">
-            <table className="w-full min-w-[700px] text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle">
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                    Ref
-                  </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Title
-                  </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                    Type
-                  </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                    Severity
-                  </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Projects
-                  </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide whitespace-nowrap">
-                    Status
-                  </th>
-                  <th className="px-5 py-3 text-left text-xs font-medium text-ink-muted uppercase tracking-wide">
-                    Details
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
-                {clashList.map((clash) => {
-                  const isAuto = clash.type === "resource";
-
-                  return (
-                    <tr
-                      key={clash.id}
-                      id={`clash-${clash.id}`}
-                      className="hover:bg-sunken transition-colors duration-100"
-                    >
-                      <td className="px-5 py-3.5 whitespace-nowrap">
-                        {clash.reference_id ? (
-                          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
-                            {clash.reference_id}
-                          </span>
-                        ) : (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 min-w-0 max-w-[200px]">
-                        <span className="block truncate font-medium text-ink">{clash.title}</span>
-                        {isAuto && (
-                          <Badge tone="neutral" size="sm" className="mt-0.5">
-                            auto
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5 whitespace-nowrap">
-                        <Badge size="sm" tone={typeTone(clash.type as ClashType)}>
-                          {typeLabel(clash.type as ClashType)}
-                        </Badge>
-                      </td>
-                      <td className="px-5 py-3.5 whitespace-nowrap">
-                        <Severity level={clash.severity as ClashSeverity} />
-                      </td>
-                      <td className="px-5 py-3.5 min-w-0 max-w-[200px]">
-                        <span className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
-                          {clash.project_a_id ? (
-                            <EntityLink kind="project" id={clash.project_a_id} muted>
-                              {projectMap[clash.project_a_id] ?? clash.project_a_id.slice(0, 8) + "…"}
-                            </EntityLink>
-                          ) : null}
-                          {clash.project_a_id && clash.project_b_id && (
-                            <span className="text-ink-muted">/</span>
-                          )}
-                          {clash.project_b_id ? (
-                            <EntityLink kind="project" id={clash.project_b_id} muted>
-                              {projectMap[clash.project_b_id] ?? clash.project_b_id.slice(0, 8) + "…"}
-                            </EntityLink>
-                          ) : null}
-                          {!clash.project_a_id && !clash.project_b_id && (
-                            <span className="text-ink-muted">—</span>
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 whitespace-nowrap">
-                        <Badge size="sm" tone={statusTone(clash.status as ClashStatus)}>
-                          {statusLabel(clash.status as ClashStatus)}
-                        </Badge>
-                      </td>
-                      <td className="px-5 py-3.5 max-w-xs">
-                        {clash.over_allocation_pct != null && (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning bg-warning/10 border border-warning/25 rounded px-1.5 py-0.5 mb-1 whitespace-nowrap tabular-nums">
-                            +{Number(clash.over_allocation_pct).toFixed(0)}% over
-                          </span>
-                        )}
-                        {clash.description && (
-                          <p className="text-xs text-ink-secondary leading-snug line-clamp-2">
-                            {clash.description}
-                          </p>
-                        )}
-                        {clash.recommended_action && (
-                          <p className="mt-1 text-xs text-ink-muted leading-snug line-clamp-2 italic">
-                            {clash.recommended_action}
-                          </p>
-                        )}
-                        {!clash.over_allocation_pct && !clash.description && !clash.recommended_action && (
-                          <span className="text-ink-muted">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          </>
-        ) : (
-          // Clashes are system-detected (schedule/resource/dependency
-          // over-allocation) — there is no manual "New Clash" write action
-          // on this register, so the empty state is explanatory only.
-          <EmptyState
-            purpose="Clashes are detected automatically — schedule, resource, and dependency conflicts across every project surface here as soon as NoPM finds one."
-            docsHref="/trust"
-            docsLabel="See governance in the Trust Center"
-          />
-        )}
-      </Card>
-      </div>
-    </div>
+      <ClashesView clashes={clashList} projects={projects ?? []} projectMap={projectMap} />
+    </PageContainer>
   );
 }

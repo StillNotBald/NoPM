@@ -72,14 +72,25 @@ const tourSchema = z.object({
 });
 
 /**
- * Navigation mode (R-78, progressive disclosure — sprint 2026-09-04).
- *   { mode?: "essentials" | "all" }
+ * Navigation (R-78 progressive disclosure; shortcuts added UI/UX Wave 6).
+ *   { mode?: "essentials" | "all", shortcuts?: string[] }
  * "essentials" shows the 7-item core sidebar; "all" shows every module.
  * The cookie (per device) is the first-paint source of truth; this DB
  * mirror lets a signed-in non-demo user's choice follow the account.
+ * `shortcuts` is the mobile bottom-bar's pinned destinations, as in-app
+ * paths ("/risks"), in display order. Capped well above the bar's 4 slots so
+ * a future layout change needs no schema change; unknown paths are dropped
+ * client-side against the live nav list, never trusted for routing.
  */
+const navShortcutSchema = z
+  .string()
+  .min(2)
+  .max(64)
+  .regex(/^\/[a-z0-9][a-z0-9/-]*$/, "shortcuts must be in-app paths like /risks");
+
 const navSchema = z.object({
   mode: z.enum(["essentials", "all"]).optional(),
+  shortcuts: z.array(navShortcutSchema).max(8).optional(),
 });
 
 /**
@@ -184,6 +195,11 @@ export function mergePreferencesConfig(
   }
   if (existing.groupBy || incoming.groupBy) {
     merged.groupBy = { ...existing.groupBy, ...incoming.groupBy };
+  }
+  // `nav` carries two independent owners (the sidebar's `mode`, the bottom
+  // bar's `shortcuts`) — merge one level deeper so neither clobbers the other.
+  if (existing.nav || incoming.nav) {
+    merged.nav = { ...existing.nav, ...incoming.nav };
   }
 
   return merged;

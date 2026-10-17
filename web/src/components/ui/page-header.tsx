@@ -14,20 +14,33 @@ import { cn } from "@/lib/cn";
  * "Request deletion" button doesn't wrap onto its own line beside three
  * other actions. Omitting `secondaryActions` renders exactly as before —
  * every existing call site is unaffected.
+ *
+ * `exports` is an optional slot (e.g. an export/download menu) rendered at
+ * all breakpoints before `action`, so report/export affordances sit in one
+ * consistent place on every page.
+ *
+ * The mobile overflow menu is keyboard-operable: ArrowDown/ArrowUp/Home/End
+ * move between its focusable items, Escape closes and returns focus to the
+ * trigger.
  */
 export function PageHeader({
   title,
   action,
+  exports,
   secondaryActions,
   className,
 }: {
   title: string;
   action?: ReactNode;
+  /** Optional export/report controls, rendered with the actions. */
+  exports?: ReactNode;
   secondaryActions?: ReactNode[];
   className?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const hasSecondary = Boolean(secondaryActions && secondaryActions.length > 0);
 
   useEffect(() => {
@@ -36,7 +49,10 @@ export function PageHeader({
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
     }
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setMenuOpen(false);
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        triggerRef.current?.focus();
+      }
     }
     document.addEventListener("mousedown", onDocMouseDown);
     document.addEventListener("keydown", onKeyDown);
@@ -46,13 +62,43 @@ export function PageHeader({
     };
   }, [menuOpen]);
 
+  function menuItems(): HTMLElement[] {
+    const root = listRef.current;
+    if (!root) return [];
+    return Array.from(
+      root.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+    );
+  }
+
+  // Move focus into the menu when it opens.
+  useEffect(() => {
+    if (menuOpen) menuItems()[0]?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen]);
+
+  function onMenuKeyDown(e: React.KeyboardEvent) {
+    const items = menuItems();
+    if (items.length === 0) return;
+    const i = items.indexOf(document.activeElement as HTMLElement);
+    let next = -1;
+    if (e.key === "ArrowDown") next = (i + 1) % items.length;
+    else if (e.key === "ArrowUp") next = (i - 1 + items.length) % items.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = items.length - 1;
+    if (next >= 0) {
+      e.preventDefault();
+      items[next].focus();
+    }
+  }
+
   return (
-    <div className={cn("mb-5 flex items-center justify-between gap-3", className)}>
-      <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-ink sm:text-xl">
+    <div className={cn("mb-5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2", className)}>
+      <h1 className="min-w-0 max-w-full text-lg font-semibold tracking-tight text-ink sm:truncate sm:text-xl">
         {title}
       </h1>
-      {(action || hasSecondary) && (
-        <div className="flex shrink-0 items-center gap-2">
+      {(action || exports || hasSecondary) && (
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+          {exports}
           {action}
 
           {hasSecondary && (
@@ -67,12 +113,16 @@ export function PageHeader({
               {/* below sm: collapse into one 44px overflow menu */}
               <div className="relative sm:hidden" ref={menuRef}>
                 <button
+                  ref={triggerRef}
                   type="button"
-                  onClick={() => setMenuOpen((v) => !v)}
+                  onClick={() => {
+                    if (menuOpen) triggerRef.current?.focus();
+                    setMenuOpen((v) => !v);
+                  }}
                   aria-label="More actions"
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
-                  className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+                  className="focus-ring grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
                 >
                   <MoreHorizontal size={18} />
                 </button>
@@ -80,6 +130,8 @@ export function PageHeader({
                   <>
                     <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} aria-hidden="true" />
                     <div
+                      ref={listRef}
+                      onKeyDown={onMenuKeyDown}
                       role="menu"
                       className="absolute right-0 top-full z-30 mt-1.5 min-w-[200px] space-y-1 rounded-lg border border-border-subtle bg-surface p-1.5 shadow-md"
                     >

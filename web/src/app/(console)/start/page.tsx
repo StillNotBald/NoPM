@@ -19,6 +19,8 @@ import { docUrlFor } from "@/lib/onboarding/hints";
  * the checklist's `visited`/`dismissed` bookkeeping is client-side
  * (usePreferences) since it's per-viewer, not workspace data.
  */
+export const metadata = { title: "Getting started" };
+
 export default async function StartPage() {
   const db = await createClient();
   const {

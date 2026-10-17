@@ -1,11 +1,30 @@
+import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Lock } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { ProjectActions } from "@/components/tracking/project-actions";
 import { ProjectTabs } from "@/components/tracking/project-tabs";
+import { CrumbLabel } from "@/lib/nav/crumb-label";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import { fetchTaskStatusAges } from "@/lib/insight/status-age";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  try {
+    const { id } = await params;
+    const db = await createClient();
+    // Same RLS/workspace-scoped client + table as the page's own project query.
+    const { data } = await db.from("projects").select("code, name").eq("id", id).maybeSingle();
+    if (data?.name) return { title: data.code ? `${data.code} · ${data.name}` : data.name };
+  } catch {
+    // fall through to the generic title
+  }
+  return { title: "Project" };
+}
 
 export default async function ProjectDetailPage({
   params,
@@ -139,7 +158,8 @@ export default async function ProjectDetailPage({
   });
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 mx-auto max-w-6xl space-y-8">
+    <div className="mx-auto min-w-0 max-w-6xl space-y-8 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+      <CrumbLabel id={safeProject.id} label={safeProject.code ?? safeProject.name} />
       {/* Header */}
       <div>
         {/* Title row: stacks on mobile, side-by-side on sm+
@@ -152,7 +172,7 @@ export default async function ProjectDetailPage({
               </span>
             )}
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold text-ink leading-snug">
+              <h1 className="text-lg font-semibold tracking-tight text-ink leading-snug sm:text-xl">
                 {safeProject.name}
               </h1>
               {safeProject.program && (
@@ -162,7 +182,7 @@ export default async function ProjectDetailPage({
           </div>
 
           {/* Right: badges + actions */}
-          <div className="flex items-center gap-2 flex-wrap shrink-0">
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end sm:shrink-0">
             <Badge tone={ragTone(safeProject.rag_status as RagStatus)}>
               {ragLabel(safeProject.rag_status as RagStatus)}
             </Badge>
@@ -191,7 +211,7 @@ export default async function ProjectDetailPage({
 
         {/* Lock reason banner */}
         {safeProject.is_locked && safeProject.lock_reason && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/25 px-4 py-3 text-sm text-warning">
+          <div className="mt-3 flex items-start gap-2 rounded-lg bg-warning/10 border border-warning/25 px-4 py-3 text-sm text-warning-ink">
             <Lock size={14} className="mt-0.5 shrink-0" />
             <span>
               <span className="font-medium">Lock reason:</span> {safeProject.lock_reason}

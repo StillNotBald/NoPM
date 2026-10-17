@@ -9,16 +9,6 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import {
-  LayoutDashboard,
-  FolderKanban,
-  AlertTriangle,
-  CircleDot,
-  Zap,
-  Users,
-  DollarSign,
-  CheckSquare,
-  ShieldCheck,
-  KeyRound,
   Plus,
   Search,
   FileText,
@@ -26,13 +16,17 @@ import {
   Lightbulb,
   Layers,
   Repeat,
-  Rocket,
-  Lock,
+  FolderKanban,
+  CheckSquare,
+  AlertTriangle,
+  CircleDot,
+  Zap,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
 import { ProjectForm } from "@/components/forms/project-form";
+import { ALL_NAV_ITEMS, EXTRA_NAV_ITEMS } from "@/lib/nav/nav-config";
 import type { SearchResult } from "@/app/api/search/route";
 
 // ── Command definitions ───────────────────────────────────────────────────────
@@ -111,126 +105,20 @@ function CommandPalettePanel({ onClose }: { onClose: () => void }) {
         inspector.open(<ProjectForm mode="create" scaffold />, "New Project");
       },
     },
-    {
-      id: "nav-start",
-      icon: <Rocket size={16} />,
-      label: "Getting started",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/start");
-      },
-    },
-    {
-      id: "nav-dashboard",
-      icon: <LayoutDashboard size={16} />,
-      label: "Dashboard",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/dashboard");
-      },
-    },
-    {
-      id: "nav-projects",
-      icon: <FolderKanban size={16} />,
-      label: "Projects",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/projects");
-      },
-    },
-    {
-      id: "nav-risks",
-      icon: <AlertTriangle size={16} />,
-      label: "Risks",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/risks");
-      },
-    },
-    {
-      id: "nav-issues",
-      icon: <CircleDot size={16} />,
-      label: "Issues",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/issues");
-      },
-    },
-    {
-      id: "nav-clashes",
-      icon: <Zap size={16} />,
-      label: "Clashes",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/clashes");
-      },
-    },
-    {
-      id: "nav-resources",
-      icon: <Users size={16} />,
-      label: "Resources",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/resources");
-      },
-    },
-    {
-      id: "nav-budget",
-      icon: <DollarSign size={16} />,
-      label: "Budget",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/budget");
-      },
-    },
-    {
-      id: "nav-baselines",
-      icon: <Lock size={16} />,
-      label: "Baselines",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/baselines");
-      },
-    },
-    {
-      id: "nav-approvals",
-      icon: <CheckSquare size={16} />,
-      label: "Approvals",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/approvals");
-      },
-    },
-    {
-      id: "nav-trust",
-      icon: <ShieldCheck size={16} />,
-      label: "Trust Center",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/trust");
-      },
-    },
-    {
-      id: "nav-tokens",
-      icon: <KeyRound size={16} />,
-      label: "Tokens",
-      hint: "Go to",
-      action: () => {
-        onClose();
-        router.push("/tokens");
-      },
-    },
+    // Navigation commands derive from the one nav list/label map, so the
+    // palette can never drift from the sidebar (names, icons, reachability).
+    ...[...EXTRA_NAV_ITEMS.slice(0, 1), ...ALL_NAV_ITEMS, ...EXTRA_NAV_ITEMS.slice(1)].map(
+      ({ href, label, icon: Icon }): CommandItem => ({
+        id: `nav-${href.slice(1)}`,
+        icon: <Icon size={16} />,
+        label,
+        hint: "Go to",
+        action: () => {
+          onClose();
+          router.push(href);
+        },
+      }),
+    ),
   ];
 
   const filtered = allCommands.filter((c) => matches(c.label, query));

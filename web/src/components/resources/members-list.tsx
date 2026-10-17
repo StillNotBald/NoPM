@@ -1,6 +1,6 @@
 "use client";
 
-import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 
@@ -31,125 +31,17 @@ export interface MemberListRow {
 }
 
 export function MembersList({ rows }: { rows: MemberListRow[] }) {
-  const columns: DataListColumn<MemberListRow>[] = [
-    {
-      key: "name",
-      header: "Name",
-      primary: true,
-      cell: (r) => <span className="font-medium text-ink truncate block">{r.name}</span>,
-    },
-    {
-      key: "role",
-      header: "Role",
-      cell: (r) =>
-        r.roleTitle ? (
-          <span className="truncate block">{r.roleTitle}</span>
-        ) : (
-          <span className="text-ink-muted">—</span>
-        ),
-    },
-    {
-      key: "costRate",
-      header: "Cost Rate / hr",
-      align: "right",
-      cell: (r) => <span className="font-mono tabular-nums text-ink-secondary">{r.costRateDisplay}</span>,
-    },
-    {
-      key: "capacity",
-      header: "Cap h/wk",
-      align: "right",
-      cell: (r) =>
-        r.capacityDisplay ? (
-          <span className="font-mono tabular-nums text-ink-secondary">{r.capacityDisplay}</span>
-        ) : (
-          <span className="text-ink-muted">—</span>
-        ),
-    },
-    {
-      key: "allocated",
-      header: "Alloc h/wk",
-      align: "right",
-      cell: (r) =>
-        r.allocatedDisplay ? (
-          <span
-            className={cn("font-mono tabular-nums font-medium", r.allocatedIsOver ? "text-danger" : "text-ink")}
-          >
-            {r.allocatedDisplay}
-          </span>
-        ) : (
-          <span className="text-ink-muted">—</span>
-        ),
-    },
-    {
-      key: "free",
-      header: "Free h/wk",
-      align: "right",
-      cell: (r) =>
-        r.freeDisplay ? (
-          <span
-            className={cn(
-              "font-mono tabular-nums font-medium",
-              r.freeIsNegative ? "text-danger" : r.freeIsZero ? "text-warning" : "text-success",
-            )}
-          >
-            {r.freeIsNegative ? "" : "+"}
-            {r.freeDisplay}
-          </span>
-        ) : (
-          <span className="text-ink-muted">—</span>
-        ),
-    },
-    {
-      key: "openTasks",
-      header: "Open Tasks",
-      align: "right",
-      cell: (r) =>
-        r.openTasks > 0 ? (
-          <span className="font-medium text-ink tabular-nums">{r.openTasks}</span>
-        ) : (
-          <span className="text-ink-muted tabular-nums">0</span>
-        ),
-    },
-    {
-      key: "utilisation",
-      header: "Utilisation",
-      align: "right",
-      cell: (r) => (
-        <div className="flex items-center justify-end gap-3">
-          <div className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-sunken sm:block">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all",
-                r.allocatedIsOver ? "bg-danger" : r.utilisationPct >= 80 ? "bg-warning" : "bg-accent",
-              )}
-              style={{ width: `${r.barWidthPct}%` }}
-            />
-          </div>
-          <span
-            className={cn(
-              "font-mono tabular-nums font-medium",
-              r.allocatedIsOver ? "text-danger" : r.utilisationPct >= 80 ? "text-warning" : "text-ink",
-            )}
-          >
-            {r.utilisationPct.toFixed(0)}%
-          </span>
-        </div>
-      ),
-    },
-    {
-      key: "overBadge",
-      header: "",
-      cell: (r) => (r.allocatedIsOver ? <Badge tone="danger" size="sm">Over-allocated</Badge> : null),
-    },
-  ];
+  if (rows.length === 0) return null;
+  const utilTone = (r: MemberListRow) =>
+    r.allocatedIsOver ? "text-danger-ink" : r.utilisationPct >= 80 ? "text-warning-ink" : "text-ink";
+  const dash = <span className="text-ink-muted">—</span>;
 
   return (
-    <DataList
-      columns={columns}
-      rows={rows}
-      rowKey={(r) => r.id}
-      tableClassName="min-w-[760px]"
-      renderCard={(r) => (
+    <>
+      {/* <md: cards */}
+      <ul className="divide-y divide-border-subtle md:hidden print:hidden">
+        {rows.map((r) => (
+          <li key={r.id}>
         <div className="flex min-h-[44px] flex-col gap-1.5 px-4 py-3">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-sm font-medium text-ink">{r.name}</span>
@@ -186,7 +78,7 @@ export function MembersList({ rows }: { rows: MemberListRow[] }) {
               <span
                 className={cn(
                   "min-w-0 truncate font-mono tabular-nums font-medium",
-                  r.allocatedIsOver ? "text-danger" : "text-ink",
+                  r.allocatedIsOver ? "text-danger-ink" : "text-ink",
                 )}
               >
                 {r.allocatedDisplay ?? "—"}
@@ -210,14 +102,80 @@ export function MembersList({ rows }: { rows: MemberListRow[] }) {
             <span
               className={cn(
                 "shrink-0 font-mono text-xs tabular-nums font-medium",
-                r.allocatedIsOver ? "text-danger" : r.utilisationPct >= 80 ? "text-warning" : "text-ink",
+                r.allocatedIsOver ? "text-danger-ink" : r.utilisationPct >= 80 ? "text-warning-ink" : "text-ink",
               )}
             >
               {r.utilisationPct.toFixed(0)}% util
             </span>
           </div>
         </div>
-      )}
-    />
+          </li>
+        ))}
+      </ul>
+
+      {/* >=md (and print): DataTable primitives */}
+      <div className="hidden md:block print:block">
+        <Table bare className="min-w-[760px] print:min-w-0">
+          <THead>
+            <TR>
+              <TH>Name</TH>
+              <TH>Role</TH>
+              <TH align="right">Cost rate / hr</TH>
+              <TH align="right">Cap h/wk</TH>
+              <TH align="right">Alloc h/wk</TH>
+              <TH align="right">Free h/wk</TH>
+              <TH align="right">Open tasks</TH>
+              <TH align="right">Utilisation</TH>
+              <TH>
+                <span className="sr-only">Status</span>
+              </TH>
+            </TR>
+          </THead>
+          <tbody>
+            {rows.map((r) => (
+              <TR key={r.id} className="hover:bg-sunken transition-colors duration-100 print:break-inside-avoid">
+                <TD className="font-medium">{r.name}</TD>
+                <TD className="text-ink-secondary">{r.roleTitle ?? dash}</TD>
+                <TD align="right" numeric className="text-ink-secondary">{r.costRateDisplay}</TD>
+                <TD align="right" numeric className="text-ink-secondary">{r.capacityDisplay ?? dash}</TD>
+                <TD align="right" numeric className={cn("font-medium", r.allocatedIsOver && "text-danger-ink")}>
+                  {r.allocatedDisplay ?? dash}
+                </TD>
+                <TD
+                  align="right"
+                  numeric
+                  className={cn(
+                    "font-medium",
+                    r.freeIsNegative ? "text-danger-ink" : r.freeIsZero ? "text-warning-ink" : "text-success-ink",
+                  )}
+                >
+                  {r.freeDisplay ? `${r.freeIsNegative ? "" : "+"}${r.freeDisplay}` : dash}
+                </TD>
+                <TD align="right" numeric className={r.openTasks > 0 ? "font-medium" : "text-ink-muted"}>
+                  {r.openTasks}
+                </TD>
+                <TD align="right">
+                  <div className="flex items-center justify-end gap-3">
+                    <div className="h-1.5 w-20 overflow-hidden rounded-full bg-sunken print:border print:border-border-subtle">
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          r.allocatedIsOver ? "bg-danger" : r.utilisationPct >= 80 ? "bg-warning" : "bg-accent",
+                        )}
+                        style={{ width: `${r.barWidthPct}%` }}
+                      />
+                    </div>
+                    <span className={cn("w-10 text-right font-mono tabular-nums font-medium", utilTone(r))}>
+                      {r.utilisationPct.toFixed(0)}%
+                    </span>
+                  </div>
+                </TD>
+                <TD>{r.allocatedIsOver ? <Badge tone="danger" size="sm">Over-allocated</Badge> : null}</TD>
+              </TR>
+            ))}
+          </tbody>
+        </Table>
+      </div>
+    </>
   );
 }

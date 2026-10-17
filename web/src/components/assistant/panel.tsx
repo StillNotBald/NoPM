@@ -235,7 +235,7 @@ function ConversationList({
                   <p className="truncate font-mono text-xs font-medium text-ink">
                     {conv.title ?? "Untitled chat"}
                   </p>
-                  <p className="mt-0.5 font-mono text-[10px] text-ink-muted">
+                  <p className="mt-0.5 font-mono text-xs text-ink-muted">
                     {new Date(conv.updated_at).toLocaleDateString(undefined, {
                       month: "short",
                       day: "numeric",
@@ -680,6 +680,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       )}
 
       <div
+        data-shell-chrome
         role="dialog"
         aria-modal={false}
         aria-label="AI Assistant"
@@ -786,7 +787,12 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
             /* Chat view */
             <>
               {/* Transcript */}
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <div
+                role="log"
+                aria-live="polite"
+                aria-label="Assistant conversation"
+                className="min-h-0 flex-1 overflow-y-auto px-4 py-4"
+              >
                 {history.length === 0 ? (
                   <WelcomeState />
                 ) : (
@@ -865,7 +871,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                     <ArrowUp className="h-4 w-4" />
                   </button>
                 </div>
-                <p className="mt-1 text-center font-mono text-[10px] text-ink-muted">
+                <p className="mt-1 text-center font-mono text-xs text-ink-muted">
                   Enter to send · Shift+Enter for newline
                 </p>
               </div>
@@ -880,21 +886,21 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
               {lastUsedFallback ? (
                 <>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
-                  <span className="font-mono text-[10px] text-ink-muted truncate">
+                  <span className="font-mono text-xs text-ink-muted truncate">
                     Grounded fallback — read-only live workspace data
                   </span>
                 </>
               ) : isDemoMode ? (
                 <>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-warning" aria-hidden />
-                  <span className="font-mono text-[10px] text-ink-muted truncate">
+                  <span className="font-mono text-xs text-ink-muted truncate">
                     Demo model — grounded in live workspace data
                   </span>
                 </>
               ) : (
                 <>
                   <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
-                  <span className="font-mono text-[10px] text-ink-muted truncate">
+                  <span className="font-mono text-xs text-ink-muted truncate">
                     {status?.provider} · {status?.model}
                   </span>
                 </>
@@ -907,7 +913,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
               <button
                 onClick={disconnect}
                 disabled={disconnecting}
-                className="ml-2 shrink-0 font-mono text-[10px] text-ink-muted hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                className="ml-2 shrink-0 font-mono text-xs text-ink-muted hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
               >
                 {disconnecting ? "…" : "disconnect"}
               </button>

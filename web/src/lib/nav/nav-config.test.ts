@@ -2,7 +2,20 @@
  * Nav config (R-78) — pure section filtering for progressive disclosure.
  */
 import { describe, it, expect } from "vitest";
-import { NAV_SECTIONS, ESSENTIAL_HREFS, visibleSections, hiddenCount, type NavSection } from "./nav-config";
+import {
+  NAV_SECTIONS,
+  ESSENTIAL_HREFS,
+  ROUTE_LABELS,
+  ALL_NAV_ITEMS,
+  EXTRA_NAV_ITEMS,
+  labelForHref,
+  labelForSegment,
+  pendingByHref,
+  pendingSrText,
+  visibleSections,
+  hiddenCount,
+  type NavSection,
+} from "./nav-config";
 
 const ALL_HREFS = NAV_SECTIONS.flatMap((s) => s.items.map((i) => i.href));
 const TOTAL_ITEMS = ALL_HREFS.length;
@@ -119,5 +132,53 @@ describe("NAV_SECTIONS shape sanity", () => {
     for (const section of NAV_SECTIONS) {
       expect(section.items.map((i) => i.href)).not.toContain("/email-previews");
     }
+  });
+});
+
+describe("Wave 6 IA — grouping, icons, single label map", () => {
+  it("groups the sidebar as Personal / Portfolio / Work / Registers / Capacity / Governance", () => {
+    expect(NAV_SECTIONS.map((s) => s.label)).toEqual([
+      "Personal",
+      "Portfolio",
+      "Work",
+      "Registers",
+      "Capacity",
+      "Governance",
+    ]);
+  });
+
+  it("keeps all 22 routes reachable", () => {
+    expect(ALL_NAV_ITEMS).toHaveLength(22);
+  });
+
+  it("gives every item a unique icon (Tasks and Review no longer share one)", () => {
+    const icons = ALL_NAV_ITEMS.map((i) => i.icon);
+    expect(new Set(icons).size).toBe(icons.length);
+  });
+
+  it("every nav item label comes from ROUTE_LABELS", () => {
+    for (const i of ALL_NAV_ITEMS) expect(i.label).toBe(ROUTE_LABELS[i.href.slice(1)]);
+  });
+
+  it("labels the non-sidebar destinations the palette and breadcrumbs need", () => {
+    expect(labelForSegment("settings")).toBe("Settings");
+    expect(labelForSegment("start")).toBe("Getting started");
+    expect(labelForHref("/change-control")).toBe("Change Control");
+    expect(labelForSegment("nope")).toBeNull();
+    expect(EXTRA_NAV_ITEMS.map((i) => i.href)).toEqual(["/start", "/settings"]);
+  });
+});
+
+describe("pending badges", () => {
+  it("maps governance queues to their hrefs and omits zeros", () => {
+    expect(
+      pendingByHref({ review: 3, approvals: 0, changeControl: 2, decisions: 0, total: 5 }),
+    ).toEqual({ "/review": 3, "/change-control": 2 });
+    expect(pendingByHref(null)).toEqual({});
+  });
+
+  it("screen-reader text pluralises", () => {
+    expect(pendingSrText(3)).toBe("3 items awaiting your decision");
+    expect(pendingSrText(1)).toBe("1 item awaiting your decision");
   });
 });

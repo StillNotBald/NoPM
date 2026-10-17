@@ -13,7 +13,7 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex items-center justify-between border-b border-border-subtle px-5 py-4", className)}
+      className={cn("flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border-subtle px-5 py-4", className)}
       {...props}
     />
   );

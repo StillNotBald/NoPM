@@ -1,4 +1,5 @@
 import { TableSkeleton, Skeleton } from "@/components/ui/skeleton";
+import { PageContainer } from "@/components/ui/page-container";
 
 /**
  * Issues loading skeleton — mirrors Issue Log layout:
@@ -6,8 +7,8 @@ import { TableSkeleton, Skeleton } from "@/components/ui/skeleton";
  */
 export default function IssuesLoading() {
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-5">
+      <div className="space-y-5">
         {/* page header */}
         <div className="flex items-center justify-between gap-3">
           <Skeleton variant="text" width="w-28" height="h-7" />
@@ -17,6 +18,6 @@ export default function IssuesLoading() {
         {/* issue table: ref, title, project, severity, priority, status, owner, due */}
         <TableSkeleton rows={8} cols={8} />
       </div>
-    </div>
+    </PageContainer>
   );
 }

@@ -24,7 +24,8 @@ const DESCRIPTION =
 const SITE_URL = "https://stillnotbald.com";
 
 export const metadata: Metadata = {
-  title: TITLE,
+  // Pages set a bare `metadata.title`; the template appends the brand once.
+  title: { default: TITLE, template: "%s — NoPM" },
   description: DESCRIPTION,
   openGraph: {
     title: TITLE,

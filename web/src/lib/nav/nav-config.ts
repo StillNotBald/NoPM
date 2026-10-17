@@ -17,11 +17,15 @@ import {
   GitPullRequest,
   Gavel,
   ClipboardCheck,
+  Eye,
   ShieldCheck,
   KeyRound,
   Lock,
+  Rocket,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
+import type { PendingCounts } from "@/lib/governance/pending-counts";
 import type { NavMode } from "./nav-mode";
 
 export type NavItem = { href: string; label: string; icon: LucideIcon };
@@ -32,65 +36,133 @@ export type NavSection = {
 };
 
 /**
- * The full console sidebar — 22 items across 5 sections. Moved out of
- * sidebar.tsx (R-78) so the pure filtering logic below can be unit-tested
- * without mounting a component.
+ * THE label map — the single source of truth for what a route is called.
+ * Keyed by the first path segment. Consumed by the sidebar, bottom nav,
+ * command palette, breadcrumbs, and (by convention) each page's
+ * `metadata.title`. Change a name here and every surface follows.
+ */
+export const ROUTE_LABELS: Record<string, string> = {
+  "my-work": "My Work",
+  "my-tasks": "My Tasks",
+  dashboard: "Dashboard",
+  projects: "Projects",
+  portfolio: "Portfolio",
+  mainline: "Mainline",
+  tasks: "Tasks",
+  sprints: "Sprints",
+  documents: "Documents",
+  risks: "Risks",
+  issues: "Issues",
+  clashes: "Clashes",
+  resources: "Resources",
+  budget: "Budget",
+  timesheets: "Timesheets",
+  review: "Review",
+  "change-control": "Change Control",
+  baselines: "Baselines",
+  decisions: "Decisions",
+  approvals: "Approvals",
+  trust: "Trust Center",
+  tokens: "Tokens",
+  // Routes that are reachable but not sidebar items.
+  start: "Getting started",
+  settings: "Settings",
+  "email-previews": "Email Previews",
+};
+
+/** Label for a route segment (no leading slash), or null when unknown. */
+export function labelForSegment(segment: string): string | null {
+  return ROUTE_LABELS[segment] ?? null;
+}
+
+/** Label for a nav href such as "/change-control". */
+export function labelForHref(href: string): string {
+  const seg = href.replace(/^\//, "").split("/")[0] ?? "";
+  return ROUTE_LABELS[seg] ?? seg;
+}
+
+function item(href: string, icon: LucideIcon): NavItem {
+  return { href, label: labelForHref(href), icon };
+}
+
+/**
+ * The full console sidebar — 22 items across 6 sections, one unique icon
+ * each (the bottom nav and command palette derive from this list too).
+ * Regrouped for the UI/UX overhaul (Wave 6): Personal / Portfolio / Work /
+ * Registers / Capacity / Governance. No route added or removed.
  *
- * Sprint 1 (2026-09-06): "Baselines" added to Governance (a nav home for
- * the lock → rebaseline → sign-off → apply flow); "Email previews" moved
- * out of the sidebar to a header link on /my-work (it's a demo artefact,
- * not a governance surface — still routable, just not nav real-estate).
- * Total item count stays 22.
+ * Sprint 1 (2026-09-06): "Baselines" lives in Governance (nav home for the
+ * lock → rebaseline → sign-off → apply flow); "Email previews" is a header
+ * link on /my-work (demo artefact, still routable, not nav real-estate).
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Overview",
+    label: "Personal",
+    items: [item("/my-work", Inbox), item("/my-tasks", ListTodo)],
+  },
+  {
+    label: "Portfolio",
     items: [
-      { href: "/my-work", label: "My Work", icon: Inbox },
-      { href: "/my-tasks", label: "My Tasks", icon: ListTodo },
-      { href: "/tasks", label: "Tasks", icon: ListChecks },
-      { href: "/sprints", label: "Sprints", icon: Layers },
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+      item("/dashboard", LayoutDashboard),
+      item("/portfolio", Map),
+      item("/mainline", Route),
+      item("/projects", FolderKanban),
     ],
   },
   {
-    label: "Delivery",
-    items: [
-      { href: "/projects", label: "Projects", icon: FolderKanban },
-      { href: "/portfolio", label: "Portfolio", icon: Map },
-      { href: "/mainline", label: "Mainline", icon: Route },
-      { href: "/documents", label: "Documents", icon: FileText },
-    ],
+    label: "Work",
+    items: [item("/tasks", ListChecks), item("/sprints", Layers), item("/documents", FileText)],
   },
   {
     label: "Registers",
-    items: [
-      { href: "/risks", label: "Risks", icon: AlertTriangle },
-      { href: "/issues", label: "Issues", icon: CircleAlert },
-      { href: "/clashes", label: "Clashes", icon: Zap },
-    ],
+    items: [item("/risks", AlertTriangle), item("/issues", CircleAlert), item("/clashes", Zap)],
   },
   {
     label: "Capacity",
-    items: [
-      { href: "/resources", label: "Resources", icon: Users },
-      { href: "/budget", label: "Budget", icon: Wallet },
-      { href: "/timesheets", label: "Timesheets", icon: Clock },
-    ],
+    items: [item("/resources", Users), item("/budget", Wallet), item("/timesheets", Clock)],
   },
   {
     label: "Governance",
     items: [
-      { href: "/review", label: "Review", icon: ListChecks },
-      { href: "/change-control", label: "Change Control", icon: GitPullRequest },
-      { href: "/baselines", label: "Baselines", icon: Lock },
-      { href: "/decisions", label: "Decisions", icon: Gavel },
-      { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
-      { href: "/trust", label: "Trust Center", icon: ShieldCheck },
-      { href: "/tokens", label: "Tokens", icon: KeyRound },
+      item("/review", Eye),
+      item("/change-control", GitPullRequest),
+      item("/baselines", Lock),
+      item("/decisions", Gavel),
+      item("/approvals", ClipboardCheck),
+      item("/trust", ShieldCheck),
+      item("/tokens", KeyRound),
     ],
   },
 ];
+
+/** Every nav item, flattened (bottom-nav "Apps" sheet, command palette). */
+export const ALL_NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
+
+/** Non-sidebar destinations the command palette also offers. */
+export const EXTRA_NAV_ITEMS: NavItem[] = [
+  item("/start", Rocket),
+  item("/settings", Settings),
+];
+
+/** The section whose pending badge is the sum of its queues. */
+export const GOVERNANCE_SECTION_LABEL = "Governance";
+
+/** Pending-decision count per governance href (zero entries omitted). */
+export function pendingByHref(counts: PendingCounts | null | undefined): Record<string, number> {
+  if (!counts) return {};
+  const raw: Record<string, number> = {
+    "/review": counts.review,
+    "/approvals": counts.approvals,
+    "/change-control": counts.changeControl,
+    "/decisions": counts.decisions,
+  };
+  return Object.fromEntries(Object.entries(raw).filter(([, n]) => n > 0));
+}
+
+/** Screen-reader text for a pending count. */
+export function pendingSrText(n: number): string {
+  return `${n} ${n === 1 ? "item" : "items"} awaiting your decision`;
+}
 
 /**
  * The Essentials core loop (R-78, progressive disclosure): inbox → tasks →

@@ -1,10 +1,14 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 
-import { cn } from "@/lib/cn";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
+import { KpiTile } from "@/components/ui/kpi-tile";
+import { CsvDownloadButton } from "@/components/budget/csv-download-button";
 import {
   memberUtilisation,
   workspaceSummary,
@@ -33,6 +37,8 @@ function fmt_currency(amount: number | null, currency: string | null): string {
   return `${sym} ${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+export const metadata: Metadata = { title: "Resources" };
+
 export default async function ResourcesPage() {
   const db = await createClient();
   const {
@@ -47,11 +53,7 @@ export default async function ResourcesPage() {
     .order("name");
 
   if (membersError) {
-    return (
-      <div className="px-4 py-5 sm:px-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load resource members.</p>
-      </div>
-    );
+    return <QueryError what="resource members" message={membersError.message} />;
   }
 
   const rows = (members ?? []) as ResourceMember[];
@@ -61,10 +63,12 @@ export default async function ResourcesPage() {
   const allocationsByMember: Record<string, number> = {};
 
   if (memberIds.length > 0) {
-    const { data: allocations } = await db
+    const { data: allocations, error: allocError } = await db
       .from("allocations")
       .select("member_id, allocation_pct")
       .in("member_id", memberIds);
+
+    if (allocError) return <QueryError what="allocations" message={allocError.message} />;
 
     for (const row of (allocations ?? []) as AllocationRow[]) {
       allocationsByMember[row.member_id] =
@@ -76,11 +80,12 @@ export default async function ResourcesPage() {
   // task assignment to the same person who carries capacity + cost.
   const tasksByMember: Record<string, number> = {};
   if (memberIds.length > 0) {
-    const { data: openTasks } = await db
+    const { data: openTasks, error: tasksError } = await db
       .from("tasks")
       .select("assignee_id")
       .in("assignee_id", memberIds)
       .not("status_type", "in", '("completed","canceled")');
+    if (tasksError) return <QueryError what="open tasks" message={tasksError.message} />;
     for (const t of (openTasks ?? []) as { assignee_id: string | null }[]) {
       if (t.assignee_id) tasksByMember[t.assignee_id] = (tasksByMember[t.assignee_id] ?? 0) + 1;
     }
@@ -125,11 +130,29 @@ export default async function ResourcesPage() {
     };
   });
 
+  const csvHeader = [
+    "Name", "Role", "Cost rate / hr", "Capacity h/wk", "Allocated h/wk", "Free h/wk", "Open tasks", "Utilisation %",
+  ];
+  const csvRows = rows.map((m, idx) => {
+    const st = memberStats[idx];
+    return [
+      m.name,
+      m.role_title,
+      m.cost_rate,
+      m.capacity_hours_per_week,
+      st.allocatedHours,
+      st.freeHours,
+      tasksByMember[m.id] ?? 0,
+      Number(st.allocatedPct.toFixed(0)),
+    ];
+  });
+
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-6">
+      <div className="space-y-6">
         <PageHeader
           title="Resources"
+          exports={<CsvDownloadButton filename="resources.csv" header={csvHeader} rows={csvRows} />}
           action={<ResourceActions part="primary" />}
           secondaryActions={[
             ...(overAllocated > 0
@@ -145,70 +168,37 @@ export default async function ResourcesPage() {
           ]}
         />
 
-        {/* Summary cards */}
+        {/* Summary KPI row */}
         {rows.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            {/* Total capacity */}
-            <Card>
-              <CardBody className="py-4">
-                <p className="text-xs text-ink-muted uppercase tracking-wide">Capacity / wk</p>
-                <p className="mt-1 font-mono text-2xl font-semibold text-ink tabular-nums">
-                  {wsSummary.totalCapacityHours > 0
-                    ? `${fmtHours(wsSummary.totalCapacityHours)} h`
-                    : <span className="text-ink-muted">—</span>}
-                </p>
-              </CardBody>
-            </Card>
-
-            {/* Total allocated hours */}
-            <Card>
-              <CardBody className="py-4">
-                <p className="text-xs text-ink-muted uppercase tracking-wide">Allocated / wk</p>
-                <p className="mt-1 font-mono text-2xl font-semibold text-ink tabular-nums">
-                  {wsSummary.totalCapacityHours > 0
-                    ? `${fmtHours(wsSummary.totalAllocatedHours)} h`
-                    : <span className="text-ink-muted">—</span>}
-                </p>
-              </CardBody>
-            </Card>
-
-            {/* Overall utilisation % */}
-            <Card>
-              <CardBody className="py-4">
-                <p className="text-xs text-ink-muted uppercase tracking-wide">Utilisation</p>
-                <p
-                  className={cn(
-                    "mt-1 font-mono text-2xl font-semibold tabular-nums",
-                    wsSummary.overallUtilisationPct == null
-                      ? "text-ink-muted"
-                      : wsSummary.overallUtilisationPct > 100
-                      ? "text-danger"
-                      : wsSummary.overallUtilisationPct >= 80
-                      ? "text-warning"
-                      : "text-success",
-                  )}
-                >
-                  {wsSummary.overallUtilisationPct != null
-                    ? `${wsSummary.overallUtilisationPct.toFixed(0)}%`
-                    : "—"}
-                </p>
-              </CardBody>
-            </Card>
-
-            {/* Over-capacity members */}
-            <Card>
-              <CardBody className="py-4">
-                <p className="text-xs text-ink-muted uppercase tracking-wide">Over capacity</p>
-                <p
-                  className={cn(
-                    "mt-1 font-mono text-2xl font-semibold tabular-nums",
-                    overAllocated > 0 ? "text-danger" : "text-ink-muted",
-                  )}
-                >
-                  {overAllocated}
-                </p>
-              </CardBody>
-            </Card>
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 print:grid-cols-4">
+            <KpiTile
+              label="Capacity / wk"
+              value={wsSummary.totalCapacityHours > 0 ? `${fmtHours(wsSummary.totalCapacityHours)} h` : "—"}
+            />
+            <KpiTile
+              label="Allocated / wk"
+              value={wsSummary.totalCapacityHours > 0 ? `${fmtHours(wsSummary.totalAllocatedHours)} h` : "—"}
+            />
+            <KpiTile
+              label="Utilisation"
+              value={
+                wsSummary.overallUtilisationPct != null ? `${wsSummary.overallUtilisationPct.toFixed(0)}%` : "—"
+              }
+              sub={
+                wsSummary.overallUtilisationPct == null
+                  ? undefined
+                  : wsSummary.overallUtilisationPct > 100
+                    ? "Over capacity"
+                    : wsSummary.overallUtilisationPct >= 80
+                      ? "Near capacity"
+                      : "Healthy"
+              }
+            />
+            <KpiTile
+              label="Over-allocated"
+              value={overAllocated}
+              sub={overAllocated > 0 ? "Members above capacity" : "None over capacity"}
+            />
           </div>
         )}
 
@@ -244,6 +234,6 @@ export default async function ResourcesPage() {
           )}
         </Card>
       </div>
-    </div>
+    </PageContainer>
   );
 }

@@ -5,11 +5,11 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const variants: Record<Variant, string> = {
-  // acid-lime fill needs near-black text for contrast (Linear-style)
+  // accent fill pairs with --accent-ink for contrast
   primary: "bg-accent text-accent-ink font-semibold hover:bg-accent-hover",
   secondary: "bg-surface text-ink border border-border-subtle hover:bg-sunken",
   ghost: "text-ink-secondary hover:bg-sunken",
-  danger: "bg-danger text-white hover:opacity-90",
+  danger: "bg-danger-solid text-white hover:bg-danger-hover",
 };
 
 const sizes: Record<Size, string> = {
@@ -28,7 +28,7 @@ export function Button({
     <button
       className={cn(
         "inline-flex items-center justify-center font-medium transition-colors duration-150",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+        "focus-ring",
         "disabled:opacity-50 disabled:pointer-events-none",
         variants[variant],
         sizes[size],

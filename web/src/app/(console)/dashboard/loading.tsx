@@ -1,7 +1,7 @@
 import { StatGridSkeleton, CardSkeleton, TableSkeleton, Skeleton } from "@/components/ui/skeleton";
 
 /**
- * Dashboard loading skeleton — mirrors Command Centre layout:
+ * Dashboard loading skeleton — mirrors Dashboard layout:
  * page header · KPI strip (8 stats) · 2-col chart row · portfolio table
  */
 export default function DashboardLoading() {

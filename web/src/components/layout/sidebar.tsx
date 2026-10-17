@@ -6,7 +6,16 @@ import { usePathname } from "next/navigation";
 import { LayoutGrid, Minimize2, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ProjectSwitcher } from "./project-switcher";
-import { NAV_SECTIONS, visibleSections, hiddenCount, type NavItem } from "@/lib/nav/nav-config";
+import {
+  NAV_SECTIONS,
+  GOVERNANCE_SECTION_LABEL,
+  visibleSections,
+  hiddenCount,
+  pendingByHref,
+  type NavItem,
+} from "@/lib/nav/nav-config";
+import type { PendingCounts } from "@/lib/governance/pending-counts";
+import { NavBadge } from "./nav-badge";
 import {
   type NavMode,
   readNavModeCookie,
@@ -18,11 +27,14 @@ export function Sidebar({
   collapsed = false,
   onNavigate,
   initialNavMode = "all",
+  pendingCounts = null,
 }: {
   collapsed?: boolean;
   onNavigate?: () => void;
   /** Server-resolved first-paint mode (R-78) — see nav-mode.ts's resolveInitialNavMode. */
   initialNavMode?: NavMode;
+  /** Server-computed governance queue counts (fail-soft: null/0 hides the badges). */
+  pendingCounts?: PendingCounts | null;
 }) {
   const pathname = usePathname();
   const [mode, setMode] = useState<NavMode>(initialNavMode);
@@ -44,6 +56,8 @@ export function Sidebar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefs.ready, prefs.config.nav?.mode]);
 
+  const pending = pendingByHref(pendingCounts);
+  const pendingTotal = pendingCounts?.total ?? 0;
   const sections = visibleSections(NAV_SECTIONS, mode, pathname);
   const hidden = hiddenCount(NAV_SECTIONS, mode, pathname);
 
@@ -56,13 +70,16 @@ export function Sidebar({
 
   const Item = ({ href, label, icon: Icon }: NavItem) => {
     const active = pathname?.startsWith(href);
+    const count = pending[href] ?? 0;
     return (
       <Link
         href={href}
         onClick={onNavigate}
+        aria-current={active ? "page" : undefined}
+        aria-label={collapsed ? label : undefined}
         title={collapsed ? label : undefined}
         className={cn(
-          "flex items-center gap-3 rounded-lg border-l-2 px-2.5 py-2 text-[13px] transition-colors",
+          "focus-ring relative flex items-center gap-3 rounded-lg border-l-2 px-2.5 py-2 text-[13px] transition-colors",
           collapsed && "justify-center border-l-0 px-0",
           active
             ? "border-accent bg-canvas font-medium text-ink shadow-sm"
@@ -70,7 +87,17 @@ export function Sidebar({
         )}
       >
         <Icon size={18} className={active ? "text-ink" : "text-ink-muted"} strokeWidth={2} />
-        {!collapsed && <span className="truncate">{label}</span>}
+        {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
+        {!collapsed && <NavBadge count={count} />}
+        {collapsed && count > 0 && (
+          <>
+            <span
+              aria-hidden="true"
+              className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-accent"
+            />
+            <NavBadge count={count} className="sr-only" />
+          </>
+        )}
       </Link>
     );
   };
@@ -88,7 +115,7 @@ export function Sidebar({
           </span>
         ) : (
           <span className="flex items-center gap-1.5">
-            <span className="inline-block h-4 w-[3px] animate-pulse rounded-[1px] bg-accent" />
+            <span className="inline-block h-4 w-[3px] animate-pulse motion-reduce:animate-none rounded-[1px] bg-accent" />
             <span className="font-mono font-semibold tracking-tight text-ink">nopm</span>
           </span>
         )}
@@ -109,16 +136,18 @@ export function Sidebar({
                 {collapsed ? (
                   <div className="mx-3 my-2 border-t border-border-subtle" />
                 ) : (
-                  <div className="px-2.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-                    {section.label}
+                  <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+                    <span>{section.label}</span>
+                    {section.label === GOVERNANCE_SECTION_LABEL && <NavBadge count={pendingTotal} />}
                   </div>
                 )}
               </>
             )}
             {/* First section label (no top margin) */}
             {sectionIdx === 0 && !collapsed && (
-              <div className="px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
-                {section.label}
+              <div className="flex items-center justify-between px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+                <span>{section.label}</span>
+                {section.label === GOVERNANCE_SECTION_LABEL && <NavBadge count={pendingTotal} />}
               </div>
             )}
             <div className="space-y-0.5">
@@ -162,7 +191,7 @@ export function Sidebar({
       </div>
 
       {!collapsed && (
-        <div className="flex shrink-0 items-center justify-between border-t border-border-subtle px-4 py-3 text-xs text-ink-muted">
+        <div className="flex shrink-0 items-center border-t border-border-subtle px-4 py-3 text-xs text-ink-muted">
           <Link
             href="/start"
             onClick={onNavigate}
@@ -171,7 +200,6 @@ export function Sidebar({
             <Rocket size={12} aria-hidden="true" />
             Getting started
           </Link>
-          <span>stillnotbald.com</span>
         </div>
       )}
     </aside>

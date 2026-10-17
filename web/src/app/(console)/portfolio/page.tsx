@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
+import { KpiTile } from "@/components/ui/kpi-tile";
+import { ExportBoardPack } from "@/components/dashboard/export-board-pack";
+import { PortfolioFilterBar } from "./portfolio-filter-bar";
 import {
   PortfolioRoadmap,
   type PortfolioProject,
@@ -15,7 +20,7 @@ import {
   type ProgramRollupChildInput,
 } from "@/lib/insight/program-rollup";
 
-export const metadata = { title: "Portfolio Roadmap — NoPM" };
+export const metadata = { title: "Portfolio" };
 
 // ── Row shapes (server-fetched) ──────────────────────────────────────────────
 // ProgramRow reuses the exact shape ProgramForm edits (id, code, name,
@@ -64,7 +69,20 @@ type Group = {
   projects: ProjectRow[];
 };
 
-export default async function PortfolioPage() {
+type SearchParams = Record<string, string | string[] | undefined>;
+const firstParam = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
+
+interface RiskRow {
+  project_id: string | null;
+  severity: string | null;
+  status: string | null;
+}
+
+export default async function PortfolioPage({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
   const db = await createClient();
   const {
     data: { user },
@@ -72,8 +90,23 @@ export default async function PortfolioPage() {
 
   if (!user) redirect("/login");
 
-  // Parallel fetches — RLS automatically scopes to the user's workspace
-  const [programsResult, projectsResult, milestonesResult] = await Promise.all([
+  const sp = await searchParams;
+  const programFilter = firstParam(sp.program);
+  const ragFilter = firstParam(sp.rag);
+
+  // One parallel round. RLS scopes every select to the user's workspace;
+  // rollup inputs are narrowed to the visible project ids in JS below.
+  const [
+    programsResult,
+    projectsResult,
+    milestonesResult,
+    risksRes,
+    budgetRes,
+    timeRes,
+    expenseRes,
+    allocRes,
+    memberRes,
+  ] = await Promise.all([
     db
       .from("programs")
       .select("id,code,name,description,owner_id,rag_status")
@@ -90,15 +123,44 @@ export default async function PortfolioPage() {
         "project_id,name,target_date,baseline_target_date,status,completion_pct",
       )
       .order("target_date", { ascending: true, nullsFirst: false }),
+    db.from("risks").select("project_id,severity,status"),
+    db.from("project_budget").select("project_id,planned_amount,committed_amount,currency"),
+    db.from("time_entries").select("project_id,cost"),
+    db.from("expenses").select("project_id,amount"),
+    db.from("allocations").select("project_id,member_id,allocation_pct,hours"),
+    db.from("resource_members").select("id,capacity_hours_per_week"),
   ]);
 
+  const checks: Array<[string, { message: string } | null]> = [
+    ["programs", programsResult.error],
+    ["projects", projectsResult.error],
+    ["milestones", milestonesResult.error],
+    ["risks", risksRes.error],
+    ["budgets", budgetRes.error],
+    ["time entries", timeRes.error],
+    ["expenses", expenseRes.error],
+    ["allocations", allocRes.error],
+    ["resource members", memberRes.error],
+  ];
+  const failed = checks.find(([, e]) => e);
+  if (failed) return <QueryError what={failed[0]} message={failed[1]?.message} />;
+
   const programs: ProgramRow[] = (programsResult.data ?? []) as ProgramRow[];
-  const projects: ProjectRow[] = (projectsResult.data ?? []) as ProjectRow[];
-  const milestones: PortfolioMilestone[] = (milestonesResult.data ?? []) as PortfolioMilestone[];
+  const allProjects: ProjectRow[] = (projectsResult.data ?? []) as ProjectRow[];
 
-  const projectIds = projects.map((p) => p.id);
+  // Filters: program id (or "ungrouped") and health.
+  const projects = allProjects.filter((p) => {
+    if (ragFilter && p.rag_status !== ragFilter) return false;
+    if (programFilter === "ungrouped") return !p.program_id && !(p.program && p.program.trim());
+    if (programFilter && p.program_id !== programFilter) return false;
+    return true;
+  });
+  const projectIdSet = new Set(projects.map((p) => p.id));
+  const milestones: PortfolioMilestone[] = (
+    (milestonesResult.data ?? []) as PortfolioMilestone[]
+  ).filter((m) => projectIdSet.has(m.project_id));
 
-  // ── L-03 rollup inputs — batched, project-keyed lookups ───────────────────
+  // L-03 rollup inputs: project-keyed lookups.
   const budgetByProject: Record<
     string,
     { planned: number; committed: number; currency: string }
@@ -107,67 +169,56 @@ export default async function PortfolioPage() {
   const allocatedByProject: Record<string, number> = {};
   const capacityByProject: Record<string, number> = {};
 
-  if (projectIds.length > 0) {
-    const [budgetRes, timeRes, expenseRes, allocRes] = await Promise.all([
-      db
-        .from("project_budget")
-        .select("project_id,planned_amount,committed_amount,currency")
-        .in("project_id", projectIds),
-      db.from("time_entries").select("project_id,cost").in("project_id", projectIds),
-      db.from("expenses").select("project_id,amount").in("project_id", projectIds),
-      db
-        .from("allocations")
-        .select("project_id,member_id,allocation_pct,hours")
-        .in("project_id", projectIds),
-    ]);
+  for (const b of (budgetRes.data ?? []) as BudgetRow[]) {
+    if (!projectIdSet.has(b.project_id)) continue;
+    budgetByProject[b.project_id] = {
+      planned: b.planned_amount ?? 0,
+      committed: b.committed_amount ?? 0,
+      currency: b.currency ?? "USD",
+    };
+  }
+  for (const t of (timeRes.data ?? []) as TimeEntryRow[]) {
+    if (!projectIdSet.has(t.project_id)) continue;
+    actualByProject[t.project_id] = (actualByProject[t.project_id] ?? 0) + (t.cost ?? 0);
+  }
+  for (const e of (expenseRes.data ?? []) as ExpenseRow[]) {
+    if (!projectIdSet.has(e.project_id)) continue;
+    actualByProject[e.project_id] = (actualByProject[e.project_id] ?? 0) + (e.amount ?? 0);
+  }
 
-    for (const b of (budgetRes.data ?? []) as BudgetRow[]) {
-      budgetByProject[b.project_id] = {
-        planned: b.planned_amount ?? 0,
-        committed: b.committed_amount ?? 0,
-        currency: b.currency ?? "USD",
-      };
-    }
-    for (const t of (timeRes.data ?? []) as TimeEntryRow[]) {
-      actualByProject[t.project_id] = (actualByProject[t.project_id] ?? 0) + (t.cost ?? 0);
-    }
-    for (const e of (expenseRes.data ?? []) as ExpenseRow[]) {
-      actualByProject[e.project_id] = (actualByProject[e.project_id] ?? 0) + (e.amount ?? 0);
-    }
+  // Allocated/capacity hours per project (mirrors memberUtilisation's
+  // hour-derivation in lib/resource/utilisation.ts, at project grain).
+  const capacityByMember: Record<string, number> = {};
+  for (const m of (memberRes.data ?? []) as MemberRow[]) {
+    capacityByMember[m.id] = m.capacity_hours_per_week ?? 0;
+  }
+  const seenMemberPerProject = new Set<string>();
+  const pctByMember: Record<string, number> = {};
+  for (const a of (allocRes.data ?? []) as AllocationRow[]) {
+    if (!a.project_id || !projectIdSet.has(a.project_id)) continue;
+    const memberCap = capacityByMember[a.member_id] ?? 0;
+    const hours = a.hours != null ? a.hours : ((a.allocation_pct ?? 0) / 100) * memberCap;
+    allocatedByProject[a.project_id] = (allocatedByProject[a.project_id] ?? 0) + hours;
+    // Over-allocation signal: sum of allocation % per member across visible projects.
+    const pct =
+      a.allocation_pct != null ? a.allocation_pct : memberCap > 0 ? (hours / memberCap) * 100 : 0;
+    pctByMember[a.member_id] = (pctByMember[a.member_id] ?? 0) + pct;
 
-    // Allocated/capacity hours per project (mirrors memberUtilisation's
-    // hour-derivation in lib/resource/utilisation.ts, at project grain):
-    //   - allocated hours: allocations.hours when set, else
-    //     allocation_pct/100 * the member's capacity_hours_per_week.
-    //   - capacity hours: Σ capacity_hours_per_week of the DISTINCT members
-    //     allocated to the project (the denominator for "allocated vs capacity").
-    const allocRows = (allocRes.data ?? []) as AllocationRow[];
-    const memberIds = [...new Set(allocRows.map((a) => a.member_id))];
-    const capacityByMember: Record<string, number> = {};
-    if (memberIds.length > 0) {
-      const { data: memberRows } = await db
-        .from("resource_members")
-        .select("id,capacity_hours_per_week")
-        .in("id", memberIds);
-      for (const m of (memberRows ?? []) as MemberRow[]) {
-        capacityByMember[m.id] = m.capacity_hours_per_week ?? 0;
-      }
-    }
-
-    const seenMemberPerProject = new Set<string>();
-    for (const a of allocRows) {
-      if (!a.project_id) continue;
-      const memberCap = capacityByMember[a.member_id] ?? 0;
-      const hours = a.hours != null ? a.hours : ((a.allocation_pct ?? 0) / 100) * memberCap;
-      allocatedByProject[a.project_id] = (allocatedByProject[a.project_id] ?? 0) + hours;
-
-      const key = `${a.project_id}:${a.member_id}`;
-      if (!seenMemberPerProject.has(key)) {
-        seenMemberPerProject.add(key);
-        capacityByProject[a.project_id] = (capacityByProject[a.project_id] ?? 0) + memberCap;
-      }
+    const key = `${a.project_id}:${a.member_id}`;
+    if (!seenMemberPerProject.has(key)) {
+      seenMemberPerProject.add(key);
+      capacityByProject[a.project_id] = (capacityByProject[a.project_id] ?? 0) + memberCap;
     }
   }
+  const overAllocated = Object.values(pctByMember).filter((v) => v > 100).length;
+
+  const openHighRisks = ((risksRes.data ?? []) as RiskRow[]).filter(
+    (r) =>
+      r.project_id &&
+      projectIdSet.has(r.project_id) &&
+      (r.severity === "high" || r.severity === "critical") &&
+      (r.status === "open" || r.status === "mitigating"),
+  ).length;
 
   function rollupInputFor(p: ProjectRow): ProgramRollupChildInput {
     const budget = budgetByProject[p.id];
@@ -212,7 +263,8 @@ export default async function PortfolioPage() {
     }
   }
 
-  const programGroups = [...byProgramId.values()].sort((a, b) => a.label.localeCompare(b.label));
+  const programGroups = [...byProgramId.values()]
+    .filter((g) => !(programFilter || ragFilter) || g.projects.length > 0).sort((a, b) => a.label.localeCompare(b.label));
   const legacyGroups = [...byLegacyText.values()].sort((a, b) => a.label.localeCompare(b.label));
   const ungroupedGroup: Group | null =
     ungrouped.length > 0
@@ -225,13 +277,19 @@ export default async function PortfolioPage() {
     ...(ungroupedGroup ? [ungroupedGroup] : []),
   ];
 
+  const ragCount = { green: 0, complete: 0, amber: 0, red: 0 };
+  for (const p of projects) {
+    if (p.rag_status in ragCount) ragCount[p.rag_status as keyof typeof ragCount]++;
+  }
+  const total = computeProgramRollup(projects.map(rollupInputFor));
+
   function milestonesFor(group: Group): PortfolioMilestone[] {
     const ids = new Set(group.projects.map((p) => p.id));
     return milestones.filter((m) => ids.has(m.project_id));
   }
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+    <PageContainer width="wide" className="space-y-6">
       {/* The project/program count used to sit inline before the New Program
           button; at phone widths that squeezed "Portfolio Roadmap" down to
           "P…" (PageHeader's title is the only flexible side of the row). It
@@ -240,6 +298,7 @@ export default async function PortfolioPage() {
           room to breathe. */}
       <PageHeader
         title="Portfolio Roadmap"
+        exports={<ExportBoardPack />}
         action={<NewProgramButton />}
         secondaryActions={[
           <span
@@ -253,6 +312,53 @@ export default async function PortfolioPage() {
           </span>,
         ]}
       />
+
+      <PortfolioFilterBar
+        programs={[
+          ...programs.map((p) => ({ value: p.id, label: p.name })),
+          { value: "ungrouped", label: "Ungrouped" },
+        ]}
+      />
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <KpiTile
+          label="Projects"
+          value={projects.length}
+          sub={`${programs.length} program${programs.length !== 1 ? "s" : ""}`}
+        />
+        <KpiTile
+          label="Health mix"
+          value={`${ragCount.green + ragCount.complete} / ${ragCount.amber} / ${ragCount.red}`}
+          sub="on track / at risk / delayed"
+        />
+        <KpiTile
+          label="Budget variance"
+          value={
+            total.currency === null
+              ? "—"
+              : `${total.budgetVariance < 0 ? "-" : "+"}${Math.abs(total.budgetVariance).toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+          }
+          sub={
+            total.currency === null
+              ? "No budget"
+              : `${total.currency} ${total.actualAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })} actual of ${total.plannedAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`
+          }
+        />
+        <KpiTile
+          label="Capacity"
+          value={
+            total.capacityHours === 0
+              ? "—"
+              : `${Math.round((total.allocatedHours / total.capacityHours) * 100)}%`
+          }
+          sub={
+            overAllocated > 0
+              ? `${overAllocated} over-allocated member${overAllocated !== 1 ? "s" : ""}`
+              : "No over-allocation"
+          }
+        />
+        <KpiTile label="Open high risks" value={openHighRisks} sub="high or critical, unresolved" />
+      </div>
 
       {allGroups.length === 0 ? (
         <PortfolioRoadmap projects={[]} milestones={[]} />
@@ -285,6 +391,6 @@ export default async function PortfolioPage() {
           </section>
         ))
       )}
-    </div>
+    </PageContainer>
   );
 }

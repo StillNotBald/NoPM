@@ -10,7 +10,7 @@ import { IssueRow, type MyIssue } from "@/components/my-work/issue-row";
 import { ApprovalRow, type PendingApproval } from "@/components/my-work/approval-row";
 import { HotStrip, type HotItem } from "@/components/my-work/hot-strip";
 
-export const metadata = { title: "My Work — NoPM" };
+export const metadata = { title: "My Work" };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -231,7 +231,7 @@ export default async function MyWorkPage() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
+    <div className="mx-auto min-w-0 max-w-4xl space-y-6 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <PageHeader
         title="My Work"
         action={
@@ -272,7 +272,7 @@ export default async function MyWorkPage() {
       </Section>
 
       {/* My risks / issues */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-[repeat(2,minmax(0,1fr))]">
         <Section
           title="My risks"
           count={risks.length}

@@ -45,8 +45,8 @@ export default function Landing() {
         </nav>
       </header>
 
-      <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-14 pt-16 lg:grid-cols-[1.05fr_1fr]">
-        <div>
+      <section className="mx-auto grid max-w-6xl items-center gap-12 px-6 pb-14 pt-16 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+        <div className="min-w-0">
           <h1 className="rise font-display text-[clamp(1.9rem,7vw,2.25rem)] sm:text-5xl xl:text-6xl leading-[1.05] tracking-tight text-ink">
             Project governance your AI agent can operate.
           </h1>
@@ -71,7 +71,7 @@ export default function Landing() {
           </div>
         </div>
 
-        <div className="rise rise-1">
+        <div className="rise rise-1 min-w-0">
           <TerminalCard title="an agent drives NoPM">
             <pre className="overflow-x-auto px-5 py-5 font-mono text-[13px] leading-relaxed text-white/80">
 {`$ nopm tasks rm task_8f3a \\
