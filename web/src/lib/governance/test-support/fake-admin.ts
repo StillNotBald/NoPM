@@ -286,8 +286,11 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
     if (expected && JSON.stringify(projectChildCounts(db, r.target_id as string)) !== JSON.stringify(expected)) {
       return rpcError("P0016", "CHILDREN_CHANGED");
     }
+    // 0056: a delete that removed nothing is TARGET_GONE (P0017), not a commit.
+    if (!db.rows("projects").some((p) => p.id === r.target_id)) return rpcError("P0017", "TARGET_GONE");
     db.tables.projects = db.rows("projects").filter((p) => p.id !== r.target_id);
   } else {
+    if (!db.rows("tasks").some((t) => t.id === r.target_id)) return rpcError("P0017", "TARGET_GONE");
     db.tables.tasks = db.rows("tasks").filter((t) => t.id !== r.target_id);
   }
 

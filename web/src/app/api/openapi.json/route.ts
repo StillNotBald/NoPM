@@ -85,7 +85,7 @@ const spec = {
       "Error bodies carry a stable machine-readable `code` beside `error` (e.g. unauthorized, " +
       "forbidden_scope, not_found, rule_violation, rate_limited, self_approval, no_principal, " +
       "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
-      "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, " +
+      "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, target_gone, " +
       "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
       "duplicate_deletion_request, has_timesheet_records) — branch on it, not on the message. " +
       "A browser-session (cookie) POST/PUT/PATCH/DELETE whose Origin header is another site is refused " +
@@ -185,7 +185,7 @@ const spec = {
               "Stable machine-readable error code, present on most errors (e.g. unauthorized, forbidden_scope, " +
               "not_found, rule_violation, rate_limited, precondition_failed, self_approval, no_principal, " +
               "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
-              "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, " +
+              "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, target_gone, " +
               "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
               "duplicate_deletion_request, has_timesheet_records). Branch on this, not on the message.",
           },
@@ -231,6 +231,7 @@ const spec = {
           created_at: { type: "string", format: "date-time" },
           last_fetched_at: { type: ["string", "null"], format: "date-time" },
           revoked_at: { type: ["string", "null"], format: "date-time" },
+          owner_name: { type: ["string", "null"], description: "Only on GET ?scope=workspace: the owner's display name" },
         },
       },
       LarkCallbackUrls: {
@@ -640,7 +641,8 @@ const spec = {
           "the atomic commit RPC re-checks the lock at approval as a backstop for a lock applied after " +
           "the request was raised. A token with no recorded owner cannot raise the request (403, code no_principal): its " +
           "requester principal would be null, comparable to nobody. The request snapshots not only the project row but " +
-          "how many rows of each child kind hang off it (before.child_counts); if the project gains records afterwards, " +
+          "how many rows of each child kind hang off it (before.child_counts, plus a _scope fingerprint of the project row and " +
+          "the child ids); if the project or its records change afterwards, " +
           "the approval is refused (422 children_changed) so an approver never destroys children they were not shown. " +
           "Owner-locked (Decision 3, " +
           "requirements/devops-wave1/README.md): maker-checker extends to PROJECTS ONLY — milestones/" +
@@ -1726,7 +1728,7 @@ const spec = {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Missing the per-type approve scope (forbidden_scope); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1820,7 +1822,7 @@ const spec = {
           "rag_status/phase/program_id/q (name ilike)/sort (name|code|rag_status|phase|completion_pct|target_date|created_at); clashes take no " +
           "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
           "project_id/member_id/date_from/date_to/billable; audit accepts " +
-          "target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, leniently: an " +
+          "target_type/target_id/action/actor_id/channel (R-82)/since/from/to/order (R-85, leniently: an " +
           "unparsable since or unrecognized order is dropped rather than 422ing, unlike GET /audit — " +
           "after_id is NOT supported here, it needs a row lookup only the list route performs); " +
           "programs take no filters (fixed name asc, " +
@@ -1857,6 +1859,8 @@ const spec = {
           { name: "actor_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant", "lark"] }, description: "entity=audit (R-82)" },
           { name: "since", in: "query", schema: { type: "string", format: "date-time" }, description: "entity=audit (R-85, lenient — a bad value is dropped, not 422)" },
+          { name: "from", in: "query", schema: { type: "string", format: "date" }, description: "entity=audit — first UTC day to include (created_at >= from 00:00Z); a day-granular companion to since, both narrow when both are given. Lenient — a malformed date is dropped, not 422" },
+          { name: "to", in: "query", schema: { type: "string", format: "date" }, description: "entity=audit — last UTC day to include (created_at < the next day 00:00Z). Lenient — a malformed date is dropped, not 422" },
           { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"] }, description: "entity=audit (R-85, lenient — an unrecognized value is dropped, not 422)" },
         ],
         responses: {
@@ -2745,26 +2749,31 @@ const spec = {
     "/calendar-feeds": {
       get: {
         tags: ["calendar"],
-        summary: "List my calendar feeds",
+        summary: "List my calendar feeds (admin: every member's)",
         description:
-          "scope: milestone:read. The caller's OWN active (non-revoked) milestone calendar feeds, newest first. The " +
-          "subscription URL is never returned here — it is shown once, by POST. A token with no recorded owner owns no " +
-          "feeds and lists none.",
+          "scope: milestone:read. By default the caller's OWN active (non-revoked) milestone calendar feeds, newest first. " +
+          "?scope=workspace (a signed-in workspace admin only; 403 otherwise) lists EVERY member's active feeds, each row " +
+          "with `owner_name` (the owner's display name, null if the profile no longer resolves) so an admin can find and " +
+          "revoke a departed employee's feed. The subscription URL or token is never returned here — the URL is shown " +
+          "once, by POST. A token with no recorded owner owns no feeds and lists none in the default view.",
         operationId: "listCalendarFeeds",
         parameters: [
+          { name: "scope", in: "query", schema: { type: "string", enum: ["mine", "workspace"], default: "mine" }, description: "workspace = every member's feeds (workspace admin only)" },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
         ],
         responses: {
           "200": { description: "Paginated calendar feed list (CalendarFeed[])", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
-          "403": { description: "Missing milestone:read", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing milestone:read, or ?scope=workspace by a non-admin", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Unknown ?scope value", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       post: {
         tags: ["calendar"],
         summary: "Create a milestone calendar feed",
         description:
-          "scope: milestone:write (viewers are refused). Mints a read-only iCalendar feed of milestone target dates " +
+          "scope: milestone:write AND milestone:read AND project:read (viewers are refused) — the feed publishes " +
+          "milestones plus project names and descriptions, so the creator must be able to read them. Mints a read-only iCalendar feed of milestone target dates " +
           "(all-day events) that Apple / Outlook / Google / Lark calendars can subscribe to. The subscription URL — " +
           "`url`, ending /api/calendar/npc_<secret>.ics — is returned ONCE; only the secret's SHA-256 is stored, and " +
           "the URL is the credential, so treat it as a secret. project_id omitted or null covers the whole workspace; a " +
@@ -2793,7 +2802,7 @@ const spec = {
               },
             },
           },
-          "403": { description: "Missing milestone:write, a viewer, or a token with no recorded owner", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing milestone:write, milestone:read or project:read, a viewer, or a token with no recorded owner", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error, including a project_id that is not in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },

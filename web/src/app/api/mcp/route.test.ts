@@ -4,7 +4,7 @@
  * pre-auth branch is exercised here: with a Bearer header the route forwards
  * to the REST API, which owns scope / audit enforcement.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { GET, POST, DELETE } from "./route";
 
 const req = (method: string, headers: Record<string, string> = {}) =>
@@ -35,5 +35,56 @@ describe("/api/mcp without a Bearer token", () => {
     expect(generated.headers.get("x-request-id")).toBeTruthy();
     const echoed = await GET(req("GET", { "x-request-id": "client-id-7" }));
     expect(echoed.headers.get("x-request-id")).toBe("client-id-7");
+  });
+});
+
+describe("/api/mcp internal origin", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  const authed = (url: string) =>
+    new Request(url, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer npm_secret",
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "list_projects", arguments: {} },
+      }),
+    });
+
+  it("production with no configured app URL: 503 and the token is never forwarded", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "");
+    vi.stubEnv("VERCEL", "");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await POST(authed("http://evil.example/api/mcp"));
+
+    expect(res.status).toBe(503);
+    expect((await res.json()).code).toBe("misconfigured");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("forwards to the configured app URL, not the Host-derived origin", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://nopm.example.com");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await POST(authed("http://evil.example/api/mcp"));
+
+    expect(fetchMock).toHaveBeenCalled();
+    const target = String((fetchMock.mock.calls[0] as unknown[])[0]);
+    expect(target.startsWith("https://nopm.example.com/")).toBe(true);
+    expect(target).not.toContain("evil.example");
   });
 });

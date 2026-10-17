@@ -222,6 +222,8 @@ export default async function TrustPage({
     target_id: filters.target_id,
     action: filters.action,
     channel: filters.channel,
+    from,
+    to,
   });
   // The object-history chip's own Clear drops just target_type/target_id,
   // keeping any action/channel filter the buyer already set.

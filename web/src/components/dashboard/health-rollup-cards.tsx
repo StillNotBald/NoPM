@@ -73,6 +73,11 @@ type HealthRollupProps = {
   issueCount: number;
   clashCount: number;
   overdueCount: number;
+  /**
+   * A register whose read failed. Its tile shows "—" / "unavailable" instead of
+   * a count of 0 (which would read as "none"); everything else stays up.
+   */
+  unavailable?: { risks?: boolean; issues?: boolean; clashes?: boolean };
   /** L-15 — active-filter note, named above the strip. */
   filterLabel?: string | null;
   /** L-34 — data fetch time, shown + a manual refresh button. */
@@ -89,6 +94,7 @@ export function HealthRollupCards({
   issueCount,
   clashCount,
   overdueCount,
+  unavailable,
   filterLabel,
   fetchedAt,
 }: HealthRollupProps) {
@@ -127,9 +133,15 @@ export function HealthRollupCards({
       />
       <MetricCard
         label="Open risks"
-        value={riskCount}
-        sub={`${issueCount} open issue${issueCount !== 1 ? "s" : ""} · ${clashCount} clash${clashCount !== 1 ? "es" : ""}`}
-        tone={riskCount > 0 ? "warning" : "neutral"}
+        value={unavailable?.risks ? "—" : riskCount}
+        sub={[
+          unavailable?.risks ? "risks unavailable" : null,
+          unavailable?.issues ? "issues unavailable" : `${issueCount} open issue${issueCount !== 1 ? "s" : ""}`,
+          unavailable?.clashes ? "clashes unavailable" : `${clashCount} clash${clashCount !== 1 ? "es" : ""}`,
+        ]
+          .filter(Boolean)
+          .join(" · ")}
+        tone={!unavailable?.risks && riskCount > 0 ? "warning" : "neutral"}
       />
       <MetricCard
         label="At risk / Delayed"

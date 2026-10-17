@@ -20,10 +20,33 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *
  * Counting happens in SQL on both sides, so request-time and commit-time numbers
  * cannot disagree about what a "child" is.
+ *
+ * Counts alone are not a fingerprint: delete one task and add another and every
+ * count is unchanged, and renaming the project or moving its dates changes no
+ * count at all. Migration 0056 therefore makes the same SQL function also return
+ * a reserved `_scope` object ({ project: md5 of the project row's own fields,
+ * ids: { <table>: md5 of that table's sorted child ids } }). It rides inside
+ * `child_counts` (the build that predates 0056 stores it without knowing), and
+ * the trigger compares the whole object when the snapshot has it, counts only
+ * when it does not (a legacy snapshot). Every other key is still a plain count.
  */
 export const CHILD_COUNTS_KEY = "child_counts";
 
-export type ChildCounts = Record<string, number>;
+/** The content fingerprint 0056 adds under the reserved `_scope` key. Opaque to TypeScript; compared in SQL. */
+export type ScopeFingerprint = { project: string | null; ids: Record<string, string> };
+
+/** Per-table row counts, plus (from 0056) the `_scope` fingerprint. */
+export type ChildCounts = Record<string, number | ScopeFingerprint>;
+
+/** The reserved key of the content fingerprint inside `child_counts` (never a table name). */
+export const SCOPE_KEY = "_scope";
+
+/** Just the per-table counts of a snapshot, without the fingerprint (for display). */
+export function countsOnly(snapshot: ChildCounts): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(snapshot).filter((e): e is [string, number] => e[0] !== SCOPE_KEY && typeof e[1] === "number"),
+  );
+}
 
 /** Current child-row counts for `projectId`. Fails closed: no snapshot, no request. */
 export async function projectChildCounts(db: SupabaseClient, projectId: string): Promise<ChildCounts> {

@@ -40,6 +40,15 @@ export function feedOwner(actor: Actor): string | null {
 }
 
 /**
+ * Who may see and revoke ANY feed in the workspace (not just their own): a
+ * signed-in workspace admin. One definition, shared by the list and the revoke
+ * route so "may revoke any feed" and "may list every feed" cannot drift apart.
+ */
+export function isFeedAdmin(actor: Actor): boolean {
+  return actor.type === "user" && actor.role === "admin";
+}
+
+/**
  * Public origin for feed URLs and deep links. NEXT_PUBLIC_APP_URL wins, so a
  * self-hosted instance behind a proxy hands out its public address rather than
  * the internal one the request arrived on.
@@ -102,10 +111,23 @@ export function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
 
 // ── throttling ─────────────────────────────────────────────────────────────
 
+/**
+ * A positive-integer env setting, or `fallback`. An empty string (a blank line
+ * in a .env file or an unset-but-declared variable on a host), a non-number, a
+ * fraction, zero or a negative all fall back: `Number("")` is 0, and a cap of 0
+ * would answer every poll with a 429.
+ */
+export function parseEnvInt(raw: string | undefined, fallback: number): number {
+  const trimmed = raw?.trim();
+  if (!trimmed || !/^\d+$/.test(trimmed)) return fallback;
+  const n = Number(trimmed);
+  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+}
+
 /** Requests per minute per client address, counted before the token is even looked up. */
-export const FEED_RATE_PER_IP = Number(process.env.NOPM_RATE_CAL_IP_PER_MIN ?? 120);
+export const FEED_RATE_PER_IP = parseEnvInt(process.env.NOPM_RATE_CAL_IP_PER_MIN, 120);
 /** Requests per minute per feed. Calendar apps poll every 15 minutes to a few hours. */
-export const FEED_RATE_PER_FEED = Number(process.env.NOPM_RATE_CAL_PER_MIN ?? 60);
+export const FEED_RATE_PER_FEED = parseEnvInt(process.env.NOPM_RATE_CAL_PER_MIN, 60);
 const RATE_WINDOW_SECONDS = 60;
 
 type RateDb = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> };

@@ -503,19 +503,127 @@ describe("runCron — bounded in time and concurrency", () => {
     expect((await runCron({ now: new Date() })).deliveries.sent).toBe(1); // the next tick delivers it
   });
 
-  it("still queues the week's digest when the deadline has already passed (no platform call needed)", async () => {
+  it("does not start queueing digests once the deadline has passed, and the next tick picks the connector up", async () => {
     const summary = await runCron({ now: new Date(), deadlineMs: -1 });
 
-    expect(summary.digests).toEqual({ sent: 0, skipped: 0, queued: 1, failed: 0 });
-    expect(digests()).toHaveLength(1);
-    expect(digests()[0].status).toBe("pending");
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    expect(summary.digests).toEqual({ sent: 0, skipped: 1, queued: 0, failed: 0 });
+    expect(summary.skippedForDeadline).toBe(1);
+    expect(digests()).toHaveLength(0);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(db.rows("integration_cron_state")[0].last_summary).toMatchObject({ partial: true });
 
-    // the next tick delivers it without queueing a second one
+    // the next tick queues it and delivers it, exactly once
     const next = await runCron({ now: new Date() });
     expect(next.deliveries.sent).toBe(1);
     expect(digests()).toHaveLength(1);
     expect(fake.calls.sends).toHaveLength(1);
+  });
+
+  describe("phase 1 deadline, rotation and paging", () => {
+    function addDigestConnector(id: string, workspaceId: string) {
+      db.seed("workspaces", [{ id: workspaceId, name: `Org ${id}` }]);
+      db.seed("integration_connectors", [
+        connectorRow({ id, workspace_id: workspaceId, name: `Lark ${id}`, config: digestConfig() as never }) as never,
+      ]);
+    }
+    const auditedConnectors = () => writeAuditMock.mock.calls.map((c) => c[0].targetId);
+
+    it("stops queueing digests at the deadline mid-phase and finishes them over the next ticks", async () => {
+      addDigestConnector("conn-a", OTHER_WS);
+      addDigestConnector("conn-b", THIRD_WS);
+      // Each digest "takes" 3 s of the 2.5 s budget.
+      writeAuditMock.mockImplementation(async () => {
+        vi.setSystemTime(new Date(Date.now() + 3_000));
+      });
+
+      const first = await runCron({ now: new Date(), deadlineMs: 2_500, concurrency: 1 });
+      expect(digests()).toHaveLength(1);
+      expect(first.skippedForDeadline).toBe(3); // phase 2 never starts once the deadline has passed
+      expect(first.connectors).toBe(3);
+
+      writeAuditMock.mockResolvedValue(undefined);
+      await runCron({ now: new Date(), concurrency: 1 });
+      expect(digests()).toHaveLength(3);
+      expect(new Set(writeAuditMock.mock.calls.map((c) => c[0].targetId)).size).toBe(3); // one audit row each, none twice
+    });
+
+    it("rotates: connectors the last tick did not reach or finish go first, then the least recently visited", async () => {
+      addDigestConnector("conn-a", OTHER_WS);
+      addDigestConnector("conn-b", THIRD_WS);
+      const state = (connector_id: string, workspace_id: string, last_run_at: string, partial: boolean) => ({
+        connector_id,
+        workspace_id,
+        last_run_at,
+        last_summary: { partial },
+      });
+      db.seed("integration_cron_state", [
+        state(CONNECTOR_ID, WS, "2026-10-16T00:30:00.000Z", false), // visited most recently
+        state("conn-a", OTHER_WS, "2026-10-14T00:30:00.000Z", false), // visited longest ago
+        // conn-b has no row at all: never recorded
+      ]);
+
+      await runCron({ now: new Date(), concurrency: 1 });
+
+      expect(auditedConnectors()).toEqual(["conn-b", "conn-a", CONNECTOR_ID]);
+    });
+
+    it("a partial flag outranks recency", async () => {
+      addDigestConnector("conn-a", OTHER_WS);
+      db.seed("integration_cron_state", [
+        { connector_id: CONNECTOR_ID, workspace_id: WS, last_run_at: "2026-10-10T00:00:00.000Z", last_summary: { partial: false } },
+        { connector_id: "conn-a", workspace_id: OTHER_WS, last_run_at: "2026-10-16T00:00:00.000Z", last_summary: { partial: true } },
+      ]);
+      await runCron({ now: new Date(), concurrency: 1 });
+      expect(auditedConnectors()).toEqual(["conn-a", CONNECTOR_ID]);
+    });
+
+    it("sees every connector even when the server caps each response (PostgREST max_rows)", async () => {
+      for (let i = 0; i < 6; i++) addConnector(`conn-${i}`, `5555555${i}-0000-4000-8000-000000000000`);
+      db.maxRows = 2;
+
+      const summary = await runCron({ now: new Date() });
+
+      expect(summary.connectors).toBe(7);
+      expect(Object.keys(db.rows("integration_cron_state")).length).toBe(7);
+    });
+
+    it("prunes workspaces beyond the response cap too", async () => {
+      const OLD = "2026-06-01T00:00:00.000Z";
+      for (let i = 0; i < 4; i++) {
+        const ws = `6666666${i}-0000-4000-8000-000000000000`;
+        db.seed("workspaces", [{ id: ws, name: `Org ${i}` }]);
+        db.seed("integration_connectors", [
+          connectorRow({ id: `conn-p${i}`, workspace_id: ws, status: "revoked", config: digestConfig({ enabled: false }) as never }) as never,
+        ]);
+        db.seed("integration_deliveries", [
+          { id: `old-${i}`, workspace_id: ws, connector_id: `conn-p${i}`, kind: "bot_reply", status: "sent", attempts: 1, next_attempt_at: OLD, created_at: OLD, payload: {} },
+        ]);
+      }
+      db.maxRows = 2;
+      const summary = await runCron({ now: new Date() });
+      expect(summary.pruned.deliveries).toBe(4);
+    });
+
+    it("looks up backlog ages in chunks, not one query per connector", async () => {
+      for (let i = 0; i < 9; i++) addConnector(`conn-${i}`, `5555555${i}-0000-4000-8000-000000000000`);
+      const selects: string[] = [];
+      const from = db.from.bind(db);
+      db.from = ((table: string) => {
+        const q = from(table);
+        const select = q.select.bind(q);
+        q.select = ((cols?: string, opts?: { count?: string; head?: boolean }) => {
+          if (table === "integration_deliveries" && cols) selects.push(cols);
+          return select(cols, opts);
+        }) as typeof q.select;
+        return q;
+      }) as typeof db.from;
+
+      await runCron({ now: new Date() });
+
+      // 10 connectors fit one chunk: ONE ranking query (the old code ran one per connector).
+      expect(selects.filter((c) => c === "connector_id, next_attempt_at")).toHaveLength(1);
+      expect(selects.filter((c) => c === "next_attempt_at")).toHaveLength(0);
+    });
   });
 
   it("serves the connector with the oldest due backlog first", async () => {

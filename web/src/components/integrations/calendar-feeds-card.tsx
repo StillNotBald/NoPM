@@ -8,10 +8,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ShowOncePanel } from "@/components/governance/show-once-panel";
-import { createFeed, fetchFeeds, fetchProjects, revokeFeed } from "./api";
+import { createFeed, fetchFeeds, fetchProjects, fetchWorkspaceFeeds, revokeFeed, type OwnedFeedView } from "./api";
 import { absoluteUrl, formatDate, formatRelativeTime, toWebcalUrl } from "./format";
 import { useApiResource, useNow, useOrigin } from "./hooks";
-import { errorText, type FeedView, type ProjectOption } from "./model";
+import { errorText, type ProjectOption } from "./model";
 import { ConfirmDialog, CopyValue, Field, InlineAlert, LoadingRow, Select } from "./shared";
 
 const SUBSCRIBE_HINTS: { app: string; how: string }[] = [
@@ -64,7 +64,10 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
   const modal = useModal();
   const origin = useOrigin();
   const now = useNow(true, 60_000);
-  const feeds = useApiResource(fetchFeeds);
+  // A workspace admin sees every member's feeds (with the owner), so a departed
+  // employee's link can be found and revoked; everyone else sees their own.
+  const isAdmin = role === "admin";
+  const feeds = useApiResource(isAdmin ? fetchWorkspaceFeeds : fetchFeeds);
   const projects = useApiResource(fetchProjects);
 
   const [name, setName] = useState("My milestones");
@@ -100,7 +103,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
     }
   }
 
-  function askRevoke(feed: FeedView) {
+  function askRevoke(feed: OwnedFeedView) {
     modal.open(
       <ConfirmDialog
         heading={`Revoke “${feed.name}”?`}
@@ -112,7 +115,10 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
           feeds.reload();
         }}
       >
-        <p>Calendar apps using this link stop updating right away. A revoked link can&apos;t be restored; create a new feed to subscribe again.</p>
+        <p>
+          {isAdmin && feed.ownerName ? `This feed belongs to ${feed.ownerName}. ` : ""}
+          Calendar apps using this link stop updating right away. A revoked link can&apos;t be restored; create a new feed to subscribe again.
+        </p>
       </ConfirmDialog>,
       { title: "Revoke calendar feed", size: "sm" },
     );
@@ -120,7 +126,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
 
   let list: ReactNode;
   if (feeds.state.status === "loading") {
-    list = <LoadingRow label="Loading your feeds…" />;
+    list = <LoadingRow label={isAdmin ? "Loading feeds…" : "Loading your feeds…"} />;
   } else if (feeds.state.status === "unavailable") {
     list = <p className="text-sm text-ink-secondary">Calendar feeds aren&apos;t available on this deployment yet.</p>;
   } else if (feeds.state.status === "forbidden") {
@@ -128,7 +134,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
   } else if (feeds.state.status === "error") {
     list = (
       <div className="space-y-3">
-        <InlineAlert>Could not load your feeds: {feeds.state.message}</InlineAlert>
+        <InlineAlert>Could not load {isAdmin ? "the feeds" : "your feeds"}: {feeds.state.message}</InlineAlert>
         <Button variant="secondary" size="sm" className="h-11 w-full sm:h-8 sm:w-auto" onClick={feeds.retry}>
           Try again
         </Button>
@@ -138,7 +144,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
     list = <p className="text-sm text-ink-muted">No feeds yet. Create one above to subscribe from a calendar app.</p>;
   } else {
     list = (
-      <ul className="divide-y divide-border-subtle rounded-md border border-border-subtle" aria-label="Your calendar feeds">
+      <ul className="divide-y divide-border-subtle rounded-md border border-border-subtle" aria-label={isAdmin ? "Workspace calendar feeds" : "Your calendar feeds"}>
         {feeds.state.data.map((feed) => (
           <li key={feed.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
@@ -146,6 +152,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
                 {feed.name}
               </p>
               <p className="text-xs text-ink-muted">
+                {isAdmin && <>{feed.ownerName ?? "Unknown owner"} · </>}
                 {feed.projectId ? projectName(feed.projectId) : "All projects"} · created {formatDate(feed.createdAt)} ·{" "}
                 {feed.lastFetchedAt ? `last fetched ${formatRelativeTime(feed.lastFetchedAt, now)}` : "not fetched yet"}
               </p>
@@ -227,7 +234,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
         )}
 
         <div className="space-y-2">
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Your feeds</h4>
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-ink-muted">{isAdmin ? "Workspace feeds" : "Your feeds"}</h4>
           {list}
         </div>
       </CardBody>

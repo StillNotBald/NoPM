@@ -142,7 +142,7 @@ What each `.env.local` variable (see `web/.env.example`) would mean under self-h
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase dashboard | The `SERVICE_ROLE_KEY` you configure for the same self-hosted stack — still server-only, still bypasses RLS, still never exposed to the client |
 | `SUPABASE_DB_PASSWORD` | Supabase-managed Postgres password | Your own Postgres password |
 | `DB_URL` | Derived by `scripts/migrate.mjs` from the two vars above, or set directly | Set directly — any reachable Postgres connection string works (`scripts/migrate.mjs` / `apply-migrations.mjs` have no Supabase-specific logic beyond the URL-derivation convenience, which self-hosting bypasses by setting `DB_URL` explicitly) |
-| `NEXT_PUBLIC_APP_URL` | `https://stillnotbald.com` | Your own app URL |
+| `NEXT_PUBLIC_APP_URL` | `https://stillnotbald.com` | Your own app URL — **required** off Vercel: `/api/mcp` builds its internal calls from it and answers 503 `misconfigured` in production when it is unset (it never trusts the `Host` header) |
 | `NOPM_TOKEN_PREFIX`, `NOPM_ENCRYPTION_KEY` | Unchanged — app-level, no Supabase dependency | Unchanged |
 | `DEMO_EMAIL` / `DEMO_PASSWORD`, `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Unchanged — created via `gotrue`/Auth either way | Unchanged, but the accounts must exist in your self-hosted `gotrue` instance |
 | `NOPM_API_URL`, `NOPM_TOKEN` (CLI/MCP) | Unchanged | Unchanged — points at whatever `NEXT_PUBLIC_APP_URL` is |

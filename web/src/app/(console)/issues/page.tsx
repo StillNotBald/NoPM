@@ -8,6 +8,7 @@ import { PageContainer } from "@/components/ui/page-container";
 import { QueryError } from "@/components/ui/query-error";
 import { IssueFocusOpener } from "@/components/registers/issue-focus-opener";
 import { IssuesView, type IssueRow } from "./_issues-view";
+import { parseIssuePageFilters } from "./_params";
 
 export const metadata: Metadata = { title: "Issues" };
 
@@ -36,10 +37,9 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
 
   // Whitelisted URL filters (written by the register toolbar). Values are bound
   // as parameters by PostgREST; `q` is stripped of LIKE/filter-syntax characters.
-  const status = first(sp.status);
-  const severity = first(sp.severity);
-  const priority = first(sp.priority);
-  const projectId = first(sp.project_id);
+  // status/severity/priority/project_id are validated (enum whitelists + UUID,
+  // see _params.ts); a malformed value is ignored rather than crashing the query.
+  const { status, severity, priority, project_id: projectId } = parseIssuePageFilters(sp);
   const q = first(sp.q)?.replace(/[\\%_,()]/g, " ").trim();
 
   let issuesQuery = db

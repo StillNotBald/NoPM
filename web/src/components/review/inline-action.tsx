@@ -399,6 +399,14 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
     router.refresh();
   }
 
+  // Stale (412) / already-decided refusal -> Refresh: the inspector content is a
+  // frozen snapshot, so close it (as DecisionFlow does) and let the reopened
+  // item carry the current updatedAt.
+  function handleRefreshRecord() {
+    inspector.close();
+    router.refresh();
+  }
+
   const c = item.change;
   const status = (item.crStatus ?? "under_review") as ChangeRequest["status"];
   // The same facts list the change-control inspector shows: who asked, when,
@@ -444,7 +452,13 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
 
       {/* Not allowed -> the note; allowed -> the rule, then the decision form. */}
       {decide.canDecide && <FourEyesNote className="mt-3" />}
-      <DecisionPanel crId={item.id} onDecided={handleDecided} decide={decide} expectedUpdatedAt={c?.updatedAt} />
+      <DecisionPanel
+        crId={item.id}
+        onDecided={handleDecided}
+        decide={decide}
+        expectedUpdatedAt={c?.updatedAt}
+        onRefresh={handleRefreshRecord}
+      />
     </div>
   );
 }

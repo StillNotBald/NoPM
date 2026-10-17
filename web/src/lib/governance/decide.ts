@@ -74,6 +74,8 @@ export const CHILDREN_CHANGED_MESSAGE =
   "This project gained records (tasks, milestones, risks, ...) after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 export const TARGET_CHANGED_MESSAGE =
   "This task was edited after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
+export const TARGET_GONE_MESSAGE =
+  "The record this request would delete no longer exists (it was already removed), so there is nothing to approve — the request has been closed.";
 export const NO_PRINCIPAL_MESSAGE =
   "This token has no recorded owner, so it cannot approve (four-eyes)";
 export const SELF_APPROVAL_MESSAGE = "Self-approval is not allowed (four-eyes)";
@@ -330,6 +332,41 @@ async function assertTaskUnchangedSinceRequest(db: Db, workspaceId: string, row:
 }
 
 /**
+ * The commit RPC found nothing to delete (P0017 TARGET_GONE, migration 0056):
+ * the task or project was already removed, e.g. by a cascade. The RPC raised, so
+ * nothing was committed or audited as a deletion; this closes the request so it
+ * does not sit pending forever. 'withdrawn' is the closed-without-a-decision
+ * status (no approver is recorded), compare-and-set on 'pending'. Fail-soft: the
+ * caller answers target_gone either way.
+ */
+async function closeDeletionTargetGone(db: Db, actor: Actor, row: DeletionRow): Promise<void> {
+  try {
+    const { data: updated } = await db
+      .from("deletion_requests")
+      .update({ status: "withdrawn", decided_at: new Date().toISOString() })
+      .eq("id", row.id)
+      .eq("workspace_id", actor.workspaceId)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+    if (!updated) return;
+    await writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "deletion_request.withdrawn",
+      targetType: "deletion_request",
+      targetId: row.id,
+      before: { status: "pending" },
+      after: { status: "withdrawn", reason: "target_gone" },
+    });
+    const base = await deletionBaseEvent(db, actor, row);
+    announceDecided(decidedFrom(actor, base, "withdrawn"));
+  } catch {
+    // The 422 below is the answer; a failed tidy-up is retried by the next approve attempt.
+  }
+}
+
+/**
  * Four-eyes checker step: approve and immediately commit the deletion. Scope is
  * per target type (task:delete:approve / project:delete:approve). The delete +
  * request commit + BOTH audit rows run in ONE Postgres transaction inside the
@@ -385,6 +422,12 @@ export async function approveDeletion(
     if (m.includes("NO_PRINCIPAL") || error.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
     if (m.includes("PROJECT_LOCKED") || error.code === "P0010")
       throw new RuleError("Project is locked — unlock or rebaseline before committing this deletion.", "project_locked");
+    // 0056: the target was already gone, the RPC rolled back (no commit, no
+    // task.delete / project.delete audit row). Close the stale request.
+    if (m.includes("TARGET_GONE") || error.code === "P0017") {
+      await closeDeletionTargetGone(db, actor, row);
+      throw new RuleError(TARGET_GONE_MESSAGE, "target_gone");
+    }
     // R1/M4: the project gained children after the request was raised (migration
     // 0049 trigger on projects). The approver must see the CURRENT scope, so the
     // request is refused; withdraw it and raise a new one.

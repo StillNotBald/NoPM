@@ -27,8 +27,8 @@ import { isIP } from "node:net";
  *    not come through your proxies, so it is distrusted too.
  *
  * Returns `null` when no address can be trusted. The callers decide what that
- * means: invites/accept falls back to one shared bucket (a conservative global
- * cap), the Lark relay skips its pre-auth IP cap and leans on the HMAC and the
+ * means: invites/accept falls back to a per-invite-token bucket (a flood only
+ * throttles the token it targets), the Lark relay skips its pre-auth IP cap and leans on the HMAC and the
  * per-connector cap. The value is always a syntactically valid IP, so a header
  * full of junk can neither mint unbounded rate keys nor reach the RPC.
  *

@@ -14,6 +14,27 @@ export const runtime = "nodejs";
 const RATE_MAX = 10;
 const RATE_WINDOW_SECONDS = 60;
 
+async function enforceRate(db: ReturnType<typeof createAdminClient>, key: string): Promise<void> {
+  const { data: rateData, error: rateError } = await db.rpc("nopm_rate_check", {
+    p_key: key,
+    p_max: RATE_MAX,
+    p_window_seconds: RATE_WINDOW_SECONDS,
+  });
+  if (rateError) {
+    // Fail-open (abuse protection, not an auth control) — loud in logs so
+    // an unenforced cap shows up as an anomaly, not a silent gap.
+    console.error(
+      "[nopm][invite-accept] nopm_rate_check RPC failed — FAILING OPEN (cap not enforced this call)",
+      { key: key.startsWith("invite-accept:tok:") ? "invite-accept:tok" : key, error: rateError.message },
+    );
+    return;
+  }
+  const rate = rateData as { allowed: boolean; retry_after_seconds: number };
+  if (!rate.allowed) {
+    throw new RateLimitError(`Rate limit exceeded. Retry in ${rate.retry_after_seconds}s.`);
+  }
+}
+
 /**
  * POST /api/invites/accept — public (auth:false, D6/D13). This is the ONE
  * route in NoPM that provisions a brand-new auth.users row from an
@@ -33,33 +54,25 @@ export const POST = route(
   async ({ request }) => {
     const db = createAdminClient();
 
-    // Explicit IP-keyed rate limit (10/min) — this endpoint mints new
-    // Supabase auth users, so it cannot be left unguarded just because it
-    // has no actor to key route()'s baseline limiter on.
+    // Explicit rate limit (10/min) — this endpoint mints new Supabase auth
+    // users, so it cannot be left unguarded just because it has no actor to key
+    // route()'s baseline limiter on.
     // The address comes from @/lib/api/client-ip, never from the caller's own
     // X-Forwarded-For (rotating it gave every request a fresh bucket). When no
-    // address can be trusted, every caller shares ONE conservative bucket.
-    const ip = ipRateKey(request.headers) ?? "unknown";
-    const { data: rateData, error: rateError } = await db.rpc("nopm_rate_check", {
-      p_key: `invite-accept:${ip}`,
-      p_max: RATE_MAX,
-      p_window_seconds: RATE_WINDOW_SECONDS,
-    });
-    if (rateError) {
-      // Fail-open (abuse protection, not an auth control) — loud in logs so
-      // an unenforced cap shows up as an anomaly, not a silent gap.
-      console.error(
-        "[nopm][invite-accept] nopm_rate_check RPC failed — FAILING OPEN (cap not enforced this call)",
-        { key: `invite-accept:${ip}`, error: rateError.message },
-      );
-    } else {
-      const rate = rateData as { allowed: boolean; retry_after_seconds: number };
-      if (!rate.allowed) {
-        throw new RateLimitError(`Rate limit exceeded. Retry in ${rate.retry_after_seconds}s.`);
-      }
-    }
-
+    // address can be trusted the bucket is keyed on a hash of the invite token
+    // being accepted instead of one shared "unknown" bucket: a flood then only
+    // throttles the token it is aimed at, not every legitimate acceptance.
     const body = await safeJson(request);
+    const ip = ipRateKey(request.headers);
+    const rawToken =
+      body && typeof body === "object" && typeof (body as { token?: unknown }).token === "string"
+        ? (body as { token: string }).token
+        : null;
+    // No address and no token: nothing to key on, and the request is about to be
+    // refused as a validation error before any database work or user creation.
+    const rateKey = ip ? `invite-accept:${ip}` : rawToken ? `invite-accept:tok:${hashToken(rawToken)}` : null;
+    if (rateKey) await enforceRate(db, rateKey);
+
     const parsed = acceptInviteSchema.safeParse(body);
     if (!parsed.success) {
       return validationError(

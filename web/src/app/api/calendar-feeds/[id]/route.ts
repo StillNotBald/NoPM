@@ -4,7 +4,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { ok } from "@/lib/api/response";
-import { feedOwner } from "@/lib/calendar/feeds";
+import { feedOwner, isFeedAdmin } from "@/lib/calendar/feeds";
 
 export const runtime = "nodejs";
 
@@ -33,7 +33,7 @@ export const DELETE = route(async ({ actor, params }) => {
   // only the creator or a workspace admin may revoke it.
   const owner = feedOwner(actor);
   const isOwner = owner !== null && feed.created_by === owner;
-  const isAdmin = actor.type === "user" && actor.role === "admin";
+  const isAdmin = isFeedAdmin(actor);
   if (!isOwner && !isAdmin) {
     throw new ScopeError("Only the feed's owner or a workspace admin can revoke it");
   }

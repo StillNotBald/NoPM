@@ -52,6 +52,7 @@ import {
   NO_MAKER_PRINCIPAL_MESSAGE,
   NO_PRINCIPAL_MESSAGE,
   TARGET_CHANGED_MESSAGE,
+  TARGET_GONE_MESSAGE,
 } from "./decide";
 
 // ── fixtures ──────────────────────────────────────────────────────────────
@@ -507,6 +508,36 @@ describe("approveDeletion", () => {
       failWith("P0010", "PROJECT_LOCKED: frozen");
       const err = await caught(approveDeletion(bobPat(), "del-1"));
       expect(err.status).toBe(422);
+    });
+    it("P0017 TARGET_GONE -> 422 target_gone, and the stale request is closed (withdrawn), not left pending", async () => {
+      failWith("P0017", "TARGET_GONE: the task no longer exists");
+      const err = await caught(approveDeletion(bobPat(), "del-1"));
+      expect([err.status, err.code, err.message]).toEqual([422, "target_gone", TARGET_GONE_MESSAGE]);
+
+      const req = db.rows("deletion_requests").find((r) => r.id === "del-1")!;
+      expect(req.status).toBe("withdrawn");
+      expect(req.approved_by_id ?? null).toBeNull(); // closed without a decision: no approver recorded
+      const actions = db.rows("audit_log").map((a) => a.action);
+      expect(actions).toEqual(["deletion_request.withdrawn"]); // no task.delete naming the approver
+      expect(db.rows("audit_log")[0].after).toMatchObject({ status: "withdrawn", reason: "target_gone" });
+    });
+    it("P0017 on a project deletion maps the same way", async () => {
+      db.rows("deletion_requests")[0] = deletionRow({
+        target_type: "project",
+        target_id: "proj-1",
+        before: { id: "proj-1", name: "Billing Migration" },
+      });
+      db.rpcHandlers.nopm_commit_project_deletion = () => ({ data: null, error: { code: "P0017", message: "TARGET_GONE" } });
+      const err = await caught(approveDeletion(bobPat(), "del-1"));
+      expect([err.status, err.code]).toEqual([422, "target_gone"]);
+      expect(db.rows("deletion_requests")[0].status).toBe("withdrawn");
+    });
+    it("the fake commit RPC (which mirrors 0056) refuses to commit a task that no longer exists", async () => {
+      db.tables.tasks = []; // already cascade-deleted
+      const err = await caught(approveDeletion(bobPat(), "del-1"));
+      expect([err.status, err.code]).toEqual([422, "target_gone"]);
+      expect(db.rows("audit_log").some((a) => a.action === "task.delete")).toBe(false);
+      expect(db.rows("deletion_requests")[0].status).toBe("withdrawn");
     });
     it("anything else surfaces as an unexpected error (sanitised to a 500 by route())", async () => {
       failWith("XX000", "boom");

@@ -16,7 +16,8 @@
  *   GET    /api/integrations/identities                   -> identity[] (mine; admin: all)
  *   POST   /api/integrations/identities/link-code         -> { code, expires_at }
  *   DELETE /api/integrations/identities/{id}              -> unlink
- *   GET    /api/calendar-feeds                            -> feed[] (mine)
+ *   GET    /api/calendar-feeds                            -> feed[] (mine; paged, limit<=100)
+ *   GET    /api/calendar-feeds?scope=workspace            -> feed[] + owner_name (admin: every member's)
  *   POST   /api/calendar-feeds                            -> { url } (once)
  *   DELETE /api/calendar-feeds/{id}                       -> revoke
  *   GET    /api/projects?limit=100                        -> project[] (feed scope picker)
@@ -30,8 +31,8 @@ import {
   buildStatusPatchBody,
   normalizeCreatedConnector,
   normalizeDigestStatus,
+  normalizeFeed,
   normalizeFeedCreated,
-  normalizeFeeds,
   normalizeIdentities,
   normalizeLinkCode,
   normalizeProjects,
@@ -109,8 +110,53 @@ export async function unlinkIdentity(id: string): Promise<void> {
 
 // ── Calendar feeds ──────────────────────────────────────────────────────────
 
-export async function fetchFeeds(): Promise<FeedView[]> {
-  return normalizeFeeds(await apiGet<unknown>("/api/calendar-feeds"));
+/** A feed row plus, in the admin's workspace-wide view, who owns it. */
+export interface OwnedFeedView extends FeedView {
+  ownerId: string | null;
+  ownerName: string | null;
+}
+
+const FEED_PAGE_LIMIT = 100;
+/** Safety stop for the page loop (100 x 100 = 10,000 feeds), so a misbehaving server cannot spin it forever. */
+const FEED_MAX_PAGES = 100;
+
+function toOwnedFeed(raw: unknown): OwnedFeedView | null {
+  const feed = normalizeFeed(raw);
+  if (!feed || feed.revoked) return null;
+  const r = raw as { created_by?: unknown; owner_name?: unknown };
+  return {
+    ...feed,
+    ownerId: typeof r.created_by === "string" ? r.created_by : null,
+    ownerName: typeof r.owner_name === "string" && r.owner_name.trim() ? r.owner_name : null,
+  };
+}
+
+/**
+ * Every page of `/api/calendar-feeds`, not just the first 20 the server returns
+ * by default: a shorter-than-limit page is the last one.
+ */
+async function fetchAllFeeds(query: string): Promise<OwnedFeedView[]> {
+  const feeds: OwnedFeedView[] = [];
+  for (let page = 1; page <= FEED_MAX_PAGES; page++) {
+    const rows = await apiGet<unknown>(`/api/calendar-feeds?${query}${query ? "&" : ""}page=${page}&limit=${FEED_PAGE_LIMIT}`);
+    const list = Array.isArray(rows) ? rows : [];
+    for (const row of list) {
+      const feed = toOwnedFeed(row);
+      if (feed) feeds.push(feed);
+    }
+    if (list.length < FEED_PAGE_LIMIT) break;
+  }
+  return feeds;
+}
+
+/** My own live feeds. */
+export function fetchFeeds(): Promise<OwnedFeedView[]> {
+  return fetchAllFeeds("");
+}
+
+/** Admin only: every member's live feeds, each with its owner, so a departed employee's can be revoked. */
+export function fetchWorkspaceFeeds(): Promise<OwnedFeedView[]> {
+  return fetchAllFeeds("scope=workspace");
 }
 
 export async function createFeed(values: { name: string; projectId: string }): Promise<{ url: string }> {

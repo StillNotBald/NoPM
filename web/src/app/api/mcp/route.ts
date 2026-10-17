@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { AuthError, toErrorResponse } from "@/lib/api/errors";
 import { resolveRequestId } from "@/lib/audit/channel";
+import { resolveInternalOrigin } from "@/lib/api/internal-origin";
 // mcp/tools.mjs is the single tool registry shared with the stdio server
 // (web/mcp/server.mjs) and the in-app BYOK assistant — kept outside src/ on
 // purpose so it stays a plain-Node, no-build-step artifact for the CLI.
@@ -125,7 +126,21 @@ async function handle(request: Request): Promise<Response> {
     return unauthorized;
   }
   const token = authz.slice(7).trim();
-  const origin = new URL(request.url).origin;
+  // Never the Host header on its own: the caller's PAT is forwarded to this
+  // origin, so it comes from the configured app URL (see resolveInternalOrigin).
+  const origin = resolveInternalOrigin(request);
+  if (!origin) {
+    console.error(
+      "[nopm][mcp] NEXT_PUBLIC_APP_URL is not set in production, so /api/mcp refuses rather than forwarding tokens to a Host-derived origin",
+    );
+    return Response.json(
+      {
+        error: "MCP endpoint is not configured: the operator must set NEXT_PUBLIC_APP_URL to this app's public URL.",
+        code: "misconfigured",
+      },
+      { status: 503, headers: { "X-Request-Id": resolveRequestId(request.headers) } },
+    );
+  }
   // R-82: one correlation id per MCP request — the caller's X-Request-Id when
   // it is a safe token, else generated here — forwarded to every internal
   // tool-call fetch and echoed on the response, exactly like route() does.
