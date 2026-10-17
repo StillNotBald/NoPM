@@ -9,6 +9,9 @@ import { assertApplicable } from "@/lib/governance/rebaseline-lifecycle";
 
 export const runtime = "nodejs";
 
+/** The project's own baseline dates, as the audit row records them. */
+type ProjectBaseline = { start: string | null; target: string | null };
+
 // POST /api/rebaselines/[id]/apply — apply an approved rebaseline (rebaseline:approve)
 export const POST = route(async ({ actor, params }) => {
   requireScope(actor, "rebaseline:approve");
@@ -69,14 +72,35 @@ export const POST = route(async ({ actor, params }) => {
   // unchanged and no way to retry. The snapshot is idempotent (baseline :=
   // current dates), so a failure here leaves the rebaseline `approved` and a
   // retry simply runs it again.
+  //
+  // The same RPC also moves the PROJECT's own baseline dates (migration 0055).
+  // That is the one change here no child row shows, so the route reads the
+  // project baseline either side of the call and records both in the audit row
+  // (after.project_baseline): the History tab and the Trust Center stream then
+  // show exactly what the baseline was and what the apply made it.
   const projectId: string | null = rebaseline.project_id ?? null;
 
+  const readProjectBaseline = async () => {
+    const { data, error } = await db
+      .from("projects")
+      .select("baseline_start_date, baseline_target_date")
+      .eq("id", projectId as string)
+      .eq("workspace_id", actor.workspaceId)
+      .maybeSingle();
+    if (error) throw error;
+    return { start: data?.baseline_start_date ?? null, target: data?.baseline_target_date ?? null };
+  };
+
+  let projectBaseline: { before: ProjectBaseline; after: ProjectBaseline } | null = null;
+
   if (projectId) {
+    const baselineBefore = await readProjectBaseline();
     const { error: snapshotErr } = await db.rpc("nopm_apply_rebaseline_snapshot", {
       p_project_id: projectId,
       p_workspace_id: actor.workspaceId,
     });
     if (snapshotErr) throw snapshotErr;
+    projectBaseline = { before: baselineBefore, after: await readProjectBaseline() };
   }
 
   const now = new Date().toISOString();
@@ -108,7 +132,7 @@ export const POST = route(async ({ actor, params }) => {
     targetType: "rebaseline",
     targetId: params.id,
     before: rebaseline,
-    after,
+    after: projectBaseline ? { ...after, project_baseline: projectBaseline } : after,
   });
 
   return ok(after);

@@ -50,6 +50,41 @@ PASS / FAIL / PARTIAL — <one line>
 
 Records themselves live in dated folders under **`testing-log/`** at the repo root (e.g. `testing-log/2026-MM-DD_deploy-dry-run/RECORD.md`), not under `CUTOVER/`. This file is the pointer + format spec; `testing-log/` is the evidence trail (a sibling deliverable — see `CUTOVER/README.md`'s checkpoint table for its status). Keep dry-run folders immutable once written: if a later run finds something new, add a new dated folder rather than editing an old one.
 
+## Runs
+
+### 2026-10-17 — lark wave, `--atomic --dry-run` (live project)
+
+**Date:** 2026-10-17  **Run by:** the owner's Claude Code session, with the owner's explicit approval in chat for the merge of each PR and for the live rollout  **Target:** the live `nopm` Supabase project. The connection string was derived from the owner's `web/.env.local`; the read-only pre-check confirmed the 45-row live ledger before anything was applied.
+
+**Steps followed:**
+- [`07-LARK-WAVE-ROLLOUT.md`](07-LARK-WAVE-ROLLOUT.md) section 2 (pre-check) and section 4, step 2 (dry run)
+
+**Commands run + output** (command per 07 step 2):
+
+```
+node scripts/migrate.mjs --atomic --dry-run
+apply 20261016000045_principal_four_eyes.sql ...
+  NOTICE: 0045: 6 deletion request(s), 1 change request(s), 0 timesheet(s) were decided by the same human who raised them (kept as history; blocked from now on)
+ok (150 ms)
+apply 20261016000046_integration_hub.sql ... ok (80 ms)
+apply 20261016000047_calendar_feeds.sql ... ok (34 ms)
+apply 20261017000049_lifecycle_guards.sql ... ok (38 ms)
+apply 20261017000050_truncate_guard.sql ... ok (38 ms)
+apply 20261017000051_hub_reliability.sql ... ok (35 ms)
+apply 20261017000052_api_tokens_kind.sql ... ok (41 ms)
+apply 20261017000053_hub_card_integrity.sql ... ok (32 ms)
+apply 20261017000054_lifecycle_guards_2.sql ... ok (34 ms)
+Dry run complete in 623 ms: 9 pending file(s) applied cleanly, then ROLLED BACK. Nothing changed.
+```
+
+**Result:** PASS. Nine pending files applied cleanly and were rolled back. The 0045 notice (6 deletion, 1 change request, 0 timesheets) matched pre-check F1–F3.
+
+**Follow-ups:**
+- The captured output is not yet filed under `testing-log/`. The owner files it as a dated record folder, per "Where records live" above.
+- The live window itself is recorded in [`07-LARK-WAVE-ROLLOUT.md`](07-LARK-WAVE-ROLLOUT.md), "Run record — 2026-10-17".
+
+**Signature:** TODO (owner), 2026-10-17
+
 ---
 
 **Signature**

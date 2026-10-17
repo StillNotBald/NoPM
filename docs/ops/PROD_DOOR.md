@@ -14,7 +14,7 @@ This is the one file that answers "what is live and where does it live" as a sna
 | Serving URL | stillnotbald.com | [`README.md`](../../README.md), `docs/adr/0001-stack-host-scope.md` |
 | DNS | Cloudflare | `docs/adr/0001-stack-host-scope.md` (DNS only — no Workers/OpenNext) |
 | Database | Supabase project `nopm`, region `ap-southeast-1` | `CLAUDE.md` → Commands section; connection ref lives in `web/.env.local` (`NEXT_PUBLIC_SUPABASE_URL` / `DB_URL` — gitignored, never copy the value out) |
-| Migration head | Live ledger: 0001–0044 (last in order `20260906000044_rpc_audit_provenance.sql`) plus `20261016000048_rls_api_only_writes.sql`, applied out of order as a hotfix on 2026-10-17. Written but NOT yet applied: 0045–0047 and 0049–0054 (the lark wave; its code is not deployed either). After the rollout the head is `20261017000054_lifecycle_guards_2.sql` | `_nopm_migrations` ledger on the live database; `web/supabase/migrations/` (latest filename by timestamp prefix — re-run `ls web/supabase/migrations/` to check currency, this row is a snapshot); rollout steps in [`CUTOVER/07-LARK-WAVE-ROLLOUT.md`](../../CUTOVER/07-LARK-WAVE-ROLLOUT.md) |
+| Migration head | Live head `20261017000054_lifecycle_guards_2.sql` (0054), applied 2026-10-17. The live ledger holds 0001–0054: `20261016000048_rls_api_only_writes.sql` (0048) went in first as an out-of-order hotfix on 2026-10-17, then 0045–0047 and 0049–0054 in one transaction on 2026-10-17 (run record in [`CUTOVER/07-LARK-WAVE-ROLLOUT.md`](../../CUTOVER/07-LARK-WAVE-ROLLOUT.md)). | `_nopm_migrations` ledger on the live database; `web/supabase/migrations/` (latest filename by timestamp prefix — re-run `ls web/supabase/migrations/` to check currency, this row is a snapshot); rollout steps in [`CUTOVER/07-LARK-WAVE-ROLLOUT.md`](../../CUTOVER/07-LARK-WAVE-ROLLOUT.md) |
 | Secrets | `web/.env.local` (gitignored) + Vercel project env vars | `web/.env.example` (documents every key's purpose, never a real value) |
 | Rate limiting | Enabled, DB-backed fixed-window, fail-open on limiter-infra error / fail-closed (429) on an actual hit. Defaults: **600 reads/min, 120 writes/min**, keyed per `workspace_id + actor type (user/token) + read-or-write bucket` | `web/src/lib/api/rate-limit.ts`, migration `20260814000029_rate_limiting.sql`; env-overridable via `NOPM_RATE_READ_PER_MIN` / `NOPM_RATE_WRITE_PER_MIN` |
 | Public posture | Demo login (`POST /api/auth/demo-login`) into a single shared, writable demo workspace — no signup | [`README.md`](../../README.md) "Three agent surfaces" intro, `requirements/REQUIREMENTS.md` R-53 |
@@ -28,7 +28,9 @@ This is the one file that answers "what is live and where does it live" as a sna
 
 ## Before you deploy a build that contains the Lark / principal four-eyes work
 
-**Apply migrations 0045 to 0054 to the target database FIRST, in order, then deploy the code.** They are:
+**Status 2026-10-17:** 0045 – 0054 are applied to the live project. They went in one transaction, followed by the promote, as recorded in the run record of [`CUTOVER/07-LARK-WAVE-ROLLOUT.md`](../../CUTOVER/07-LARK-WAVE-ROLLOUT.md). The next pending file is `20261017000055_project_baseline_trail.sql`. It is backward compatible: it keeps the RPC signature, so apply it, then deploy the build that writes the project-baseline audit trail. The table below stays as the reference for any other database still on 0044.
+
+**On a database still at 0044: apply migrations 0045 to 0054 FIRST, in order, then deploy the code.** They are:
 
 | # | File (in `web/supabase/migrations/`) | What the code depends on |
 |---|---|---|

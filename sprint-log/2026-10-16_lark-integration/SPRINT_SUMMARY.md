@@ -41,7 +41,7 @@
 ## Live hotfix — migration 0048 (2026-10-17)
 - **Why it could not wait.** The red-team round showed that, on the live project's own policies from the first migrations, any signed-in member could write governed tables straight through the database REST endpoint — and `profiles` allowed a member to set their OWN `role` to `admin` (verified on a local stack), a self-promotion past every role check. The migration ledger table was also exposed (RLS off), so a fake "applied" row could make the runner skip a real migration.
 - **What was done.** Migration 0048 alone was applied to the live project in one transaction, recorded in `_nopm_migrations`, with a before-and-after policy-and-grant check; it drops every non-select policy and revokes INSERT / UPDATE / DELETE from `anon` and `authenticated` on 24 tables (including `profiles` and `notifications`) and locks the ledger. The authenticated page smoke then passed **24 of 24**. Nothing else in this wave was applied by it; because the ledger skips by name, the normal runner will still apply 0045 → 0047 and 0049 → 0053 in order.
-- **One thing the audit log cannot tell you.** A direct write through the database REST endpoint leaves no `audit_log` row, so past exploitation of the old policies cannot be ruled out from the audit trail. Recommended owner check: compare the live project's admin and manager list (`profiles.role`) with who is expected.
+- **One thing the audit log cannot tell you.** A direct write through the database REST endpoint leaves no `audit_log` row, so past exploitation of the old policies cannot be ruled out from the audit trail. Recommended owner check: compare the live project's admin and manager list (`profiles.role`) with who is expected. **Done 2026-10-17:** a read-only live integrity check found three admins and managers, all expected: the workspace creator and two managers set by the seed scripts. It found no evidence of abuse in any check.
 
 ## Red-team and review results (round 2)
 **What held** (verified against state, not just HTTP status)
@@ -187,22 +187,23 @@ The owner then cut the review rounds: no further review or re-verify waves, and 
 
 ## Follow-ups
 **Open owner decisions**
-- **Unlock and lock.** Any `project:write` holder can lock or unlock a project, and unlock needs no second person. Add four-eyes to unlock (and who may lock), or keep the admin / manager gate with a required reason (R-83)?
-- **Who may approve.** A session user who is not a viewer still holds the approve verbs implicitly (a plain member approved and committed a deletion); tokens need an exact scope and Lark restricts chat decisions to admins and managers. Make session approval require admin / manager, or a workspace setting?
-- **Existing data.** Repair cross-tenant references that already exist, and write the composite `(workspace_id, id)` foreign keys that would back the API check in the database?
-- **Ownerless legacy tokens.** New makers with no owner are refused and such a token can never decide, but requests they already raised stay approvable by any human principal (so they are not stranded). Revoke or assign owners to ownerless tokens, and whether to require an admin break-glass for those requests?
-- **Dependency sign-off:** `tailwind-merge` 3.7.0 (above).
-- **Public copy** (UI audit A5): name MCP and the BYOK assistant on the landing; how and whether to mention Lark chat approvals and the calendar feed; keep, update or drop "shipped solo in eight waves"; confirm the demo account line on `/login` is the demo identity; relabel "Raise a change request"; show a real console screenshot (the audit's pick is the Trust Center stream).
-- **Caching:** `Cache-Control` on the public pages needs route-group layouts and a hash-based CSP; decide whether it is worth it.
-- **NOTICE:** the font section says no font files are committed, but two OFL font subsets now ship for the OG images with their licences beside them — list them in `NOTICE`.
+- **Unlock and lock.** Any `project:write` holder can lock or unlock a project, and unlock needs no second person. Add four-eyes to unlock (and who may lock), or keep the admin / manager gate with a required reason (R-83)? **Decided in part 2026-10-17:** unlock stays single-actor, with the reason and audit row kept ([DECISIONS.md #7](../2026-10-17_post-live-followups/DECISIONS.md)). Who may lock is still open.
+- **Who may approve.** A session user who is not a viewer still holds the approve verbs implicitly (a plain member approved and committed a deletion); tokens need an exact scope and Lark restricts chat decisions to admins and managers. Make session approval require admin / manager, or a workspace setting? **Decided 2026-10-17:** goes to the backlog ([DECISIONS.md #6](../2026-10-17_post-live-followups/DECISIONS.md)).
+- **Existing data.** Repair cross-tenant references that already exist, and write the composite `(workspace_id, id)` foreign keys that would back the API check in the database? **Decided 2026-10-17:** the cross-tenant repair is closed; the live integrity check found 0 cross-workspace references, so nothing was removed ([DECISIONS.md #13](../2026-10-17_post-live-followups/DECISIONS.md)). The composite foreign keys are still open.
+- **Ownerless legacy tokens.** New makers with no owner are refused and such a token can never decide, but requests they already raised stay approvable by any human principal (so they are not stranded). Revoke or assign owners to ownerless tokens, and whether to require an admin break-glass for those requests? **Closed 2026-10-17:** the live pre-check found 0 ownerless tokens (E1) and 0 requests raised by one (F4).
+- **Dependency sign-off:** `tailwind-merge` 3.7.0 (above). **Decided 2026-10-17:** approved ([DECISIONS.md #12](../2026-10-17_post-live-followups/DECISIONS.md)).
+- **Public copy** (UI audit A5): name MCP and the BYOK assistant on the landing; how and whether to mention Lark chat approvals and the calendar feed; keep, update or drop "shipped solo in eight waves"; confirm the demo account line on `/login` is the demo identity; relabel "Raise a change request"; show a real console screenshot (the audit's pick is the Trust Center stream). **Decided 2026-10-17:** the landing copy stays as it is ([DECISIONS.md #14](../2026-10-17_post-live-followups/DECISIONS.md)).
+- **Caching:** `Cache-Control` on the public pages needs route-group layouts and a hash-based CSP; decide whether it is worth it. **Decided 2026-10-17:** approved ([DECISIONS.md #15](../2026-10-17_post-live-followups/DECISIONS.md)). In progress this sprint.
+- **NOTICE:** the font section says no font files are committed, but two OFL font subsets now ship for the OG images with their licences beside them — list them in `NOTICE`. **Still open:** no 2026-10-17 decision covers this.
 - Smaller:
-  - Whether a manager may invite another manager, which creates a second human identity that satisfies four-eyes.
-  - Whether a calendar feed should die with its creator's access.
-  - Whether an applied rebaseline should move the project-level baseline; today no field carries proposed project dates.
-  - Confirm the round-3 rule that only the requester edits an open change request. The alternative is to record the last editor and refuse their approval.
-- **Live integrity check:** a read-only script looks for traces of direct writes made before the 0048 hotfix (it is kept out of the repo because its report lists admin emails). Running it against the live project needs the owner's go-ahead.
+  - Whether a manager may invite another manager, which creates a second human identity that satisfies four-eyes. **Decided 2026-10-17:** managers may invite managers ([DECISIONS.md #8](../2026-10-17_post-live-followups/DECISIONS.md)).
+  - Whether a calendar feed should die with its creator's access. **Decided 2026-10-17:** it keeps working after the creator leaves; an admin revokes it manually if needed ([DECISIONS.md #9](../2026-10-17_post-live-followups/DECISIONS.md)).
+  - Whether an applied rebaseline should move the project-level baseline; today no field carries proposed project dates. **Decided 2026-10-17:** yes, with an audit trail ([DECISIONS.md #10](../2026-10-17_post-live-followups/DECISIONS.md)). In progress this sprint.
+  - Confirm the round-3 rule that only the requester edits an open change request. The alternative is to record the last editor and refuse their approval. **Confirmed 2026-10-17** ([DECISIONS.md #11](../2026-10-17_post-live-followups/DECISIONS.md)).
+- **Live integrity check:** a read-only script looks for traces of direct writes made before the 0048 hotfix (it is kept out of the repo because its report lists admin emails). Running it against the live project needs the owner's go-ahead. **Run 2026-10-17;** its result is recorded under [DECISIONS.md #13](../2026-10-17_post-live-followups/DECISIONS.md).
 
 **Before going live**
+- Done 2026-10-17, see `CUTOVER/07-LARK-WAVE-ROLLOUT.md` "Run record".
 - Follow `CUTOVER/07-LARK-WAVE-ROLLOUT.md`:
   1. Run the read-only pre-check.
   2. Build without aliasing.
@@ -214,7 +215,7 @@ The owner then cut the review rounds: no further review or re-verify waves, and 
   Never deploy first: the new build fails every governed decision on the old schema. 0048 is already live and is skipped by name.
 - Set `CRON_SECRET` and the public app URL in the host environment; set `NOPM_TRUSTED_PROXY_HOPS` when self-hosting behind a reverse proxy (otherwise the pre-auth limiters share one bucket); mint approver tokens that need to decide with the exact scope (a legacy token that relied on a wildcard to approve now gets 403 until re-minted); give `functions.maxDuration` to the routes that emit if the host is not on a long-running plan (the hub's `after()` work is bounded by the platform default).
 - A live-tenant test of the Lark adapter (R-99 stays PARTIAL until then), including card callbacks over the long connection, which are unverified.
-- Check the live project's `profiles.role` against who is expected (see the hotfix note).
+- ~~Check the live project's `profiles.role` against who is expected~~: done 2026-10-17 (see the hotfix note).
 
 **Known gaps and deferred**
 - Sign in with Lark (SSO) — deferred; needs the OAuth / SSO decision from the maintainer.

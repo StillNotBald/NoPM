@@ -6,6 +6,14 @@ This page says what NoPM has shipped, what could be built as a paid module if so
 
 Everything described here is in the repository today, not a promise. The canonical, requirement-by-requirement list is [`requirements/REQUIREMENTS.md`](../requirements/REQUIREMENTS.md), with each row traced to code and tests in [`requirements/TRACEABILITY.md`](../requirements/TRACEABILITY.md). In short: the governance backbone (immutable audit log, scoped tokens, four-eyes approval, locking, change control), all eight PM modules (projects, milestones, tasks, risks, issues, clashes, resources, budget), the Trust Center, the REST API with OpenAPI and `llms.txt`, the `nopm` CLI, a native MCP server, a BYOK governed assistant, and the console UI around all of it.
 
+## Backlog
+
+Owner decisions of 2026-10-17 put these items in the backlog. Each one is deferred; none is scheduled.
+
+- **Lark live-tenant test.** Run the Lark / Feishu adapter against a real tenant, including card callbacks over the long connection, which are unverified. The owner setup checklist is [`docs/runbooks/lark-first-live-test.md`](runbooks/lark-first-live-test.md). R-99 stays PARTIAL until this is done.
+- **CDN caching of the public pages** (approved 2026-10-17, started, not finished). Serve `/` and `/case-study` from the CDN without adding `'unsafe-inline'` to the CSP: a static root layout, plus an external before-paint appearance script.
+- **Approval-role policy.** Decide who may approve governed requests. Today a session user who is not a viewer holds the approve verbs implicitly, while Lark restricts chat decisions to admins and managers. Options: require admin or manager for session approval, or make it a workspace setting.
+
 ## Paid-module menu: sponsor or hire to build
 
 None of these exist yet. They are a menu of options for a future paid tier, not a commitment or a timeline. If one of these would help your organization, you can sponsor its development or raise it as a paid change request. See [`docs/guide/05-getting-help-and-paid-services.md`](guide/05-getting-help-and-paid-services.md). No prices are listed here; quote on request.

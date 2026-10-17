@@ -413,3 +413,91 @@ describe("0054 file", () => {
     expect(sql54).not.toMatch(/function nopm_commit_(task|project)_deletion/i);
   });
 });
+
+// ── 0055 ────────────────────────────────────────────────────────────────────
+
+describe("0055 file — the rebaseline snapshot also moves the project's own baseline", () => {
+  const FILE_55 = "20261017000055_project_baseline_trail.sql";
+  const FILE_28 = "20260814000028_project_lock_enforcement.sql";
+  const sql55 = stripComments(readFileSync(join(migrationsDir, FILE_55), "utf8"));
+  const sql28 = stripComments(readFileSync(join(migrationsDir, FILE_28), "utf8"));
+
+  const fnOf = (src: string) => {
+    const start = src.search(/create or replace function nopm_apply_rebaseline_snapshot\(/i);
+    if (start < 0) throw new Error("no definition of nopm_apply_rebaseline_snapshot");
+    return src.slice(start, src.indexOf("\n$$;", start) + 4);
+  };
+  const fn55 = fnOf(sql55);
+  const fn28 = fnOf(sql28);
+  const grantLines = (src: string) =>
+    src
+      .split("\n")
+      .filter((l) => /^(revoke|grant)\s+execute on function nopm_apply_rebaseline_snapshot/i.test(l.trim()))
+      .map((l) => l.replace(/\s+/g, " ").trim());
+
+  it("sorts after the migrations that existed when it was written (0054) and is the latest definition of the function", () => {
+    expect(migrationFiles.indexOf(FILE_55)).toBeGreaterThan(migrationFiles.indexOf("20261017000054_lifecycle_guards_2.sql"));
+    const definers = migrationFiles.filter((f) =>
+      /create or replace function nopm_apply_rebaseline_snapshot\(/i.test(stripComments(readFileSync(join(migrationsDir, f), "utf8"))),
+    );
+    expect(definers).toEqual([FILE_28, FILE_55]);
+  });
+
+  it("keeps the 0028 signature, return type and attributes, so the build that is live keeps working against it", () => {
+    const head = (fn: string) =>
+      fn
+        .slice(0, fn.indexOf("as $$"))
+        .replace(/\s+/g, " ")
+        .replace(/\( /g, "(")
+        .replace(/ \)/g, ")")
+        .trim();
+    expect(head(fn55)).toBe(head(fn28));
+    expect(head(fn55)).toMatch(/\(p_project_id uuid, p_workspace_id uuid\) returns void language plpgsql set search_path = public$/);
+    // 0028 never made it security definer; widening the privilege model is not this migration's business.
+    expect(fn28).not.toMatch(/security definer/i);
+    expect(fn55).not.toMatch(/security definer/i);
+  });
+
+  it("keeps the milestone and task snapshot exactly as 0028 wrote it, and sets the bypass first", () => {
+    const body55 = fn55.replace(/\s+/g, " ");
+    const body28 = fn28.replace(/\s+/g, " ");
+    const children28 = body28.slice(body28.indexOf("perform set_config"), body28.indexOf(" end; $$;"));
+    expect(body55).toContain(children28);
+    expect(fn55).toContain("perform set_config('nopm.lock_bypass', 'on', true);");
+  });
+
+  it("updates the project's baseline columns INSIDE the bypass (after set_config, scoped to the project and workspace)", () => {
+    const bypassAt = fn55.indexOf("perform set_config('nopm.lock_bypass', 'on', true)");
+    const projectUpdate = fn55.search(/update projects\s+set/i);
+    expect(bypassAt).toBeGreaterThan(-1);
+    expect(projectUpdate).toBeGreaterThan(bypassAt);
+    const stmt = fn55.slice(projectUpdate, fn55.indexOf(";", projectUpdate)).replace(/\s+/g, " ");
+    expect(stmt).toMatch(/baseline_start_date = start_date/);
+    expect(stmt).toMatch(/baseline_target_date = target_date/);
+    expect(stmt).toMatch(/where id = p_project_id and workspace_id = p_workspace_id/);
+    // Like the task snapshot: a project with no dates at all is left alone, so an apply can never wipe a baseline.
+    expect(stmt).toMatch(/\(start_date is not null or target_date is not null\)/);
+    // It really needs the bypass: the 0049 trigger guards exactly these columns on a locked project.
+    expect(SCHEDULE_SHAPE_PROJECT_FIELDS).toEqual(expect.arrayContaining(["baseline_start_date", "baseline_target_date"]));
+    // It writes the project row and nothing the 0049 trigger would not already let the bypass through.
+    expect(stmt).not.toMatch(/is_locked|locked_by|lock_reason/);
+  });
+
+  it("its grants are the 0028 grants, unchanged: closed to public / anon / authenticated, open to service_role", () => {
+    expect(grantLines(sql55)).toEqual(grantLines(sql28));
+    expect(grantLines(sql55)).toEqual([
+      "revoke execute on function nopm_apply_rebaseline_snapshot(uuid, uuid) from public, anon, authenticated;",
+      "grant execute on function nopm_apply_rebaseline_snapshot(uuid, uuid) to service_role;",
+    ]);
+  });
+
+  it("creates no policy, trigger, table change, write grant or audit row (0048's lockdown and the provenance tests stay true)", () => {
+    expect(sql55).not.toMatch(/create\s+(or\s+replace\s+)?(policy|trigger)/i);
+    expect(sql55).not.toMatch(/drop\s+(policy|trigger)/i);
+    expect(sql55).not.toMatch(/alter\s+table/i);
+    expect(sql55).not.toMatch(/grant\s+(all|insert|update|delete|truncate)/i);
+    expect(sql55).not.toMatch(/insert into audit_log/i);
+    expect(sql55).not.toMatch(/function nopm_commit_(task|project)_deletion/i);
+    expect([...sql55.matchAll(/create or replace function (\w+)\(/g)].map((m) => m[1])).toEqual(["nopm_apply_rebaseline_snapshot"]);
+  });
+});
