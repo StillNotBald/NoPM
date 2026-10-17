@@ -34,7 +34,6 @@ import { RiskForm } from "./risk-form";
 import { SprintForm } from "./sprint-form";
 import { TaskForm } from "./task-form";
 import { DocumentForm } from "@/components/documents/document-form";
-import { LogTimeForm } from "@/components/timesheets/log-time-form";
 import { Input } from "@/components/ui/input";
 
 // Field's `children` is a required single element; createElement passes it positionally.
@@ -63,7 +62,6 @@ describe("every form control has an accessible name", () => {
     ["ProgramForm", html(ProgramForm, { mode: "create" })],
     ["ProjectForm", html(ProjectForm, { mode: "create" })],
     ["DocumentForm", html(DocumentForm, { projects: PROJECTS })],
-    ["LogTimeForm", html(LogTimeForm, {})],
   ];
 
   it.each(cases)("%s", (_name, markup) => {

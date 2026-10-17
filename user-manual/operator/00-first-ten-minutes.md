@@ -14,7 +14,7 @@ The in-app equivalent of this page is `/start` — "Getting started" in the acco
 
 ## Before you start clicking: the sidebar starts small
 
-The sidebar starts in **Essentials** mode — 7 core modules, not the full catalogue. The rest (Sprints, Mainline, Clashes, Timesheets, Change Control, Decisions, Email Previews, and more) are one click away: **Show all modules** at the bottom of the sidebar, or **Settings → Navigation & help**. Nothing is missing — it's just not on screen yet.
+The sidebar starts in **Essentials** mode — 7 core modules, not the full catalogue. The rest (Sprints, Mainline, Clashes, Change Control, Decisions, Email Previews, and more) are one click away: **Show all modules** at the bottom of the sidebar, or **Settings → Navigation & help**. Nothing is missing — it's just not on screen yet.
 
 ## Quickstart from your terminal
 

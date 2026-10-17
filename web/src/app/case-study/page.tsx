@@ -268,7 +268,7 @@ export default function CaseStudyPage() {
               Clash engine — schedule, resource, and dependency conflicts (cross-project)
             </ModuleRow>
             <ModuleRow>
-              Resource, allocation, timesheets (four-eyes submit/approve/reopen), cost-rate, and capacity
+              Resource, allocation, cost-rate, and capacity
             </ModuleRow>
             <ModuleRow>
               Budget: planned / committed / actual / EVM (CPI, SPI, EAC, VAC)

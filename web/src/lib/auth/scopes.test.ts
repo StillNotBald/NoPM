@@ -117,12 +117,9 @@ describe("scope registry", () => {
       expect(preset.has("task:delete:request")).toBe(false);
       expect(preset.has("project:delete:approve")).toBe(false);
       expect(preset.has("project:delete:request")).toBe(false);
-      // L-31 timesheet four-eyes: time:approve is the checker verb — the
-      // agent preset must never carry it (it's not a :read scope, so the
-      // derived filter already excludes it; assert explicitly so the
-      // exclusion is locked, not incidental).
+      // Retired time:* scopes (hour logging removed) are never granted.
+      expect(preset.has("time:read")).toBe(false);
       expect(preset.has("time:approve")).toBe(false);
-      expect(preset.has("time:submit")).toBe(false);
       // R-83: change:decide is a decision-only (checker) scope, split from
       // change:write — the agent preset must never carry it. It's not a
       // :read scope so the derived filter already excludes it; assert
@@ -187,5 +184,17 @@ describe("scope registry", () => {
       expect(choices.has("project:delete:request")).toBe(true);
       expect(choices.has("project:delete:approve")).toBe(true);
     });
+  });
+});
+
+describe("retired time:* scopes (hour logging removed)", () => {
+  it("can no longer be minted, but a legacy token carrying them is inert, not broken", async () => {
+    const { hasScope } = await import("@/lib/auth/tokens");
+    for (const s of ["time:read", "time:write", "time:submit", "time:approve", "time:*"]) {
+      expect(isValidScope(s)).toBe(false);
+    }
+    expect(scopeChoices().some((c) => c.startsWith("time:"))).toBe(false);
+    expect(hasScope(["time:read", "time:approve", "task:read"], "task:read")).toBe(true);
+    expect(hasScope(["time:read", "time:approve"], "task:read")).toBe(false);
   });
 });

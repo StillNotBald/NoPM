@@ -20,7 +20,7 @@ Approving or deciding is for **admins and managers only**, whatever the channel 
 - project and task deletion: approve, reject
 - change request: decide (approve, reject, defer)
 - rebaseline: sign-off (go / no go) and apply
-- timesheet: approve, reject, reopen
+- timesheet: approve, reject, reopen (removed 2026-10-17, decision 18)
 
 A member or viewer gets 403 with code `role_not_permitted` and the message "Only managers and admins can approve".
 
@@ -54,3 +54,5 @@ The in-app assistant never holds an approve or decide scope and has no approve t
 - **Keep scope-only gating and document it.** Rejected: two different answers to "may a member approve?" depending on the channel is the defect.
 - **A separate `approver` role.** Rejected for now: the owner chose to reuse the existing roles ("follow Lark rules"); a new role can be added later without changing this rule's shape.
 - **Judge a token by the role its creator had when it was minted.** Rejected: a demotion would not take effect, and a leaver's old tokens would keep approving.
+
+> **Update 2026-10-17 (owner decision 18):** the timesheet verbs (approve, reject, reopen) and decision 17 (members log only their own hours, `not_your_hours`) are moot: hour logging was removed. The approver rule stands for deletions, change requests and rebaselines.

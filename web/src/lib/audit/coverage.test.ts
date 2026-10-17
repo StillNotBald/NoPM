@@ -105,10 +105,6 @@ const DELEGATED_AUDIT: Record<string, { fn: string; reason: string }> = {
     fn: "decideChangeRequest",
     reason: "decision logic + 'change_request.decide' audit live in decide.ts",
   },
-  "api/timesheet-submissions/[id]/decision": {
-    fn: "decideTimesheet",
-    reason: "decision logic + 'timesheet.approved|rejected|reopened' audit live in decide.ts",
-  },
 };
 
 const DECIDE_TS = join(process.cwd(), "src", "lib", "governance", "decide.ts");

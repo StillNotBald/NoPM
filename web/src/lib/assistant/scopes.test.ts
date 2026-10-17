@@ -65,10 +65,6 @@ describe("TOOL_SCOPES — forbidden scopes are absent", () => {
     expect(scopes).not.toContain("project:delete:approve");
   });
 
-  it("does NOT include time:approve (checker role denied to assistant — timesheet four-eyes, L-31)", () => {
-    expect(scopes).not.toContain("time:approve");
-  });
-
   it("does NOT include any token:* scope", () => {
     const tokenScopes = scopes.filter((s) => s.startsWith("token:"));
     expect(tokenScopes).toHaveLength(0);
@@ -107,10 +103,6 @@ describe("hasScope(TOOL_SCOPES, ...) — maker-checker invariant", () => {
 
   it("returns false for task:delete:approve (assistant may NOT APPROVE)", () => {
     expect(hasScope(scopes, "task:delete:approve")).toBe(false);
-  });
-
-  it("returns false for time:approve (assistant may NOT approve a timesheet — L-31)", () => {
-    expect(hasScope(scopes, "time:approve")).toBe(false);
   });
 
   it("returns true for project:delete:request (assistant may REQUEST project deletion)", () => {

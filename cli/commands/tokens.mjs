@@ -26,7 +26,6 @@ const KNOWN_SCOPES = [
   "issue:read", "issue:write",
   "clash:read", "clash:write",
   "resource:read", "resource:write",
-  "time:read", "time:write",
   "budget:read", "budget:write",
   "document:read", "document:write",
   "change:read", "change:write",

@@ -8,8 +8,7 @@
  * fields: [{ field }] }` and leave NO trace: no row written, no audit row. A
  * row in the caller's own workspace, and an explicit null, must still work.
  *
- * Routes owned by the lifecycle wave (projects, time-entries,
- * timesheet-submissions, rebaselines) use the same helper and are tested there.
+ * Routes owned by the lifecycle wave (projects, rebaselines) use the same helper and are tested there.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";

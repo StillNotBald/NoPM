@@ -512,7 +512,7 @@ test("api() sends the Idempotency-Key header on a keyed POST", async () => {
   process.env.NOPM_API_URL = "http://test";
   process.env.NOPM_TOKEN = "npm_test";
   try {
-    await api("POST", "/api/time-entries", { hours: 1 }, { idempotencyKey: "retry-42" });
+    await api("POST", "/api/expenses", { amount: 1 }, { idempotencyKey: "retry-42" });
     assert.equal(seen["Idempotency-Key"], "retry-42");
   } finally {
     globalThis.fetch = originalFetch;
@@ -520,7 +520,7 @@ test("api() sends the Idempotency-Key header on a keyed POST", async () => {
 });
 
 test("create commands document --idempotency-key in their usage", async () => {
-  for (const g of ["time", "expenses", "tasks", "allocations"]) {
+  for (const g of ["expenses", "tasks", "allocations"]) {
     const mod = await import(`../commands/${g}.mjs`);
     assert.ok(mod.usage.join("|").includes("--idempotency-key"), `${g} usage lacks --idempotency-key`);
   }

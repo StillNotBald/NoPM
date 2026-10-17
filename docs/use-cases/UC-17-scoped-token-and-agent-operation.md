@@ -10,7 +10,7 @@
 
 ## Main flow
 
-1. Mint a token: UI `/tokens` → "Mint token", or `POST /api/tokens` (admin/manager **session** only — token actors cannot mint tokens for themselves). Pick scopes from `scopeChoices()` (derived from the live scope registry, `web/src/lib/auth/scopes.ts` — so the mint UI can never silently drift out of sync with a newly added scope again, R-86). A "least-privilege agent preset" (`AGENT_PRESET_SCOPES`, R-70/L-49) offers every read scope plus `task:write` in one click: read access to everything, the ability to edit tasks, and nothing that can delete, approve, or manage other tokens. The mint UI also lists the approve and decide scopes (`task:delete:approve`, `project:delete:approve`, `time:approve`, `change:decide`, `rebaseline:approve`). A `<resource>:*` wildcard such as `task:*` never grants them; each must be selected by exact name.
+1. Mint a token: UI `/tokens` → "Mint token", or `POST /api/tokens` (admin/manager **session** only — token actors cannot mint tokens for themselves). Pick scopes from `scopeChoices()` (derived from the live scope registry, `web/src/lib/auth/scopes.ts` — so the mint UI can never silently drift out of sync with a newly added scope again, R-86). A "least-privilege agent preset" (`AGENT_PRESET_SCOPES`, R-70/L-49) offers every read scope plus `task:write` in one click: read access to everything, the ability to edit tasks, and nothing that can delete, approve, or manage other tokens. The mint UI also lists the approve and decide scopes (`task:delete:approve`, `project:delete:approve`, `change:decide`, `rebaseline:approve`). A `<resource>:*` wildcard such as `task:*` never grants them; each must be selected by exact name.
 2. The raw token (`npm_…`) is shown **exactly once**; it is stored server-side only as a SHA-256 hash, never logged, never retrievable again.
 3. CLI setup: `nopm auth set-token npm_xxx --url https://stillnotbald.com`, then `nopm whoami` to confirm actor + scopes. Every CLI request sends `X-NoPM-Client: cli`, tagging its audit rows `channel: cli`.
 4. MCP setup (stdio): set `NOPM_TOKEN` env var, point Claude Code/Desktop/Cursor at `web/mcp/server.mjs` (a cloned repo's root `.mcp.json` makes this zero-config for Claude Code). MCP setup (Streamable HTTP, remote): register `https://stillnotbald.com/api/mcp` as a connector with `Authorization: Bearer npm_…`. Both transports send `X-NoPM-Client: mcp`.
@@ -24,7 +24,7 @@
 - **An agent calls an endpoint outside its granted scopes** → `403`, returned as an ordinary tool result over MCP (never a swallowed connection error) or an ordinary API error over the CLI/REST.
 - **Task or project deletion via an agent** → the MCP tool set only exposes the maker side (`request_task_deletion`, `request_project_deletion`); the checker (approve) step must be taken by a different person through the UI or API (UC-12). A token can take it only if its owner is that person.
 - **Approve or decide via an agent** → none of the 25 MCP tools and no assistant tool carries an approve, decide or sign-off scope. A token holding one (granted by exact name) can still call the matching endpoint or the `nopm` approve and decide commands, and four-eyes applies: the approver must be a different person from the requester.
-- **Checking what is waiting for a person** → the read-only `list_pending_approvals` MCP tool and the `nopm review` command list the pending deletions, change requests, timesheets and rebaselines, with whether this token may decide each one; neither approves anything.
+- **Checking what is waiting for a person** → the read-only `list_pending_approvals` MCP tool and the `nopm review` command list the pending deletions, change requests and rebaselines, with whether this token may decide each one; neither approves anything.
 - **Rate limiting** — a DB-backed fixed-window limiter keyed on workspace + actor class survives per-turn ephemeral assistant tokens and serverless cold starts; a limit hit is `429` `rate_limited`, logged as a `rate.limited` audit row; the limiter itself fails open (never blocks traffic) on its own infrastructure error.
 
 ## Postconditions
@@ -42,9 +42,9 @@
 
 - **A token approves with its creator's role (ADR 0014, R-113).** A token carrying an approve scope decides only while the person who minted it is an admin or manager; it stops the moment they are demoted. Agents should read `GET /api/review` and tell a person what is waiting; keep approve scopes off agent tokens unless that is intended.
 - **A token dies with its creator's profile.** If the creator's profile is gone or belongs to another workspace, the token answers `401`. Calendar feeds are unaffected (decision 9).
-- **Retry-safe creates (R-115).** `POST /api/time-entries`, project expenses, project tasks and `POST /api/allocations` accept `Idempotency-Key`; the CLI has `--idempotency-key`.
+- **Retry-safe creates (R-115).** Project expenses, project tasks and `POST /api/allocations` accept `Idempotency-Key`; the CLI has `--idempotency-key`.
 - **Rate limits.** Every `429` sends `Retry-After`. Buckets are per actor id with a workspace ceiling of 5 times; failed bearer authentication is throttled at 20 per minute per client network address before any token lookup.
-- **MCP.** The stdio server adds change request, rebaseline propose / sign-off / apply, timesheet submit, decision and document tools (`web/mcp/README.md`). The assistant gets none of them.
+- **MCP.** The stdio server adds change request, rebaseline propose / sign-off / apply, decision and document tools (`web/mcp/README.md`). The assistant gets none of them.
 - **Shared demo login.** It cannot mint tokens or invites (`403` `demo_restricted`).
 
 ## Traceability

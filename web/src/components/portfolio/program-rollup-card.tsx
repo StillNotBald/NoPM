@@ -121,7 +121,7 @@ export function ProgramRollupCard({ program, computedRag, rollup }: ProgramRollu
 
           {/* Actual vs planned cost */}
           <div>
-            <p className="text-[11px] uppercase tracking-wide text-ink-muted">Actual / Planned</p>
+            <p className="text-[11px] uppercase tracking-wide text-ink-muted">Actual (expenses) / Planned</p>
             <p
               className="mt-0.5 font-mono text-base font-semibold text-ink tabular-nums"
               title={

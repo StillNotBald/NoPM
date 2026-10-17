@@ -19,7 +19,7 @@ This ADR records where the boundary sits, the three structural limits that keep 
 
 1. **The hub is a fan-out of fixed message kinds to fixed recipients.** In v1 the hub sends an approval-request card to each eligible approver, a decision-update patch to cards already sent, a weekly digest to one configured group chat (plus an admin "send now"), and short bot replies. The hub resolves recipients from governed state. There is no subscription table, no per-message routing and no per-user message configuration.
 
-2. **The only inbound mutation is a human approve or reject on an existing request.** A chat action may decide one pending deletion request (task or project), change request or timesheet submission. It must pass these checks in order:
+2. **The only inbound mutation is a human approve or reject on an existing request.** A chat action may decide one pending deletion request (task or project), change request. (A timesheet submission was also decidable here until hour logging was removed on 2026-10-17, decision 18.) It must pass these checks in order:
    - the platform identity is verified and linked to an active NoPM profile;
    - a single-use action token, bound to that profile and that request, is consumed atomically;
    - the decision runs through the same per-kind decision code the REST routes call;

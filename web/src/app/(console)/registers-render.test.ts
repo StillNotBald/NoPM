@@ -1,6 +1,6 @@
 /**
  * Server-render smoke tests for the register surfaces (tasks / risks / issues /
- * clashes / documents / timesheets) — what a keyboard and screen-reader user
+ * clashes / documents) — what a keyboard and screen-reader user
  * depends on, plus the contrast and layout defects the UI audit measured.
  *
  * vitest runs in a node environment with no DOM, so components render to static
@@ -25,8 +25,6 @@ vi.mock("@/components/layout/app-shell", () => ({
 
 import { IssuesView, type IssueRow } from "./issues/_issues-view";
 import { RiskRegister } from "@/components/registers/risk-register";
-import { WeekGrid, type WeekGridRow } from "@/components/timesheets/week-grid";
-import type { WeekLock } from "@/components/timesheets/week-lock";
 import { ALL_COLUMNS, DEFAULT_COLUMNS, NUMERIC_COLUMNS, SORTABLE_FIELDS } from "./tasks/_columns";
 
 const PROJECTS = [
@@ -146,72 +144,6 @@ describe("/tasks column model", () => {
   });
 });
 
-describe("timesheets week grid", () => {
-  const dates = ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-15", "2026-10-16", "2026-10-17", "2026-10-18"];
-  const rows: WeekGridRow[] = [
-    {
-      key: "t1",
-      label: "Discovery workshops — Alpha rollout",
-      hoursByDate: { "2026-10-12": 9, "2026-10-13": 9, "2026-10-14": 8 },
-      loggedDates: new Set(["2026-10-12", "2026-10-13", "2026-10-14"]),
-    },
-  ];
-  const render = (capacity: number | null, lock: WeekLock = null) =>
-    renderToStaticMarkup(
-      createElement(WeekGrid, { weekDates: dates, rows, capacityHoursPerWeek: capacity, emptyMessage: "none", lock }),
-    );
-
-  it("spells out over capacity instead of relying on colour alone, in an AA ink", () => {
-    const over = render(20);
-    expect(over).toContain("over");
-    expect(over).toContain("text-warning-ink");
-    expect(over).not.toMatch(/text-warning(?![-\w])/);
-  });
-
-  it("says nothing about capacity when under it", () => {
-    const under = render(40);
-    expect(under).not.toMatch(/>over</);
-    expect(under).not.toContain("text-warning-ink");
-  });
-
-  it("an approved week says so, with a token that exists (bg-warning-subtle is defined nowhere)", () => {
-    const approved = render(40, "approved");
-    expect(approved).toContain("Approved — locked");
-    expect(approved).not.toContain("warning-subtle");
-    expect(approved).toContain("bg-warning/10");
-  });
-
-  it("a week whose timesheet is submitted is frozen too, and the reason is one line", () => {
-    const submitted = render(40, "under_review");
-    expect(submitted).toContain("Submitted for approval — reopen to edit");
-    expect(submitted).toContain('role="status"');
-  });
-
-  it("an open (or reopened) week carries no lock banner", () => {
-    const open = render(40, null);
-    expect(open).not.toContain("reopen to edit");
-    expect(open).not.toContain("Approved — locked");
-  });
-
-  it("explains a frozen week even when nothing is logged in it", () => {
-    const empty = renderToStaticMarkup(
-      createElement(WeekGrid, {
-        weekDates: dates,
-        rows: [],
-        capacityHoursPerWeek: 40,
-        emptyMessage: "No time logged.",
-        lock: "under_review",
-      }),
-    );
-    expect(empty).toContain("Submitted for approval — reopen to edit");
-    expect(empty).toContain("No time logged.");
-  });
-
-  it("scrolls inside a named region", () => {
-    expect(render(40)).toContain('aria-label="Week grid"');
-  });
-});
-
 describe("token guards across the register surfaces", () => {
   const ROOT = process.cwd();
   const DIRS = [
@@ -223,10 +155,8 @@ describe("token guards across the register surfaces", () => {
     "src/app/(console)/clashes",
     "src/app/(console)/resources",
     "src/app/(console)/budget",
-    "src/app/(console)/timesheets",
     "src/components/registers",
     "src/components/forms",
-    "src/components/timesheets",
     "src/components/documents",
     "src/components/budget",
     "src/components/resources",

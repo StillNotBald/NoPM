@@ -1,7 +1,7 @@
 {
   "rids": 109,
-  "endpoints": 98,
-  "tests": 5284,
+  "endpoints": 94,
+  "tests": 5017,
   "deps": 17,
   "cliDeps": 0
 }

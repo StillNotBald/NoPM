@@ -17,7 +17,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
-import { timesheetContentDigest } from "@/lib/governance/timesheet-decision";
 
 const { holder, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -51,8 +50,6 @@ import { PUT as putBudget, PATCH as patchBudget } from "./projects/[id]/budget/r
 import { PATCH as patchTask, DELETE as deleteTask } from "./tasks/[id]/route";
 import { PATCH as patchMilestone } from "./milestones/[id]/route";
 import { POST as applyRebaseline } from "./rebaselines/[id]/apply/route";
-import { POST as submitTimesheet } from "./timesheet-submissions/route";
-import { POST as decideTimesheet } from "./timesheet-submissions/[id]/decision/route";
 import { DELETE as deleteResource } from "./resources/[id]/route";
 import { POST as approveDeletion } from "./deletion-requests/[id]/approve/route";
 
@@ -81,8 +78,6 @@ const SCOPES = [
   "milestone:write",
   "resource:write",
   "budget:write",
-  "time:submit",
-  "time:approve",
   "rebaseline:approve",
 ];
 
@@ -487,21 +482,6 @@ describe("P2-14 — a lost unique-index race is the same 422 as the pre-check, n
     message: `duplicate key value violates unique constraint "${index}"`,
   });
 
-  it("timesheet submit: uniq_open_timesheet -> 422 duplicate_submission, nothing audited", async () => {
-    failNext(db, "timesheet_submissions", "insert", raced("uniq_open_timesheet"));
-    await expectRule(
-      await call(submitTimesheet, alicePat(), "x", { member_id: MEMBER, period_start: "2026-10-12" }),
-      "duplicate_submission",
-    );
-    expect(auditActions()).toEqual([]);
-  });
-
-  it("timesheet submit: any OTHER insert error is still a 500", async () => {
-    failNext(db, "timesheet_submissions", "insert", { code: "XX000", message: "connection reset" });
-    const res = await call(submitTimesheet, alicePat(), "x", { member_id: MEMBER, period_start: "2026-10-12" });
-    expect(res.status).toBe(500);
-  });
-
   it("task deletion request: uniq_pending_deletion -> 422 duplicate_deletion_request", async () => {
     failNext(db, "deletion_requests", "insert", raced("uniq_pending_deletion"));
     const json = await expectRule(
@@ -563,15 +543,6 @@ describe("P2-12 — DELETE /resources/:id keeps the approval history", () => {
   it("a member with no sheets is deleted as before", async () => {
     expect((await call(deleteResource, alicePat(), MEMBER, undefined, "DELETE")).status).toBe(204);
     expect(auditActions()).toEqual(["resource.delete"]);
-  });
-
-  it.each([
-    ["P0011", "PERIOD_LOCKED: this week's timesheet is approved and locked", "period_locked"],
-    ["P0012", "TIMESHEET_LOCKED: this week's timesheet is submitted", "timesheet_locked"],
-  ])("a week-lock trigger error (%s) from the cascade is a 422 %s, not a 500", async (code, message, rule) => {
-    failNext(db, "resource_members", "delete", { code, message });
-    await expectRule(await call(deleteResource, alicePat(), MEMBER, undefined, "DELETE"), rule);
-    expect(auditActions()).toEqual([]);
   });
 
   it("any other delete error is still a 500", async () => {
@@ -689,123 +660,6 @@ describe("budget — PUT/PATCH /projects/:id/budget", () => {
     db.rows("projects")[0].workspace_id = "ws-2";
     await expectRule(await call(patchBudget, alicePat(), PROJECT, { planned_amount: 1 }, "PATCH"), "not_found", 404);
     await expectRule(await call(putBudget, alicePat(), PROJECT, { planned_amount: 1 }, "PUT"), "not_found", 404);
-  });
-});
-
-// ── N2: only the member (or an admin / manager) may submit a member's week ──
-
-describe("N2 — submitting a timesheet freezes the week, so it is restricted to the member or a manager", () => {
-  const week = { member_id: MEMBER, period_start: "2026-10-12" };
-  const sheets = () => db.rows("timesheet_submissions");
-
-  it.each([
-    ["the member themselves (a token minted by the person the resource row is linked to)", () => pat("tok-casey", CASEY)],
-    ["an admin acting for the member", () => alicePat()],
-    ["a manager acting for the member", () => bobPat()],
-  ])("%s -> 201", async (_who, actor) => {
-    const res = await call(submitTimesheet, actor(), "x", week);
-    expect(res.status, JSON.stringify(await res.clone().json())).toBe(201);
-    expect(sheets()).toHaveLength(1);
-    expect(sheets()[0]).toMatchObject({ member_id: MEMBER, status: "submitted" });
-  });
-
-  it.each([
-    ["another plain member", () => pat("tok-dana", DANA)],
-    ["an admin of a DIFFERENT workspace", () => pat("tok-stranger", STRANGER)],
-    ["a principal with no profile at all", () => pat("tok-ghost", "00000000-0000-4000-8000-000000000000")],
-  ])("%s -> 403 not_your_timesheet; no sheet, no audit row, the week stays editable", async (_who, actor) => {
-    await expectRule(await call(submitTimesheet, actor(), "x", week), "not_your_timesheet", 403);
-    expect(sheets()).toHaveLength(0);
-    expect(auditActions()).toEqual([]);
-  });
-
-  it("a resource row with no linked profile: only an admin / manager can submit for it", async () => {
-    await expectRule(
-      await call(submitTimesheet, pat("tok-casey", CASEY), "x", { member_id: MEMBER_2, period_start: "2026-10-12" }),
-      "not_your_timesheet",
-      403,
-    );
-    // ...whereas the admin gets past the ownership check (and is then refused for lack of entries).
-    await expectRule(
-      await call(submitTimesheet, alicePat(), "x", { member_id: MEMBER_2, period_start: "2026-10-12" }),
-      "nothing_to_submit",
-    );
-  });
-});
-
-// ── P2-2 wiring: a reopened sheet is resubmitted in place, then approved ────
-
-describe("P2-2 — reopen, amend, resubmit, approve", () => {
-  beforeEach(() => {
-    db.rows("timesheet_submissions").push({
-      id: "ts-1",
-      workspace_id: WS,
-      member_id: MEMBER,
-      period_start: "2026-10-12",
-      period_end: "2026-10-18",
-      hours_total: 8,
-      entry_count: 1,
-      content_digest: timesheetContentDigest(db.rows("time_entries") as never),
-      status: "approved",
-      reopened_at: null,
-      submitted_by: "tok-casey",
-      submitted_by_type: "token",
-      submitted_by_label: "tok-casey-agent",
-      submitted_principal_id: CASEY,
-    });
-  });
-
-  async function reopenAndAmend() {
-    const reopen = await call(decideTimesheet, bobPat(), "ts-1", { decision: "reopened", rationale: "missed a day" });
-    expect(reopen.status, JSON.stringify(await reopen.clone().json())).toBe(200);
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ status: "submitted" });
-    expect(db.rows("timesheet_submissions")[0].reopened_at).toBeTruthy();
-    db.rows("time_entries").push({ id: "te-2", workspace_id: WS, member_id: MEMBER, project_id: PROJECT, entry_date: "2026-10-14", hours: 4, billable: true });
-  }
-
-  it("without the resubmit the amended sheet is stuck: approval is refused (422 timesheet_changed)", async () => {
-    await reopenAndAmend();
-    await expectRule(await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" }), "timesheet_changed");
-  });
-
-  it("POST /timesheet-submissions on the reopened week re-snapshots IN PLACE, and the approver can then approve", async () => {
-    await reopenAndAmend();
-
-    const res = await call(submitTimesheet, pat("tok-casey", CASEY), "x", { member_id: MEMBER, period_start: "2026-10-12" });
-    const json = await res.json();
-    expect(res.status, JSON.stringify(json)).toBe(201);
-    expect(db.rows("timesheet_submissions")).toHaveLength(1);
-    expect(json.data).toMatchObject({ id: "ts-1", status: "submitted", entry_count: 2, reopened_at: null, submitted_principal_id: CASEY });
-    expect(Number(json.data.hours_total)).toBe(12);
-
-    const approve = await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" });
-    const body = await approve.json();
-    expect(approve.status, JSON.stringify(body)).toBe(200);
-    expect(body.code).toBeUndefined();
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ status: "approved" });
-  });
-
-  it("only the member (or a manager) can resubmit: another member is refused and the sheet is untouched", async () => {
-    await reopenAndAmend();
-    await expectRule(
-      await call(submitTimesheet, pat("tok-dana", DANA), "x", { member_id: MEMBER, period_start: "2026-10-12" }),
-      "not_your_timesheet",
-      403,
-    );
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ entry_count: 1, hours_total: 8 });
-    expect(db.rows("timesheet_submissions")[0].reopened_at).toBeTruthy();
-  });
-
-  it("a sheet that is NOT reopened is still the duplicate 422 (approved, or submitted and awaiting review)", async () => {
-    await expectRule(
-      await call(submitTimesheet, pat("tok-casey", CASEY), "x", { member_id: MEMBER, period_start: "2026-10-12" }),
-      "duplicate_submission",
-    );
-    Object.assign(db.rows("timesheet_submissions")[0], { status: "submitted", reopened_at: null });
-    await expectRule(
-      await call(submitTimesheet, pat("tok-casey", CASEY), "x", { member_id: MEMBER, period_start: "2026-10-12" }),
-      "duplicate_submission",
-    );
   });
 });
 

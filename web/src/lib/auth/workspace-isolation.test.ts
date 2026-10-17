@@ -124,10 +124,6 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
       "the connector row IS the workspace binding; the HMAC with its relay secret is verified next",
   },
   "app/api/invites/accept/route.ts": { "rpc:nopm_rate_check": RATE },
-  "app/api/timesheet-submissions/route.ts": {
-    "from:timesheet_submissions":
-      "indirect: member_id was just verified in this workspace (resource_members + workspace filter); uuid is globally unique",
-  },
   "app/invite/[token]/page.tsx": {
     "from:profiles": "inviter named on the invite itself, shown to the token holder by design",
   },

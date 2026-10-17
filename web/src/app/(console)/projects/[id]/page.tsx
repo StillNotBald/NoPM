@@ -47,7 +47,6 @@ export default async function ProjectDetailPage({
     { data: risks },
     { data: issues },
     { data: charterDocs },
-    { data: timeEntryRows },
   ] = await Promise.all([
     db
       .from("projects")
@@ -85,9 +84,6 @@ export default async function ProjectDetailPage({
       .eq("doc_type", "charter")
       .order("created_at", { ascending: false })
       .limit(1),
-    // L-33 — actuals for the variance column, ONE batched query (per-task
-    // sum computed below), not per-row.
-    db.from("time_entries").select("task_id, hours").eq("project_id", id),
   ]);
 
   if (projectError || !project) notFound();
@@ -135,15 +131,6 @@ export default async function ProjectDetailPage({
           .select("id, predecessor_id, successor_id, type, lag_days")
           .in("successor_id", taskIds),
   ]);
-
-  // ── L-33 estimate variance — actual hours per task, batched from the
-  // time_entries fetch above (Σ hours per task_id). ─────────────────────────
-  const actualHoursByTask = new Map<string, number>();
-  for (const row of (timeEntryRows ?? []) as { task_id: string | null; hours: number }[]) {
-    if (!row.task_id) continue;
-    actualHoursByTask.set(row.task_id, (actualHoursByTask.get(row.task_id) ?? 0) + (row.hours ?? 0));
-  }
-  const actualHoursByTaskObj = Object.fromEntries(actualHoursByTask);
 
   // Tasks enriched with the two read-only insight fields — merged onto the
   // same row (not a parallel array) so every downstream consumer (Activity
@@ -233,7 +220,6 @@ export default async function ProjectDetailPage({
         issues={issues ?? []}
         dependencies={dependencies ?? []}
         charterDoc={charterDocs?.[0] ?? null}
-        actualHoursByTask={actualHoursByTaskObj}
       />
     </div>
   );

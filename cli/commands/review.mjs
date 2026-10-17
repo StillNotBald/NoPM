@@ -1,20 +1,19 @@
 // cli/commands/review.mjs — "what is waiting for me?"
 //
 // Endpoint: GET /api/review  (read-only; a token needs a read scope for at
-// least one family: task:read | audit:read, change:read, time:read, project:read)
+// least one family: task:read | audit:read, change:read, project:read)
 //
 // Lists every governed decision waiting on a person — task/project deletion
-// requests, change requests, submitted timesheets, rebaselines awaiting
+// requests, change requests, rebaselines awaiting
 // sign-off — oldest first, with whether YOU may decide each one. Listing never
 // decides anything: deletions are decided with `nopm approve`, change requests
-// with `nopm changes decide`, rebaselines with `nopm rebaselines signoff`,
-// timesheets in the console.
+// with `nopm changes decide`, rebaselines with `nopm rebaselines signoff`.
 
-export const describe = "List the governed decisions waiting on a person (deletions, change requests, timesheets, rebaselines)";
+export const describe = "List the governed decisions waiting on a person (deletions, change requests, rebaselines)";
 
 export const usage = [
   "nopm review [--kind <kind>[,<kind>...]] [--page <n>] [--limit <n>]   pending decisions, oldest first",
-  "  kind: task_deletion | project_deletion | change_request | timesheet | rebaseline",
+  "  kind: task_deletion | project_deletion | change_request | rebaseline",
   "  decide column: \"yes\", or \"no — <why>\" (missing scope, or four-eyes: you raised it)",
   "  flags: --json (full items, incl. summary/project_id)",
 ];
@@ -36,7 +35,7 @@ export function toRows(items) {
 
 export async function run(_rest, ctx) {
   const f = ctx.flags;
-  if (f.kind === true) ctx.die("--kind needs a value, e.g. --kind timesheet,change_request");
+  if (f.kind === true) ctx.die("--kind needs a value, e.g. --kind rebaseline,change_request");
 
   const params = new URLSearchParams();
   if (f.kind) params.set("kind", String(f.kind));

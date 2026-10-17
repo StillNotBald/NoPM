@@ -41,10 +41,6 @@ interface BudgetRow {
   committed_amount: number | null;
   currency: string | null;
 }
-interface TimeEntryRow {
-  project_id: string;
-  cost: number | null;
-}
 interface ExpenseRow {
   project_id: string;
   amount: number | null;
@@ -103,7 +99,6 @@ export default async function PortfolioPage({
     milestonesResult,
     risksRes,
     budgetRes,
-    timeRes,
     expenseRes,
     allocRes,
     memberRes,
@@ -126,7 +121,6 @@ export default async function PortfolioPage({
       .order("target_date", { ascending: true, nullsFirst: false }),
     db.from("risks").select("project_id,severity,status"),
     db.from("project_budget").select("project_id,planned_amount,committed_amount,currency"),
-    db.from("time_entries").select("project_id,cost"),
     db.from("expenses").select("project_id,amount"),
     db.from("allocations").select("project_id,member_id,allocation_pct,hours"),
     db.from("resource_members").select("id,capacity_hours_per_week"),
@@ -138,7 +132,6 @@ export default async function PortfolioPage({
     ["milestones", milestonesResult.error],
     ["risks", risksRes.error],
     ["budgets", budgetRes.error],
-    ["time entries", timeRes.error],
     ["expenses", expenseRes.error],
     ["allocations", allocRes.error],
     ["resource members", memberRes.error],
@@ -177,10 +170,6 @@ export default async function PortfolioPage({
       committed: b.committed_amount ?? 0,
       currency: b.currency ?? "USD",
     };
-  }
-  for (const t of (timeRes.data ?? []) as TimeEntryRow[]) {
-    if (!projectIdSet.has(t.project_id)) continue;
-    actualByProject[t.project_id] = (actualByProject[t.project_id] ?? 0) + (t.cost ?? 0);
   }
   for (const e of (expenseRes.data ?? []) as ExpenseRow[]) {
     if (!projectIdSet.has(e.project_id)) continue;

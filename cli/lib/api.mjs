@@ -43,7 +43,7 @@ export function saveConfig(cfg) {
 }
 
 /**
- * Idempotency-Key header for a create call (time entries, expenses, tasks,
+ * Idempotency-Key header for a create call (expenses, tasks,
  * allocations): a retry with the same key returns the first result instead of a
  * duplicate. Only POSTs carry it; a bare flag (no value) is ignored.
  */

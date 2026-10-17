@@ -26,7 +26,6 @@ import {
   TaskDetailPanel,
   MilestoneDetailPanel,
 } from "@/components/tracking/detail-panel";
-import { taskVariance, projectVarianceRollup, OVERRUN_THRESHOLD_PCT } from "@/lib/insight/variance";
 import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
@@ -87,8 +86,6 @@ interface ActivityTableProps {
   members?: Record<string, string>;
   /** False until the members lookup answers; keeps raw ids off screen meanwhile. */
   membersReady?: boolean;
-  /** L-33 — Σ time_entries.hours per task id, batched server-side (projects/[id]/page.tsx). */
-  actualHoursByTask?: Record<string, number>;
 }
 
 // ─── Member name resolution ────────────────────────────────────────────────────
@@ -171,28 +168,6 @@ function fmtDateRange(start: string | null, end: string | null, pref: DateDispla
   if (!start) return `Until ${fmtDate(end, pref)}`;
   if (!end) return `From ${fmtDate(start, pref)}`;
   return `${fmtDate(start, pref)} – ${fmtDate(end, pref)}`;
-}
-
-// ─── Variance cell (L-33) ──────────────────────────────────────────────────
-
-/** actual - estimate hours + %, colored by over/under; "No estimate" when unestimated. */
-function VarianceCell({ estimateHours, actualHours }: { estimateHours: number | null | undefined; actualHours: number }) {
-  const v = taskVariance({ id: "", estimateHours, actualHours });
-  if (v.varianceHours === null) {
-    return <span className="text-xs text-ink-muted">No estimate</span>;
-  }
-  // With an estimate but no hours logged, "-8h (-100%)" in green reads as a
-  // saving. It is the absence of data.
-  if (actualHours === 0) {
-    return <span className="text-xs text-ink-muted">No hours logged</span>;
-  }
-  const tone = v.isOverrun ? "text-danger-ink" : v.varianceHours > 0 ? "text-warning-ink" : "text-success-ink";
-  const sign = v.varianceHours > 0 ? "+" : "";
-  return (
-    <span className={cn("font-mono text-xs tabular-nums font-medium", tone)}>
-      {sign}{v.varianceHours}h{v.variancePct !== null ? ` (${sign}${v.variancePct}%)` : ""}
-    </span>
-  );
 }
 
 // ─── Inline Quick-Add input ───────────────────────────────────────────────────
@@ -390,9 +365,6 @@ function MilestoneRow({
       {/* Priority — not applicable for milestones */}
       <td className={cn("hidden @3xl:table-cell pr-4", rowPy)} />
 
-      {/* Variance — not applicable for milestones */}
-      <td className={cn("hidden @4xl:table-cell pr-4", rowPy)} />
-
       {/* Status */}
       <td className={cn("hidden @xl:table-cell pr-4", rowPy)}>
         <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
@@ -471,7 +443,6 @@ function TaskRow({
   onRowClick,
   members,
   membersReady,
-  actualHours,
 }: {
   task: Task;
   wbs: string;
@@ -485,8 +456,6 @@ function TaskRow({
   onRowClick: (task: Task) => void;
   members?: Record<string, string>;
   membersReady: boolean;
-  /** L-33 — Σ time_entries.hours for this task (0 when none logged). */
-  actualHours: number;
 }) {
   const inspector = useInspector();
   const pref = useDateDisplayPref();
@@ -564,11 +533,6 @@ function TaskRow({
         <Severity level={task.priority} />
       </td>
 
-      {/* Variance (L-33) — actual - estimate hours + % */}
-      <td className={cn("hidden @4xl:table-cell pr-4 whitespace-nowrap", rowPy)}>
-        <VarianceCell estimateHours={task.estimate_hours} actualHours={actualHours} />
-      </td>
-
       {/* Status */}
       <td className={cn("hidden @xl:table-cell pr-4", rowPy)}>
         <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
@@ -627,26 +591,10 @@ export function ActivityTable({
   isLocked,
   members,
   membersReady = true,
-  actualHoursByTask = {},
 }: ActivityTableProps) {
   const inspector = useInspector();
   const modal = useModal();
   const router = useRouter();
-
-  // L-33 — project-level variance rollup, derived from the same per-task
-  // estimate/actual pairs each row's VarianceCell uses.
-  const varianceRollup = projectVarianceRollup(
-    tasks.map((t) => ({
-      id: t.id,
-      estimateHours: t.estimate_hours,
-      actualHours: actualHoursByTask[t.id] ?? 0,
-    })),
-  );
-  // Estimates exist but nobody has logged time: the rollup would read
-  // "-516h (-100%)" in green. That is no data, not a saving.
-  const noActualsLogged =
-    varianceRollup.variancePct !== null &&
-    tasks.every((t) => (actualHoursByTask[t.id] ?? 0) === 0);
 
   // Inline delete-error banner (shown when a delete API call fails)
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -788,8 +736,8 @@ export function ActivityTable({
   const hasStandalone = standaloneTasks.length > 0;
   const isEmpty = !hasMilestones && !hasStandalone;
 
-  // Total column count (WBS + connector + name + date + priority + variance + status + progress + actions = 9)
-  const TOTAL_COLS = 9;
+  // Total column count (WBS + connector + name + date + priority + status + progress + actions = 8)
+  const TOTAL_COLS = 8;
 
   // ── Render rows ──────────────────────────────────────────────────────────
 
@@ -834,7 +782,6 @@ export function ActivityTable({
             onRowClick={openTaskInspector}
             members={members}
             membersReady={membersReady}
-            actualHours={actualHoursByTask[task.id] ?? 0}
           />
         );
       });
@@ -893,7 +840,7 @@ export function ActivityTable({
             <Badge size="sm" tone="neutral">{standaloneTasks.length}</Badge>
           </div>
         </td>
-        <td colSpan={6} />
+        <td colSpan={5} />
       </tr>
     );
 
@@ -913,7 +860,6 @@ export function ActivityTable({
             onRowClick={openTaskInspector}
             members={members}
             membersReady={membersReady}
-            actualHours={actualHoursByTask[task.id] ?? 0}
           />
         );
       });
@@ -1027,46 +973,6 @@ export function ActivityTable({
         </Button>
       </div>
 
-      {/* Estimate variance rollup (L-33) */}
-      {tasks.length > 0 && (
-        <div
-          className={cn(
-            "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-2 text-xs",
-            varianceRollup.variancePct === null || noActualsLogged
-              ? "border-border-subtle bg-sunken text-ink-muted"
-              : varianceRollup.isOverrun
-              ? "border-danger/30 bg-danger/10 text-danger-ink"
-              : varianceRollup.varianceHours > 0
-              ? "border-warning/30 bg-warning/10 text-warning-ink"
-              : "border-success/30 bg-success/10 text-success-ink",
-          )}
-        >
-          <span className="font-medium">
-            {varianceRollup.variancePct === null ? (
-              "Variance: no estimated tasks yet"
-            ) : noActualsLogged ? (
-              <>
-                Variance: no hours logged yet across {varianceRollup.includedCount} estimated{" "}
-                {varianceRollup.includedCount === 1 ? "task" : "tasks"}
-              </>
-            ) : (
-              <>
-                Variance: {varianceRollup.varianceHours > 0 ? "+" : ""}
-                {varianceRollup.varianceHours}h ({varianceRollup.varianceHours > 0 ? "+" : ""}
-                {varianceRollup.variancePct}%) across {varianceRollup.includedCount}{" "}
-                estimated {varianceRollup.includedCount === 1 ? "task" : "tasks"}
-                {varianceRollup.isOverrun && ` — over the ${OVERRUN_THRESHOLD_PCT}% threshold`}
-              </>
-            )}
-          </span>
-          {varianceRollup.excludedCount > 0 && (
-            <span className="text-ink-muted">
-              · {varianceRollup.excludedCount} {varianceRollup.excludedCount === 1 ? "task" : "tasks"} excluded (no estimate)
-            </span>
-          )}
-        </div>
-      )}
-
       {/* Empty state */}
       {isEmpty ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-border-subtle bg-surface py-16 text-center">
@@ -1105,9 +1011,6 @@ export function ActivityTable({
                 </th>
                 <th className="hidden @3xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Priority
-                </th>
-                <th className="hidden @4xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
-                  Variance
                 </th>
                 <th className="hidden @xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Status

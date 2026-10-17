@@ -38,15 +38,12 @@ import {
   approveDeletion,
   assertNotRequesterPrincipal,
   changeRequestEvent,
-  timesheetEvent,
   decideApproval,
   decideChangeRequest,
-  decideTimesheet,
   principalOf,
   rejectDeletion,
   requireMakerPrincipal,
   requirePrincipal,
-  resubmitReopenedTimesheet,
   withdrawDeletion,
   CHILDREN_CHANGED_MESSAGE,
   NO_MAKER_PRINCIPAL_MESSAGE,
@@ -91,7 +88,7 @@ function pat(id: string, owner: string | null, scopes: string[], over: Partial<A
   };
 }
 
-const APPROVE_ALL = ["task:delete:approve", "project:delete:approve", "change:decide", "time:approve"];
+const APPROVE_ALL = ["task:delete:approve", "project:delete:approve", "change:decide"];
 
 /** Alice's own PAT, with every approve scope — the bypass attempt. */
 const aliceOwnPat = () => pat("tok-alice", ALICE, APPROVE_ALL);
@@ -138,43 +135,6 @@ function changeRow(over: Row = {}): Row {
   };
 }
 
-function sheetRow(over: Row = {}): Row {
-  return {
-    id: "ts-1",
-    workspace_id: WS,
-    member_id: "member-1",
-    period_start: "2026-10-12",
-    period_end: "2026-10-18",
-    hours_total: "38.5",
-    entry_count: 5,
-    status: "submitted",
-    submitted_by: ALICE,
-    submitted_by_type: "user",
-    submitted_by_label: "Alice",
-    submitted_principal_id: ALICE,
-    ...over,
-  };
-}
-
-/** The five entries behind sheetRow(): 8 + 8 + 8 + 8 + 6.5 = 38.5 hours in the week of 2026-10-12. */
-function weekEntries(): Row[] {
-  return [
-    ["te-1", "2026-10-12", 8],
-    ["te-2", "2026-10-13", 8],
-    ["te-3", "2026-10-14", 8],
-    ["te-4", "2026-10-15", 8],
-    ["te-5", "2026-10-16", 6.5],
-  ].map(([id, entry_date, hours]) => ({
-    id,
-    workspace_id: WS,
-    member_id: "member-1",
-    project_id: "proj-1",
-    entry_date,
-    hours,
-    billable: true,
-  }));
-}
-
 function seed(extra: Record<string, Row[]> = {}): FakeDb {
   return new FakeDb({
     projects: [{ id: "proj-1", workspace_id: WS, name: "Billing Migration", is_locked: false }],
@@ -186,8 +146,6 @@ function seed(extra: Record<string, Row[]> = {}): FakeDb {
     ],
     deletion_requests: [deletionRow()],
     change_requests: [changeRow()],
-    timesheet_submissions: [sheetRow()],
-    time_entries: weekEntries(),
     audit_log: [],
     notifications: [],
     ...extra,
@@ -292,13 +250,6 @@ describe("approveDeletion — DB errors that map to a clean 422 (migration 0049)
       const err = await approveWithRpcError(error);
       expect([err.status, err.code, err.message]).toEqual([422, "children_changed", CHILDREN_CHANGED_MESSAGE]);
     }
-  });
-
-  it("a locked timesheet week blocks the cascade: PERIOD_LOCKED -> period_locked, TIMESHEET_LOCKED -> timesheet_locked (both 422)", async () => {
-    const approved = await approveWithRpcError({ message: "PERIOD_LOCKED: this week", code: "P0011" });
-    expect([approved.status, approved.code]).toEqual([422, "period_locked"]);
-    const review = await approveWithRpcError({ message: "TIMESHEET_LOCKED: this week", code: "P0012" });
-    expect([review.status, review.code]).toEqual([422, "timesheet_locked"]);
   });
 
   it("an unknown database error is still not swallowed into a 4xx", async () => {
@@ -824,203 +775,6 @@ describe("decideChangeRequest", () => {
   });
 });
 
-// ── timesheets ────────────────────────────────────────────────────────────
-
-describe("decideTimesheet", () => {
-  it("REGRESSION: the submitter cannot approve, reject or reopen their own timesheet with a PAT they minted (403 self_approval)", async () => {
-    for (const input of [
-      { decision: "approved" as const },
-      { decision: "rejected" as const, rationale: "no" },
-    ]) {
-      const err = await caught(decideTimesheet(aliceOwnPat(), "ts-1", input));
-      expect([err.status, err.code]).toEqual([403, "self_approval"]);
-    }
-    db.tables.timesheet_submissions = [sheetRow({ status: "approved" })];
-    const err = await caught(decideTimesheet(aliceOwnPat(), "ts-1", { decision: "reopened", rationale: "typo" }));
-    expect([err.status, err.code]).toEqual([403, "self_approval"]);
-    expect(db.rows("audit_log")).toHaveLength(0);
-    expect(emitted.decided).toHaveLength(0);
-  });
-
-  it("the reverse: submitted through a PAT, decided from the owner's session -> 403", async () => {
-    db.tables.timesheet_submissions = [
-      sheetRow({ submitted_by: "tok-alice", submitted_by_type: "token", submitted_principal_id: ALICE }),
-    ];
-    const err = await caught(decideTimesheet(session(ALICE), "ts-1", { decision: "approved" }));
-    expect([err.status, err.code]).toEqual([403, "self_approval"]);
-  });
-
-  it("the legacy compound actor check still applies", async () => {
-    db.tables.timesheet_submissions = [sheetRow({ submitted_principal_id: null })];
-    const err = await caught(decideTimesheet(session(ALICE), "ts-1", { decision: "approved" }));
-    expect(err.status).toBe(403);
-  });
-
-  it("a token with no recorded owner can never decide (403 no_principal)", async () => {
-    const err = await caught(decideTimesheet(orphanPat(), "ts-1", { decision: "approved" }));
-    expect([err.status, err.code]).toEqual([403, "no_principal"]);
-  });
-
-  it("wildcards don't grant time:approve (D2)", async () => {
-    for (const scopes of [["*"], ["time:*"]]) {
-      const err = await caught(decideTimesheet(pat("tok-bob", BOB, scopes), "ts-1", { decision: "approved" }));
-      expect(err.status).toBe(403);
-      expect(err.message).toContain("time:approve");
-    }
-  });
-
-  it("a different human approves: principal recorded, one audit row (with the approver's human), submitter notified, event emitted", async () => {
-    const out = await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
-    await flush();
-
-    expect(out.result).toEqual({
-      kind: "timesheet",
-      id: "ts-1",
-      status: "approved",
-      title: "Timesheet: Casey Member, week of 2026-10-12",
-      requesterPrincipalId: ALICE,
-    });
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({
-      status: "approved",
-      decided_by: "tok-bob",
-      decided_by_type: "token",
-      decided_principal_id: BOB,
-    });
-    expect(db.rows("audit_log")).toHaveLength(1);
-    expect(db.rows("audit_log")[0]).toMatchObject({
-      action: "timesheet.approved",
-      after: { status: "approved", decision_rationale: null, approver_principal_id: BOB },
-    });
-    expect(db.rows("notifications")[0]).toMatchObject({ recipient_id: ALICE, type: "approval.approved" });
-    expect(emitted.decided[0]).toMatchObject({
-      kind: "timesheet",
-      status: "approved",
-      summary: "38.5 hours across 5 entries.",
-      requesterPrincipalId: ALICE,
-      projectId: null,
-    });
-  });
-
-  it("reject and reopen require a rationale; reject stores it", async () => {
-    const noWhy = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "rejected" }));
-    expect([noWhy.status, noWhy.code]).toEqual([422, "rationale_required"]);
-
-    await decideTimesheet(session(BOB), "ts-1", { decision: "rejected", rationale: "hours look wrong" });
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ status: "rejected", decision_rationale: "hours look wrong" });
-
-    db.tables.timesheet_submissions = [sheetRow({ id: "ts-2", status: "approved" })];
-    const noWhyReopen = await caught(decideTimesheet(session(BOB), "ts-2", { decision: "reopened" }));
-    expect(noWhyReopen.code).toBe("rationale_required");
-  });
-
-  it("reopen clears every decided_* column (including the principal), returns the sheet to 'submitted', and notifies approvers", async () => {
-    db.tables.timesheet_submissions = [
-      sheetRow({
-        status: "approved",
-        decided_by: BOB,
-        decided_by_type: "user",
-        decided_by_label: "Bob",
-        decided_principal_id: BOB,
-        decided_at: "2026-10-14T00:00:00Z",
-        decision_rationale: "ok",
-      }),
-    ];
-    const out = await decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "missed a day" });
-    await flush();
-
-    expect(out.result.status).toBe("submitted");
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({
-      status: "submitted",
-      decided_by: null,
-      decided_by_type: null,
-      decided_by_label: null,
-      decided_principal_id: null,
-      decided_at: null,
-      decision_rationale: null,
-    });
-    expect(db.rows("audit_log")[0]).toMatchObject({ action: "timesheet.reopened", after: { status: "submitted", rationale: "missed a day" } });
-    expect(db.rows("notifications").map((n) => n.type)).toEqual(["approval.requested", "approval.requested"]);
-    expect(emitted.decided[0]).toMatchObject({ status: "reopened" });
-  });
-
-  it("verb preconditions: decide only 'submitted', reopen only 'approved'", async () => {
-    db.tables.timesheet_submissions = [sheetRow({ status: "approved" })];
-    const decided = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "approved" }));
-    expect([decided.status, decided.code]).toEqual([422, "already_decided"]);
-
-    db.tables.timesheet_submissions = [sheetRow({ status: "submitted" })];
-    const reopen = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "x" }));
-    expect([reopen.status, reopen.code]).toEqual([422, "not_reopenable"]);
-  });
-
-  it("is a compare-and-set on status: losing the race is a 422 and writes no audit row", async () => {
-    db.afterNextSelect("timesheet_submissions", (d) => {
-      d.rows("timesheet_submissions")[0].status = "approved";
-    });
-    const err = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "approved" }));
-    expect([err.status, err.code]).toEqual([422, "already_decided"]);
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("unknown id -> 404", async () => {
-    await expect(decideTimesheet(session(BOB), "nope", { decision: "approved" })).rejects.toBeInstanceOf(NotFoundError);
-  });
-
-  it("R1/M1: the member whose hours these are cannot decide the sheet (403 self_approval) — approve, reject and reopen", async () => {
-    db.rows("resource_members")[0].profile_id = BOB; // Bob is Casey Member's login
-    for (const input of [
-      { decision: "approved" as const },
-      { decision: "rejected" as const, rationale: "no" },
-    ]) {
-      const err = await caught(decideTimesheet(bobPat(), "ts-1", input));
-      expect([err.status, err.code]).toEqual([403, "self_approval"]);
-    }
-    db.tables.timesheet_submissions = [sheetRow({ status: "approved" })];
-    const reopen = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "x" }));
-    expect([reopen.status, reopen.code]).toEqual([403, "self_approval"]);
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("R1/M1: a member with no linked login, or linked to someone else, does not block a different human", async () => {
-    db.rows("resource_members")[0].profile_id = null;
-    await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
-    expect(db.rows("timesheet_submissions")[0].status).toBe("approved");
-  });
-
-  it("R1/H2: approving with entries that no longer match the submitted totals is a 422 timesheet_changed", async () => {
-    db.rows("time_entries").push({
-      id: "te-6",
-      workspace_id: WS,
-      member_id: "member-1",
-      project_id: "proj-1",
-      entry_date: "2026-10-17",
-      hours: 40,
-      billable: true,
-    });
-    const err = await caught(decideTimesheet(bobPat(), "ts-1", { decision: "approved" }));
-    expect([err.status, err.code]).toEqual([422, "timesheet_changed"]);
-    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("R1/H2: entries OUTSIDE the sheet's week, or another member's, do not count", async () => {
-    db.rows("time_entries").push(
-      { id: "te-out", workspace_id: WS, member_id: "member-1", project_id: "proj-1", entry_date: "2026-10-19", hours: 9, billable: true },
-      { id: "te-other", workspace_id: WS, member_id: "member-2", project_id: "proj-1", entry_date: "2026-10-14", hours: 9, billable: true },
-    );
-    await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
-    expect(db.rows("timesheet_submissions")[0].status).toBe("approved");
-  });
-
-  it("R1/H2: reopen stamps reopened_at (the sheet is open for amendment) and leaves the submitted snapshot alone", async () => {
-    db.tables.timesheet_submissions = [sheetRow({ status: "approved", content_digest: "d1" })];
-    await decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "missed a day" });
-    const row = db.rows("timesheet_submissions")[0];
-    expect(row.reopened_at).toEqual(expect.any(String));
-    expect(row).toMatchObject({ hours_total: "38.5", entry_count: 5, content_digest: "d1" });
-  });
-});
-
 // ── decideApproval: the one entry point the Integration Hub calls ─────────
 
 describe("decideApproval", () => {
@@ -1031,7 +785,7 @@ describe("decideApproval", () => {
   it("D-16: a member or viewer (session or token principal) is 403 role_not_permitted on every kind and verb", async () => {
     for (const actor of [larkActor(BOB), bobPat()]) {
       const demoted = { ...actor, ...(actor.type === "user" ? { role: "member" } : { principalRole: "member" }) } as Actor;
-      for (const [kind, id] of [["task_deletion", "del-1"], ["change_request", "cr-1"], ["timesheet", "ts-1"]] as const) {
+      for (const [kind, id] of [["task_deletion", "del-1"], ["change_request", "cr-1"]] as const) {
         for (const action of ["approve", "reject"] as const) {
           const err = await caught(decideApproval(demoted, { kind, id }, action, "because"));
           expect([err.status, err.code, err.message]).toEqual([403, "role_not_permitted", "Only managers and admins can approve"]);
@@ -1042,7 +796,7 @@ describe("decideApproval", () => {
   });
 
   it("reject requires a non-empty note, for every kind (422 rationale_required)", async () => {
-    for (const kind of ["task_deletion", "project_deletion", "change_request", "timesheet"] as const) {
+    for (const kind of ["task_deletion", "project_deletion", "change_request"] as const) {
       for (const note of [undefined, "", "   "]) {
         const err = await caught(decideApproval(larkActor(), { kind, id: "x" }, "reject", note));
         expect([err.status, err.code]).toEqual([422, "rationale_required"]);
@@ -1118,19 +872,9 @@ describe("decideApproval", () => {
     expect(db.rows("change_requests")[0].decision_rationale).toBe("out of scope");
   });
 
-  it("approves a timesheet with no note; rejects with the note as the rationale", async () => {
-    const approved = await decideApproval(larkActor(), { kind: "timesheet", id: "ts-1" }, "approve");
-    expect(approved).toMatchObject({ kind: "timesheet", status: "approved" });
-    expect(db.rows("timesheet_submissions")[0].decision_rationale).toBeNull();
-
-    db.tables.timesheet_submissions = [sheetRow({ id: "ts-2" })];
-    const rejected = await decideApproval(larkActor(), { kind: "timesheet", id: "ts-2" }, "reject", "wrong week");
-    expect(rejected.status).toBe("rejected");
-  });
-
   it("four-eyes holds through the hub: the requester's own linked account can't decide from chat either", async () => {
-    for (const kind of ["task_deletion", "change_request", "timesheet"] as const) {
-      const id = kind === "task_deletion" ? "del-1" : kind === "change_request" ? "cr-1" : "ts-1";
+    for (const kind of ["task_deletion", "change_request"] as const) {
+      const id = kind === "task_deletion" ? "del-1" : "cr-1";
       const err = await caught(decideApproval(larkActor(ALICE), { kind, id }, "approve"));
       expect(err.status, kind).toBe(403);
       expect(err.code, kind).toBe("self_approval");
@@ -1140,7 +884,7 @@ describe("decideApproval", () => {
 
   it("a viewer can't decide (scope), and an unknown kind is rejected", async () => {
     const viewer = session(BOB, { role: "viewer", channel: "lark" });
-    const err = await caught(decideApproval(viewer, { kind: "timesheet", id: "ts-1" }, "approve"));
+    const err = await caught(decideApproval(viewer, { kind: "task_deletion", id: "del-1" }, "approve"));
     expect(err.status).toBe(403);
 
     const bad = await caught(
@@ -1161,7 +905,7 @@ describe("decideApproval", () => {
       },
     }));
     const fresh = await import("./decide");
-    const res = await fresh.decideApproval(larkActor(), { kind: "timesheet", id: "ts-1" }, "approve");
+    const res = await fresh.decideApproval(larkActor(), { kind: "change_request", id: "cr-1" }, "approve");
     expect(res.status).toBe("approved");
     vi.doUnmock("@/lib/integrations/emit");
   });
@@ -1301,160 +1045,17 @@ describe("decideChangeRequest — the requester's notice type (P2-16)", () => {
   });
 });
 
-describe("decideTimesheet — reopen records the human (P2-7)", () => {
-  it("the timesheet.reopened audit row carries approver_principal_id, like approve and reject", async () => {
-    db.tables.timesheet_submissions = [sheetRow({ status: "approved" })];
-    await decideTimesheet(bobPat(), "ts-1", { decision: "reopened", rationale: "missed a day" });
-    expect(db.rows("audit_log")[0]).toMatchObject({
-      action: "timesheet.reopened",
-      after: { status: "submitted", rationale: "missed a day", approver_principal_id: BOB },
-    });
-  });
-});
-
-describe("resubmitReopenedTimesheet (P2-2)", () => {
-  const CASEY = "33333333-3333-4333-8333-333333333333";
-  const casey = () => session(CASEY, { label: "Casey", role: "member" });
-  const reopened = (over: Row = {}) =>
-    sheetRow({ content_digest: "stale-digest", reopened_at: "2026-10-16T09:00:00Z", ...over });
-
-  beforeEach(() => {
-    db.tables.timesheet_submissions = [reopened()];
-  });
-
-  it("re-snapshots the live entries, clears reopened_at, and makes the resubmitter the submitter", async () => {
-    // The member amended the week after the reopen: one entry changed, one added.
-    const entries = db.rows("time_entries");
-    entries[4].hours = 4;
-    entries.push({
-      id: "te-6",
-      workspace_id: WS,
-      member_id: "member-1",
-      project_id: "proj-1",
-      entry_date: "2026-10-17",
-      hours: 2,
-      billable: true,
-    });
-
-    const row = await resubmitReopenedTimesheet(casey(), "ts-1");
-
-    expect(row).toMatchObject({
-      status: "submitted",
-      entry_count: 6,
-      reopened_at: null,
-      submitted_by: CASEY,
-      submitted_principal_id: CASEY,
-    });
-    expect(Number(row.hours_total)).toBe(38);
-    expect(row.content_digest).not.toBe("stale-digest");
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ reopened_at: null, submitted_by_label: "Casey" });
-  });
-
-  it("the amended sheet can now be approved by a third person (it was stuck on timesheet_changed before)", async () => {
-    db.rows("time_entries")[4].hours = 4;
-    // Stuck: the old snapshot no longer matches.
-    expect((await caught(decideTimesheet(bobPat(), "ts-1", { decision: "approved" }))).code).toBe("timesheet_changed");
-    await resubmitReopenedTimesheet(casey(), "ts-1");
-    const out = await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
-    expect(out.result.status).toBe("approved");
-  });
-
-  it("writes ONE timesheet.submitted audit row whose before holds the previous snapshot", async () => {
-    await resubmitReopenedTimesheet(casey(), "ts-1");
-    const audit = db.rows("audit_log");
-    expect(audit).toHaveLength(1);
-    expect(audit[0]).toMatchObject({
-      action: "timesheet.submitted",
-      target_id: "ts-1",
-      before: { status: "submitted", content_digest: "stale-digest", reopened_at: "2026-10-16T09:00:00Z" },
-    });
-  });
-
-  it("announces it as requested again and fans out to approvers", async () => {
-    await resubmitReopenedTimesheet(casey(), "ts-1");
-    await flush();
-    expect(emitted.requested).toHaveLength(1);
-    expect(emitted.requested[0]).toMatchObject({ kind: "timesheet", id: "ts-1", requesterPrincipalId: CASEY });
-    expect(db.rows("notifications").map((n) => n.type)).toEqual(["approval.requested", "approval.requested"]);
-  });
-
-  it("whoever re-snapshots the content can never approve it (an approver cannot reopen, edit and approve)", async () => {
-    await resubmitReopenedTimesheet(session(BOB), "ts-1");
-    const err = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "approved" }));
-    expect([err.status, err.code]).toEqual([403, "self_approval"]);
-    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
-  });
-
-  it("only a reopened sheet: a plain submitted or approved one is still the duplicate 422", async () => {
-    for (const over of [{ reopened_at: null }, { status: "approved", reopened_at: null }]) {
-      db.tables.timesheet_submissions = [reopened(over)];
-      const err = await caught(resubmitReopenedTimesheet(casey(), "ts-1"));
-      expect([err.status, err.code]).toEqual([422, "duplicate_submission"]);
-    }
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("needs entries to submit (nothing_to_submit), the time:submit scope, and a maker principal", async () => {
-    db.tables.time_entries = [];
-    expect((await caught(resubmitReopenedTimesheet(casey(), "ts-1"))).code).toBe("nothing_to_submit");
-    db.tables.time_entries = weekEntries();
-    expect((await caught(resubmitReopenedTimesheet(session(CASEY, { role: "viewer" }), "ts-1"))).status).toBe(403);
-    expect(
-      (await caught(resubmitReopenedTimesheet(pat("tok-orphan", null, ["time:submit"]), "ts-1"))).code,
-    ).toBe("no_principal");
-    expect(db.rows("timesheet_submissions")[0].reopened_at).not.toBeNull();
-  });
-
-  it("is workspace-scoped and compare-and-set", async () => {
-    expect(
-      (await caught(resubmitReopenedTimesheet(session(CASEY, { workspaceId: "ws-other" }), "ts-1"))).status,
-    ).toBe(404);
-    db.afterNextSelect("time_entries", (d) => {
-      d.rows("timesheet_submissions")[0].status = "approved";
-    });
-    const err = await caught(resubmitReopenedTimesheet(casey(), "ts-1"));
-    expect([err.status, err.code]).toEqual([422, "already_decided"]);
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-});
-
 // ── hub events carry the content version ──────────────────────────────────
 
 describe("hub events carry the content version (a card is bound to what it shows)", () => {
   const V1 = "2026-10-16T08:00:00.000Z";
-  const V2 = "2026-10-16T09:30:00.000Z";
 
   it("a change request event is stamped with the row's updated_at", async () => {
     const ev = await changeRequestEvent(db.client as never, WS, changeRow({ updated_at: V1 }) as never);
     expect(ev.version).toBe(V1);
   });
 
-  it("a timesheet event is stamped with the submission's updated_at", async () => {
-    const ev = await timesheetEvent(db.client as never, WS, sheetRow({ updated_at: V1 }) as never, "Casey Member");
-    expect(ev.version).toBe(V1);
-  });
-
   it("a row that carries no version yields an event with none (the hub refuses to bind a card to that)", async () => {
     expect((await changeRequestEvent(db.client as never, WS, changeRow() as never)).version).toBeUndefined();
-    expect((await timesheetEvent(db.client as never, WS, sheetRow() as never, "Casey Member")).version).toBeUndefined();
-  });
-
-  it("the decision event of a REOPEN carries the version the reopen left behind, so the re-request is not born stale", async () => {
-    db.tables.timesheet_submissions = [sheetRow({ status: "approved", updated_at: V1 })];
-    // the table's trigger bumps updated_at on the reopen's UPDATE
-    const realFrom = db.client.from;
-    db.client.from = (table: string) => {
-      const q = realFrom(table) as unknown as { update: (patch: Row) => unknown };
-      if (table === "timesheet_submissions") {
-        const update = q.update.bind(q);
-        q.update = (patch: Row) => update({ ...patch, updated_at: V2 });
-      }
-      return q as never;
-    };
-
-    await decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "missed a day" });
-
-    expect(emitted.decided).toHaveLength(1);
-    expect(emitted.decided[0]).toMatchObject({ kind: "timesheet", status: "reopened", version: V2 });
   });
 });

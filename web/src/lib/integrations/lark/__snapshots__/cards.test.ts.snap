@@ -623,7 +623,7 @@ exports[`snapshots > link confirmation, help, unlinked, pending, notice 4`] = `
         "tag": "markdown",
       },
       {
-        "content": "Decide from the approval card I sent you, or open NoPM. Timesheets and other reviews are under Review in NoPM.",
+        "content": "Decide from the approval card I sent you, or open NoPM. Other reviews are under Review in NoPM.",
         "element_id": "md_2",
         "tag": "markdown",
         "text_size": "notation",

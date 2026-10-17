@@ -3,7 +3,6 @@ import { z } from "zod";
 import { createProjectSchema, updateProjectSchema, ProjectDeleteRequestSchema } from "@/app/api/projects/_schema";
 import { createProgramSchema, updateProgramSchema } from "@/app/api/programs/_schema";
 import { createSprintSchema, updateSprintSchema, sprintTaskAttachSchema } from "@/app/api/sprints/_schema";
-import { createTimesheetSubmissionSchema, timesheetDecisionSchema } from "@/app/api/timesheet-submissions/_schema";
 import { createInviteSchema, acceptInviteSchema } from "@/app/api/invites/_schema";
 import { createMilestoneSchema, updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
@@ -78,18 +77,18 @@ const spec = {
       "as the NoPM user the platform account is linked to. A decider whose person equals the " +
       "requester's is refused (403, code self_approval) however many identities they hold; a token " +
       "with no recorded owner can never decide (403, code no_principal). The approve/decide scopes " +
-      "(task:delete:approve, project:delete:approve, time:approve, change:decide, rebaseline:approve) " +
-      "are NEVER granted by a wildcard (* or task:*, time:*, ...): each must be granted by its exact " +
-      "name. Approving or deciding (deletion approve/reject, change-request decide, rebaseline sign-off and apply, " +
-      "timesheet approve/reject/reopen) is for ADMINS and MANAGERS only, on every channel (owner decision D-16, " +
+      "(task:delete:approve, project:delete:approve, change:decide, rebaseline:approve) " +
+      "are NEVER granted by a wildcard (* or task:*, project:*, ...): each must be granted by its exact " +
+      "name. Approving or deciding (deletion approve/reject, change-request decide, rebaseline sign-off and apply) is for ADMINS and MANAGERS only, on every channel (owner decision D-16, " +
       "'follow Lark rules'): a member or viewer gets 403, code role_not_permitted, 'Only managers and admins can " +
       "approve'. A token is judged by the CURRENT role of the person who minted it (api_tokens.created_by), so a " +
       "token carrying an approve scope can decide only while its creator is still an admin or manager, and stops " +
       "the moment they are demoted. Such a token acts with its creator's authority: keep approve scopes off " +
-      "agent tokens unless that is intended; GET /review lists what is waiting for a decision. Time entries " +
-      "(D-17, to be confirmed by the owner): a member may log, edit and delete only their OWN hours; admins and " +
-      "managers may do it for others (403, code not_your_hours, 'You can only log your own hours'). " +
-      "Retries: POST /time-entries, POST /projects/{id}/expenses, POST /projects/{id}/tasks and POST /allocations " +
+      "agent tokens unless that is intended; GET /review lists what is waiting for a decision. " +
+      "Hour logging and weekly timesheets were removed on 2026-10-17 (owner decision 18): there is no /time-entries or " +
+      "/timesheet-submissions endpoint and no time:* scope is granted any more; a token that still carries one authenticates " +
+      "normally and the retired scope is inert. " +
+      "Retries: POST /projects/{id}/expenses, POST /projects/{id}/tasks and POST /allocations " +
       "accept an Idempotency-Key header (1-200 chars of [A-Za-z0-9_.:-], remembered 24 h per workspace + actor + " +
       "route; the expenses and tasks routes include the project id); a retry with the same key returns the first result instead of creating a second record. " +
       "A malformed or empty Idempotency-Key header is 400 invalid_idempotency_key. The same key while the first request is still running is 409 idempotency_in_progress " +
@@ -98,24 +97,23 @@ const spec = {
       "with a workspace ceiling of 5x; failed bearer authentication is throttled at 20/min per client IP before " +
       "any token lookup: once an address spends its failed-attempt budget it gets 429 with Retry-After, and a VALID token is never throttled by this. " +
       "A personal access token whose creator is now a viewer is read-only (403 forbidden_scope, 'This token's creator now has read-only access; the token is read-only'); approvals still need an admin or manager creator. " +
-      "Timesheet approve and reject also have a database backstop for the approver role (P0018, surfaced as 403 role_not_permitted). " +
       "A personal access token stops authenticating (401) when its creator's profile is gone or " +
       "belongs to another workspace; calendar feeds are unaffected (owner decision 9). Audit rows expose " +
       "principal_id (the person behind the actor, nullable) and the channel is derived from the credential " +
       "(a session is ui; a token is never ui). " +
       "Error bodies carry a stable machine-readable `code` beside `error` (e.g. unauthorized, " +
       "forbidden_scope, not_found, rule_violation, rate_limited, self_approval, no_principal, " +
-      "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
+      "already_decided, project_locked, " +
       "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, target_gone, " +
-      "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
-      "duplicate_deletion_request, has_timesheet_records, role_not_permitted, not_your_hours, " +
+      "bad_origin, invalid_reference, decision_in_use, " +
+      "duplicate_deletion_request, has_timesheet_records, role_not_permitted, " +
       "pending_rebaseline_exists, rebaseline_version_conflict, invalid_idempotency_key, idempotency_in_progress, idempotency_key_reused, forbidden_scope, project_not_locked, mfa_already_enabled, account_exists, already_revoked, " +
       "demo_restricted, demo_readonly, connector_paused, demo_quota_unavailable, misconfigured) — branch on it, not on the message. " +
       "A browser-session (cookie) POST/PUT/PATCH/DELETE whose Origin header is another site is refused " +
       "(403, code bad_origin); Bearer-token requests are never origin-checked. A malformed id (not a UUID) in " +
       "a path is 404 not_found, and a malformed value in a query filter or body is 422 validation_failed. " +
       "A request raised by a token with no recorded owner is refused up front (403, code no_principal) on every " +
-      "route that RAISES a governed request — task / project deletion, change request, timesheet submission, " +
+      "route that RAISES a governed request — task / project deletion, change request, " +
       "rebaseline proposal — not only on the deciding side, because a requester with no person behind it is " +
       "comparable to nobody. " +
       "Cross-tenant reference guard: any id in a request body that points at another record (owner_id, " +
@@ -207,9 +205,9 @@ const spec = {
             description:
               "Stable machine-readable error code, present on most errors (e.g. unauthorized, forbidden_scope, " +
               "not_found, rule_violation, rate_limited, precondition_failed, self_approval, no_principal, " +
-              "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
+              "already_decided, project_locked, " +
               "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, target_gone, " +
-              "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
+              "bad_origin, invalid_reference, decision_in_use, " +
               "duplicate_deletion_request, has_timesheet_records). Branch on this, not on the message.",
           },
           fields: {
@@ -231,9 +229,9 @@ const spec = {
         required: ["kind", "id", "title", "requested_at", "can_decide"],
         properties: {
           kind: { type: "string", enum: [...PENDING_KINDS], description: "Which maker-checker family this belongs to" },
-          id: { type: "string", format: "uuid", description: "The request's id in its own family (deletion request, change request, timesheet submission or rebaseline)" },
+          id: { type: "string", format: "uuid", description: "The request's id in its own family (deletion request, change request or rebaseline)" },
           title: { type: "string" },
-          summary: { type: ["string", "null"], description: "One line of context (reason / status / hours)" },
+          summary: { type: ["string", "null"], description: "One line of context (reason / status)" },
           project_id: { type: ["string", "null"], format: "uuid" },
           project_name: { type: ["string", "null"] },
           requested_by_label: { type: ["string", "null"] },
@@ -909,88 +907,6 @@ const spec = {
         },
       },
     },
-    "/timesheet-submissions": {
-      get: {
-        tags: ["timesheet-submissions"],
-        summary: "List timesheet submissions",
-        description: "scope: time:read. Filters: member_id, status (submitted|approved|rejected), period (= period_start exact match). Ordered submitted_at desc.",
-        operationId: "listTimesheetSubmissions",
-        parameters: [
-          { name: "member_id", in: "query", schema: { type: "string", format: "uuid" } },
-          { name: "status", in: "query", schema: { type: "string", enum: ["submitted", "approved", "rejected"] } },
-          { name: "period", in: "query", schema: { type: "string", format: "date" } },
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
-        ],
-        responses: {
-          "200": { description: "Paginated timesheet submission list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
-        },
-      },
-      post: {
-        tags: ["timesheet-submissions"],
-        summary: "Submit a weekly timesheet for a member (four-eyes maker step, L-31)",
-        description:
-          "scope: time:submit. period_start must be a Monday; period_end is derived (+6 days). Snapshots " +
-          "hours_total/entry_count — and a content digest of the entries (id, day, hours, project, billable) — from " +
-          "time_entries in that window at submit time; never recomputed afterwards. The approval is BOUND to that " +
-          "snapshot (POST /timesheet-submissions/{id}/decision refuses with 422 timesheet_changed if the live entries no " +
-          "longer match), and the week's entries are FROZEN while the sheet is submitted and awaiting a decision (422 " +
-          "timesheet_locked on POST/DELETE /time-entries; a rejection unlocks the week). 422 if the member has no time " +
-          "entries in the period (\"nothing to submit\"), or if an open (submitted|approved) submission already exists " +
-          "for this member+period. The one exception is a REOPENED sheet (status submitted with reopened_at set): POST " +
-          "again for that member and week after amending the entries and the sheet is re-snapshotted (hours, entry " +
-          "count, digest), reopened_at is cleared (the week freezes again), the caller becomes its submitter (so " +
-          "whoever re-snapshots the content can never approve it), and the approvers are asked again (201). A token with no recorded owner cannot submit (403, code no_principal): the " +
-          "submitter's human is what four-eyes compares the approver against. Submitting freezes the week, so it is " +
-          "restricted to the member themselves (the person whose profile is linked to the resource row, directly or " +
-          "through a token they minted) or an admin / manager acting for them; anyone else gets 403 not_your_timesheet " +
-          "(a resource row with no linked profile can be submitted for by an admin / manager only). Two concurrent " +
-          "submits for the same member and week: the loser gets the same 422 duplicate_submission, not a 500.",
-        operationId: "submitTimesheet",
-        requestBody: zodBody(createTimesheetSubmissionSchema),
-        responses: {
-          "201": { description: "Timesheet submission created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Missing time:submit (forbidden_scope), the token has no recorded owner (no_principal), or the caller is neither the member nor an admin / manager (not_your_timesheet)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "404": { description: "Resource member not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error, nothing to submit (nothing_to_submit), or an open submission already exists (duplicate_submission)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-        },
-      },
-    },
-    "/timesheet-submissions/{id}/decision": {
-      post: {
-        tags: ["timesheet-submissions"],
-        summary: "Record an approve / reject / reopen decision on a timesheet submission (four-eyes checker step, L-31; reopen is R-76/L-32)",
-        description:
-          "scope: time:approve (a wildcard scope never grants it). decision is one of approved | rejected | reopened. " +
-          "The deciding PERSON must differ from the submitter — compared on the submitter's principal " +
-          "(the user, or the user who minted the submitting token) plus the legacy compound (id AND type) " +
-          "comparison, guard symmetry across ALL THREE verbs; a token with no recorded owner can never " +
-          "decide (403, code no_principal). The person whose HOURS these are cannot decide the sheet either: if the " +
-          "timesheet's member is linked to the decider's login (resource_members.profile_id), the call is a 403 " +
-          "self_approval — a member with no linked login has no human to compare, and the submitter check still " +
-          "applies. approve/reject require status='submitted'; reopen requires the INVERSE — " +
-          "status='approved' (reopen is the governed unlock for the period-close lock, R-76: an " +
-          "approved week's time entries reject create/delete until reopened, migration " +
-          "20260815000040). CONTENT BINDING on approve: the live entries for the member and week must still match what " +
-          "was submitted (same totals, same content digest); otherwise 422 timesheet_changed — reject the sheet with a " +
-          "reason and have the member resubmit. Rejection AND reopen both require a non-empty rationale; approval does not. " +
-          "Reopen reverts status to 'submitted', marks the sheet open for amendment (reopened_at) and clears decided_by/" +
-          "_type/_label/decided_at/decision_rationale, and notifies the workspace's approvers (the sheet re-enters the " +
-          "Review Queue as a fresh approval request) rather than the submitter. The reopened sheet keeps its OLD " +
-          "snapshot until the member amends the entries and re-submits via POST /timesheet-submissions (which " +
-          "re-snapshots it); approving it before that fails with timesheet_changed once the entries differ. The " +
-          "alternative is to reject it with a reason and have the member submit a fresh row.",
-        operationId: "decideTimesheetSubmission",
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: zodBody(timesheetDecisionSchema),
-        responses: {
-          "200": { description: "Decision recorded", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-decision rejected (four-eyes, code self_approval) — includes self-reopen and deciding a sheet for your own hours; not an admin or manager (role_not_permitted, 'Only managers and admins can approve' — applies to approve, reject AND reopen); no recorded owner on the token (no_principal); or missing time:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Already decided (approve/reject — code already_decided), not approved yet (reopen — code not_reopenable), rationale missing on reject/reopen (code rationale_required), or the time entries changed since the sheet was submitted (approve — code timesheet_changed)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-        },
-      },
-    },
     "/saved-views": {
       get: {
         tags: ["saved-views"],
@@ -1498,15 +1414,15 @@ const spec = {
         tags: ["resources"],
         summary: "Delete a resource member",
         description:
-          "scope: resource:write. A member's time entries and timesheet submissions cascade from the member, so a member " +
-          "who has ANY timesheet submission (submitted, approved or rejected) cannot be deleted: 422 has_timesheet_records " +
+          "scope: resource:write. Hour logging was removed (decision 18) but its history is kept in the database: a member " +
+          "who has ANY retained timesheet submission (submitted, approved or rejected) still cannot be deleted: 422 has_timesheet_records " +
           "— their approval history would be erased with them.",
         operationId: "deleteResource",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "The member has timesheet records (has_timesheet_records), or a timesheet week lock refused the cascade (period_locked / timesheet_locked)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The member has retained timesheet records (has_timesheet_records)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1573,74 +1489,11 @@ const spec = {
         },
       },
     },
-    "/time-entries": {
-      get: {
-        tags: ["time-entries"],
-        summary: "List time entries",
-        description: "scope: time:read. Optional ?project_id, ?member_id, ?date_from/?date_to (entry_date window, inclusive) and ?billable filters.",
-        operationId: "listTimeEntries",
-        parameters: [
-          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
-          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
-          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
-          { name: "member_id", in: "query", schema: { type: "string", format: "uuid" } },
-          { name: "date_from", in: "query", schema: { type: "string", format: "date" }, description: "entry_date >= date_from (inclusive)" },
-          { name: "date_to", in: "query", schema: { type: "string", format: "date" }, description: "entry_date <= date_to (inclusive)" },
-          { name: "billable", in: "query", schema: { type: "string", enum: ["true", "false"] }, description: "Exact match on the billable flag" },
-        ],
-        responses: {
-          "200": { description: "Paginated time entry list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
-        },
-      },
-      post: {
-        tags: ["time-entries"],
-        summary: "Log a time entry",
-        description:
-          "scope: time:write. Cost is auto-computed as hours * member.cost_rate. 422 if the entry's " +
-          "week is locked for this member: code period_locked when an APPROVED timesheet submission covers it " +
-          "(R-76/L-32; reopen the submission via POST /timesheet-submissions/{id}/decision with " +
-          "decision='reopened' to unlock it), or code timesheet_locked when a SUBMITTED one does — the sheet is under " +
-          "review and what the approver sees must be what they approve (a rejection unlocks the week; a reopened " +
-          "sheet is open for amendment again, but an amended sheet can no longer be approved as submitted — 422 " +
-          "timesheet_changed — so reject it and have the member resubmit). task_id, when " +
-          "sent, must be a task in this workspace AND in the entry's project (422, 'Task does not belong to this project'). " +
-          "Ownership (D-17): a member may log only their own hours — member_id must be the caller's own member; admins and managers " +
-          "may log for others (403, code not_your_hours, 'You can only log your own hours'). A token is judged by the person who " +
-          "minted it. Send Idempotency-Key to make a retry return the first entry.",
-        operationId: "createTimeEntry",
-        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id", "project_id", "entry_date", "hours"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, entry_date: { type: "string", format: "date" }, hours: { type: "number", minimum: 0 }, note: { type: "string" }, billable: { type: "boolean", description: "L-29: whether this entry counts as billable. Omitted → defaults from the owning project's default_billable." } } } } } },
-        responses: {
-          "201": { description: "Time entry created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "A member logging hours for someone else (code not_your_hours)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error; the entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision); invalid_reference (task_id); or task_id belongs to another project", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-        },
-      },
-    },
-    "/time-entries/{id}": {
-      delete: {
-        tags: ["time-entries"],
-        summary: "Delete a time entry",
-        description:
-          "scope: time:write. 422 if the entry's week is locked for this member: period_locked when an APPROVED " +
-          "timesheet submission covers it (R-76/L-32; reopen the submission to unlock it), timesheet_locked when a " +
-          "SUBMITTED one does (under review; a rejection unlocks the week). A member may delete only their own entries " +
-          "(403, code not_your_hours); admins and managers may delete anyone's.",
-        operationId: "deleteTimeEntry",
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        responses: {
-          "204": { description: "Deleted" },
-          "403": { description: "Not your hours (code not_your_hours)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "The entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-        },
-      },
-    },
     "/projects/{id}/budget": {
       get: {
         tags: ["budget"],
         summary: "Get budget summary for a project",
-        description: "scope: budget:read. Returns planned, committed, actual (computed from time_entries + expenses), variance, burn_pct.",
+        description: "scope: budget:read. Returns planned, committed, actual (expenses only; hour logging was removed, decision 18), variance, burn_pct.",
         operationId: "getProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -1757,9 +1610,7 @@ const spec = {
           "after the deletion was requested, and 422s children_changed if the project gained records (tasks, " +
           "milestones, risks, ...) after the request was raised — the request no longer describes what would be " +
           "deleted, so reject or withdraw it and raise a new one. For target_type=task, 422s target_changed if the task " +
-          "was edited after the request was raised (the request stored the task as it was). A cascade that would remove time entries inside a " +
-          "submitted or approved timesheet week is refused the same way as deleting them directly " +
-          "(period_locked / timesheet_locked).",
+          "was edited after the request was raised (the request stored the task as it was).",
         operationId: "approveDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: {
@@ -1779,7 +1630,7 @@ const spec = {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Missing the per-type approve scope (forbidden_scope); the caller (or the person behind the token) is not an admin or manager (role_not_permitted, 'Only managers and admins can approve'); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1863,7 +1714,7 @@ const spec = {
         summary: "Governed CSV export (L-27 / L-36)",
         description:
           "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
-          "audit:read, time:read, program:read, or project:read). Streams text/csv with Content-Disposition " +
+          "audit:read, program:read, or project:read). Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
@@ -1871,8 +1722,7 @@ const spec = {
           "due_before/due_after/overdue/q/sort; risks/issues take an OPTIONAL project_id (omitted = every risk/issue in the workspace, " +
           "for cross-project registers) plus status/severity(/priority for issues)/q (title ilike)/sort; projects accept " +
           "rag_status/phase/program_id/q (name ilike)/sort (name|code|rag_status|phase|completion_pct|target_date|created_at); clashes take no " +
-          "filters (fixed created_at desc, matching GET /clashes); time_entries accept " +
-          "project_id/member_id/date_from/date_to/billable; audit accepts " +
+          "filters (fixed created_at desc, matching GET /clashes); audit accepts " +
           "target_type/target_id/action/actor_id/channel (R-82)/since/from/to/order (R-85, leniently: an " +
           "unparsable since or unrecognized order is dropped rather than 422ing, unlike GET /audit — " +
           "after_id is NOT supported here, it needs a row lookup only the list route performs); " +
@@ -1885,8 +1735,8 @@ const spec = {
           "audited (L-36).",
         operationId: "exportCsv",
         parameters: [
-          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "time_entries", "programs", "projects"] } },
-          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Optional filter for entity=tasks|risks|issues|time_entries (risks/issues: omitted = whole workspace; a project outside the workspace 404s)" },
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects"] } },
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Optional filter for entity=tasks|risks|issues (risks/issues: omitted = whole workspace; a project outside the workspace 404s)" },
           { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues|projects (whitelisted per entity, same as the list API)" },
           { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=tasks" },
           { name: "status_type", in: "query", schema: { type: "string" }, description: "entity=tasks" },
@@ -1900,10 +1750,6 @@ const spec = {
           { name: "phase", in: "query", schema: { type: "string" }, description: "entity=projects" },
           { name: "program_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=projects" },
           { name: "severity", in: "query", schema: { type: "string" }, description: "entity=risks|issues" },
-          { name: "member_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=time_entries" },
-          { name: "date_from", in: "query", schema: { type: "string", format: "date" }, description: "entity=time_entries (entry_date >=, inclusive)" },
-          { name: "date_to", in: "query", schema: { type: "string", format: "date" }, description: "entity=time_entries (entry_date <=, inclusive)" },
-          { name: "billable", in: "query", schema: { type: "string", enum: ["true", "false"] }, description: "entity=time_entries" },
           { name: "target_type", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "target_id", in: "query", schema: { type: "string" }, description: "entity=audit" },
           { name: "action", in: "query", schema: { type: "string" }, description: "entity=audit" },
@@ -2758,13 +2604,13 @@ const spec = {
         tags: ["review"],
         summary: "What is waiting for a human to decide? (read-only approvals queue)",
         description:
-          "scope: task:read or audit:read or change:read or time:read or project:read. Any ONE of these opens the " +
+          "scope: task:read or audit:read or change:read or project:read. Any ONE of these opens the " +
           "endpoint, but each kind is shown only if the caller could read it through that family's own list endpoint " +
-          "(task_deletion / project_deletion: task:read or audit:read; change_request: change:read; timesheet: time:read; " +
+          "(task_deletion / project_deletion: task:read or audit:read; change_request: change:read; " +
           "rebaseline: project:read). Kinds the caller cannot read are named in `hidden_kinds`, so an EMPTY list is not " +
           "proof that nothing is pending; a caller who can read none of them gets 403. A signed-in user sees every kind. " +
           "Lists every governed decision currently waiting in the workspace, oldest first: deletion requests " +
-          "(task + project), change requests (raised / under_review), submitted timesheets and rebaselines awaiting " +
+          "(task + project), change requests (raised / under_review), rebaselines awaiting " +
           "sign-off. READ-ONLY — there is no way to decide anything here: each item says whether the caller `can_decide` it " +
           "(the decide scope AND four-eyes by person) and, when not, `reason_if_not`; the decision itself is made by a " +
           "person in the console, on a Lark card, or with the existing decision routes. Items the caller raised are still " +
@@ -2780,7 +2626,7 @@ const spec = {
             explode: false,
             schema: { type: "array", items: { type: "string", enum: [...PENDING_KINDS] } },
             description:
-              "Restrict to these kinds — comma-separated (kind=timesheet,rebaseline) or repeated. Default: every kind the " +
+              "Restrict to these kinds — comma-separated (kind=rebaseline,change_request) or repeated. Default: every kind the " +
               "caller can read. An unknown kind is a 422; naming only kinds the caller cannot read is a 403.",
           },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -3634,7 +3480,6 @@ const REFERENCE_CHECKED_FIELDS: Record<string, string> = {
   "patch /tasks/{id}": "assignee_id (a resource member), blocked_by (a task)",
   "post /resources": "profile_id",
   "patch /resources/{id}": "profile_id",
-  "post /time-entries": "task_id",
 };
 
 type DecoratedOperation = {

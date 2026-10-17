@@ -11,7 +11,7 @@ NoPM bundles no LLM. This server is a thin bridge: it maps MCP tool calls to NoP
 
 ### Governance tools (stdio server)
 
-On top of the shared registry, the stdio server offers seven governance tools (`MCP_GOVERNANCE_TOOLS` in `tools.mjs`; deliberately NOT given to the in-app assistant): `create_change_request` (change:write), `propose_rebaseline` (project:write), `sign_off_rebaseline` and `apply_rebaseline` (rebaseline:approve), `submit_timesheet` (time:submit), `create_decision` (decision:write) and `create_document` (document:write). Each calls the existing REST route with your token. The two approve tools work only when the token carries the exact `rebaseline:approve` scope AND the person who minted it is currently an admin or manager (owner decision D-16, "follow Lark rules"); otherwise the API answers 403 `role_not_permitted` ("Only managers and admins can approve") and nothing changes. Four-eyes still applies: a token never decides what its creator raised.
+On top of the shared registry, the stdio server offers six governance tools (`MCP_GOVERNANCE_TOOLS` in `tools.mjs`; deliberately NOT given to the in-app assistant): `create_change_request` (change:write), `propose_rebaseline` (project:write), `sign_off_rebaseline` and `apply_rebaseline` (rebaseline:approve), `create_decision` (decision:write) and `create_document` (document:write). Each calls the existing REST route with your token. The two approve tools work only when the token carries the exact `rebaseline:approve` scope AND the person who minted it is currently an admin or manager (owner decision D-16, "follow Lark rules"); otherwise the API answers 403 `role_not_permitted` ("Only managers and admins can approve") and nothing changes. Four-eyes still applies: a token never decides what its creator raised.
 
 ---
 
@@ -106,7 +106,7 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `list_resources` | GET /api/resources | `resource:read` |
 | `search_workspace` | GET /api/search | `project:read` |
 | `query_audit` | GET /api/audit | `audit:read` |
-| `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `time:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
+| `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
 
 ### Recommended minimum scopes for a read-only agent
 

@@ -48,7 +48,6 @@ export const KIND_LABEL: Record<ApprovalKind, string> = {
   task_deletion: "Task deletion",
   project_deletion: "Project deletion",
   change_request: "Change request",
-  timesheet: "Timesheet",
 };
 
 const CHANNEL_LABEL: Record<string, string> = {
@@ -140,8 +139,6 @@ export function deepLinkFor(appUrl: string, ref: ApprovalRef): string {
   switch (ref.kind) {
     case "change_request":
       return `${base}/change-control?cr=${encodeURIComponent(ref.id)}`;
-    case "timesheet":
-      return `${base}/timesheets`;
     case "task_deletion":
     case "project_deletion":
       return `${base}/approvals`;
@@ -551,7 +548,7 @@ export function buildPendingApprovalsCard(input: { deletions: number; changeRequ
         [row("Deletion requests", input.deletions, "/approvals"), row("Change requests", input.changeRequests, "/change-control")].join("\n"),
       ),
     );
-    elements.push(notation(ids, "Decide from the approval card I sent you, or open NoPM. Timesheets and other reviews are under Review in NoPM."));
+    elements.push(notation(ids, "Decide from the approval card I sent you, or open NoPM. Other reviews are under Review in NoPM."));
   }
   return frame({
     title: "Waiting for you",

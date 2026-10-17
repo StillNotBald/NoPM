@@ -1,23 +1,23 @@
 # UC-23 · Approve or reject a governed request from Lark
 
-**Goal:** Let a linked approver decide a pending deletion, change request or timesheet submission from a Lark card, under the same rules as the console: the same decision code, the same four-eyes check, and audit rows that record the chat channel.
+**Goal:** Let a linked approver decide a pending deletion or change request from a Lark card, under the same rules as the console: the same decision code, the same four-eyes check, and audit rows that record the chat channel.
 
 **Actors:** Approver (a linked, active member with the admin or manager role, who is not the requester's principal). Requester (raised the request; does not receive its card). Hub (sends and patches cards, resolves the click and calls the decision code; it never decides on its own). Lark (delivers the button click and the card callback).
 
 **Preconditions:**
 - The workspace has one active Lark connector with its credentials stored.
 - The approver has an active identity link on that connector (UC-24).
-- The request is still open: `pending` for a deletion request, `raised` or `under_review` for a change request, `submitted` for a timesheet.
+- The request is still open: `pending` for a deletion request, `raised` or `under_review` for a change request.
 - The approver's role and scopes allow the decision. The card is sent only to admins and managers, but the decision code checks scopes again at click time.
 
-**Trigger:** A deletion request, change request or timesheet submission is created, which sends the card. Or an approver taps Approve or Reject on a card they already have.
+**Trigger:** A deletion request or change request is created, which sends the card. Or an approver taps Approve or Reject on a card they already have.
 
 ## Main flow
 
 1. **Card sent.** The request is created in the console, API, CLI or MCP, and its audit row is written as usual. After the response, the hub resolves the eligible approvers: linked, active, admin or manager, and not the requester's principal. For each one it mints a single-use action token (7-day expiry, bound to that profile and that request), stores a `pending` delivery, and sends an approval card with the request title, project, requester, a summary, a link to the request, and Approve and Reject buttons.
 2. **Approve tapped.** Lark posts the click to the hub's card callback. The hub verifies the callback and records the Lark event id. A repeat of the same event id returns the stored outcome. The hub then maps the Lark user to the linked profile.
 3. **Token consumed.** The hub consumes the action token in one step. It must be unused, unexpired, and bound to this profile and this request. The actor is then built as a user actor whose principal is the profile, with `channel` set to `lark` and the connector and event ids attached.
-4. **Decision made.** The hub calls the decision code for the request's kind. Approve on a deletion runs the atomic commit (ADR 0006). Approve on a change request or timesheet sets the decided status. The Approve button has no input, so the approve note is the kind's default.
+4. **Decision made.** The hub calls the decision code for the request's kind. Approve on a deletion runs the atomic commit (ADR 0006). Approve on a change request sets the decided status. The Approve button has no input, so the approve note is the kind's default.
 5. **Answer within three seconds.** The callback responds with a toast ("Approved") and a replacement card showing the decided state: who decided, through which channel, and when. The replacement card has no buttons.
 6. **Other cards updated.** Every other card already sent for this request is patched to the decided state, and the request's remaining open tokens are superseded.
 
@@ -41,7 +41,7 @@
 ## Postconditions
 
 - The decision has the same result as the same decision made in the console: the same status change, the same scope and lock checks, the same four-eyes rule, and (since decision 16) the same admin-or-manager role rule. In chat the role is checked before any action token is consumed.
-- Audit: every row written by the decision carries `channel='lark'`, the connector id, the Lark event id and the external actor reference. The counts follow the console path. A deletion approval writes two rows in one transaction, the entity delete and `deletion_request.approved` (UC-12). A deletion rejection writes `deletion_request.rejected`. A change request decision writes `change_request.decide`. A timesheet decision writes `timesheet.approved` or `timesheet.rejected`.
+- Audit: every row written by the decision carries `channel='lark'`, the connector id, the Lark event id and the external actor reference. The counts follow the console path. A deletion approval writes two rows in one transaction, the entity delete and `deletion_request.approved` (UC-12). A deletion rejection writes `deletion_request.rejected`. A change request decision writes `change_request.decide`.
 - The request leaves the approvals queue and the Review Queue.
 - Every card sent for the request shows the decided state, and no live buttons remain.
 - The inbound action record holds one entry per Lark event id, with its outcome.

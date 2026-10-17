@@ -146,3 +146,5 @@ Everything keeps working, with these differences: a deletion decided by a member
 ## Run record
 
 _Not yet run._ Record here: backup taken, pre-check output, dry-run output, apply output and time, post-check, promote time, smoke result.
+
+> **Note 2026-10-17 (owner decision 18):** the timesheet and own-hours parts of this release (decision 17, migration 0073, `time:*` scopes) were made moot when hour logging was removed. See `09-REMOVE-HOUR-LOGGING.md`. The migrations stay in the ledger; nothing in them is reverted.

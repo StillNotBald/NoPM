@@ -20,7 +20,7 @@ A lite, API-first project-management tool that a user's own AI agent operates �
 
 ## Positioning
 
-Three properties competitors can't truthfully claim simultaneously: (1) **agent-operable** — every action is a documented REST endpoint with scoped `resource:action` tokens, OpenAPI, llms.txt, CLI, and MCP; (2) **institutional governance in the data layer** — exactly one immutable audit row per mutation (fail-closed), four-eyes deletion enforced in scope + API + DB CHECK, even the service key can't rewrite history; (3) **the governed triangle** — timeline, resource, and budget changes pass one audit and sign-off gate in a single governed model (over-allocation → clash; spend → EVM variance; locked timeline → rebaseline sign-off); it is not a scheduler, a timesheet system, or an ERP.
+Three properties competitors can't truthfully claim simultaneously: (1) **agent-operable** — every action is a documented REST endpoint with scoped `resource:action` tokens, OpenAPI, llms.txt, CLI, and MCP; (2) **institutional governance in the data layer** — exactly one immutable audit row per mutation (fail-closed), four-eyes deletion enforced in scope + API + DB CHECK, even the service key can't rewrite history; (3) **the governed triangle** — timeline, resource, and budget changes pass one audit and sign-off gate in a single governed model (over-allocation → clash; spend → EVM variance; locked timeline → rebaseline sign-off); it is not a scheduler, a timesheet system (hour logging was removed on 2026-10-17, decision 18), or an ERP. Budget actual is expenses only.
 
 ### Complement, not replace
 

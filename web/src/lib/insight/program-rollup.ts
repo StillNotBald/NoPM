@@ -39,7 +39,7 @@ export interface ProgramRollupChildInput {
   plannedAmount: number;
   /** project_budget.committed_amount — 0 when the project has no budget row. */
   committedAmount: number;
-  /** Σ time_entries.cost + Σ expenses.amount for this project (mirrors the /budget GET). */
+  /** Σ expenses.amount for this project (mirrors the /budget GET). */
   actualAmount: number;
   /** project_budget.currency (or the project's own currency when no budget row exists). */
   currency: string;

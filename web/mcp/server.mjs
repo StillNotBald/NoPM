@@ -5,8 +5,8 @@
  *
  * Tool definitions come from ./tools.mjs — the registry the in-app assistant
  * uses (so the two agent surfaces cannot drift apart) plus the governance tools
- * only MCP offers (change request, rebaseline propose / sign-off / apply, timesheet
- * submit, decision, document). The assistant never gets the approve tools.
+ * only MCP offers (change request, rebaseline propose / sign-off / apply,
+ * decision, document). The assistant never gets the approve tools.
  *
  * Config (env):
  *   NOPM_API_URL   Base URL of the NoPM API  (default: https://stillnotbald.com)

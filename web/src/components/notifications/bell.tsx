@@ -8,6 +8,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Portal } from "@/components/ui/portal";
 import { QUERY_LG_UP, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useDialog, useEscapeClose, useReturnFocus } from "@/lib/hooks/use-sheet";
+import { safeNotificationHref } from "./href";
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 // @supabase/ssr + supabase-js are loaded lazily inside the realtime effect
 // below (not at module scope) so they leave the shared shell's initial chunk —
@@ -282,9 +283,10 @@ export function NotificationBell() {
         // best-effort
       }
     }
-    if (n.payload?.href) {
+    const href = safeNotificationHref(n.payload?.href);
+    if (href) {
       setOpen(false);
-      router.push(n.payload.href);
+      router.push(href);
     }
   }
 

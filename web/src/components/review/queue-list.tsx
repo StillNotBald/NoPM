@@ -7,7 +7,7 @@ import { Severity } from "@/components/ui/severity";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
-import { ApprovalInlineAction, ChangeInlineAction, TimesheetInlineAction } from "@/components/review/inline-action";
+import { ApprovalInlineAction, ChangeInlineAction } from "@/components/review/inline-action";
 import type { ReviewItem, ReviewKind } from "@/lib/review/gather";
 
 // ── Kind metadata ─────────────────────────────────────────────────────────────
@@ -33,12 +33,6 @@ const kindMeta: Record<
     chipClass:
       "rounded-full bg-change/10 px-2 py-0.5 font-mono text-xs font-medium text-change-ink",
     dotClass: "text-change-ink",
-  },
-  timesheet: {
-    label: "Timesheets Pending Decision",
-    chipClass:
-      "rounded-full bg-info/10 px-2 py-0.5 font-mono text-xs font-medium text-info-ink",
-    dotClass: "text-info-ink",
   },
   risk: {
     label: "High / Critical Risks",
@@ -68,7 +62,6 @@ const FILTER_TABS: { key: FilterKind; label: string }[] = [
   { key: "all", label: "All" },
   { key: "approval", label: "Approvals" },
   { key: "change", label: "Changes" },
-  { key: "timesheet", label: "Timesheets" },
   { key: "risk", label: "Risks" },
   { key: "clash", label: "Clashes" },
   { key: "document", label: "Docs" },
@@ -85,8 +78,6 @@ function kindTone(kind: ReviewKind) {
       return "warning" as const;
     case "change":
       return "neutral" as const;
-    case "timesheet":
-      return "info" as const;
     case "risk":
       return "neutral" as const;
     case "clash":
@@ -213,7 +204,7 @@ function ReviewRow({
   onOpen: (item: ReviewItem) => void;
 }) {
   // These kinds get an inline inspector; the rest deep-link.
-  if (item.kind === "approval" || item.kind === "change" || item.kind === "timesheet") {
+  if (item.kind === "approval" || item.kind === "change") {
     return <InspectorRow item={item} onOpen={onOpen} />;
   }
   return <LinkRow item={item} />;
@@ -298,7 +289,6 @@ function FilterTabs({
 const KIND_ORDER: ReviewKind[] = [
   "approval",
   "rebaseline",
-  "timesheet",
   "change",
   "risk",
   "clash",
@@ -320,11 +310,6 @@ export function QueueList({ items }: { items: ReviewItem[] }) {
       inspector.open(
         <ChangeInlineAction item={item} />,
         "Change Request — Decide",
-      );
-    } else if (item.kind === "timesheet") {
-      inspector.open(
-        <TimesheetInlineAction item={item} />,
-        "Timesheet — Decide",
       );
     }
   }

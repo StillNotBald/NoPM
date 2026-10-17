@@ -180,7 +180,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                 </span>
               </div>
               <div>
-                <span className="block text-ink-muted">Actual</span>
+                <span className="block text-ink-muted">Actual (expenses)</span>
                 <span className="block truncate font-mono tabular-nums text-ink">{r.actualDisplay}</span>
               </div>
             </div>
@@ -206,7 +206,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                 </span>
               </div>
               <div>
-                <span className="block text-ink-muted">Actual</span>
+                <span className="block text-ink-muted">Actual (expenses)</span>
                 <span className="block truncate font-mono tabular-nums font-semibold text-ink">
                   {totals.actualDisplay}
                 </span>
@@ -236,7 +236,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
               <TH>Project</TH>
               <TH align="right">Planned</TH>
               <TH align="right">Committed</TH>
-              <TH align="right">Actual</TH>
+              <TH align="right">Actual (expenses)</TH>
               <TH align="right">Variance</TH>
               <TH>Burn vs progress</TH>
             </TR>

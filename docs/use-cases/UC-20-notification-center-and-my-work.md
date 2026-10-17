@@ -6,7 +6,7 @@
 
 **Preconditions:** The actor has a signed-in session; at least one governed event has fired that targets them.
 
-**Trigger:** A governed event happens that another actor should know about: a deletion request needs approval, an over-allocation clash was detected, a change/timesheet decision was recorded, etc.
+**Trigger:** A governed event happens that another actor should know about: a deletion request needs approval, an over-allocation clash was detected, a change decision was recorded, etc.
 
 ## Main flow
 

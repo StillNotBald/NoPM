@@ -38,12 +38,6 @@ Milestones, risks, and issues are deleted immediately with just an audit row; th
 
 **Example:** a locked project's task has its due date pushed back by a well-meaning agent. The write is rejected with a clear `422` error and the code `project_locked`, telling the caller to either ask an admin to unlock the project or propose a formal **rebaseline** instead. A rebaseline is a proposed new schedule that goes through its own sign-off before it's applied, so a locked plan can still change, but only through a reviewed process, never by a stray edit slipping through. Even attempts that get blocked are written to the audit log, so a pattern of "someone kept trying to edit a locked schedule" is visible, not silently swallowed.
 
-## Period-close lock (timesheets)
-
-**What it is:** once a submitted timesheet for a given week has been approved, that week's hours are frozen. No new time entries can be added or removed for that week, for that person, going forward.
-
-**Example:** a contractor's week is approved by a manager on Friday. On the following Monday, someone tries to log an extra hour against the previous Tuesday. The write fails immediately with a `period_locked`-style error. The approved week is closed history, not a spreadsheet cell anyone can quietly edit after the fact. Reopening it is itself a governed, recorded action, not a silent unlock.
-
 ## The Trust Center
 
 **What it is:** the workspace-wide screen (`/trust`) where all of the above becomes visible in one place: a live, filterable stream of the newest audit rows, color-coded by action (creates, approvals, rejections, deletions), each showing the actor, the target, and the timestamp. You can filter by channel (for example, `mcp` to see only what an AI agent did through the Model Context Protocol, versus `cli` or the web app itself), by action, or by a specific object.
@@ -71,7 +65,6 @@ None of these rules fail silently. A blocked write returns a `422` status with a
 | Four-eyes | Task and project deletion | Requester and approver must be different people |
 | Change control | Scope/schedule/cost changes | Raiser and decider must be different people |
 | Project lock + rebaseline | Locked projects' schedule fields | Schedule changes only through a reviewed rebaseline |
-| Period-close lock | Approved timesheet weeks | No new time entries against an already-approved week |
 | Trust Center | All of the above | A single place to see every action, successful or blocked |
 
 ## Why this matters for an AI agent specifically

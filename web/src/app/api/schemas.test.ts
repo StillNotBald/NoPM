@@ -27,10 +27,6 @@ import {
   updateSprintSchema,
   sprintTaskAttachSchema,
 } from "./sprints/_schema";
-import {
-  createTimesheetSubmissionSchema,
-  timesheetDecisionSchema,
-} from "./timesheet-submissions/_schema";
 import { createInviteSchema, acceptInviteSchema } from "./invites/_schema";
 import { SCOPES } from "@/lib/auth/scopes";
 
@@ -549,89 +545,6 @@ describe("sprintTaskAttachSchema", () => {
     expect(sprintTaskAttachSchema.parse({ task_id: UUID })).toEqual({ task_id: UUID });
     expect(sprintTaskAttachSchema.safeParse({}).success).toBe(false);
     expect(sprintTaskAttachSchema.safeParse({ task_id: "not-a-uuid" }).success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// timesheet-submissions (L-31 four-eyes — Template B)
-// ---------------------------------------------------------------------------
-describe("createTimesheetSubmissionSchema", () => {
-  // 2026-08-17 is a Monday.
-  const minimal = { member_id: UUID, period_start: "2026-08-17" };
-
-  it("accepts a minimal payload with a Monday period_start", () => {
-    expect(createTimesheetSubmissionSchema.parse(minimal)).toEqual(minimal);
-  });
-
-  it.each(["member_id", "period_start"])("rejects a payload missing %s", (field) => {
-    const payload: Record<string, unknown> = { ...minimal };
-    delete payload[field];
-    const r = createTimesheetSubmissionSchema.safeParse(payload);
-    expect(r.success).toBe(false);
-    expect(errorPaths(r)).toContain(field);
-  });
-
-  it("rejects a non-UUID member_id", () => {
-    expect(createTimesheetSubmissionSchema.safeParse({ ...minimal, member_id: "not-a-uuid" }).success).toBe(false);
-  });
-
-  it("rejects a malformed period_start", () => {
-    expect(createTimesheetSubmissionSchema.safeParse({ ...minimal, period_start: "2026/08/17" }).success).toBe(false);
-    expect(createTimesheetSubmissionSchema.safeParse({ ...minimal, period_start: "not-a-date" }).success).toBe(false);
-  });
-
-  it("rejects a period_start that is NOT a Monday", () => {
-    // 2026-08-18 is a Tuesday.
-    const r = createTimesheetSubmissionSchema.safeParse({ ...minimal, period_start: "2026-08-18" });
-    expect(r.success).toBe(false);
-    expect(errorPaths(r)).toContain("period_start");
-  });
-});
-
-describe("timesheetDecisionSchema", () => {
-  it("accepts approved with no rationale", () => {
-    expect(timesheetDecisionSchema.parse({ decision: "approved" })).toEqual({ decision: "approved" });
-  });
-
-  it("accepts rejected WITH a rationale at the schema layer (the required-on-reject rule is enforced in the route, not here)", () => {
-    expect(
-      timesheetDecisionSchema.parse({ decision: "rejected", rationale: "Hours look inflated" }),
-    ).toEqual({ decision: "rejected", rationale: "Hours look inflated" });
-  });
-
-  it("does NOT itself require rationale on reject — schema only validates shape", () => {
-    // Mirrors createSprintSchema's cross-field note: the schema is shape-only;
-    // assertRationaleOnReject (lib/governance/timesheet-decision.ts) is what
-    // turns a rejected+no-rationale payload into a 422 at the route layer.
-    expect(timesheetDecisionSchema.safeParse({ decision: "rejected" }).success).toBe(true);
-  });
-
-  it("rejects an unknown decision value", () => {
-    expect(timesheetDecisionSchema.safeParse({ decision: "deferred" }).success).toBe(false);
-  });
-
-  it("rejects a blank rationale string (min length 1)", () => {
-    expect(timesheetDecisionSchema.safeParse({ decision: "rejected", rationale: "" }).success).toBe(false);
-  });
-
-  it("rejects a payload missing decision", () => {
-    const r = timesheetDecisionSchema.safeParse({});
-    expect(r.success).toBe(false);
-    expect(errorPaths(r)).toContain("decision");
-  });
-
-  // R-76/L-32: "reopened" — the governed unlock verb for the period-close
-  // lock. Schema-layer shape only; assertReopenable (approved-only
-  // precondition) and assertRationaleOnReject (rationale required, same as
-  // reject) live in lib/governance/timesheet-decision.ts, not here.
-  it("accepts reopened WITH a rationale at the schema layer", () => {
-    expect(
-      timesheetDecisionSchema.parse({ decision: "reopened", rationale: "Hours were logged wrong, need to fix" }),
-    ).toEqual({ decision: "reopened", rationale: "Hours were logged wrong, need to fix" });
-  });
-
-  it("does NOT itself require rationale on reopen — schema only validates shape (route enforces it)", () => {
-    expect(timesheetDecisionSchema.safeParse({ decision: "reopened" }).success).toBe(true);
   });
 });
 

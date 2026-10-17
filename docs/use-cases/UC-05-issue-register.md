@@ -26,7 +26,7 @@
 ## Postconditions
 
 - One `issue.create` audit row on creation; one `issue.update` per PATCH; one `issue.delete` on delete.
-- Issues never enter the Review Queue. `web/src/lib/review/gather.ts` builds `/review` from deletion requests, rebaselines, change requests (`under_review`), timesheet submissions (`submitted`), documents (`in_review`), high/critical risks, and unresolved clashes; there is no issues source.
+- Issues never enter the Review Queue. `web/src/lib/review/gather.ts` builds `/review` from deletion requests, rebaselines, change requests (`under_review`), documents (`in_review`), high/critical risks, and unresolved clashes; there is no issues source.
 
 ## Reporting and evidence
 

@@ -104,7 +104,7 @@ describe("GET /api/review", () => {
       total: 1,
       page: 1,
       limit: 50,
-      hidden_kinds: ["task_deletion", "project_deletion", "timesheet", "rebaseline"],
+      hidden_kinds: ["task_deletion", "project_deletion", "rebaseline"],
     });
     expect(body.data).toEqual([
       {
@@ -177,8 +177,8 @@ describe("GET /api/review", () => {
 
   it("accepts comma-separated and repeated ?kind and narrows the queries", async () => {
     requireAuthMock.mockResolvedValueOnce(sessionActor("manager"));
-    await call("?kind=timesheet&kind=rebaseline");
-    expect(queried.map((q) => q.table).sort()).toEqual(["rebaselines", "timesheet_submissions"]);
+    await call("?kind=change_request&kind=rebaseline");
+    expect(queried.map((q) => q.table).sort()).toEqual(["change_requests", "rebaselines"]);
   });
 
   it("clamps limit to 200 and ignores junk paging input", async () => {

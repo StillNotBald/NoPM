@@ -19,7 +19,6 @@ import { cn } from "@/lib/cn";
 export type FourEyesBlock =
   | "you_raised"
   | "your_token_raised"
-  | "your_hours"
   | "no_scope"
   | "role_not_permitted"
   | "project_locked"
@@ -50,10 +49,6 @@ export const BLOCK_COPY: Record<FourEyesBlock, { lead: string; rest: string; det
     lead: "You raised this (directly or through your token)",
     rest: " — a different person must decide.",
     detail: "A token you created raised it, and a token counts as the person who created it.",
-  },
-  your_hours: {
-    lead: "These are your own hours",
-    rest: " — a different person must decide this timesheet.",
   },
   no_scope: {
     lead: "Your role can view this but not decide it",
@@ -86,7 +81,7 @@ export function FourEyesNote({
 }: {
   /** Set when the viewer cannot decide; omit to state the rule. */
   block?: FourEyesBlock | null;
-  /** "raised" (default) or "submitted" in the rule sentence (timesheets). */
+  /** "raised" (default) or "submitted" in the rule sentence. */
   verb?: "raised" | "submitted";
   /**
    * box: tinted callout with icon (inspectors). inline: tinted text, no box

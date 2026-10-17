@@ -3,11 +3,10 @@
  *
  * "What is waiting for me?" as data — the agent-facing twin of the console's
  * Review Queue (gather.ts). One read-only listing of every GOVERNED decision
- * that is waiting on a human, across the four maker-checker families:
+ * that is waiting on a human, across the maker-checker families:
  *
  *   task_deletion / project_deletion   deletion_requests   status 'pending'
  *   change_request                     change_requests     status raised | under_review
- *   timesheet                          timesheet_submissions status 'submitted'
  *   rebaseline                         rebaselines         status 'pending_approval'
  *
  * (risks / clashes / documents are review-queue FYIs, not governed decisions,
@@ -29,8 +28,8 @@
  * is computed from the same inputs so it rarely disagrees.
  *
  * Read gating is per kind and mirrors each family's own list endpoint
- * (deletion: task:read | audit:read, change: change:read, timesheet:
- * time:read, rebaseline: project:read), so this aggregate can never show a
+ * (deletion: task:read | audit:read, change: change:read,
+ * rebaseline: project:read), so this aggregate can never show a
  * token more than its individual endpoints would. Kinds the caller may not
  * read are reported in `hidden_kinds` (an empty list must not be mistaken for
  * "nothing is waiting"); a caller who can read none of them gets a 403.
@@ -47,7 +46,6 @@ export const PENDING_KINDS = [
   "task_deletion",
   "project_deletion",
   "change_request",
-  "timesheet",
   "rebaseline",
 ] as const;
 export type PendingKind = (typeof PENDING_KINDS)[number];
@@ -56,7 +54,7 @@ export interface PendingItem {
   kind: PendingKind;
   id: string;
   title: string;
-  /** One line of context (reason / status / hours); null when there is none. */
+  /** One line of context (reason / status); null when there is none. */
   summary: string | null;
   project_id: string | null;
   project_name: string | null;
@@ -102,7 +100,6 @@ export const READ_SCOPES: Readonly<Record<PendingKind, readonly string[]>> = {
   task_deletion: ["task:read", "audit:read"],
   project_deletion: ["task:read", "audit:read"],
   change_request: ["change:read"],
-  timesheet: ["time:read"],
   rebaseline: ["project:read"],
 };
 
@@ -111,7 +108,6 @@ export const DECIDE_SCOPES: Readonly<Record<PendingKind, string>> = {
   task_deletion: "task:delete:approve",
   project_deletion: "project:delete:approve",
   change_request: "change:decide",
-  timesheet: "time:approve",
   rebaseline: "rebaseline:approve",
 };
 
@@ -214,7 +210,6 @@ export function requesterOf(c: Pick<Candidate, "kind" | "row">): Requester {
   // back to a user id / token-owner lookup.
   const explicit: string | null =
     (typeof r.requested_principal_id === "string" && r.requested_principal_id) ||
-    (typeof r.submitted_principal_id === "string" && r.submitted_principal_id) ||
     null;
   switch (c.kind) {
     case "task_deletion":
@@ -225,8 +220,6 @@ export function requesterOf(c: Pick<Candidate, "kind" | "row">): Requester {
       const type = r.requested_by_type ?? (r.requested_by ? "user" : null);
       return { type, id: r.requested_by_id ?? r.requested_by ?? null, principal: explicit };
     }
-    case "timesheet":
-      return { type: r.submitted_by_type ?? null, id: r.submitted_by ?? null, principal: explicit };
     case "rebaseline":
       // Token-raised rebaselines record no requester id (requested_by is user-only).
       return { type: r.requested_by ? "user" : null, id: r.requested_by ?? null, principal: explicit };
@@ -243,8 +236,6 @@ function projectIdOf(c: Candidate): string | null {
     case "change_request":
     case "rebaseline":
       return typeof r.project_id === "string" ? r.project_id : null;
-    case "timesheet":
-      return null;
   }
 }
 
@@ -301,7 +292,7 @@ export async function listPendingApprovals(
   const hidden_kinds = PENDING_KINDS.filter((k) => !visible.includes(k));
   if (visible.length === 0) {
     throw new ScopeError(
-      "API token is missing a read scope for approvals: needs one of task:read, audit:read, change:read, time:read, project:read",
+      "API token is missing a read scope for approvals: needs one of task:read, audit:read, change:read, project:read",
     );
   }
   const wanted = opts.kinds ? visible.filter((k) => opts.kinds!.includes(k)) : [...visible];
@@ -318,7 +309,7 @@ export async function listPendingApprovals(
     ...(wanted.includes("project_deletion") ? ["project"] : []),
   ];
 
-  const [deletions, changes, timesheets, rebaselines] = await Promise.all([
+  const [deletions, changes, rebaselines] = await Promise.all([
     wantsDeletion
       ? fetchSource(db, "deletion_requests", ws, "created_at", window, (q) =>
           q.eq("status", "pending").in("target_type", deletionTypes),
@@ -326,9 +317,6 @@ export async function listPendingApprovals(
       : { rows: [], count: 0 },
     wanted.includes("change_request")
       ? fetchSource(db, "change_requests", ws, "raised_at", window, (q) => q.in("status", ["raised", "under_review"]))
-      : { rows: [], count: 0 },
-    wanted.includes("timesheet")
-      ? fetchSource(db, "timesheet_submissions", ws, "submitted_at", window, (q) => q.eq("status", "submitted"))
       : { rows: [], count: 0 },
     wanted.includes("rebaseline")
       ? fetchSource(db, "rebaselines", ws, "created_at", window, (q) => q.eq("status", "pending_approval"))
@@ -343,9 +331,6 @@ export async function listPendingApprovals(
   for (const row of changes.rows) {
     candidates.push({ kind: "change_request", id: row.id, requested_at: row.raised_at ?? row.created_at, row });
   }
-  for (const row of timesheets.rows) {
-    candidates.push({ kind: "timesheet", id: row.id, requested_at: row.submitted_at, row });
-  }
   for (const row of rebaselines.rows) {
     candidates.push({ kind: "rebaseline", id: row.id, requested_at: row.created_at, row });
   }
@@ -359,9 +344,6 @@ export async function listPendingApprovals(
 
   // Enrich the page (and only the page) with names and requester principals.
   const projectIds = [...new Set(slice.map(projectIdOf).filter((v): v is string => !!v))];
-  const memberIds = [
-    ...new Set(slice.filter((c) => c.kind === "timesheet").map((c) => c.row.member_id).filter(Boolean)),
-  ] as string[];
   const requesters = slice.map((c) => requesterOf(c));
   const tokenIds = [
     ...new Set(
@@ -372,14 +354,12 @@ export async function listPendingApprovals(
     ...new Set(slice.filter((c) => c.kind === "rebaseline" && c.row.requested_by).map((c) => c.row.requested_by)),
   ] as string[];
 
-  const [projects, members, tokens, profiles] = await Promise.all([
+  const [projects, tokens, profiles] = await Promise.all([
     lookup(db, "projects", "id, name", ws, projectIds, false),
-    lookup(db, "resource_members", "id, name", ws, memberIds, false),
     lookup(db, "api_tokens", "id, created_by", ws, tokenIds, true),
     lookup(db, "profiles", "id, display_name, email", ws, profileIds, false),
   ]);
   const projectName = new Map(projects.map((p) => [p.id as string, p.name as string]));
-  const memberName = new Map(members.map((m) => [m.id as string, m.name as string]));
   const tokenOwner = new Map(tokens.map((t) => [t.id as string, (t.created_by as string | null) ?? null]));
   const profileLabel = new Map(
     profiles.map((p) => [p.id as string, (p.display_name || p.email || null) as string | null]),
@@ -431,15 +411,6 @@ export async function listPendingApprovals(
         summary = [r.status, r.category, r.priority ? `${r.priority} priority` : null].filter(Boolean).join(" · ") || null;
         label = r.requested_by_label ?? null;
         break;
-      case "timesheet": {
-        const hours = Number(r.hours_total);
-        title = `Timesheet: ${memberName.get(r.member_id) ?? "Unknown member"} · week of ${r.period_start}`;
-        summary = Number.isFinite(hours)
-          ? `${hours} h across ${r.entry_count ?? 0} ${r.entry_count === 1 ? "entry" : "entries"}`
-          : null;
-        label = r.submitted_by_label ?? null;
-        break;
-      }
       case "rebaseline":
         title = `Rebaseline v${r.version ?? 1} sign-off`;
         summary = clip(r.reason, 240);
@@ -463,6 +434,6 @@ export async function listPendingApprovals(
     };
   });
 
-  const total = deletions.count + changes.count + timesheets.count + rebaselines.count;
+  const total = deletions.count + changes.count + rebaselines.count;
   return { items, total, page, limit, hidden_kinds };
 }

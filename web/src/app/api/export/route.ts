@@ -8,7 +8,6 @@ import { parseSort, orderOptions } from "@/lib/api/sort";
 import { TASK_SORT_FIELDS, parseTaskFilters } from "@/app/api/tasks/_query";
 import { RISK_SORT_FIELDS, parseRiskFilters } from "@/app/api/risks/_query";
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
-import { parseTimeEntryFilters } from "@/app/api/time-entries/_query";
 import { parseAuditFilters } from "@/app/api/audit/_query";
 import { parseExportDay, dayAfter } from "./_audit-range";
 
@@ -44,7 +43,6 @@ const ENTITY_SCOPES = {
   issues: "issue:read",
   clashes: "clash:read",
   audit: "audit:read",
-  time_entries: "time:read",
   programs: "program:read",
   projects: "project:read",
 } as const;
@@ -71,10 +69,6 @@ const ENTITY_COLUMNS: Record<Entity, string[]> = {
     "id", "workspace_id", "reference_id", "title", "type", "severity",
     "project_a_id", "project_b_id", "resource_member_id", "window_start",
     "window_end", "status", "owner_id", "resolution", "created_at", "updated_at",
-  ],
-  time_entries: [
-    "id", "workspace_id", "member_id", "task_id", "project_id", "entry_date",
-    "hours", "cost", "billable", "note", "created_at",
   ],
   audit: [
     "id", "workspace_id", "actor_type", "actor_id", "actor_label", "action",
@@ -241,27 +235,6 @@ async function fetchProjectsRows(sp: URLSearchParams, workspaceId: string, db: D
   };
 }
 
-async function fetchTimeEntriesRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
-  const filters = parseTimeEntryFilters(sp);
-  let query = db.from("time_entries").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
-  // Applied inline rather than via the generic applyTimeEntryFilters<Q>
-  // helper (which GET /time-entries also avoids for the same reason) —
-  // chaining that generic here blows past TS's type-instantiation depth
-  // limit (TS2589). parseTimeEntryFilters is still the single source of
-  // truth for which params are honored; only the mechanical .eq() is
-  // duplicated.
-  if (filters.project_id !== undefined) query = query.eq("project_id", filters.project_id);
-  if (filters.member_id !== undefined) query = query.eq("member_id", filters.member_id);
-  if (filters.date_from !== undefined) query = query.gte("entry_date", filters.date_from);
-  if (filters.date_to !== undefined) query = query.lte("entry_date", filters.date_to);
-  if (filters.billable !== undefined) query = query.eq("billable", filters.billable);
-  const { data, error, count } = await query
-    .order("entry_date", { ascending: false })
-    .range(0, MAX_EXPORT_ROWS - 1);
-  if (error) throw new Error(`Export query failed: ${error.message}`);
-  return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters };
-}
-
 async function fetchProgramsRows(_sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
   // GET /programs takes no filter/sort params today — export mirrors that:
   // fixed name asc, same posture as fetchClashesRows above.
@@ -327,8 +300,6 @@ async function fetchEntityRows(entity: Entity, url: URL, workspaceId: string, db
       return fetchIssuesRows(sp, workspaceId, db);
     case "clashes":
       return fetchClashesRows(sp, workspaceId, db);
-    case "time_entries":
-      return fetchTimeEntriesRows(sp, workspaceId, db);
     case "audit":
       return fetchAuditRows(sp, workspaceId, db);
     case "programs":

@@ -8,7 +8,6 @@
  *
  *   ApprovalInlineAction   — deletion_requests        (kind 'approval')
  *   ChangeInlineAction     — change_requests           (kind 'change')
- *   TimesheetInlineAction  — timesheet_submissions      (kind 'timesheet', L-31)
  *
  * Navigation kinds (risk / clash / document / rebaseline) continue
  * to deep-link and do NOT use these cards.
@@ -67,7 +66,7 @@ function PendingFor({ days }: { days: number }) {
   );
 }
 
-// ── DecisionFlow — pick, confirm, record (shared by deletions + timesheets) ───
+// ── DecisionFlow — pick, confirm, record (shared by deletions + changes) ───
 
 type Choice = "approve" | "reject";
 
@@ -465,69 +464,3 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
   );
 }
 
-// ── TimesheetInlineAction ─────────────────────────────────────────────────────
-// Approve/reject a timesheet_submissions row from within the queue inspector
-// (L-31, four-eyes). Two-step confirm mirrors ApprovalInlineAction; rationale
-// is required on reject (client-side gate, backed by the API's 422).
-
-interface TimesheetInlineActionProps {
-  item: ReviewItem;
-}
-
-export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
-  const decide = item.decide ?? CAN_DECIDE;
-
-  return (
-    <div className="flex flex-col gap-0 pb-4">
-      {/* Submission metadata */}
-      <div className="mb-4">
-        <div className="flex flex-wrap gap-2 mb-3">
-          <Badge tone="info">timesheet submission</Badge>
-        </div>
-
-        <div>
-          {item.requestedByLabel && (
-            <DetailRow label="Submitted By">
-              <span className="font-medium">{item.requestedByLabel}</span>
-            </DetailRow>
-          )}
-          {item.periodStart && (
-            <DetailRow label="Week Of">
-              <span className="font-mono">{item.periodStart}</span>
-            </DetailRow>
-          )}
-          {item.hoursTotal !== undefined && (
-            <DetailRow label="Hours">
-              <span className="font-mono tabular-nums">{item.hoursTotal}</span>
-            </DetailRow>
-          )}
-          <PendingFor days={item.ageDays} />
-        </div>
-      </div>
-
-      <FourEyesNote block={decide.canDecide ? null : decide.block} verb="submitted" className="mb-1" />
-
-      {decide.canDecide && (
-        <DecisionFlow
-          labels={{
-            confirmApprove: "Confirm: Approve this timesheet?",
-            confirmReject: "Confirm: Reject this timesheet?",
-            approveNotePlaceholder: "Any notes for the submitter…",
-            rejectField: "Rationale",
-            rejectPlaceholder: "Why are you rejecting this timesheet?",
-            rejectRequired: "A rationale is required when rejecting.",
-            approved: "Timesheet approved.",
-            rejected: "Timesheet rejected.",
-            subject: "timesheet",
-          }}
-          submit={async (choice, text) => {
-            await apiPost(`/api/timesheet-submissions/${item.id}/decision`, {
-              decision: choice === "approve" ? "approved" : "rejected",
-              rationale: text ? text : undefined,
-            });
-          }}
-        />
-      )}
-    </div>
-  );
-}

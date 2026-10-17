@@ -11,7 +11,7 @@ Two quick terms:
 
 | Moment | What happens |
 |---|---|
-| **Approval cards** | When someone raises a deletion request, a change request or a timesheet submission, each eligible approver who has linked their account gets a Lark direct message with the request details and **Approve** and **Reject** buttons. Reject asks for a reason. |
+| **Approval cards** | When someone raises a deletion request or a change request, each eligible approver who has linked their account gets a Lark direct message with the request details and **Approve** and **Reject** buttons. Reject asks for a reason. |
 | **One decision, everywhere** | When the request is decided from any place (the NoPM console, the API, the CLI, an agent, or another card), every card already sent updates in place to show who decided, through which channel, and when. The buttons disappear. |
 | **A card never goes stale silently** | A card shows the request as it was when it was sent. If a pending change request is edited afterwards, the old card is retired (it says the request changed and points to the new card) and approvers get a fresh card with the current content. Tapping the old card decides nothing. |
 | **No card flood** | An approver is sent at most 20 approval cards an hour. Past that, instead of more cards they get one "N approvals are waiting" message with a link to the Approvals page, so a burst of requests cannot bury anyone in chat. |

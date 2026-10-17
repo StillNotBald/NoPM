@@ -29,11 +29,11 @@ describe("list_pending_approvals registry entry", () => {
 
   it("is read-only: GET /api/review with no body, even for empty args", () => {
     expect(tool.toRequest({})).toEqual({ path: "/api/review", method: "GET" });
-    expect(tool.toRequest({ kind: "timesheet", page: 2, limit: 10 })).toEqual({
-      path: "/api/review?kind=timesheet&page=2&limit=10",
+    expect(tool.toRequest({ kind: "rebaseline", page: 2, limit: 10 })).toEqual({
+      path: "/api/review?kind=rebaseline&page=2&limit=10",
       method: "GET",
     });
-    expect("body" in tool.toRequest({ kind: "timesheet" })).toBe(false);
+    expect("body" in tool.toRequest({ kind: "rebaseline" })).toBe(false);
   });
 
   it("takes only optional kind/page/limit and rejects extra properties", () => {

@@ -17,27 +17,12 @@ import {
   resolveDeletionCommitRpc,
   resolveDeletionRequestScope,
 } from "@/lib/governance/deletion-dispatch";
-import {
-  assertDecidable,
-  assertHasEntriesToSubmit,
-  assertNotSelfDecision,
-  assertRationaleOnReject,
-  assertReopenable,
-  assertTimesheetContentUnchanged,
-  summariseEntries,
-  TIMESHEET_CHANGED_MESSAGE,
-  TIMESHEET_ENTRY_COLUMNS,
-  timesheetContentDigest,
-  type TimesheetDecision,
-  type TimesheetEntryRow,
-} from "@/lib/governance/timesheet-decision";
-import { weekLockRuleError } from "@/lib/governance/period-lock";
 
 /**
  * One governed decision path for every surface (UI, REST, CLI, MCP, Lark).
  *
  * The REST decision routes (deletion approve/reject/withdraw, change-request
- * decision, timesheet decision) are thin wrappers over the per-kind functions
+ * decision) are thin wrappers over the per-kind functions
  * below, and the Integration Hub's inbound pipeline calls `decideApproval`, so
  * a click in a chat card runs exactly the code a console click runs: same
  * scopes, same locks, same one-audit-row rule, same four-eyes.
@@ -108,7 +93,7 @@ export const NO_MAKER_PRINCIPAL_MESSAGE =
  * null — and a null requester is, by design, comparable to nobody
  * (assertNotRequesterPrincipal passes) — so the same person could then approve
  * their own request from a normal session. Every route that RAISES a governed
- * request (task / project deletion, change request, timesheet submission,
+ * request (task / project deletion, change request,
  * rebaseline proposal) calls this before touching anything.
  */
 export function requireMakerPrincipal(actor: Actor): string {
@@ -447,10 +432,6 @@ export async function approveDeletion(
     // request is refused; withdraw it and raise a new one.
     if (m.includes("CHILDREN_CHANGED") || error.code === "P0016")
       throw new RuleError(CHILDREN_CHANGED_MESSAGE, "children_changed");
-    // Time entries inside a submitted/approved timesheet week cannot be removed
-    // by a cascade either (the week locks of migrations 0040 / 0049).
-    const weekLocked = weekLockRuleError(error);
-    if (weekLocked) throw weekLocked;
     throw new Error(error.message || "Failed to commit deletion");
   }
 
@@ -804,357 +785,6 @@ function changeBaseEvent(db: Db, actor: Actor, cr: ChangeRow): Promise<ApprovalE
   return changeRequestEvent(db, actor.workspaceId, cr);
 }
 
-// ── timesheet submissions ─────────────────────────────────────────────────
-
-type TimesheetRow = {
-  id: string;
-  member_id: string;
-  period_start: string;
-  period_end: string;
-  hours_total: number | string;
-  entry_count: number;
-  status: string;
-  submitted_by: string;
-  submitted_by_type: "user" | "token";
-  submitted_by_label: string;
-  submitted_principal_id: string | null;
-  /** Digest of the entries as submitted (null on rows that predate migration 0049). */
-  content_digest?: string | null;
-  /** Set while an approved sheet is reopened for amendment; cleared by a resubmit. */
-  reopened_at?: string | null;
-  /** The content version: the table's trigger bumps it on every write. */
-  updated_at?: string | null;
-};
-
-/**
- * R1/M1: the person whose HOURS these are may not decide the sheet. `member_id`
- * is the work identity (resource_members); `profile_id` bridges it to a login.
- * A member with no linked login has no human to compare against and passes —
- * the submitter check still applies.
- */
-async function assertNotTimesheetSubject(
-  db: Db,
-  workspaceId: string,
-  memberId: string,
-  principal: string,
-): Promise<void> {
-  const { data, error } = await db
-    .from("resource_members")
-    .select("profile_id")
-    .eq("id", memberId)
-    .eq("workspace_id", workspaceId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  const profileId = (data as { profile_id?: string | null } | null)?.profile_id ?? null;
-  if (profileId && profileId === principal) {
-    throw selfApprovalError("You cannot decide a timesheet for your own hours (four-eyes)");
-  }
-}
-
-/** Event for a timesheet submission (also used when one is first submitted). */
-export async function timesheetEvent(
-  db: Db,
-  workspaceId: string,
-  row: TimesheetRow,
-  knownMemberName?: string | null,
-): Promise<ApprovalEvent> {
-  const member = knownMemberName ?? (await memberNameOf(db, workspaceId, row.member_id));
-  const hours = Number(row.hours_total);
-  return {
-    workspaceId,
-    kind: "timesheet",
-    id: row.id,
-    title: `Timesheet: ${member ?? "member"}, week of ${row.period_start}`,
-    summary: `${Number.isFinite(hours) ? hours : 0} hours across ${row.entry_count} entr${row.entry_count === 1 ? "y" : "ies"}.`,
-    projectId: null,
-    projectName: null,
-    requestedByLabel: storedLabel(row.submitted_by_label, row.submitted_by_type),
-    requesterPrincipalId: row.submitted_principal_id,
-    // The content version this event (and so its card) describes.
-    ...(row.updated_at ? { version: row.updated_at } : {}),
-  };
-}
-
-/**
- * Four-eyes (L-31): approve / reject / reopen a timesheet submission. "reopened"
- * (R-76/L-32) is the governed unlock verb for the period-close lock and carries
- * the same guards as the other two: a principal, a different HUMAN from the
- * submitter, a rationale. Status transitions are compare-and-set.
- */
-export async function decideTimesheet(
-  actor: Actor,
-  id: string,
-  input: { decision: TimesheetDecision; rationale?: string | null },
-): Promise<KindOutcome> {
-  requireScope(actor, "time:approve");
-  const db = createAdminClient();
-
-  const { data, error: fetchError } = await db
-    .from("timesheet_submissions")
-    .select("*")
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-  if (fetchError) throw new Error(fetchError.message);
-  if (!data) throw new NotFoundError("Timesheet submission not found");
-  const submission = data as TimesheetRow;
-
-  const principal = requirePrincipal(actor);
-  requireApprover(actor); // D-16: approve, reject AND reopen are approver verbs
-  const { decision } = input;
-  const rationale = input.rationale ?? undefined;
-
-  if (decision === "reopened") {
-    assertReopenable(submission.status);
-  } else {
-    assertDecidable(submission.status);
-  }
-  // Guard symmetry (R-76): the self-decision guards run before ALL THREE verbs.
-  // The legacy compound (id AND type) guard throws a bare ScopeError; re-throw
-  // it with the same `self_approval` code the principal guard uses so every
-  // surface can tell a four-eyes refusal from a missing scope.
-  try {
-    assertNotSelfDecision(submission, actor);
-  } catch (err) {
-    if (err instanceof ScopeError) throw selfApprovalError();
-    throw err;
-  }
-  assertNotRequesterPrincipal(submission.submitted_principal_id, principal);
-  await assertNotTimesheetSubject(db, actor.workspaceId, submission.member_id, principal);
-  assertRationaleOnReject(decision, rationale);
-
-  // R1/H2: an approval is bound to the CONTENT that was submitted. The live
-  // entries must still match the recorded totals and digest, or the sheet can't
-  // be approved as it stands (reject it; the member resubmits).
-  if (decision === "approved") {
-    const { data: entries, error: entriesError } = await db
-      .from("time_entries")
-      .select(TIMESHEET_ENTRY_COLUMNS)
-      .eq("member_id", submission.member_id)
-      .eq("workspace_id", actor.workspaceId)
-      .gte("entry_date", submission.period_start)
-      .lte("entry_date", submission.period_end);
-    if (entriesError) throw new Error(entriesError.message);
-    assertTimesheetContentUnchanged(submission, (entries ?? []) as TimesheetEntryRow[]);
-  }
-
-  const now = new Date().toISOString();
-  const expectedStatus = decision === "reopened" ? "approved" : "submitted";
-
-  const { data: updated, error: updateError } = await db
-    .from("timesheet_submissions")
-    .update(
-      decision === "reopened"
-        ? {
-            status: "submitted",
-            decided_by: null,
-            decided_by_type: null,
-            decided_by_label: null,
-            decided_principal_id: null,
-            decided_at: null,
-            decision_rationale: null,
-            // Marks the sheet as open for amendment: the week lock (period-lock.ts,
-            // migration 0049) only freezes a SUBMITTED sheet that was never reopened.
-            reopened_at: now,
-          }
-        : {
-            status: decision,
-            decided_by: actor.id,
-            decided_by_type: actor.type,
-            decided_by_label: actor.label,
-            decided_principal_id: principal,
-            decided_at: now,
-            decision_rationale: rationale ?? null,
-          },
-    )
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", expectedStatus)
-    .select()
-    .maybeSingle();
-
-  if (updateError) {
-    // DB backstop for the content binding (migration 0049, errcode P0013).
-    const failure = `${updateError.message} ${(updateError as { code?: string }).code ?? ""}`;
-    if (failure.includes("TIMESHEET_CHANGED") || failure.includes("P0013")) {
-      throw new RuleError(TIMESHEET_CHANGED_MESSAGE, "timesheet_changed");
-    }
-    // DB backstop for the approver role (migration 0073, errcode P0018).
-    if (failure.includes("ROLE_NOT_PERMITTED") || failure.includes("P0018")) {
-      throw new ScopeError(APPROVER_ROLE_MESSAGE, "role_not_permitted");
-    }
-    throw new Error(updateError.message);
-  }
-  if (!updated) throw new RuleError("Timesheet submission already decided", "already_decided");
-
-  // Single governance row per decision — domain rows were written at submit
-  // time (time.create on each entry); this is the governance step itself.
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action:
-      decision === "approved"
-        ? "timesheet.approved"
-        : decision === "rejected"
-          ? "timesheet.rejected"
-          : "timesheet.reopened",
-    targetType: "timesheet_submission",
-    targetId: updated.id,
-    before: { status: submission.status },
-    after:
-      decision === "reopened"
-        ? { status: updated.status, rationale, approver_principal_id: principal }
-        : {
-            status: updated.status,
-            decision_rationale: updated.decision_rationale,
-            approver_principal_id: principal,
-          },
-  });
-
-  if (decision === "reopened") {
-    // The sheet re-enters the Review Queue as a fresh 'submitted' row — a new
-    // approval request, so it fans out to the workspace's approvers.
-    void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) =>
-      notify({
-        workspaceId: actor.workspaceId,
-        recipientIds: approverIds,
-        type: "approval.requested",
-        title: `Timesheet reopened for re-review (week of ${submission.period_start})`,
-        body: `Reopened by ${actor.label}: ${rationale}`,
-        payload: { timesheetSubmissionId: updated.id, decision },
-      }),
-    );
-  } else {
-    void notify({
-      workspaceId: actor.workspaceId,
-      recipientIds: noticeRecipients(
-        submission.submitted_principal_id ??
-          (submission.submitted_by_type === "user" ? submission.submitted_by : null),
-      ),
-      type: decision === "approved" ? "approval.approved" : "approval.rejected",
-      title: `Your timesheet (week of ${submission.period_start}) was ${decision}`,
-      body: rationale ?? undefined,
-      payload: { timesheetSubmissionId: updated.id, decision },
-    });
-  }
-
-  // Built from the version the decision left behind: a reopen re-requests approval
-  // with this event, and a card bound to the pre-update version would be superseded.
-  const base = await timesheetEvent(db, actor.workspaceId, {
-    ...submission,
-    updated_at: updated.updated_at ?? submission.updated_at,
-  });
-  announceDecided(decidedFrom(actor, base, decision));
-
-  return {
-    result: {
-      kind: "timesheet",
-      id: submission.id,
-      status: decision === "reopened" ? "submitted" : decision,
-      title: base.title,
-      requesterPrincipalId: submission.submitted_principal_id,
-    },
-    row: updated as Record<string, unknown>,
-  };
-}
-
-/**
- * A member's resubmit of a REOPENED sheet (CR-gov P2-2). Reopen puts an approved
- * sheet back to `submitted` but keeps the OLD snapshot, so once the member amends
- * their entries the digest check refuses every approval (`timesheet_changed`).
- * The resubmit takes a fresh snapshot (hours, entry count, digest) of the live
- * entries, clears `reopened_at` (the week freezes again), makes the resubmitter
- * the sheet's submitter — so whoever re-snapshots the content can never also
- * approve it, which closes "reopen, edit the hours, re-snapshot, approve" — and
- * announces it as requested again. One `timesheet.submitted` audit row whose
- * non-null `before` (the previous snapshot) marks it as a resubmit.
- *
- * Called by POST /timesheet-submissions when the member + week already has a
- * submitted sheet with `reopened_at` set (instead of the 422 duplicate).
- */
-export async function resubmitReopenedTimesheet(actor: Actor, id: string): Promise<Record<string, unknown>> {
-  requireScope(actor, "time:submit");
-  const submitterPrincipal = requireMakerPrincipal(actor);
-  const db = createAdminClient();
-
-  const { data, error: fetchError } = await db
-    .from("timesheet_submissions")
-    .select("*")
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-  if (fetchError) throw new Error(fetchError.message);
-  if (!data) throw new NotFoundError("Timesheet submission not found");
-  const previous = data as TimesheetRow;
-  if (previous.status !== "submitted" || !previous.reopened_at) {
-    throw new RuleError("An open timesheet submission already exists for this member and period", "duplicate_submission");
-  }
-
-  const { data: entries, error: entriesError } = await db
-    .from("time_entries")
-    .select(TIMESHEET_ENTRY_COLUMNS)
-    .eq("member_id", previous.member_id)
-    .eq("workspace_id", actor.workspaceId)
-    .gte("entry_date", previous.period_start)
-    .lte("entry_date", previous.period_end);
-  if (entriesError) throw new Error(entriesError.message);
-  const rows = (entries ?? []) as TimesheetEntryRow[];
-  assertHasEntriesToSubmit(rows.length);
-
-  const { data: updated, error: updateError } = await db
-    .from("timesheet_submissions")
-    .update({
-      hours_total: summariseEntries(rows).hoursTotal,
-      entry_count: rows.length,
-      content_digest: timesheetContentDigest(rows),
-      reopened_at: null,
-      submitted_by: actor.id,
-      submitted_by_type: actor.type,
-      submitted_by_label: actor.label,
-      submitted_principal_id: submitterPrincipal,
-      submitted_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", "submitted")
-    .not("reopened_at", "is", null)
-    .select()
-    .maybeSingle();
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) throw new RuleError("Timesheet submission already decided", "already_decided");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "timesheet.submitted",
-    targetType: "timesheet_submission",
-    targetId: id,
-    before: {
-      status: previous.status,
-      hours_total: previous.hours_total,
-      entry_count: previous.entry_count,
-      content_digest: previous.content_digest ?? null,
-      reopened_at: previous.reopened_at,
-    },
-    after: updated,
-  });
-
-  const row = updated as TimesheetRow;
-  void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) =>
-    notify({
-      workspaceId: actor.workspaceId,
-      recipientIds: approverIds,
-      type: "approval.requested",
-      title: `Timesheet resubmitted after reopening (week of ${row.period_start})`,
-      body: `${Number(row.hours_total)} hours across ${row.entry_count} entr${row.entry_count === 1 ? "y" : "ies"}.`,
-      payload: { timesheetSubmissionId: id, href: "/timesheets" },
-    }),
-  );
-  announceRequested(await timesheetEvent(db, actor.workspaceId, row));
-
-  return updated as Record<string, unknown>;
-}
-
 // ── the single entry point (hub inbound, any future surface) ──────────────
 
 const DEFAULT_CHANGE_APPROVE_RATIONALE = (channel: string) => `Approved via ${channel}`;
@@ -1164,8 +794,7 @@ const DEFAULT_CHANGE_APPROVE_RATIONALE = (channel: string) => `Approved via ${ch
  * the REST routes throw (ScopeError on self-approval / missing principal /
  * missing scope, RuleError when already decided or locked, NotFoundError).
  * `note` is required (non-empty) for "reject". For "approve" it is optional:
- * deletions record it in the audit row (default none), timesheets store it as
- * the rationale (default none), and change requests — whose rationale is
+ * deletions record it in the audit row (default none), and change requests — whose rationale is
  * mandatory — default to "Approved via <channel>".
  *
  * Error `code`s a caller can branch on: `self_approval`, `no_principal`,
@@ -1198,13 +827,6 @@ export async function decideApproval(
         decision: action,
         rationale: text ?? DEFAULT_CHANGE_APPROVE_RATIONALE(channelOf(actor)),
         expected_updated_at: opts.expectedUpdatedAt,
-      });
-      return out.result;
-    }
-    case "timesheet": {
-      const out = await decideTimesheet(actor, ref.id, {
-        decision: action === "approve" ? "approved" : "rejected",
-        rationale: text,
       });
       return out.result;
     }

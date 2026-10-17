@@ -101,6 +101,7 @@ The 8 PM modules (`requirements/REQUIREMENTS.md` "PM domain") plus the governanc
 
 ```mermaid
 erDiagram
+  %% 2026-10-17 (decision 18): time_entries and timesheet_submissions are retained but unused; hour logging was removed from the product.
   workspaces ||--o{ profiles : "has"
   workspaces ||--o{ projects : "scopes"
   projects ||--o{ milestones : "has"

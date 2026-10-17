@@ -1,6 +1,6 @@
 /**
  * MCP-only governance tools (change request, rebaseline propose / sign-off /
- * apply, timesheet submit, decision, document) — locked to the OpenAPI spec and
+ * apply, decision, document) — locked to the OpenAPI spec and
  * the Zod validators, and locked OUT of the in-app assistant.
  */
 
@@ -10,7 +10,6 @@ import { TOOLS, TOOL_SCOPES } from "./tools";
 import { specForTesting as spec } from "@/app/api/openapi.json/route";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 import { createRebaselineSchema, signoffSchema } from "@/app/api/rebaselines/_schema";
-import { createTimesheetSubmissionSchema } from "@/app/api/timesheet-submissions/_schema";
 import { createDecisionSchema } from "@/app/api/decisions/_schema";
 import { createDocumentSchema } from "@/app/api/documents/_schema";
 
@@ -22,7 +21,6 @@ const ARGS: Record<string, Record<string, unknown>> = {
   propose_rebaseline: { project_id: ID, reason: "Vendor slipped" },
   sign_off_rebaseline: { rebaseline_id: ID, vote: "go", comment: "ok" },
   apply_rebaseline: { rebaseline_id: ID },
-  submit_timesheet: { member_id: ID, period_start: "2026-10-12" },
   create_decision: { project_id: ID, title: "Use vendor A", status: "accepted" },
   create_document: { title: "Kickoff notes", doc_type: "minutes" },
 };
@@ -32,7 +30,6 @@ const SCOPE: Record<string, string> = {
   propose_rebaseline: "project:write",
   sign_off_rebaseline: "rebaseline:approve",
   apply_rebaseline: "rebaseline:approve",
-  submit_timesheet: "time:submit",
   create_decision: "decision:write",
   create_document: "document:write",
 };
@@ -45,7 +42,7 @@ function norm(p: string): string {
 }
 
 describe("MCP governance tools", () => {
-  it("covers exactly the seven expected tools", () => {
+  it("covers exactly the six expected tools", () => {
     expect(MCP_GOVERNANCE_TOOLS.map((t: { name: string }) => t.name).sort()).toEqual(Object.keys(ARGS).sort());
   });
 
@@ -79,7 +76,6 @@ describe("MCP governance tools", () => {
     expect(createChangeRequestSchema.safeParse(body("create_change_request")).success).toBe(true);
     expect(createRebaselineSchema.safeParse(body("propose_rebaseline")).success).toBe(true);
     expect(signoffSchema.safeParse(body("sign_off_rebaseline")).success).toBe(true);
-    expect(createTimesheetSubmissionSchema.safeParse(body("submit_timesheet")).success).toBe(true);
     expect(createDecisionSchema.safeParse(body("create_decision")).success).toBe(true);
     expect(createDocumentSchema.safeParse(body("create_document")).success).toBe(true);
   });

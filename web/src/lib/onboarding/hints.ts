@@ -127,17 +127,12 @@ export const PAGE_HINTS: PageHint[] = [
   {
     id: "budget",
     match: "/budget",
-    text: "Budget tracks planned, committed, and actual spend, plus variance, for each project.",
-  },
-  {
-    id: "timesheets",
-    match: "/timesheets",
-    text: "Timesheets is where logged hours are submitted and approved against project allocations.",
+    text: "Budget tracks planned, committed, and actual (expenses), plus variance, for each project.",
   },
   {
     id: "review",
     match: "/review",
-    text: "Review Queue is where four-eyes decisions land, including timesheet and deletion approvals.",
+    text: "Review Queue is where four-eyes decisions land, including deletion and change approvals.",
     docHref: "/user-manual/operator/04-approvals-and-trust.md",
   },
   {

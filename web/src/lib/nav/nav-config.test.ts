@@ -147,8 +147,8 @@ describe("Wave 6 IA — grouping, icons, single label map", () => {
     ]);
   });
 
-  it("keeps all 23 routes reachable", () => {
-    expect(ALL_NAV_ITEMS).toHaveLength(23);
+  it("keeps all 22 routes reachable", () => {
+    expect(ALL_NAV_ITEMS).toHaveLength(22);
   });
 
   it("gives every item a unique icon (Tasks and Review no longer share one)", () => {
