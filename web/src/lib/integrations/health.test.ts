@@ -42,6 +42,13 @@ const cronState = (lastRunAt: string) => ({
 const health = (createdAt: string | null = agoIso(30 * 24 * H)) =>
   getConnectorHealth(WS, CONNECTOR_ID, { now: NOW, connectorCreatedAt: createdAt });
 
+it("a paused connector is not reported stale (the scheduler only visits active ones)", async () => {
+  const h = await getConnectorHealth(WS, CONNECTOR_ID, { now: NOW, connectorCreatedAt: agoIso(30 * 24 * H), connectorStatus: "paused" });
+  expect(h?.scheduler_stale).toBeNull();
+  const a = await getConnectorHealth(WS, CONNECTOR_ID, { now: NOW, connectorCreatedAt: agoIso(30 * 24 * H), connectorStatus: "active" });
+  expect(a?.scheduler_stale).toBe(true);
+});
+
 describe("isSchedulerStale", () => {
   it("is stale only past 36 hours, counted from the last run", () => {
     expect(SCHEDULER_STALE_MS).toBe(36 * H);

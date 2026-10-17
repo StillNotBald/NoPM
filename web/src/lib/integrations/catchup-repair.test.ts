@@ -21,12 +21,13 @@ vi.mock("@/lib/governance/decide", () => ({
   }),
 }));
 
-import { RECONCILE_MIN_AGE_MS, reconcileLostApprovals, requeueDeadApprovals } from "./catchup";
+import { RECONCILE_MAX_AGE_MS, RECONCILE_MIN_AGE_MS, reconcileLostApprovals, requeueDeadApprovals } from "./catchup";
 import { CONNECTOR_ID, FakeDb, OTHER_WS, TEST_ENCRYPTION_KEY, WS, connectorRow, ids } from "./test-support";
 
 // F1 (reconciliation of a lost emit) and F2 (requeue dead) of the 2026-10-17 integration review.
 
 const NOW = new Date("2026-10-18T12:00:00.000Z");
+const WIDE = 365 * 24 * 3_600_000; // the seeded requests are weeks old; the look-back has its own tests
 const agoIso = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
 
 let db: FakeDb;
@@ -72,7 +73,7 @@ describe("reconcileLostApprovals (F1)", () => {
   it("sends only requests older than the grace period that have no card at all, in this workspace", async () => {
     db.seed("change_requests", [{ id: "cr-young", workspace_id: WS, status: "raised", updated_at: "v9", created_at: agoIso(60_000) }]);
 
-    const res = await reconcileLostApprovals(connectorRow(), { now: NOW });
+    const res = await reconcileLostApprovals(connectorRow(), { now: NOW, maxAgeMs: WIDE });
 
     expect(res).toEqual({ considered: 4, queued: 4 });
     expect(emitted().map((e) => e.id).sort()).toEqual(["cr-1", "cr-2", "del-proj", "del-task"]);
@@ -85,14 +86,14 @@ describe("reconcileLostApprovals (F1)", () => {
       cardRow("d3", "retry", { approval_kind: "task_deletion", approval_id: "del-task" }),
       cardRow("d4", "pending", { approval_kind: "project_deletion", approval_id: "del-proj" }),
     ]);
-    expect(await reconcileLostApprovals(connectorRow(), { now: NOW })).toEqual({ considered: 0, queued: 0 });
+    expect(await reconcileLostApprovals(connectorRow(), { now: NOW, maxAgeMs: WIDE })).toEqual({ considered: 0, queued: 0 });
     expect(runApprovalRequestedMock).not.toHaveBeenCalled();
     expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
   it("a card that was only superseded does not count as delivered", async () => {
     db.seed("integration_deliveries", [cardRow("d1", "superseded", { approval_id: "cr-1" })]);
-    await reconcileLostApprovals(connectorRow(), { now: NOW });
+    await reconcileLostApprovals(connectorRow(), { now: NOW, maxAgeMs: WIDE });
     expect(emitted().map((e) => e.id)).toContain("cr-1");
   });
 
@@ -101,7 +102,7 @@ describe("reconcileLostApprovals (F1)", () => {
     writeAuditMock.mockImplementation(async () => void order.push("audit"));
     runApprovalRequestedMock.mockImplementation(async () => void order.push("card"));
 
-    await reconcileLostApprovals(connectorRow(), { now: NOW });
+    await reconcileLostApprovals(connectorRow(), { now: NOW, maxAgeMs: WIDE });
 
     expect(order[0]).toBe("audit");
     expect(order.filter((o) => o === "audit")).toHaveLength(1);
@@ -118,24 +119,40 @@ describe("reconcileLostApprovals (F1)", () => {
   });
 
   it("does nothing for a paused connector or one with approvals off", async () => {
-    expect(await reconcileLostApprovals(connectorRow({ status: "paused" }), { now: NOW })).toEqual({ considered: 0, queued: 0 });
+    expect(await reconcileLostApprovals(connectorRow({ status: "paused" }), { now: NOW, maxAgeMs: WIDE })).toEqual({ considered: 0, queued: 0 });
     const off = connectorRow();
     off.config = { ...off.config, approvals: { enabled: false } };
-    expect(await reconcileLostApprovals(off, { now: NOW })).toEqual({ considered: 0, queued: 0 });
+    expect(await reconcileLostApprovals(off, { now: NOW, maxAgeMs: WIDE })).toEqual({ considered: 0, queued: 0 });
     expect(runApprovalRequestedMock).not.toHaveBeenCalled();
   });
 
   it("respects the limit, and one failing request does not cost the others their card", async () => {
     runApprovalRequestedMock.mockRejectedValueOnce(new Error("boom"));
-    const res = await reconcileLostApprovals(connectorRow(), { now: NOW, limit: 3 });
+    const res = await reconcileLostApprovals(connectorRow(), { now: NOW, maxAgeMs: WIDE, limit: 3 });
     expect(res).toEqual({ considered: 3, queued: 2 });
     expect(runApprovalRequestedMock).toHaveBeenCalledTimes(3);
   });
 
   it("a lookup failure surfaces to the caller instead of guessing", async () => {
     db.failNext({ table: "integration_deliveries", op: "select", error: { message: "down" } });
-    await expect(reconcileLostApprovals(connectorRow(), { now: NOW })).rejects.toBeTruthy();
+    await expect(reconcileLostApprovals(connectorRow(), { now: NOW, maxAgeMs: WIDE })).rejects.toBeTruthy();
     expect(runApprovalRequestedMock).not.toHaveBeenCalled();
+  });
+
+  it("a lost request is found even when the oldest pending requests all hold cards (no starvation)", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ id: `cr-old-${i}`, workspace_id: WS, status: "raised", updated_at: "v", created_at: agoIso(2 * 24 * 3_600_000 - i * 1000) }));
+    db.seed("change_requests", [...many, { id: "cr-lost-new", workspace_id: WS, status: "raised", updated_at: "v", created_at: agoIso(3_600_000) }]);
+    db.seed("integration_deliveries", many.map((c, i) => cardRow(`c${i}`, "sent", { approval_id: c.id })));
+    const res = await reconcileLostApprovals(connectorRow(), { now: NOW, limit: 20, scan: 100 });
+    expect(emitted().map((e) => e.id)).toContain("cr-lost-new");
+    expect(res.queued).toBeGreaterThan(0);
+  });
+
+  it("only repairs requests raised inside the look-back window, so an unreachable request is not re-audited forever", async () => {
+    const res = await reconcileLostApprovals(connectorRow(), { now: NOW });
+    expect(res).toEqual({ considered: 0, queued: 0 });
+    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(RECONCILE_MAX_AGE_MS).toBe(3 * 24 * 3_600_000);
   });
 
   it("the grace period is five minutes", () => {
@@ -159,6 +176,16 @@ describe("requeueDeadApprovals (F2)", () => {
     expect(res).toEqual({ dead_requests: 3, still_pending: 2 });
     expect(seen).toEqual([res]);
     expect(emitted().map((e) => `${e.kind}:${e.id}`).sort()).toEqual(["change_request:cr-1", "task_deletion:del-task"]);
+  });
+
+  it("also re-sends for a card that was sent but never clicked and is older than the 7-day button lifetime", async () => {
+    db.seed("integration_deliveries", [
+      cardRow("old-sent", "sent", { approval_id: "cr-1", created_at: agoIso(8 * 24 * 3_600_000) }),
+      cardRow("fresh-sent", "sent", { approval_id: "cr-2", created_at: agoIso(2 * 24 * 3_600_000) }),
+    ]);
+    const res = await requeueDeadApprovals(connectorRow(), async () => {});
+    expect(res).toEqual({ dead_requests: 1, still_pending: 1 });
+    expect(emitted().map((e) => e.id)).toEqual(["cr-1"]);
   });
 
   it("hands the plan to the audit callback BEFORE any card is queued", async () => {

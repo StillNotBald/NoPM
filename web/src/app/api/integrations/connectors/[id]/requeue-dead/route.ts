@@ -12,7 +12,8 @@ export const runtime = "nodejs";
  * session only, the same guard as pause/resume). After the retry ladder is
  * spent (about 14.6 hours of failure) an approval card goes `dead` and nothing
  * redrives it. This sends a fresh card for every request that is still
- * pending and has a dead card, with the same dedupe as the resume catch-up
+ * pending and has a dead card or an expired unclicked one (older than the
+ * 7-day action-token lifetime), with the same dedupe as the resume catch-up
  * (an approver who already holds a live card gets nothing). Audited BEFORE
  * any card is queued (`integration.approvals.requeue_dead`), because it
  * sends request details to a third party.

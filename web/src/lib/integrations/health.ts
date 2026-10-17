@@ -63,7 +63,7 @@ export function isSchedulerStale(
 export async function getConnectorHealth(
   workspaceId: string,
   connectorId: string,
-  opts: { now?: Date; connectorCreatedAt?: string | null } = {},
+  opts: { now?: Date; connectorCreatedAt?: string | null; connectorStatus?: string } = {},
 ): Promise<ConnectorHealth | null> {
   const db = createAdminClient();
   const scoped = () => db.from("integration_deliveries").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("connector_id", connectorId);
@@ -122,7 +122,8 @@ export async function getConnectorHealth(
       last_cron_at: state?.last_run_at ?? null,
       last_cron: state?.last_summary ?? null,
       cron_state_available: cronStateAvailable,
-      scheduler_stale: isSchedulerStale(state?.last_run_at ?? null, cronStateAvailable, opts.connectorCreatedAt, opts.now ?? new Date()),
+      // The scheduler only visits ACTIVE connectors, so a paused one is not "stale", it is paused.
+      scheduler_stale: opts.connectorStatus !== undefined && opts.connectorStatus !== "active" ? null : isSchedulerStale(state?.last_run_at ?? null, cronStateAvailable, opts.connectorCreatedAt, opts.now ?? new Date()),
     };
   } catch (err) {
     // The connector list must still load when the health lookup does not.
