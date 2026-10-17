@@ -32,7 +32,6 @@ export const CONSOLE_ROUTES = [
   "/sprints",
   "/start",
   "/tasks",
-  "/timesheets",
   "/tokens",
   "/trust",
 ] as const;

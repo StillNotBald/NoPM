@@ -73,7 +73,6 @@ const DEFAULTS: Record<string, () => Row> = {
   action_tokens: () => ({ used_at: null, created_at: nowIso() }),
   // The governed tables carry a content version their trigger bumps on every write.
   change_requests: () => ({ updated_at: nowIso() }),
-  timesheet_submissions: () => ({ updated_at: nowIso() }),
   inbound_actions: () => ({
     approval_kind: null,
     approval_id: null,
@@ -494,7 +493,7 @@ class FakeQuery implements PromiseLike<Result> {
 
 export const WS = "11111111-1111-4111-8111-111111111111";
 export const OTHER_WS = "22222222-2222-4222-8222-222222222222";
-/** The content version (updated_at) the seeded change request / timesheet starts at. */
+/** The content version (updated_at) the seeded change request starts at. */
 export const REQUEST_VERSION = "2026-10-16T08:00:00.000Z";
 export const CONNECTOR_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
@@ -563,7 +562,6 @@ export function seedWorkspace(db: FakeDb, connector: ConnectorRow = connectorRow
 export function seedPendingRequests(db: FakeDb, id: string = ids.approval, workspaceId: string = WS): void {
   db.seed("deletion_requests", [{ id, workspace_id: workspaceId, status: "pending", target_type: "task" }]);
   db.seed("change_requests", [{ id, workspace_id: workspaceId, status: "raised", updated_at: REQUEST_VERSION }]);
-  db.seed("timesheet_submissions", [{ id, workspace_id: workspaceId, status: "submitted", updated_at: REQUEST_VERSION }]);
 }
 
 /** Link a profile to a platform user on the standard connector. */

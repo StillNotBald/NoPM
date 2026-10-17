@@ -38,10 +38,9 @@ const VIEWER_READ_ONLY = "Viewers have read-only access";
  * Columns the verdict needs, per kind. Select these (server-side only) next to
  * the columns a page already reads; never ship them to the browser.
  */
-export const REQUESTER_COLUMNS: Readonly<Record<"deletion" | "change" | "timesheet", string>> = {
+export const REQUESTER_COLUMNS: Readonly<Record<"deletion" | "change", string>> = {
   deletion: "requested_by_type, requested_by_id, requested_principal_id",
   change: "requested_by, requested_by_type, requested_by_id, requested_principal_id",
-  timesheet: "submitted_by, submitted_by_type, submitted_principal_id",
 };
 
 function sameActor(viewer: Viewer, requester: Requester): boolean {
@@ -66,18 +65,12 @@ export function judgeDecision(input: {
   /** The raw table row (needs the REQUESTER_COLUMNS for its kind). */
   row: object;
   /**
-   * Timesheets only: the login (profiles.id) of the member whose hours these
-   * are. The routes refuse a decision by that person on top of the submitter
-   * rule (decide.ts `assertNotTimesheetSubject`).
-   */
-  subjectProfileId?: string | null;
-  /**
    * Deletions only: the project the record lives in is locked, so the commit
    * would be refused (D17). Unlock it or rebaseline first.
    */
   projectLocked?: boolean;
 }): DecideState {
-  const { viewer, kind, row, subjectProfileId, projectLocked } = input;
+  const { viewer, kind, row, projectLocked } = input;
   // D-16 (2026-10-17, "follow Lark rules"): deciding is for admins and managers
   // only. Members and viewers never get a decide control; the server refuses
   // them with 403 role_not_permitted.
@@ -104,9 +97,6 @@ export function judgeDecision(input: {
   if (verdict.can_decide) {
     if (projectLocked && (kind === "task_deletion" || kind === "project_deletion")) {
       return { canDecide: false, block: "project_locked", canWithdraw };
-    }
-    if (kind === "timesheet" && subjectProfileId && subjectProfileId === viewer.id) {
-      return { canDecide: false, block: "your_hours", canWithdraw: false };
     }
     return { canDecide: true, block: null, canWithdraw };
   }

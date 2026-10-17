@@ -1,5 +1,7 @@
 # UC-08 · Timesheet submit, approve, and period-close
 
+> **Withdrawn 2026-10-17 (owner decision 18).** Hour logging, weekly timesheets, the timesheet four-eyes and the period-close lock were removed from the product (console, API, CLI, MCP, assistant, Lark). The database tables and rows are kept; reversible by git revert. This use case is retained as history only; R-17, R-74, R-76 and R-114 are WITHDRAWN.
+
 **Goal:** Log time against a project, submit a week for approval, have a second person approve it (locking that week against further edits), and, if needed, formally reopen it.
 
 **Actors:** Team member (logs time, submits), Approver / second pair of eyes (an admin or manager who approves, rejects, or reopens; must be a different person from the submitter), Finance/PMO (consumes the time report).

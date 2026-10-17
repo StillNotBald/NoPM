@@ -52,3 +52,5 @@ The standing commitment (`requirements/devops-wave1/README.md` Decision 7) was: 
 - The 8 deferred F3 rows above remain in the register as backlog, unscheduled — nothing here deletes them, and any of them can be un-deferred by a future owner decision the same way L-32/L-50/L-52 were pulled forward into this mini-wave.
 - `docs/SELF_HOSTING.md` and `docs/DR_RUNBOOK.md` are the closing artifacts of the standing Wave-3 infra commitment (Decision 7) — that commitment is now considered **fulfilled as documentation**, not outstanding as undelivered code. A future decision to actually ship self-hosted `infra/` code would be a **new, ask-first decision** (per the constitution's "new dependencies or hosting/infra dependencies" ask-first line), not a resumption of a still-open Wave 3.
 - The provenance note in §1 (8 vs. the owner's stated 9) should be reconciled by whoever owns the next RTM/register pass — this ADR does not resolve it unilaterally.
+
+> **Update 2026-10-17 (owner decision 18):** L-31 and L-32 (timesheet approval and the period-close lock) describe a feature that was later removed. Hour logging is gone from the product; the data is kept.

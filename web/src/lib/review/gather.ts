@@ -29,7 +29,7 @@ import { clip } from "./pending";
 
 // ── ReviewItem shape ──────────────────────────────────────────────────────────
 
-export type ReviewKind = "approval" | "rebaseline" | "change" | "timesheet" | "risk" | "clash" | "document";
+export type ReviewKind = "approval" | "rebaseline" | "change" | "risk" | "clash" | "document";
 
 export interface ReviewItem {
   /** Unique row id from source table */
@@ -70,7 +70,7 @@ export interface ReviewItem {
   /** What the approver needs beside the decision: who asked, how big, why. */
   change?: ChangeSummary;
 
-  // ── Four-eyes (approval / change / timesheet) ─────────────────────────────
+  // ── Four-eyes (approval / change) ─────────────────────────────
   /**
    * May the signed-in viewer decide this, and if not, why — worked out on the
    * server the way the API decides (see ./four-eyes). Absent when the gatherer
@@ -78,11 +78,6 @@ export interface ReviewItem {
    */
   decide?: DecideState;
 
-  // ── Inline-action fields (kind === 'timesheet') ───────────────────────────
-  /** Monday of the submitted week (period_start) */
-  periodStart?: string;
-  /** Snapshot hours_total from the submission */
-  hoursTotal?: number;
 }
 
 /** The change request as the approver sees it in the inspector (read-only). */
@@ -118,7 +113,6 @@ function weight(item: ReviewItem): number {
   const kindWeight: Record<ReviewKind, number> = {
     approval: 0,
     rebaseline: 1,
-    timesheet: 1.5, // between 'approval' and 'change' (D per f2b-specs.md T5)
     change: 2,
     risk: 3,
     clash: 4,
@@ -155,16 +149,6 @@ export async function gatherReviewItems(
     (projectRows ?? []).map((p: { id: string; name: string }) => [p.id, p.name]),
   );
 
-  // Build a member-id → name map (for the 'timesheet' kind's title)
-  const { data: memberRows } = await db.from("resource_members").select("id, name, profile_id");
-  const memberMap = new Map<string, string>(
-    (memberRows ?? []).map((m: { id: string; name: string }) => [m.id, m.name]),
-  );
-  // member -> login, so a timesheet is never offered to the person whose hours it is
-  const memberProfile = new Map<string, string | null>(
-    (memberRows ?? []).map((m: { id: string; profile_id?: string | null }) => [m.id, m.profile_id ?? null]),
-  );
-
   // Fan out all queries in parallel
   const [
     deletionsResult,
@@ -173,7 +157,6 @@ export async function gatherReviewItems(
     clashesResult,
     documentsResult,
     changeRequestsResult,
-    timesheetsResult,
   ] = await Promise.allSettled([
     // 1. Deletion requests pending approval. `*` (not a column list): the verdict
     //    needs the requester columns and the `before` snapshot names the target.
@@ -234,19 +217,6 @@ export async function gatherReviewItems(
       }
     })(),
 
-    // 7. Timesheet submissions pending decision (L-31; defensive — table may
-    //    not exist yet on an unmigrated environment)
-    (async () => {
-      try {
-        return await db
-          .from("timesheet_submissions")
-          .select("*")
-          .eq("status", "submitted")
-          .order("submitted_at", { ascending: true });
-      } catch {
-        return { data: null, error: null };
-      }
-    })(),
   ]);
 
   const items: ReviewItem[] = [];
@@ -299,45 +269,6 @@ export async function gatherReviewItems(
         href: `/baselines?focus=${row.id}`,
         actionLabel: "Sign off",
         decide: viewer ? judgeRebaselineSignoff(viewer, row) : undefined,
-      });
-    }
-  }
-
-  // ── Timesheet submissions (L-31) ────────────────────────────────────────────
-  if (timesheetsResult.status === "fulfilled") {
-    for (const row of (timesheetsResult.value as {
-      data: Array<{
-        id: string;
-        member_id: string;
-        period_start: string;
-        hours_total: number | string | null;
-        submitted_by_label: string;
-        submitted_at: string;
-      }> | null;
-    }).data ?? []) {
-      const memberName = memberMap.get(row.member_id) ?? "Unknown member";
-      const hours = typeof row.hours_total === "string" ? Number(row.hours_total) : (row.hours_total ?? 0);
-      items.push({
-        id: row.id,
-        kind: "timesheet",
-        title: `Timesheet: ${memberName} · week of ${row.period_start}`,
-        ageDays: ageDays(row.submitted_at),
-        href: "/timesheets",
-        actionLabel: "Decide",
-        // inline-action fields
-        targetType: "timesheet_submission",
-        targetId: row.id,
-        requestedByLabel: row.submitted_by_label,
-        periodStart: row.period_start,
-        hoursTotal: Number.isFinite(hours) ? hours : 0,
-        decide: viewer
-          ? judgeDecision({
-              viewer,
-              kind: "timesheet",
-              row: row as unknown as Record<string, unknown>,
-              subjectProfileId: memberProfile.get(row.member_id) ?? null,
-            })
-          : undefined,
       });
     }
   }

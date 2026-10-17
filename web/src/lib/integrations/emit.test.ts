@@ -165,7 +165,7 @@ describe("emitApprovalRequested — fan-out", () => {
     expect(deliveries("approval_card")).toHaveLength(1);
   });
 
-  it("re-raising a decided request (e.g. a reopened timesheet) sends a fresh card", async () => {
+  it("re-raising a decided request (e.g. a reopened request) sends a fresh card", async () => {
     linkIdentity(db, ids.manager, "ou_max");
     await runApprovalRequested(event);
     await runApprovalDecided(decided);
@@ -423,16 +423,16 @@ describe("opportunistic retry pass", () => {
   });
 });
 
-describe("reopened requests (e.g. a reopened timesheet)", () => {
+describe("reopened requests (e.g. a reopened request)", () => {
   const reopened: ApprovalDecidedEvent = {
     ...event,
-    kind: "timesheet",
+    kind: "change_request",
     status: "reopened",
     decidedByLabel: "Max Manager",
     channel: "ui",
     version: REQUEST_VERSION,
   };
-  const submitted: ApprovalEvent = { ...event, kind: "timesheet", version: REQUEST_VERSION };
+  const submitted: ApprovalEvent = { ...event, kind: "change_request", version: REQUEST_VERSION };
 
   it("closes the old cards AND sends a fresh card to the approvers (the governed code emits only Decided for a reopen)", async () => {
     linkIdentity(db, ids.manager, "ou_max");

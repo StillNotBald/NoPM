@@ -20,7 +20,7 @@ vi.mock("@/components/layout/app-shell", () => ({
 
 import { ApprovalActions } from "@/components/approvals/actions";
 import { DecisionPanel } from "@/components/change-control/change-detail";
-import { ApprovalInlineAction, ChangeInlineAction, TimesheetInlineAction } from "@/components/review/inline-action";
+import { ApprovalInlineAction, ChangeInlineAction } from "@/components/review/inline-action";
 import type { ReviewItem } from "@/lib/review/gather";
 import { DecisionRefusal } from "./decision-refusal";
 import { FourEyesNote, ruleText, type DecideState } from "./four-eyes-note";
@@ -52,7 +52,6 @@ describe("FourEyesNote", () => {
     expect(html(createElement(FourEyesNote, { block: "your_token_raised" }))).toContain(
       "a token counts as the person who created it",
     );
-    expect(html(createElement(FourEyesNote, { block: "your_hours" }))).toContain("These are your own hours");
     expect(html(createElement(FourEyesNote, { block: "no_scope" }))).toContain("view this but not decide it");
   });
 
@@ -231,31 +230,5 @@ describe("ChangeInlineAction", () => {
     const markup = html(createElement(ChangeInlineAction, { item: item(MINE) }));
     expect(markup).toContain("You raised this (directly or through your token)");
     expect(markup).not.toContain("Submit Decision");
-  });
-});
-
-describe("TimesheetInlineAction", () => {
-  const sheet = (decide?: DecideState): ReviewItem => ({
-    ...base,
-    kind: "timesheet",
-    title: "Timesheet: Sam · week of 2026-10-05",
-    requestedByLabel: "Sam",
-    periodStart: "2026-10-05",
-    hoursTotal: 38,
-    decide,
-  });
-
-  it("offers the decision when allowed and the submitter wording of the rule", () => {
-    const markup = html(createElement(TimesheetInlineAction, { item: sheet(ALLOWED) }));
-    expect(markup).toContain("who submitted it");
-    expect(markup).toContain('aria-label="Approve timesheet"');
-  });
-
-  it("withholds it for the viewer's own hours", () => {
-    const markup = html(
-      createElement(TimesheetInlineAction, { item: sheet({ canDecide: false, block: "your_hours", canWithdraw: false }) }),
-    );
-    expect(markup).toContain("These are your own hours");
-    expect(markup).not.toContain(">Approve<");
   });
 });

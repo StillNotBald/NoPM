@@ -2,10 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
-const { decideMock, changeEventMock, timesheetEventMock, runChangedMock, scheduled } = vi.hoisted(() => ({
+const { decideMock, changeEventMock, runChangedMock, scheduled } = vi.hoisted(() => ({
   decideMock: vi.fn(),
   changeEventMock: vi.fn(),
-  timesheetEventMock: vi.fn(),
   runChangedMock: vi.fn(async () => {}),
   scheduled: [] as { label: string; workspaceId: string; task: () => Promise<unknown> }[],
 }));
@@ -13,7 +12,6 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
 vi.mock("@/lib/governance/decide", () => ({
   decideApproval: decideMock,
   changeRequestEvent: changeEventMock,
-  timesheetEvent: timesheetEventMock,
 }));
 // The edit path is exercised for real in emit.test.ts; here it is observed.
 vi.mock("@/lib/integrations/emit", () => ({
@@ -594,13 +592,6 @@ describe("handleApprovalAction — approve what you saw (content-version binding
     expect(decideMock.mock.calls[0][4]).toEqual({});
   });
 
-  it("works the same for a timesheet submission's version", async () => {
-    issueToken(CR_TOKEN, ids.manager, { approval_kind: "timesheet", approval_version: V1 });
-    db.rows("timesheet_submissions")[0].updated_at = V2;
-    expect(await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-ts" }))).toEqual({ status: "changed" });
-    expect(decideMock).not.toHaveBeenCalled();
-  });
-
   it("a different recipient's stale token is still 'not sent to you', not a hint about the request", async () => {
     issueCrToken();
     crRow().updated_at = V2;
@@ -637,18 +628,10 @@ describe("reissueAfterChange", () => {
     expect(runChangedMock).toHaveBeenCalledWith({ workspaceId: WS, kind: "change_request", id: ids.approval, title: "CR-7 now", version: V2 });
   });
 
-  it("builds a pending timesheet's event the same way", async () => {
-    db.rows("timesheet_submissions")[0].updated_at = V2;
-    timesheetEventMock.mockResolvedValueOnce({ workspaceId: WS, kind: "timesheet", id: ids.approval, title: "Timesheet now" });
-    await reissueAfterChange(WS, { kind: "timesheet", id: ids.approval });
-    expect(runChangedMock).toHaveBeenCalledWith(expect.objectContaining({ kind: "timesheet", version: V2 }));
-  });
-
   it("does nothing for a request that is no longer pending, is missing, or has no version (a deletion)", async () => {
     db.rows("change_requests")[0].status = "approved";
     await reissueAfterChange(WS, { kind: "change_request", id: ids.approval });
-    db.tables.timesheet_submissions = [];
-    await reissueAfterChange(WS, { kind: "timesheet", id: ids.approval });
+    await reissueAfterChange(WS, { kind: "timesheet" as never, id: ids.approval });
     await reissueAfterChange(WS, { kind: "task_deletion", id: ids.approval });
     expect(runChangedMock).not.toHaveBeenCalled();
   });

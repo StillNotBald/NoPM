@@ -10,7 +10,7 @@ Next.js **16** (App Router) · TypeScript · **Tailwind v4** · shadcn-style pri
 Approved libs: `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `otplib`, `pptxgenjs`, `jspdf`, `html2canvas`, `dnd-kit`, `resend` (demo-mode), `pg` (migration runner), `@larksuiteoapi/node-sdk` (exact 1.74.0, approved 2026-10-16), `tailwind-merge` (exact 3.7.0, approved 2026-10-17). Nothing else without asking the maintainer.
 
 ## Scope (v1) — 8 modules + governance
-Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **Issue** · **Clash** (schedule/resource/dependency, cross-project) · **Resource** (people, cost-rate, capacity, allocation, timesheets) · **Budget** (planned/committed/actual/variance/burn). Governance-wired **Kanban** (drag = audited) + read-mostly **Gantt** (lock → rebaseline). **Trust Center** (audit stream + provenance). Deck export PPTX/PDF/HTML. Landing + case study + seed.
+Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **Issue** · **Clash** (schedule/resource/dependency, cross-project) · **Resource** (people, cost-rate, capacity, allocation; no hour logging or timesheets since 2026-10-17, decision 18) · **Budget** (planned/committed/actual/variance/burn; actual = expenses only). Governance-wired **Kanban** (drag = audited) + read-mostly **Gantt** (lock → rebaseline). **Trust Center** (audit stream + provenance). Deck export PPTX/PDF/HTML. Landing + case study + seed.
 
 ## Conventions — always
 - **Governance is invisible** in operational flows, but *showcased* in the Trust Center. Enforce audit/scopes/maker-checker in the data + API layer, never as UI clutter.

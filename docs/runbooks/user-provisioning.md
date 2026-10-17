@@ -25,7 +25,7 @@ For a bootstrap, or when the invite flow cannot be used, whoever holds `SUPABASE
 |---|---|
 | viewer | read only |
 | member | read and write work records; log, edit and delete **their own** hours only (decision 17, to be confirmed) |
-| manager | everything a member can, plus **approve and decide** (decision 16, ADR 0014), mint tokens, manage invites, connect integrations, log hours for others |
+| manager | everything a member can, plus **approve and decide** (decision 16, ADR 0014), mint tokens, manage invites, connect integrations |
 | admin | everything a manager can, plus invite admins |
 
 Approving or deciding is for admins and managers only, on every channel; a token approves with the **current** role of the person who minted it. There is no in-app screen to change another person's role: it is a direct `profiles` update by whoever has Supabase project access.
@@ -44,7 +44,7 @@ Do these in order, the same day the person leaves:
 6. **Calendar feeds keep working.** By owner decision 9, a calendar feed does not stop when its creator leaves, because other people may be subscribed. Decide whether it should live on: list feeds with `GET /api/calendar-feeds` and revoke one with `DELETE /api/calendar-feeds/{id}`. A revoked feed's URL stops working at once.
 7. **Check.** `GET /api/audit?actor_id=<profile id>&limit=5` shows nothing new after the ban. Because the role is now viewer, a Lark account still linked to them can no longer approve from chat.
 
-Do not remove the person's resource record (`resource_members`) if you want their historical timesheets and allocations to keep reporting correctly.
+Do not remove the person's resource record (`resource_members`) if you want their allocations to keep reporting correctly (any historical timesheet rows are kept in the database but are no longer shown).
 
 Removing a seat is still an operator task today (steps 2 and 3 need Supabase access). An in-app remove and role-change screen is a backlog item (`docs/ROADMAP.md`, owner questions).
 

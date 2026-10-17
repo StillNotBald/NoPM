@@ -50,7 +50,7 @@ const BUILD_MODULES = [
   "Workspace → Project → Milestone → Task (typed statuses + maker-checker delete)",
   "Risk & Issue registers with severity/likelihood scoring",
   "Clash engine — schedule, resource, and dependency conflicts (cross-project)",
-  "Resource, allocation, timesheets, cost-rate, capacity tracking",
+  "Resource, allocation, cost-rate, capacity tracking",
   "Budget: planned / committed / actual / variance / EVM (CPI, SPI, EAC, VAC)",
   "Governed Kanban (drag = audited mutation) + read-mostly Gantt with rebaseline gate",
   "Trust Center — immutable audit stream, provenance, PAT management",

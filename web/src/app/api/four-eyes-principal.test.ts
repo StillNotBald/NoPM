@@ -2,8 +2,8 @@
  * Principal-aware four-eyes at the HTTP edge (2026-10-16, D1/D2).
  *
  * Drives the real route handlers (wrapped by route()) with an in-memory
- * admin client, for all four governed kinds — deletion request, change
- * request, timesheet submission, rebaseline sign-off:
+ * admin client, for the governed kinds — deletion request, change
+ * request, rebaseline sign-off:
  *
  *   - "requester approves own request with own PAT" -> 403  (the headline bug:
  *     a person raised a request in the console and approved it with a PAT they
@@ -51,13 +51,11 @@ vi.mock("@/lib/auth/guard", async (importOriginal) => {
 import { POST as approveDeletion } from "./deletion-requests/[id]/approve/route";
 import { POST as rejectDeletion } from "./deletion-requests/[id]/reject/route";
 import { POST as decideChange } from "./change-requests/[id]/decision/route";
-import { POST as decideTimesheet } from "./timesheet-submissions/[id]/decision/route";
 import { POST as signoff } from "./rebaselines/[id]/signoff/route";
 import { POST as applyRebaseline } from "./rebaselines/[id]/apply/route";
 import { DELETE as deleteTask } from "./tasks/[id]/route";
 import { DELETE as deleteProject } from "./projects/[id]/route";
 import { POST as raiseChange } from "./projects/[id]/change-requests/route";
-import { POST as submitTimesheet } from "./timesheet-submissions/route";
 import { POST as raiseRebaseline } from "./projects/[id]/rebaselines/route";
 
 const WS = "ws-1";
@@ -69,7 +67,6 @@ const ALL_APPROVE = [
   "task:delete:approve",
   "project:delete:approve",
   "change:decide",
-  "time:approve",
   "rebaseline:approve",
 ];
 
@@ -114,10 +111,6 @@ function seed(): FakeDb {
     projects: [{ id: "proj-1", workspace_id: WS, name: "Billing Migration", is_locked: false }],
     tasks: [{ id: "task-1", workspace_id: WS, name: "Migrate billing DB", project_id: "proj-1" }],
     resource_members: [{ id: MEMBER, workspace_id: WS, name: "Casey Member" }],
-    time_entries: [
-      { id: "te-1", workspace_id: WS, member_id: MEMBER, entry_date: "2026-10-13", hours: 8 },
-      { id: "te-2", workspace_id: WS, member_id: MEMBER, entry_date: "2026-10-14", hours: 6.5 },
-    ],
     profiles: [
       { id: ALICE, workspace_id: WS, role: "admin" },
       { id: BOB, workspace_id: WS, role: "manager" },
@@ -151,22 +144,6 @@ function seed(): FakeDb {
         requested_by_id: ALICE,
         requested_by_label: "Alice",
         requested_principal_id: ALICE,
-      },
-    ],
-    timesheet_submissions: [
-      {
-        id: "ts-1",
-        workspace_id: WS,
-        member_id: MEMBER,
-        period_start: "2026-10-12",
-        period_end: "2026-10-18",
-        hours_total: 14.5,
-        entry_count: 2,
-        status: "submitted",
-        submitted_by: ALICE,
-        submitted_by_type: "user",
-        submitted_by_label: "Alice",
-        submitted_principal_id: ALICE,
       },
     ],
     rebaselines: [
@@ -248,7 +225,7 @@ beforeEach(() => {
 
 // ── headline regression: requester + own PAT -> 403, for all four kinds ───
 
-describe("requester approves own request with own PAT -> 403 (all four kinds)", () => {
+describe("requester approves own request with own PAT -> 403 (all kinds)", () => {
   it("deletion request: approve", async () => {
     const res = await call(approveDeletion, aliceOwnPat(), "del-1", {});
     await expectForbidden(res, "self_approval", "Self-approval is not allowed");
@@ -267,13 +244,6 @@ describe("requester approves own request with own PAT -> 403 (all four kinds)", 
     const res = await call(decideChange, aliceOwnPat(), "cr-1", { decision: "approve", rationale: "fine" });
     await expectForbidden(res, "self_approval");
     expect(db.rows("change_requests")[0].status).toBe("raised");
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("timesheet submission: decision", async () => {
-    const res = await call(decideTimesheet, aliceOwnPat(), "ts-1", { decision: "approved" });
-    await expectForbidden(res, "self_approval");
-    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
     expect(db.rows("audit_log")).toHaveLength(0);
   });
 
@@ -352,14 +322,6 @@ describe("a different human decides (the happy paths still work)", () => {
     expect(res.status).toBe(422);
   });
 
-  it("timesheet: decision echoes the updated row", async () => {
-    const res = await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" });
-    const json = await res.json();
-    expect(res.status).toBe(200);
-    expect(json.data).toMatchObject({ id: "ts-1", status: "approved", decided_principal_id: BOB });
-    expect(db.rows("audit_log").map((r) => r.action)).toEqual(["timesheet.approved"]);
-  });
-
   it("rebaseline: a token signs off AS ITS OWNER (approver_id = the principal, a real profile — no FK 500)", async () => {
     const res = await call(signoff, bobPat(), "rb-user", { vote: "go", comment: "lgtm" });
     const json = await res.json();
@@ -405,7 +367,6 @@ describe("a token with no recorded owner cannot decide (403 NO_PRINCIPAL)", () =
       "no_principal",
       MESSAGE,
     );
-    await expectForbidden(await call(decideTimesheet, orphanPat(), "ts-1", { decision: "approved" }), "no_principal", MESSAGE);
     await expectForbidden(await call(signoff, orphanPat(), "rb-user", { vote: "go" }), "no_principal", MESSAGE);
     await expectForbidden(await call(applyRebaseline, orphanPat(), "rb-approved", {}), "no_principal", MESSAGE);
     expect(db.rows("audit_log")).toHaveLength(0);
@@ -417,7 +378,7 @@ describe("a token with no recorded owner cannot decide (403 NO_PRINCIPAL)", () =
 // ── D2: wildcards never grant approve/decide ──────────────────────────────
 
 describe("wildcard scopes never grant approve/decide (D2)", () => {
-  for (const wildcard of [["*"], ["task:*", "change:*", "time:*", "rebaseline:*", "project:*"]]) {
+  for (const wildcard of [["*"], ["task:*", "change:*", "rebaseline:*", "project:*"]]) {
     it(`token holding ${JSON.stringify(wildcard)} is refused on every decision route`, async () => {
       const t = pat("tok-bob", BOB, wildcard);
       await expectForbidden(await call(approveDeletion, t, "del-1", {}), "forbidden_scope", "task:delete:approve");
@@ -427,7 +388,6 @@ describe("wildcard scopes never grant approve/decide (D2)", () => {
         "forbidden_scope",
         "change:decide",
       );
-      await expectForbidden(await call(decideTimesheet, t, "ts-1", { decision: "approved" }), "forbidden_scope", "time:approve");
       await expectForbidden(await call(signoff, t, "rb-user", { vote: "go" }), "forbidden_scope", "rebaseline:approve");
       await expectForbidden(await call(applyRebaseline, t, "rb-approved", {}), "forbidden_scope", "rebaseline:approve");
       expect(db.rows("audit_log")).toHaveLength(0);
@@ -438,7 +398,7 @@ describe("wildcard scopes never grant approve/decide (D2)", () => {
 // ── creation points stamp the requester PRINCIPAL and emit a full event ────
 
 describe("every request-creation insert records the requester's principal and emits an event", () => {
-  const aliceRaisesViaPat = () => pat("tok-alice", ALICE, ["task:delete:request", "project:delete:request", "change:write", "time:submit", "project:write"]);
+  const aliceRaisesViaPat = () => pat("tok-alice", ALICE, ["task:delete:request", "project:delete:request", "change:write", "project:write"]);
 
   it("task deletion request (PAT): principal = the token's creator, not the token id", async () => {
     db.tables.deletion_requests = [];
@@ -577,28 +537,6 @@ describe("every request-creation insert records the requester's principal and em
     expect(ok.status).toBe(201);
   });
 
-  it("timesheet submission", async () => {
-    db.tables.timesheet_submissions = [];
-    const res = await call(
-      submitTimesheet,
-      aliceRaisesViaPat(),
-      "x",
-      { member_id: MEMBER, period_start: "2026-10-12" },
-    );
-    const json = await res.json();
-    expect(res.status, JSON.stringify(json)).toBe(201);
-    const row = db.rows("timesheet_submissions")[0];
-    expect(row).toMatchObject({ submitted_by: "tok-alice", submitted_by_type: "token", submitted_principal_id: ALICE, status: "submitted" });
-    expect(emitted.requested[0]).toMatchObject({
-      kind: "timesheet",
-      id: row.id,
-      title: "Timesheet: Casey Member, week of 2026-10-12",
-      summary: "14.5 hours across 2 entries.",
-      requestedByLabel: "tok-alice-agent (token)",
-      requesterPrincipalId: ALICE,
-    });
-  });
-
   it("rebaseline", async () => {
     db.tables.rebaselines = [];
     const res = await callCollection(raiseRebaseline, aliceRaisesViaPat(), { reason: "dates slipped" });
@@ -631,13 +569,12 @@ describe("D-16 — a member or viewer (or their token) cannot approve anything",
         "role_not_permitted",
         "Only managers and admins can approve",
       );
-      await expectForbidden(await call(decideTimesheet, actor, "ts-1", { decision: "approved" }), "role_not_permitted", "Only managers and admins can approve");
       await expectForbidden(await call(signoff, actor, "rb-user", { vote: "go" }), "role_not_permitted", "Only managers and admins can approve");
       await expectForbidden(await call(applyRebaseline, actor, "rb-approved", {}), "role_not_permitted", "Only managers and admins can approve");
     }
     await expectForbidden(await call(approveDeletion, memberSession(), "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
     // A token whose creator is now a viewer is read-only (R-6), so it is refused one step earlier.
-    for (const call_ of [() => call(approveDeletion, viewerPat(), "del-1", {}), () => call(decideTimesheet, viewerPat(), "ts-1", { decision: "approved" })]) {
+    for (const call_ of [() => call(approveDeletion, viewerPat(), "del-1", {}), () => call(rejectDeletion, viewerPat(), "del-1", {})]) {
       await expectForbidden(await call_(), "forbidden_scope", "read-only");
     }
     expect(db.rows("audit_log")).toHaveLength(0);

@@ -10,6 +10,11 @@
  * — used at MINT time — accepts only concrete scopes and per-resource
  * "<resource>:*" wildcards. The bare global "*" can no longer be minted
  * (defense-in-depth).
+ *
+ * Hour logging was removed (2026-10-17): the retired `time:*` scopes are no
+ * longer registered, so they cannot be minted. Tokens minted earlier that carry
+ * them still authenticate — scopes are matched by name at request time, not
+ * re-validated — and the retired scopes simply match nothing.
  */
 export const SCOPES = [
   "project:read", "project:write",
@@ -22,7 +27,6 @@ export const SCOPES = [
   "issue:read", "issue:write",
   "clash:read", "clash:write",
   "resource:read", "resource:write",
-  "time:read", "time:write", "time:submit", "time:approve",
   "budget:read", "budget:write",
   "document:read", "document:write",
   "change:read", "change:write", "change:decide",
@@ -39,7 +43,7 @@ export type Scope = (typeof SCOPES)[number];
 /**
  * Scopes that DECIDE a governed request (the "checker" half of every
  * maker-checker flow). Wildcards NEVER grant these (2026-10-16, D2): the
- * global `*` and any `<resource>:*` ("task:*", "project:*", "time:*",
+ * global `*` and any `<resource>:*` ("task:*", "project:*",
  * "change:*", "rebaseline:*") stop at the privileged boundary, so a
  * token that was handed a convenient wildcard to read and write a resource
  * cannot also approve its own work. A privileged scope must be granted by
@@ -51,7 +55,6 @@ export type Scope = (typeof SCOPES)[number];
 export const PRIVILEGED_SCOPES: readonly Scope[] = [
   "task:delete:approve",
   "project:delete:approve",
-  "time:approve",
   "change:decide",
   "rebaseline:approve",
 ];

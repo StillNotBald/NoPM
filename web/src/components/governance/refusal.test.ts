@@ -27,8 +27,8 @@ describe("describeRefusal", () => {
     expect(r).toMatchObject({ title: "Already decided", terminal: true, stale: true });
   });
 
-  it("keeps the server's own message for project_locked / children_changed / timesheet_changed", () => {
-    for (const code of ["project_locked", "children_changed", "timesheet_changed"]) {
+  it("keeps the server's own message for project_locked / children_changed", () => {
+    for (const code of ["project_locked", "children_changed"]) {
       const r = describeRefusal(apiError(`server says ${code}`, { status: 422, code }), "x");
       expect(r.detail).toBe(`server says ${code}`);
       expect(r.terminal).toBe(true);

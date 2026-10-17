@@ -39,19 +39,18 @@ describe("getPendingCounts", () => {
       change_requests: 3,
       decisions: 4,
       rebaselines: 1,
-      timesheet_submissions: 2,
       risks: 5,
       clashes: 1,
       documents: 1,
     });
     const r = await getPendingCounts(db, actor);
-    expect(r).toEqual({ approvals: 2, changeControl: 3, decisions: 4, review: 10, total: 19 });
+    expect(r).toEqual({ approvals: 2, changeControl: 3, decisions: 4, review: 8, total: 17 });
   });
 
   it("filters every query by workspace", async () => {
     const { db, calls } = fakeDb({});
     await getPendingCounts(db, actor);
-    expect(calls).toHaveLength(8);
+    expect(calls).toHaveLength(7);
     for (const c of calls) {
       expect(c.ops).toContainEqual(["eq", ["workspace_id", "ws-1"]]);
     }
@@ -64,7 +63,6 @@ describe("getPendingCounts", () => {
     expect(ors("deletion_requests")[0]).toContain("requested_by_id.neq.user-1");
     expect(ors("change_requests")[0]).toContain("requested_by.neq.user-1");
     expect(ors("rebaselines")[0]).toContain("requested_by.neq.user-1");
-    expect(ors("timesheet_submissions")[0]).toContain("submitted_by.neq.user-1");
     expect(ors("decisions")).toHaveLength(0);
   });
 

@@ -258,15 +258,14 @@ async function mintActionToken(row: DeliveryRow, version: string | null): Promis
 
 /**
  * Where each approval kind lives, which statuses still await a decision, and
- * whether its rows carry a content version. Change requests and timesheet
- * submissions have an `updated_at` their table's trigger bumps on every write;
+ * whether its rows carry a content version. Change requests have an
+ * `updated_at` their table's trigger bumps on every write;
  * deletion requests are immutable once raised, so there is nothing to bind to.
  */
 const REQUEST_SOURCES: Record<ApprovalKind, { table: string; pending: readonly string[]; versioned: boolean }> = {
   task_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
   project_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
   change_request: { table: "change_requests", pending: ["raised", "under_review"], versioned: true },
-  timesheet: { table: "timesheet_submissions", pending: ["submitted"], versioned: true },
 };
 
 export type RequestState = "pending" | "decided" | "missing";
@@ -614,6 +613,8 @@ async function attemptDelivery(
       case "decision_update": {
         const ev = row.payload.event as ApprovalDecidedEvent | undefined;
         if (!ev || !row.parent_delivery_id) return fail(false, "Malformed decision update delivery");
+        // A queued update for a retired approval kind (timesheets were removed; see approval_card via readRequest) has nothing to render.
+        if (!REQUEST_SOURCES[ev.kind]) return { kind: "superseded", reason: "approval kind retired" };
         const parent = await loadParent(row);
         // Same patch machinery, two bodies: the request was decided, or it was
         // edited and a new card replaces this one.

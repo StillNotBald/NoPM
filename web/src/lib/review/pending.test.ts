@@ -52,7 +52,7 @@ const probe =
   (scope) =>
     allowed.includes(scope) ? null : `API token is missing required scope: ${scope}`;
 
-const ALL_READ = ["task:read", "change:read", "time:read", "project:read"];
+const ALL_READ = ["task:read", "change:read", "project:read"];
 const ALL_DECIDE = Object.values(DECIDE_SCOPES);
 
 const WS = "ws-1";
@@ -105,19 +105,6 @@ const change: Row = {
   raised_at: "2026-10-09T08:00:00+00:00",
   created_at: "2026-10-09T08:00:00+00:00",
 };
-const timesheet: Row = {
-  id: "ts-1",
-  workspace_id: WS,
-  member_id: "mem-1",
-  period_start: "2026-10-05",
-  hours_total: "38.5",
-  entry_count: 9,
-  status: "submitted",
-  submitted_by: OTHER,
-  submitted_by_type: "user",
-  submitted_by_label: "Requester A",
-  submitted_at: "2026-10-12T08:00:00+00:00",
-};
 const rebaseline: Row = {
   id: "rb-1",
   workspace_id: WS,
@@ -133,10 +120,8 @@ function fullDb(over: Record<string, Result> = {}) {
   return fakeDb({
     deletion_requests: { data: [deletionTask, deletionProject] },
     change_requests: { data: [change] },
-    timesheet_submissions: { data: [timesheet] },
     rebaselines: { data: [rebaseline] },
     projects: { data: [{ id: "proj-1", name: "Apollo" }, { id: "proj-2", name: "Legacy portal (live)" }] },
-    resource_members: { data: [{ id: "mem-1", name: "Member One" }] },
     api_tokens: { data: [{ id: "tok-1", created_by: OTHER }] },
     profiles: { data: [{ id: "user-rb", display_name: "Requester B", email: "rb@example.test" }] },
     ...over,
@@ -146,7 +131,7 @@ function fullDb(over: Record<string, Result> = {}) {
 // ── tests ────────────────────────────────────────────────────────────────────
 
 describe("listPendingApprovals — shape and ordering", () => {
-  it("merges all four families oldest-first with titles, summaries and names", async () => {
+  it("merges all families oldest-first with titles, summaries and names", async () => {
     const { db } = fullDb();
     const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
 
@@ -154,10 +139,9 @@ describe("listPendingApprovals — shape and ordering", () => {
       ["change_request", "cr-1"],
       ["task_deletion", "del-task"],
       ["project_deletion", "del-proj"],
-      ["timesheet", "ts-1"],
       ["rebaseline", "rb-1"],
     ]);
-    expect(r.total).toBe(5);
+    expect(r.total).toBe(4);
     expect(r.hidden_kinds).toEqual([]);
 
     const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
@@ -179,12 +163,6 @@ describe("listPendingApprovals — shape and ordering", () => {
       summary: "under_review · scope · high priority",
       project_name: "Apollo",
     });
-    expect(byId["ts-1"]).toMatchObject({
-      title: "Timesheet: Member One · week of 2026-10-05",
-      summary: "38.5 h across 9 entries",
-      project_id: null,
-      project_name: null,
-    });
     expect(byId["rb-1"]).toMatchObject({
       title: "Rebaseline v3 sign-off",
       summary: "Vendor slipped delivery by two weeks",
@@ -198,7 +176,7 @@ describe("listPendingApprovals — shape and ordering", () => {
     await listPendingApprovals(db, me, probe(ALL_READ));
     const tables = calls.map((c) => c.table).sort();
     expect(tables).toEqual(
-      ["api_tokens", "change_requests", "deletion_requests", "profiles", "projects", "rebaselines", "resource_members", "timesheet_submissions"].sort(),
+      ["api_tokens", "change_requests", "deletion_requests", "profiles", "projects", "rebaselines"].sort(),
     );
     for (const c of calls) expect(c.ops).toContainEqual(["eq", ["workspace_id", WS]]);
   });
@@ -210,7 +188,6 @@ describe("listPendingApprovals — shape and ordering", () => {
     expect(ops("deletion_requests")).toContainEqual(["eq", ["status", "pending"]]);
     expect(ops("deletion_requests")).toContainEqual(["in", ["target_type", ["task", "project"]]]);
     expect(ops("change_requests")).toContainEqual(["in", ["status", ["raised", "under_review"]]]);
-    expect(ops("timesheet_submissions")).toContainEqual(["eq", ["status", "submitted"]]);
     expect(ops("rebaselines")).toContainEqual(["eq", ["status", "pending_approval"]]);
   });
 
@@ -218,7 +195,6 @@ describe("listPendingApprovals — shape and ordering", () => {
     const { db } = fullDb({
       deletion_requests: { data: [{ ...deletionTask, id: "odd", target_type: "milestone" }] },
       change_requests: { data: [] },
-      timesheet_submissions: { data: [] },
       rebaselines: { data: [] },
     });
     const r = await listPendingApprovals(db, me, probe(ALL_READ));
@@ -230,7 +206,6 @@ describe("listPendingApprovals — shape and ordering", () => {
     const { db } = fullDb({
       deletion_requests: { data: [] },
       change_requests: { data: [legacy] },
-      timesheet_submissions: { data: [] },
       rebaselines: { data: [] },
     });
     const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
@@ -251,10 +226,6 @@ describe("listPendingApprovals — can_decide (scope + four-eyes by person)", ()
     const r = await listPendingApprovals(db, me, probe([...ALL_READ, "change:decide"]));
     const by = Object.fromEntries(r.items.map((i) => [i.kind, i]));
     expect(by.change_request.can_decide).toBe(true);
-    expect(by.timesheet).toMatchObject({
-      can_decide: false,
-      reason_if_not: "API token is missing required scope: time:approve",
-    });
     expect(by.task_deletion.reason_if_not).toMatch(/task:delete:approve/);
     expect(by.project_deletion.reason_if_not).toMatch(/project:delete:approve/);
     expect(by.rebaseline.reason_if_not).toMatch(/rebaseline:approve/);
@@ -325,10 +296,10 @@ describe("listPendingApprovals — read gating by kind", () => {
     const { db, calls } = fullDb();
     const r = await listPendingApprovals(db, { ...me, type: "token" }, probe(["change:read"]));
     expect(r.items.map((i) => i.kind)).toEqual(["change_request"]);
-    expect(r.hidden_kinds).toEqual(["task_deletion", "project_deletion", "timesheet", "rebaseline"]);
+    expect(r.hidden_kinds).toEqual(["task_deletion", "project_deletion", "rebaseline"]);
     // Hidden families are never even queried.
     const tables = calls.map((c) => c.table);
-    for (const t of ["deletion_requests", "timesheet_submissions", "rebaselines"]) {
+    for (const t of ["deletion_requests", "rebaselines"]) {
       expect(tables).not.toContain(t);
     }
   });
@@ -337,7 +308,7 @@ describe("listPendingApprovals — read gating by kind", () => {
     const { db } = fullDb();
     const r = await listPendingApprovals(db, { ...me, type: "token" }, probe(["audit:read"]));
     expect(r.items.map((i) => i.kind).sort()).toEqual(["project_deletion", "task_deletion"]);
-    expect(r.hidden_kinds).toEqual(["change_request", "timesheet", "rebaseline"]);
+    expect(r.hidden_kinds).toEqual(["change_request", "rebaseline"]);
   });
 
   it("403s a token that can read none of the families", async () => {
@@ -350,14 +321,14 @@ describe("listPendingApprovals — read gating by kind", () => {
   it("403s when the requested kinds are all unreadable (never an empty page that looks like 'nothing waiting')", async () => {
     const { db } = fullDb();
     await expect(
-      listPendingApprovals(db, { ...me, type: "token" }, probe(["change:read"]), { kinds: ["timesheet"] }),
+      listPendingApprovals(db, { ...me, type: "token" }, probe(["change:read"]), { kinds: ["task_deletion"] }),
     ).rejects.toBeInstanceOf(ScopeError);
   });
 
   it("honours a kinds filter among the readable kinds", async () => {
     const { db, calls } = fullDb();
-    const r = await listPendingApprovals(db, me, probe(ALL_READ), { kinds: ["timesheet", "rebaseline"] });
-    expect(r.items.map((i) => i.kind).sort()).toEqual(["rebaseline", "timesheet"]);
+    const r = await listPendingApprovals(db, me, probe(ALL_READ), { kinds: ["change_request", "rebaseline"] });
+    expect(r.items.map((i) => i.kind).sort()).toEqual(["change_request", "rebaseline"]);
     expect(calls.map((c) => c.table)).not.toContain("deletion_requests");
     expect(r.hidden_kinds).toEqual([]);
   });
@@ -373,29 +344,28 @@ describe("listPendingApprovals — read gating by kind", () => {
 describe("listPendingApprovals — paging and failure", () => {
   const many = (n: number): Row[] =>
     Array.from({ length: n }, (_, i) => ({
-      ...timesheet,
-      id: `ts-${String(i).padStart(3, "0")}`,
-      submitted_at: `2026-10-01T00:${String(i).padStart(2, "0")}:00+00:00`,
+      ...rebaseline,
+      id: `rb-${String(i).padStart(3, "0")}`,
+      created_at: `2026-10-01T00:${String(i).padStart(2, "0")}:00+00:00`,
     }));
 
   it("slices the merged window by page/limit and reports the exact total", async () => {
     const { db } = fullDb({
       deletion_requests: { data: [] },
       change_requests: { data: [] },
-      rebaselines: { data: [] },
-      timesheet_submissions: { data: many(7), count: 42 },
+      rebaselines: { data: many(7), count: 42 },
     });
     const p2 = await listPendingApprovals(db, me, probe(ALL_READ), { page: 2, limit: 3 });
-    expect(p2.items.map((i) => i.id)).toEqual(["ts-003", "ts-004", "ts-005"]);
+    expect(p2.items.map((i) => i.id)).toEqual(["rb-003", "rb-004", "rb-005"]);
     expect(p2).toMatchObject({ page: 2, limit: 3, total: 42 });
   });
 
   it("asks the database for just enough rows to fill the requested page", async () => {
     const { db, calls } = fullDb();
     await listPendingApprovals(db, me, probe(ALL_READ), { page: 3, limit: 20 });
-    const ts = calls.find((c) => c.table === "timesheet_submissions")!;
+    const ts = calls.find((c) => c.table === "rebaselines")!;
     expect(ts.ops).toContainEqual(["limit", [60]]);
-    expect(ts.ops).toContainEqual(["order", ["submitted_at", { ascending: true }]]);
+    expect(ts.ops).toContainEqual(["order", ["created_at", { ascending: true }]]);
   });
 
   it("clamps limit to the cap and defaults sensibly on junk input", async () => {
@@ -420,13 +390,11 @@ describe("listPendingApprovals — paging and failure", () => {
   it("degrades to null names when a cosmetic lookup fails", async () => {
     const { db } = fullDb({
       projects: { error: { message: "boom" } },
-      resource_members: { error: { message: "boom" } },
       profiles: { error: { message: "boom" } },
     });
     const r = await listPendingApprovals(db, me, probe(ALL_READ));
     const by = Object.fromEntries(r.items.map((i) => [i.id, i]));
     expect(by["cr-1"].project_name).toBeNull();
-    expect(by["ts-1"].title).toBe("Timesheet: Unknown member · week of 2026-10-05");
     expect(by["rb-1"].requested_by_label).toBeNull();
     // A project-deletion still names its project from the request snapshot.
     expect(by["del-proj"].project_name).toBe("Legacy portal");

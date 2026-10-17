@@ -5,12 +5,12 @@
 
 ## Pre-flight (T-60 min)
 1. `cd web && node scripts/auth-smoke.mjs` — every page must be 200 (24 routes when the workspace has a project). This doubles as the Supabase keep-alive (free tier pauses on inactivity; this is the lesson-learned guard).
-2. If seeded demo data looks stale/mangled: `node scripts/seed-sprints-timesheets.mjs` (purge-first, re-runnable).
+2. If seeded demo data looks stale/mangled: the seed script for sprints (hour/timesheet seeding was removed with decision 18).
 3. Log in once as the demo identity and click through /dashboard — verify AS the funnel identity, never only as admin.
 
 ## The walkthrough (4 stories, ~2–3 min each)
 
-**1. Governance you can't buy (the thesis)** — `/timesheets` → point at the **"Week approved — locked"** marker (approved timesheet = frozen history; the lock is a DB trigger, not UI) → `/review` → open the pending timesheet → decide it (works: you're a different person) → now submit your own week and try to approve it → **403, four-eyes banner**. Close with `/trust`: every click just taken is an immutable audit row; export the audit log — *the export itself appears in the audit log*.
+**1. Governance you can't buy (the thesis)** — `/review` → open a pending change request or rebaseline → decide it (works: you're a different person) → now raise your own request and try to approve it → **403, four-eyes banner**. Close with `/trust`: every click just taken is an immutable audit row; export the audit log — *the export itself appears in the audit log*.
 
 **2. A messy portfolio made legible** — `/portfolio` (program rollup cards; declared vs computed RAG with a "Diverges" flag — accountability is explicit, not inferred) → `/mainline` and flip the 3 lenses (portfolio / project / dependency DAG with typed FS/SS/FF/SF edges + lag) → `/tasks` (cross-project register: filter, save the view, share/protect it, CSV export that matches the screen exactly).
 

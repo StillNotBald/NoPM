@@ -73,8 +73,8 @@ nopm approvals                               # list pending deletion requests
 nopm approvals --status all                  # all statuses
 nopm approve <requestId>                     # CHECKER (must be a different person with task:delete:approve; a token counts as the human who created it)
 nopm approve reject <requestId> [--reason <why>]
-nopm review                                  # everything waiting on a person: deletions, change requests, timesheets, rebaselines — and whether YOU may decide each
-nopm review --kind timesheet,change_request  # narrow by kind (read-only; deciding stays with the commands above / the console)
+nopm review                                  # everything waiting on a person: deletions, change requests, rebaselines — and whether YOU may decide each
+nopm review --kind rebaseline,change_request  # narrow by kind (read-only; deciding stays with the commands above / the console)
 ```
 
 ## Audit log & discovery
@@ -86,7 +86,7 @@ nopm timeline                                # Mainline portfolio graph summary 
 nopm openapi                                 # operation index from the live spec (--json for the full spec)
 ```
 
-Every module (risks, issues, clashes, resources, allocations, time, budget, expenses, documents, decisions, changes, rebaselines, notifications, reports, tokens) has its own command group — run `nopm help` for the full catalogue.
+Every module (risks, issues, clashes, resources, allocations, budget, expenses, documents, decisions, changes, rebaselines, notifications, reports, tokens) has its own command group — run `nopm help` for the full catalogue.
 
 Every request sends `X-NoPM-Client: cli`, so the resulting audit_log rows are tagged `channel: cli` (R-82, `GET /audit?channel=cli`) — provenance only, never an authorization input; token identity stays authoritative.
 

@@ -4,7 +4,7 @@
 
 ## Roles
 
-`profiles.role` is a Postgres enum with **four** values: `admin`, `manager`, `member`, `viewer`. At the API-guard layer (`requireScope`, `web/src/lib/auth/guard.ts`): **`viewer` is read-only** (any non-`read` action is rejected, `403`); `member` can write work records; and **only `admin` and `manager` can approve or decide** (deletion approvals, change-request decisions, rebaseline sign-off and apply, timesheet approve, reject and reopen) — a member gets `403` "Only managers and admins can approve" (owner decision 16, ADR 0014). A member also logs, edits and deletes only their own hours (`403` "You can only log your own hours"; decision 17, to be confirmed). Managers and admins mint tokens, manage invites and connect integrations; a manager cannot invite an admin.
+`profiles.role` is a Postgres enum with **four** values: `admin`, `manager`, `member`, `viewer`. At the API-guard layer (`requireScope`, `web/src/lib/auth/guard.ts`): **`viewer` is read-only** (any non-`read` action is rejected, `403`); `member` can write work records; and **only `admin` and `manager` can approve or decide** (deletion approvals, change-request decisions, rebaseline sign-off and apply) — a member gets `403` "Only managers and admins can approve" (owner decision 16, ADR 0014). Managers and admins mint tokens, manage invites and connect integrations; a manager cannot invite an admin.
 
 A token is judged by the **current** role of the person who created it: an approve scope on a token works only while its creator is an admin or manager, and stops when they are demoted.
 
@@ -14,7 +14,7 @@ A signed-in user's role is visible (read-only) on their own `/settings` page. Th
 
 `/tokens` is a self-service page for **your own** scoped Personal Access Tokens (Bearer `npm_…`) — used by the CLI, the MCP server, or any external script. Minting a token:
 
-- Names it and lets you pick from the scope list: `project:*`, `task:read`, `task:write`, `task:delete:request`, `task:delete:approve`, `risk:*`, `issue:*`, `clash:*`, `resource:*`, `budget:*`, `time:*`, `audit:read`.
+- Names it and lets you pick from the scope list: `project:*`, `task:read`, `task:write`, `task:delete:request`, `task:delete:approve`, `risk:*`, `issue:*`, `clash:*`, `resource:*`, `budget:*`, `audit:read`.
 - Shows the raw token **once**, at creation — it's stored server-side only as a SHA-256 hash, never logged, never retrievable again. Losing it means minting a new one.
 - Token-authenticated callers use the admin client (RLS-bypassing) and are always filtered by `actor.workspaceId` server-side — a token can never reach outside its own workspace regardless of scope.
 

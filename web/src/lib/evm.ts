@@ -3,7 +3,7 @@
  *
  * Computes the PMBOK cost-performance number set from data NoPM already stores:
  *   BAC  = planned_amount (project_budget)
- *   AC   = actual_amount  (Σ time_entries.cost + Σ expenses — computed by the budget GET)
+ *   AC   = actual_amount  (Σ expenses only — computed by the budget GET)
  *   EV   = BAC × completion_pct / 100  (project completion)
  *   PV   = BAC × planned-schedule %
  *

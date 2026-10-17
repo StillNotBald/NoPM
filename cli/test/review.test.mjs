@@ -76,10 +76,10 @@ test("review with no flags sends GET /api/review with page=1&limit=50 and no bod
 
 test("review passes --kind/--page/--limit through as query params (kind URL-encoded)", async () => {
   const review = await import("../commands/review.mjs");
-  const ctx = makeCtx({ _: [], kind: "timesheet,change_request", page: "2", limit: "10" });
+  const ctx = makeCtx({ _: [], kind: "rebaseline,change_request", page: "2", limit: "10" });
   await review.run([], ctx);
   assert.deepEqual(ctx.calls, [
-    { method: "GET", path: "/api/review?kind=timesheet%2Cchange_request&page=2&limit=10", body: undefined },
+    { method: "GET", path: "/api/review?kind=rebaseline%2Cchange_request&page=2&limit=10", body: undefined },
   ]);
 });
 
@@ -108,9 +108,9 @@ test("review renders a table row per item with a readable decide column", async 
   const review = await import("../commands/review.mjs");
   const blocked = {
     ...ITEM,
-    id: "ts_1",
-    kind: "timesheet",
-    title: "Timesheet: Member One · week of 2026-10-05",
+    id: "rb_1",
+    kind: "rebaseline",
+    title: "Rebaseline: Project One",
     project_name: null,
     can_decide: false,
     reason_if_not: "You requested this; four-eyes requires a different person to decide",
@@ -144,10 +144,10 @@ test("review --json hands the raw items (with summary and project_id) to out()",
 
 test("review warns on stderr when the token cannot read some kinds (empty != nothing pending)", async () => {
   const review = await import("../commands/review.mjs");
-  const ctx = makeCtx({ _: [] }, { data: [], total: 0, page: 1, limit: 50, hidden_kinds: ["timesheet", "rebaseline"] });
+  const ctx = makeCtx({ _: [] }, { data: [], total: 0, page: 1, limit: 50, hidden_kinds: ["task_deletion", "rebaseline"] });
   const lines = await captureStderr(() => review.run([], ctx));
   assert.equal(lines.length, 1);
-  assert.match(lines[0], /timesheet, rebaseline/);
+  assert.match(lines[0], /task_deletion, rebaseline/);
   assert.match(lines[0], /not proof nothing is pending/);
 });
 

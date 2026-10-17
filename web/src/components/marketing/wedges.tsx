@@ -35,7 +35,7 @@ export function WedgeGrid() {
         Timeline, resource and budget changes pass one audit and sign-off gate. Over-allocation
         surfaces as a clash, spend rolls into EVM variance, a locked timeline forces a rebaseline
         sign-off. NoPM records who changed what and who approved it; it is not a scheduler, a
-        timesheet system or an ERP.
+        time-tracking system or an ERP.
       </Field>
     </dl>
   );

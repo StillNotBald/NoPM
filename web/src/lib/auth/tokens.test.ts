@@ -128,14 +128,13 @@ describe("hasScope", () => {
 // D2 (2026-10-16): wildcards never grant a privileged (approve/decide) scope
 // ---------------------------------------------------------------------------
 describe("hasScope — wildcards never grant privileged scopes (D2)", () => {
-  it("PRIVILEGED_SCOPES is exactly the five checker verbs", () => {
+  it("PRIVILEGED_SCOPES is exactly the four checker verbs", () => {
     expect([...PRIVILEGED_SCOPES].sort()).toEqual(
       [
         "change:decide",
         "project:delete:approve",
         "rebaseline:approve",
         "task:delete:approve",
-        "time:approve",
       ].sort(),
     );
   });

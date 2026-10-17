@@ -438,7 +438,6 @@ for (const [i, proj] of projects.entries()) {
   });
   await ins("expenses", { workspace_id: W, project_id: proj.id, description: "Vendor licences", amount: committed * 0.3, category: "Software", incurred_on: days(-20) });
   await ins("expenses", { workspace_id: W, project_id: proj.id, description: "Professional services (integration partner)", amount: committed * 0.22, category: "Services", incurred_on: days(-12) });
-  await ins("time_entries", { workspace_id: W, project_id: proj.id, member_id: members[i % members.length].id, entry_date: days(-5), hours: 120, cost: 120 * people[i % people.length].cost_rate, note: "Sprint effort" });
 }
 console.log("budgets done");
 

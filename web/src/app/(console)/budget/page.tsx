@@ -28,11 +28,6 @@ interface Project {
   baseline_target_date: string | null;
 }
 
-interface TimeEntryRow {
-  project_id: string;
-  cost: number;
-}
-
 interface ExpenseRow {
   project_id: string;
   amount: number;
@@ -143,22 +138,6 @@ export default async function BudgetPage() {
     budgetByProject[b.project_id] = b;
   }
 
-  // Fetch time_entries grouped — sum cost per project
-  const { data: timeEntries, error: timeError } = await db
-    .from("time_entries")
-    .select("project_id, cost")
-    .in("project_id", projectIds);
-
-  if (timeError) return <QueryError what="time entries" message={timeError.message} />;
-
-  const timeEntryCostByProject: Record<string, number> = {};
-  for (const te of (timeEntries ?? []) as TimeEntryRow[]) {
-    if (te.cost != null) {
-      timeEntryCostByProject[te.project_id] =
-        (timeEntryCostByProject[te.project_id] ?? 0) + te.cost;
-    }
-  }
-
   // Fetch expenses grouped — sum amount per project
   const { data: expenses, error: expenseError } = await db
     .from("expenses")
@@ -182,9 +161,8 @@ export default async function BudgetPage() {
       budget?.currency ?? project.currency ?? "USD";
     const planned = budget?.planned_amount ?? 0;
     const committed = budget?.committed_amount ?? 0;
-    const timeCost = timeEntryCostByProject[project.id] ?? 0;
     const expenseCost = expensesByProject[project.id] ?? 0;
-    const actual = timeCost + expenseCost;
+    const actual = expenseCost;
     const variance = planned - actual;
     const burnPct = planned > 0 ? (actual / planned) * 100 : 0;
     const completionPct = project.completion_pct ?? 0;
@@ -290,7 +268,7 @@ export default async function BudgetPage() {
   });
 
   const csvHeader = [
-    "Project", "Currency", "Planned", "Committed", "Actual", "Variance", "Burn %", "Completion %", "CPI", "SPI", "EAC", "VAC",
+    "Project", "Currency", "Planned", "Committed", "Actual (expenses)", "Variance", "Burn %", "Completion %", "CPI", "SPI", "EAC", "VAC",
   ];
   const csvRows = rows.map((r) => [
     r.projectName, r.currency, r.planned, r.committed, r.actual, r.variance,
@@ -320,7 +298,7 @@ export default async function BudgetPage() {
       <div className="grid grid-cols-2 gap-3 max-[359px]:grid-cols-1 sm:gap-4 lg:grid-cols-5 print:grid-cols-5">
         <KpiTile label="Planned" value={allSameCurrency ? fmt(totalPlanned, totalCurrency) : "—"} />
         <KpiTile label="Committed" value={allSameCurrency ? fmt(totalCommitted, totalCurrency) : "—"} />
-        <KpiTile label="Actual spend" value={allSameCurrency ? fmt(totalActual, totalCurrency) : "—"} />
+        <KpiTile label="Actual (expenses)" value={allSameCurrency ? fmt(totalActual, totalCurrency) : "—"} />
         <KpiTile
           label="Variance"
           value={allSameCurrency ? `${totalVariance < 0 ? "-" : "+"}${fmt(Math.abs(totalVariance), totalCurrency)}` : "—"}

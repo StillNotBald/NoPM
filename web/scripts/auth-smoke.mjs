@@ -39,7 +39,7 @@ const pages = [
   "/dashboard", "/my-work", "/my-tasks", "/tasks", "/sprints", "/mainline", "/portfolio", "/review", "/projects",
   ...(proj ? [`/projects/${proj.id}`] : []),
   "/documents", "/change-control", "/decisions", "/risks", "/issues", "/clashes",
-  "/budget", "/resources", "/timesheets", "/approvals", "/baselines", "/trust", "/tokens", "/case-study",
+  "/budget", "/resources", "/approvals", "/baselines", "/trust", "/tokens", "/case-study",
 ];
 
 let pass = 0, fail = 0;

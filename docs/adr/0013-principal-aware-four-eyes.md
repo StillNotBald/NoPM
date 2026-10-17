@@ -92,3 +92,5 @@ These come from the same review and are not separate decisions:
 
 - ADR 0006 (atomic deletion and scope registry), ADR 0012 (integration hub fan-out boundary).
 - UC-08 (timesheets), UC-10 (change requests), UC-12 (four-eyes deletion), UC-17 (scoped tokens and agent operation).
+
+> **Update 2026-10-17 (owner decision 18):** the timesheet flow and the `time:approve` scope named above no longer exist (hour logging was removed). The principal rule is unchanged for deletions, change requests and rebaselines. `timesheet_submissions` keeps its columns and rows but nothing writes to it.

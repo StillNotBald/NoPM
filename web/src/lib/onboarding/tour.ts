@@ -41,7 +41,7 @@ export function tourItems(firstProjectHref?: string): TourItem[] {
     {
       id: "review-queue",
       title: "Review Queue",
-      caption: "Four-eyes decisions, including timesheet approvals.",
+      caption: "Four-eyes decisions on deletions and change requests.",
       href: "/review",
     },
     {

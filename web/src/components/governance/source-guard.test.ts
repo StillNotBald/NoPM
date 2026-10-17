@@ -99,7 +99,7 @@ describe("four-eyes is decided by person, on the server", () => {
 
   it("the review gatherer computes a verdict for every decision kind", () => {
     const gather = read("lib/review/gather.ts");
-    expect(gather.match(/judgeDecision\(/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(gather.match(/judgeDecision\(/g)?.length).toBeGreaterThanOrEqual(2);
   });
 
   it("the shared note, not a private banner, states the rule in the inspectors and on /approvals", () => {

@@ -12,7 +12,6 @@ import {
   Zap,
   Users,
   Wallet,
-  Clock,
   ListChecks,
   GitPullRequest,
   Gavel,
@@ -57,7 +56,6 @@ export const ROUTE_LABELS: Record<string, string> = {
   clashes: "Clashes",
   resources: "Resources",
   budget: "Budget",
-  timesheets: "Timesheets",
   review: "Review",
   "change-control": "Change Control",
   baselines: "Baselines",
@@ -123,7 +121,7 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     label: "Capacity",
-    items: [item("/resources", Users), item("/budget", Wallet), item("/timesheets", Clock)],
+    items: [item("/resources", Users), item("/budget", Wallet)],
   },
   {
     label: "Governance",

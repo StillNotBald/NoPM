@@ -64,7 +64,7 @@ export type PortfolioReport = {
 export async function gatherPortfolio(workspaceId: string): Promise<PortfolioReport> {
   const db = createAdminClient();
 
-  const [ws, projects, budgets, timeAgg, expenseAgg, risks, issues, clashes, milestones] =
+  const [ws, projects, budgets, expenseAgg, risks, issues, clashes, milestones] =
     await Promise.all([
       db.from("workspaces").select("name").eq("id", workspaceId).maybeSingle(),
       db
@@ -75,11 +75,6 @@ export async function gatherPortfolio(workspaceId: string): Promise<PortfolioRep
       db
         .from("project_budget")
         .select("project_id,planned_amount,committed_amount")
-        .eq("workspace_id", workspaceId),
-      // Aggregate actual labour cost per project
-      db
-        .from("time_entries")
-        .select("project_id,cost")
         .eq("workspace_id", workspaceId),
       // Aggregate expenses per project
       db
@@ -120,10 +115,6 @@ export async function gatherPortfolio(workspaceId: string): Promise<PortfolioRep
   for (const p of rows) nameMap[p.id] = p.name;
 
   // Aggregate AC per project
-  const labourAc: Record<string, number> = {};
-  for (const te of timeAgg.data ?? []) {
-    labourAc[te.project_id] = (labourAc[te.project_id] ?? 0) + Number(te.cost);
-  }
   const expenseAc: Record<string, number> = {};
   for (const ex of expenseAgg.data ?? []) {
     expenseAc[ex.project_id] = (expenseAc[ex.project_id] ?? 0) + Number(ex.amount);
@@ -140,7 +131,7 @@ export async function gatherPortfolio(workspaceId: string): Promise<PortfolioRep
 
   const evmTable: EvmTableRow[] = rows.map((p) => {
     const budget = budgetMap[p.id] ?? { planned_amount: 0, committed_amount: 0 };
-    const actual_amount = (labourAc[p.id] ?? 0) + (expenseAc[p.id] ?? 0);
+    const actual_amount = expenseAc[p.id] ?? 0;
     const evm: EvmResult = computeEvm({
       planned_amount: budget.planned_amount,
       committed_amount: budget.committed_amount,
@@ -234,7 +225,7 @@ export async function gatherProject(
 ): Promise<ProjectReport | null> {
   const db = createAdminClient();
 
-  const [ws, projectRes, budget, timeAgg, expenseAgg, risks, issues, milestones] =
+  const [ws, projectRes, budget, expenseAgg, risks, issues, milestones] =
     await Promise.all([
       db.from("workspaces").select("name").eq("id", workspaceId).maybeSingle(),
       db
@@ -249,11 +240,6 @@ export async function gatherProject(
         .eq("project_id", projectId)
         .eq("workspace_id", workspaceId)
         .maybeSingle(),
-      db
-        .from("time_entries")
-        .select("cost")
-        .eq("project_id", projectId)
-        .eq("workspace_id", workspaceId),
       db
         .from("expenses")
         .select("amount")
@@ -289,9 +275,8 @@ export async function gatherProject(
   const p = projectRes.data;
   const planned_amount = Number(budget.data?.planned_amount ?? 0);
   const committed_amount = Number(budget.data?.committed_amount ?? 0);
-  const labourAc = (timeAgg.data ?? []).reduce((s, t) => s + Number(t.cost), 0);
   const expenseAcSum = (expenseAgg.data ?? []).reduce((s, e) => s + Number(e.amount), 0);
-  const actual_amount = labourAc + expenseAcSum;
+  const actual_amount = expenseAcSum;
 
   const evm = computeEvm({
     planned_amount,

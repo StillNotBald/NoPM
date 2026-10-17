@@ -16,13 +16,12 @@
  */
 
 /** A governed request that a human can approve or reject from a chat card. */
-export type ApprovalKind = "task_deletion" | "project_deletion" | "change_request" | "timesheet";
+export type ApprovalKind = "task_deletion" | "project_deletion" | "change_request";
 
 export const APPROVAL_KINDS: readonly ApprovalKind[] = [
   "task_deletion",
   "project_deletion",
   "change_request",
-  "timesheet",
 ];
 
 export type ApprovalRef = { kind: ApprovalKind; id: string };
@@ -31,11 +30,11 @@ export type ApprovalRef = { kind: ApprovalKind; id: string };
 export type ApprovalEvent = {
   workspaceId: string;
   kind: ApprovalKind;
-  /** deletion_requests.id / change_requests.id / timesheet_submissions.id */
+  /** deletion_requests.id / change_requests.id */
   id: string;
   /** One-line human summary, e.g. `Delete task "Migrate billing DB"`. */
   title: string;
-  /** Optional longer context (reason, rationale, hours). Plain text. */
+  /** Optional longer context (reason, rationale). Plain text. */
   summary?: string | null;
   projectId?: string | null;
   projectName?: string | null;
@@ -48,7 +47,7 @@ export type ApprovalEvent = {
    * `updated_at`, which the table's trigger bumps on every edit. The card's
    * action token is bound to it, so a card describing an OLD version can never
    * approve a request that has been edited since (the bait-and-switch). EVERY
-   * emitter of a change request or timesheet event stamps it from the row the
+   * emitter of a change request event stamps it from the row the
    * content was read from; the hub never substitutes the version current at
    * send time (the card would then bind buttons to content it does not show), so
    * a queued card for such a kind without one fails instead of being sent.

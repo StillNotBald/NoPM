@@ -36,29 +36,18 @@ export const GET = route(async ({ actor, params }) => {
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
 
-  // Compute actuals from time_entries and expenses
-  const [timeResult, expenseResult] = await Promise.all([
-    db
-      .from("time_entries")
-      .select("cost")
-      .eq("project_id", projectId)
-      .eq("workspace_id", actor.workspaceId),
-    db
-      .from("expenses")
-      .select("amount")
-      .eq("project_id", projectId)
-      .eq("workspace_id", actor.workspaceId),
-  ]);
+  // Actual = expenses only (hour logging was removed; time_entries is no longer read)
+  const expenseResult = await db
+    .from("expenses")
+    .select("amount")
+    .eq("project_id", projectId)
+    .eq("workspace_id", actor.workspaceId);
 
-  const timeCost = (timeResult.data ?? []).reduce(
-    (sum: number, row: { cost: number | null }) => sum + (row.cost ?? 0),
-    0,
-  );
   const expenseTotal = (expenseResult.data ?? []).reduce(
     (sum: number, row: { amount: number | null }) => sum + (row.amount ?? 0),
     0,
   );
-  const actual = timeCost + expenseTotal;
+  const actual = expenseTotal;
 
   const planned = budget?.planned_amount ?? 0;
   const variance = planned - actual;

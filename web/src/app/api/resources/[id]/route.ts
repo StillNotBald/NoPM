@@ -6,7 +6,6 @@ import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { patchResourceSchema } from "../_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
-import { weekLockRuleError } from "@/lib/governance/period-lock";
 
 export const runtime = "nodejs";
 
@@ -92,10 +91,10 @@ export const DELETE = route(async ({ actor, params }) => {
   if (fetchError) throw fetchError;
   if (!existing) throw new NotFoundError("Resource member not found");
 
-  // time_entries and timesheet_submissions both cascade from the member, so a
-  // delete would erase the member's hours AND the submit/approve/reject record
-  // of every sheet in one "resource.delete" audit row. A member who has ever had
-  // a sheet is part of the approval history: refuse rather than erase it.
+  // Archived time_entries / timesheet_submissions (hour logging was removed but
+  // the data was kept) both cascade from the member, so a delete would erase the
+  // member's hours AND the approval record of every sheet. A member who has ever
+  // had a sheet is part of the approval history: refuse rather than erase it.
   const { data: sheets, error: sheetsError } = await db
     .from("timesheet_submissions")
     .select("id")
@@ -106,7 +105,7 @@ export const DELETE = route(async ({ actor, params }) => {
   if (sheetsError) throw sheetsError;
   if (sheets && sheets.length > 0) {
     throw new RuleError(
-      "This member has timesheet records (submitted, approved or rejected weeks) and cannot be deleted — their approval history would be erased with them.",
+      "This member has archived hours from before hour logging was removed. They are kept for the record, so the member can't be deleted — remove their allocations instead.",
       "has_timesheet_records",
     );
   }
@@ -117,9 +116,7 @@ export const DELETE = route(async ({ actor, params }) => {
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId);
 
-  // The cascade to time_entries trips the week-lock triggers (P0011 / P0012) if
-  // a sheet appeared since the check above: a clean 422, not a 500.
-  if (deleteError) throw weekLockRuleError(deleteError) ?? deleteError;
+  if (deleteError) throw deleteError;
 
   await writeAudit({
     workspaceId: actor.workspaceId,

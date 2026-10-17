@@ -1,5 +1,5 @@
 /**
- * Governed-lifecycle guards at the HTTP edge (red-team R1: H1, H2, H3, M1-M4).
+ * Governed-lifecycle guards at the HTTP edge (red-team R1: H1, H3, M2-M4).
  *
  * Drives the real route handlers (wrapped by route()) with an in-memory admin
  * client, one describe block per finding. The database twins of these rules
@@ -14,7 +14,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
-import { timesheetContentDigest } from "@/lib/governance/timesheet-decision";
 
 const { holder, emitted, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -44,10 +43,6 @@ vi.mock("@/lib/auth/guard", async (importOriginal) => {
 
 import { PATCH as patchProject, DELETE as deleteProject } from "./projects/[id]/route";
 import { POST as createProject } from "./projects/route";
-import { POST as postTimeEntry } from "./time-entries/route";
-import { DELETE as deleteTimeEntry } from "./time-entries/[id]/route";
-import { POST as submitTimesheet } from "./timesheet-submissions/route";
-import { POST as decideTimesheet } from "./timesheet-submissions/[id]/decision/route";
 import { POST as raiseChange } from "./projects/[id]/change-requests/route";
 import { PATCH as patchChange, DELETE as deleteChange } from "./change-requests/[id]/route";
 import { POST as raiseRebaseline } from "./projects/[id]/rebaselines/route";
@@ -71,9 +66,6 @@ const SCOPES = [
   "project:delete:approve",
   "change:write",
   "change:decide",
-  "time:write",
-  "time:submit",
-  "time:approve",
   "rebaseline:approve",
 ];
 
@@ -99,7 +91,7 @@ function pat(id: string, owner: string | null, scopes: string[] = SCOPES): Actor
     workspaceId: WS,
     scopes,
     principalId: owner,
-    // D-17: the human behind these test tokens is an admin (time-entry ownership rule).
+    // The human behind these test tokens is an admin.
     principalRole: "admin",
     channel: "api",
     requestId: `req-${id}`,
@@ -112,34 +104,6 @@ const bobPat = () => pat("tok-bob", BOB);
 const orphanPat = () => pat("tok-orphan", null);
 
 let db: FakeDb;
-
-const WEEK = { period_start: "2026-10-12", period_end: "2026-10-18" };
-
-function entries(): Row[] {
-  return [
-    { id: "te-1", workspace_id: WS, member_id: MEMBER, project_id: PROJECT, entry_date: "2026-10-13", hours: 8, billable: true },
-    { id: "te-2", workspace_id: WS, member_id: MEMBER, project_id: PROJECT, entry_date: "2026-10-14", hours: 6.5, billable: true },
-  ];
-}
-
-function sheet(over: Row = {}): Row {
-  return {
-    id: "ts-1",
-    workspace_id: WS,
-    member_id: MEMBER,
-    ...WEEK,
-    hours_total: 14.5,
-    entry_count: 2,
-    content_digest: timesheetContentDigest(entries() as never),
-    status: "submitted",
-    reopened_at: null,
-    submitted_by: ALICE,
-    submitted_by_type: "user",
-    submitted_by_label: "Alice",
-    submitted_principal_id: ALICE,
-    ...over,
-  };
-}
 
 function seed(): FakeDb {
   return new FakeDb({
@@ -159,13 +123,11 @@ function seed(): FakeDb {
     ],
     tasks: [{ id: "task-1", workspace_id: WS, name: "Migrate billing DB", project_id: PROJECT }],
     resource_members: [{ id: MEMBER, workspace_id: WS, name: "Casey Member", cost_rate: 10, profile_id: null }],
-    time_entries: entries(),
     profiles: [
       { id: ALICE, workspace_id: WS, role: "admin" },
       { id: BOB, workspace_id: WS, role: "manager" },
       { id: STRANGER, workspace_id: OTHER_WS, role: "admin" },
     ],
-    timesheet_submissions: [sheet()],
     change_requests: [
       {
         id: "cr-1",
@@ -318,148 +280,6 @@ describe("H1 — owner_id must belong to the caller's workspace", () => {
   });
 });
 
-// ── H2: timesheet approval is bound to what was reviewed ──────────────────
-
-const newEntry = (over: Row = {}) => ({
-  member_id: MEMBER,
-  project_id: PROJECT,
-  entry_date: "2026-10-15",
-  hours: 40,
-  ...over,
-});
-
-describe("H2 — a week under review is frozen", () => {
-  it("a SUBMITTED sheet blocks adding an entry (422 timesheet_locked) — the 8h -> 48h case", async () => {
-    const res = await call(postTimeEntry, alicePat(), "x", newEntry());
-    await expectRule(res, "timesheet_locked");
-    expect(db.rows("time_entries")).toHaveLength(2);
-  });
-
-  it("...and deleting one", async () => {
-    const res = await call(deleteTimeEntry, alicePat(), "te-1", undefined, "DELETE");
-    await expectRule(res, "timesheet_locked");
-    expect(db.rows("time_entries")).toHaveLength(2);
-  });
-
-  it("an APPROVED sheet keeps its period_locked code", async () => {
-    db.tables.timesheet_submissions = [sheet({ status: "approved", decided_by: BOB, decided_principal_id: BOB })];
-    await expectRule(await call(postTimeEntry, alicePat(), "x", newEntry()), "period_locked");
-    await expectRule(await call(deleteTimeEntry, alicePat(), "te-1", undefined, "DELETE"), "period_locked");
-  });
-
-  it("another week is unaffected", async () => {
-    const res = await call(postTimeEntry, alicePat(), "x", newEntry({ entry_date: "2026-10-20" }));
-    expect(res.status).toBe(201);
-  });
-
-  it("a REJECTED sheet unlocks the week (the member edits and resubmits)", async () => {
-    db.tables.timesheet_submissions = [sheet({ status: "rejected" })];
-    expect((await call(postTimeEntry, alicePat(), "x", newEntry())).status).toBe(201);
-  });
-
-  it("a REOPENED sheet allows edits — reopen is the governed unlock verb", async () => {
-    db.tables.timesheet_submissions = [sheet({ reopened_at: "2026-10-20T00:00:00Z" })];
-    expect((await call(postTimeEntry, alicePat(), "x", newEntry())).status).toBe(201);
-    expect((await call(deleteTimeEntry, alicePat(), "te-1", undefined, "DELETE")).status).toBe(204);
-  });
-
-  it("the full reopen path: reopen stamps reopened_at, then the same week takes edits", async () => {
-    db.tables.timesheet_submissions = [sheet({ status: "approved", decided_by: BOB, decided_principal_id: BOB })];
-    await expectRule(await call(postTimeEntry, alicePat(), "x", newEntry()), "period_locked");
-
-    const reopened = await call(decideTimesheet, bobPat(), "ts-1", { decision: "reopened", rationale: "missed a day" });
-    expect(reopened.status).toBe(200);
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({ status: "submitted" });
-    expect(db.rows("timesheet_submissions")[0].reopened_at).toEqual(expect.any(String));
-
-    expect((await call(postTimeEntry, alicePat(), "x", newEntry({ hours: 2 }))).status).toBe(201);
-  });
-});
-
-describe("H2 — the approval is bound to the submitted content", () => {
-  it("submit records the totals AND a digest of the entries", async () => {
-    db.tables.timesheet_submissions = [];
-    const res = await call(submitTimesheet, alicePat(), "x", { member_id: MEMBER, period_start: "2026-10-12" });
-    expect(res.status).toBe(201);
-    expect(db.rows("timesheet_submissions")[0]).toMatchObject({
-      hours_total: 14.5,
-      entry_count: 2,
-      content_digest: timesheetContentDigest(entries() as never),
-    });
-  });
-
-  it("approving a sheet whose entries were ADDED behind the lock is a 422 timesheet_changed and stays submitted", async () => {
-    // Simulates a bypass of the entry lock (a direct write): the approval must still not go through.
-    db.rows("time_entries").push({ id: "te-3", workspace_id: WS, member_id: MEMBER, project_id: PROJECT, entry_date: "2026-10-15", hours: 40, billable: true });
-    const res = await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" });
-    await expectRule(res, "timesheet_changed");
-    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("...and so is a swap that keeps hours and count the same", async () => {
-    db.rows("time_entries")[0].project_id = "55555555-5555-4555-8555-555555555555";
-    await expectRule(await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" }), "timesheet_changed");
-  });
-
-  it("the C2.2 attack: approver reopens, edits the member's hours themself, re-approves -> 422 timesheet_changed", async () => {
-    db.tables.timesheet_submissions = [sheet({ status: "approved", decided_by: BOB, decided_principal_id: BOB })];
-    await call(decideTimesheet, bobPat(), "ts-1", { decision: "reopened", rationale: "fix" });
-    expect((await call(postTimeEntry, bobPat(), "x", newEntry({ hours: 30 }))).status).toBe(201);
-
-    await expectRule(await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" }), "timesheet_changed");
-    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
-  });
-
-  it("a reopened sheet nobody touched can be re-approved", async () => {
-    db.tables.timesheet_submissions = [sheet({ status: "approved", decided_by: BOB, decided_principal_id: BOB })];
-    await call(decideTimesheet, bobPat(), "ts-1", { decision: "reopened", rationale: "double check" });
-    expect((await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" })).status).toBe(200);
-    expect(db.rows("timesheet_submissions")[0].status).toBe("approved");
-  });
-
-  it("an unchanged sheet approves normally; rejecting never needs the content check", async () => {
-    expect((await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" })).status).toBe(200);
-
-    db.tables.timesheet_submissions = [sheet()];
-    db.rows("time_entries").push({ id: "te-3", workspace_id: WS, member_id: MEMBER, project_id: PROJECT, entry_date: "2026-10-15", hours: 40, billable: true });
-    expect((await call(decideTimesheet, bobPat(), "ts-1", { decision: "rejected", rationale: "too many hours" })).status).toBe(200);
-  });
-});
-
-describe("cross-tenant ids on time entries and timesheet submissions are refused", () => {
-  const FOREIGN_TASK = "66666666-6666-4666-8666-666666666666";
-  const FOREIGN_MEMBER = "77777777-7777-4777-8777-777777777777";
-  const FOREIGN_PROJECT = "88888888-8888-4888-8888-888888888888";
-
-  beforeEach(() => {
-    db.rows("tasks").push({ id: FOREIGN_TASK, workspace_id: OTHER_WS, name: "Theirs", project_id: "other-proj" });
-    db.rows("resource_members").push({ id: FOREIGN_MEMBER, workspace_id: OTHER_WS, name: "Not ours", cost_rate: 1 });
-    db.rows("projects").push({ id: FOREIGN_PROJECT, workspace_id: OTHER_WS, name: "Theirs", default_billable: true });
-  });
-
-  it("time entry: a foreign task_id is a 422 invalid_reference", async () => {
-    const res = await call(postTimeEntry, alicePat(), "x", newEntry({ entry_date: "2026-10-20", task_id: FOREIGN_TASK }));
-    await expectRule(res, "invalid_reference");
-    expect(db.rows("time_entries")).toHaveLength(2);
-  });
-
-  it("time entry: a foreign member_id or project_id is a 404 (the route's own workspace-filtered lookup)", async () => {
-    for (const over of [{ member_id: FOREIGN_MEMBER }, { project_id: FOREIGN_PROJECT }]) {
-      const res = await call(postTimeEntry, alicePat(), "x", newEntry({ entry_date: "2026-10-20", ...over }));
-      expect(res.status, JSON.stringify(over)).toBe(404);
-    }
-    expect(db.rows("time_entries")).toHaveLength(2);
-  });
-
-  it("timesheet submit: a foreign member_id is a 404 and nothing is written", async () => {
-    db.tables.timesheet_submissions = [];
-    const res = await call(submitTimesheet, alicePat(), "x", { member_id: FOREIGN_MEMBER, period_start: "2026-10-12" });
-    expect(res.status).toBe(404);
-    expect(db.rows("timesheet_submissions")).toHaveLength(0);
-  });
-});
-
 // ── H3: an ownerless token cannot RAISE a governed request ────────────────
 
 describe("H3 — a token with no recorded owner cannot raise a governed request", () => {
@@ -476,12 +296,6 @@ describe("H3 — a token with no recorded owner cannot raise a governed request"
   it("change request raise", async () => {
     await expectNoPrincipal(await call(raiseChange, orphanPat(), PROJECT, { title: "Add APAC module" }));
     expect(db.rows("change_requests")).toHaveLength(1); // only the seeded one
-  });
-
-  it("timesheet submit", async () => {
-    db.tables.timesheet_submissions = [];
-    await expectNoPrincipal(await call(submitTimesheet, orphanPat(), "x", { member_id: MEMBER, period_start: "2026-10-12" }));
-    expect(db.rows("timesheet_submissions")).toHaveLength(0);
   });
 
   it("rebaseline proposal", async () => {
@@ -501,35 +315,6 @@ describe("H3 — a token with no recorded owner cannot raise a governed request"
     expect((await call(raiseChange, alicePat(), PROJECT, { title: "Add APAC module" })).status).toBe(201);
     expect((await call(raiseRebaseline, session(ALICE), PROJECT, { reason: "dates slipped" })).status).toBe(201);
     expect((await call(deleteProject, alicePat(), PROJECT, { reason: "cancelled" }, "DELETE")).status).toBe(202);
-  });
-});
-
-// ── M1: the person whose hours they are cannot decide the sheet ───────────
-
-describe("M1 — timesheet subject cannot decide their own hours", () => {
-  beforeEach(() => {
-    // Bob is the worker behind MEMBER; Alice's session submitted the sheet.
-    db.rows("resource_members")[0].profile_id = BOB;
-  });
-
-  it("approve, reject and reopen are all 403 self_approval for the subject (session or own PAT)", async () => {
-    for (const actor of [session(BOB), bobPat()]) {
-      await expectRule(await call(decideTimesheet, actor, "ts-1", { decision: "approved" }), "self_approval", 403);
-      await expectRule(await call(decideTimesheet, actor, "ts-1", { decision: "rejected", rationale: "no" }), "self_approval", 403);
-    }
-    db.tables.timesheet_submissions = [sheet({ status: "approved", decided_by: ALICE, decided_principal_id: ALICE })];
-    await expectRule(await call(decideTimesheet, session(BOB), "ts-1", { decision: "reopened", rationale: "x" }), "self_approval", 403);
-    expect(db.rows("audit_log")).toHaveLength(0);
-  });
-
-  it("a different human still decides it; so does anyone when the member has no linked login", async () => {
-    db.rows("resource_members")[0].profile_id = ALICE; // Alice is the worker — but she is also the submitter; use a third human
-    const third = pat("tok-carol", "77777777-7777-4777-8777-777777777777");
-    expect((await call(decideTimesheet, third, "ts-1", { decision: "approved" })).status).toBe(200);
-
-    db.tables.timesheet_submissions = [sheet()];
-    db.rows("resource_members")[0].profile_id = null;
-    expect((await call(decideTimesheet, bobPat(), "ts-1", { decision: "approved" })).status).toBe(200);
   });
 });
 
@@ -656,7 +441,7 @@ describe("M4 — project deletion cannot cascade over records added after the re
     await requestDeletion();
     const before = db.rows("deletion_requests")[0].before as Row;
     expect(before).toMatchObject({ id: PROJECT, name: "Billing Migration" });
-    expect(before.child_counts).toMatchObject({ tasks: 1, time_entries: 2, milestones: 0, risks: 0, change_requests: 1 });
+    expect(before.child_counts).toMatchObject({ tasks: 1, milestones: 0, risks: 0, change_requests: 1 });
     // ...and the audit row for the request carries the same snapshot.
     expect((db.rows("audit_log")[0].before as Row).child_counts).toEqual(before.child_counts);
   });

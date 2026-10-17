@@ -3,7 +3,7 @@ import type { Actor } from "@/lib/auth/guard";
 
 /**
  * Link-invite guard logic (L-47/L-48, D5/D6, f2b-specs.md). Extracted as
- * pure functions — same rationale as lib/governance/timesheet-decision.ts —
+ * pure functions
  * so the role-escalation cap and the accept-flow error mapping are
  * unit-testable without a live database or a real auth session.
  */

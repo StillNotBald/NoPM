@@ -83,16 +83,13 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "clash.auto_resolve", description: "A clash was resolved automatically because the conflict no longer exists" },
   { action: "clash.update", description: "A clash was updated" },
   { action: "clash.delete", description: "A clash was deleted" },
-  // Resources, time, budget
+  // Resources, budget
   { action: "resource.create", description: "A resource was added" },
   { action: "resource.update", description: "A resource was updated" },
   { action: "resource.delete", description: "A resource was removed" },
   { action: "allocation.create", description: "A resource allocation was created" },
   { action: "allocation.update", description: "A resource allocation was changed" },
   { action: "allocation.delete", description: "A resource allocation was removed" },
-  { action: "time.create", description: "A time entry was logged" },
-  { action: "time.delete", description: "A time entry was deleted" },
-  { action: "timesheet.submitted", description: "A timesheet was submitted" },
   { action: "expense.create", description: "An expense was recorded" },
   { action: "expense.delete", description: "An expense was deleted" },
   { action: "budget.update", description: "A project budget was changed" },

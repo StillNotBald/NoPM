@@ -182,7 +182,7 @@ async function verifyBearer(raw: string, headers: Headers = new Headers()): Prom
   // A token is its creator's delegate: when that person's profile no longer
   // exists in this workspace the token stops working (D-ACC-2 / A1-4 / A2-6).
   // Legacy tokens with no recorded creator (created_by null) keep working but
-  // can never approve or log/delete hours (R-10: fail-closed by design; re-mint
+  // can never approve (R-10: fail-closed by design; re-mint
   // such a token to give it a principal). This lookup also yields the creator's CURRENT role
   // (principalRole). Calendar feeds are deliberately NOT checked (decision 9).
   let principalRole: string | null = null;

@@ -2,7 +2,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ApiError, NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import { hashToken } from "@/lib/auth/tokens";
 import type { Actor } from "@/lib/auth/guard";
-import { changeRequestEvent, decideApproval, timesheetEvent } from "@/lib/governance/decide";
+import { changeRequestEvent, decideApproval } from "@/lib/governance/decide";
 import { readRequest, sameVersion } from "@/lib/integrations/deliveries";
 import { runApprovalChanged, schedule } from "@/lib/integrations/emit";
 import { externalActorRef } from "@/lib/integrations/identity";
@@ -432,7 +432,7 @@ async function refuseChanged(
  * Re-issue the cards for a request whose card was just refused as stale: build
  * the event from the request as it reads NOW and run the same path an explicit
  * edit takes (retire the old tokens, patch the old cards, send fresh ones).
- * Only change requests and timesheets carry a version; anything no longer
+ * Only change requests carry a version; anything no longer
  * pending is left alone.
  */
 export async function reissueAfterChange(workspaceId: string, ref: { kind: ApprovalKind; id: string }): Promise<void> {
@@ -448,18 +448,6 @@ export async function reissueAfterChange(workspaceId: string, ref: { kind: Appro
     const row = data as ({ status: string; updated_at?: string | null } & Record<string, unknown>) | null;
     if (!row || !["raised", "under_review"].includes(row.status)) return;
     const ev = await changeRequestEvent(db, workspaceId, row as never);
-    await runApprovalChanged({ ...ev, version: row.updated_at ?? null });
-  } else if (ref.kind === "timesheet") {
-    const { data, error } = await db
-      .from("timesheet_submissions")
-      .select("*")
-      .eq("id", ref.id)
-      .eq("workspace_id", workspaceId)
-      .maybeSingle();
-    if (error) throw error;
-    const row = data as ({ status: string; updated_at?: string | null } & Record<string, unknown>) | null;
-    if (!row || row.status !== "submitted") return;
-    const ev = await timesheetEvent(db, workspaceId, row as never);
     await runApprovalChanged({ ...ev, version: row.updated_at ?? null });
   }
 }

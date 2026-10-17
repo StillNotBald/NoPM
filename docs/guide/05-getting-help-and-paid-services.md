@@ -47,7 +47,7 @@ If you want a feature or a change that isn't in NoPM today, you can raise a paid
 - Anything that weakens **audit immutability**, for example, a way to edit or delete an existing audit log row, or a "soft delete" for audit rows.
 - Anything that weakens **workspace isolation**, for example, letting one workspace see another's data, even "just this once."
 - Anything that would let a write happen **without an audit record**. Every mutation writes exactly one audit row, and that is enforced automatically, not just by convention.
-- Anything that breaks **self-approval protection**. Every maker-checker flow in NoPM (task and project deletion, change-request decisions, timesheet approval, rebaseline sign-off) requires the approver to be a different person from the requester. A token counts as the person who minted it, so a token cannot approve a request its own person raised.
+- Anything that breaks **self-approval protection**. Every maker-checker flow in NoPM (task and project deletion, change-request decisions, rebaseline sign-off) requires the approver to be a different person from the requester. A token counts as the person who minted it, so a token cannot approve a request its own person raised.
 - A **bundled AI model** or a shared, non-BYOK API key for production use. NoPM's whole design is that you bring your own agent and your own model access; NoPM does not ship one.
 - **Real outbound email sending in the shared/demo environment** (self-hosted deployments already control their own email settings independently of this rule).
 - **A new hosting or infrastructure dependency without a written trade-off**, consistent with how the project already documents the reasoning behind its existing dependencies before adding one.

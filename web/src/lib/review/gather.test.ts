@@ -160,32 +160,17 @@ describe("gatherReviewItems — four-eyes verdict for the signed-in viewer", () 
     expect(byId["dr-theirs"]).toEqual({ canDecide: true, block: null, canWithdraw: false });
   });
 
-  it("refuses a change request the viewer raised, and a timesheet that is their own hours", async () => {
+  it("refuses a change request the viewer raised", async () => {
     const { db } = fakeDb({
-      resource_members: [{ id: "m-me", name: "Me", profile_id: "user-me" }],
       change_requests: [
         { id: "cr-mine", title: "Mine", status: "raised", requested_by: "user-me", created_at: daysAgo(1) },
         { id: "cr-theirs", title: "Theirs", status: "raised", requested_by: "user-other", created_at: daysAgo(1) },
-      ],
-      timesheet_submissions: [
-        {
-          id: "ts-1",
-          member_id: "m-me",
-          period_start: "2026-10-05",
-          hours_total: 38,
-          submitted_by: "user-other",
-          submitted_by_type: "user",
-          submitted_principal_id: "user-other",
-          submitted_by_label: "Other",
-          submitted_at: daysAgo(1),
-        },
       ],
     });
     const items = await gatherReviewItems(db, me);
     const decide = (id: string) => items.find((i) => i.id === id)?.decide;
     expect(decide("cr-mine")).toMatchObject({ canDecide: false, block: "you_raised" });
     expect(decide("cr-theirs")).toMatchObject({ canDecide: true });
-    expect(decide("ts-1")).toMatchObject({ canDecide: false, block: "your_hours" });
   });
 
   it("a viewer-role session is told it can view but not decide", async () => {

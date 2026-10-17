@@ -546,7 +546,6 @@ describe("pre-send request check", () => {
     ["task_deletion", "deletion_requests", "committed"],
     ["project_deletion", "deletion_requests", "rejected"],
     ["change_request", "change_requests", "approved"],
-    ["timesheet", "timesheet_submissions", "approved"],
   ] as const)("a %s card is superseded, with no token and no send, once the request is decided", async (kind, table, status) => {
     const queued = await queueCard({ approval_kind: kind });
     setStatus(table, status);
@@ -790,7 +789,6 @@ describe("content-version binding (approve what you saw)", () => {
 
   it.each([
     ["change_request", "change_requests"],
-    ["timesheet", "timesheet_submissions"],
   ] as const)(
     "a %s card whose event carries no version is never bound to the version current at mint time (it cannot show what it binds)",
     async (kind, table) => {
@@ -808,11 +806,12 @@ describe("content-version binding (approve what you saw)", () => {
     },
   );
 
-  it("binds a timesheet token to the submission's version too", async () => {
-    await queueCard({ ...versioned(V2), approval_kind: "timesheet" });
-    db.rows("timesheet_submissions")[0].updated_at = V2;
-    await drain();
-    expect(tokenRow().approval_version).toBe(V2);
+  it("a queued card of the retired timesheet kind is superseded, never sent and never crashes the drain", async () => {
+    const queued = await queueCard({ approval_kind: "timesheet" as never });
+    const s = await drain();
+    expect(s).toMatchObject({ claimed: 1, superseded: 1, sent: 0 });
+    expect(row(queued.id).status).toBe("superseded");
+    expect(fake.calls.sends).toHaveLength(0);
   });
 
   it("binds nothing for a deletion request, which has no editable content", async () => {
@@ -1127,7 +1126,7 @@ describe("sameVersion", () => {
 
   it("knows which kinds have a content version", () => {
     expect(isVersionedKind("change_request")).toBe(true);
-    expect(isVersionedKind("timesheet")).toBe(true);
+    expect(isVersionedKind("timesheet" as never)).toBe(false);
     expect(isVersionedKind("task_deletion")).toBe(false);
     expect(isVersionedKind("project_deletion")).toBe(false);
   });

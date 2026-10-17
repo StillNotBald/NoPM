@@ -132,34 +132,8 @@ describe("judgeDecision — change requests", () => {
   });
 });
 
-describe("judgeDecision — timesheets", () => {
-  const sheet = (over: Record<string, unknown> = {}) => ({
-    submitted_by: OTHER,
-    submitted_by_type: "user",
-    submitted_principal_id: OTHER,
-    ...over,
-  });
-
-  it("refuses the submitter", () => {
-    const row = sheet({ submitted_by: ME, submitted_principal_id: ME });
-    expect(judgeDecision({ viewer, kind: "timesheet", row })).toMatchObject({ canDecide: false, block: "you_raised" });
-  });
-
-  it("refuses the person whose hours these are, even when someone else submitted them", () => {
-    expect(judgeDecision({ viewer, kind: "timesheet", row: sheet(), subjectProfileId: ME })).toEqual({
-      canDecide: false,
-      block: "your_hours",
-      canWithdraw: false,
-    });
-  });
-
-  it("lets a third person decide", () => {
-    expect(judgeDecision({ viewer, kind: "timesheet", row: sheet(), subjectProfileId: "someone-else" }).canDecide).toBe(true);
-  });
-});
-
 describe("judgeDecision agrees with the agent-facing evaluateDecision (same verdict, never a button the API refuses)", () => {
-  const kinds: PendingKind[] = ["task_deletion", "project_deletion", "change_request", "timesheet"];
+  const kinds: PendingKind[] = ["task_deletion", "project_deletion", "change_request"];
   const requesters = [
     { requested_by_type: "user", requested_by_id: ME, requested_principal_id: ME },
     { requested_by_type: "user", requested_by_id: OTHER, requested_principal_id: OTHER },
@@ -172,10 +146,7 @@ describe("judgeDecision agrees with the agent-facing evaluateDecision (same verd
     for (const role of ["member", "manager", "admin", "viewer"]) {
       for (const [i, r] of requesters.entries()) {
         it(`${kind} / ${role} / requester #${i}`, () => {
-          const row =
-            kind === "timesheet"
-              ? { submitted_by: r.requested_by_id, submitted_by_type: r.requested_by_type, submitted_principal_id: r.requested_principal_id }
-              : r;
+          const row = r;
           const requester = requesterOf({ kind, row });
           if (!requester.principal && requester.type === "user") requester.principal = requester.id;
           const expected = evaluateDecision({

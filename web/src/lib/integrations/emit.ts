@@ -37,7 +37,7 @@ export function emitApprovalRequested(ev: ApprovalEvent): void {
 
 /**
  * Decided statuses that put the request back in front of approvers. A reopened
- * timesheet returns to "submitted": the old cards are closed out like any
+ * request returns to a pending status: the old cards are closed out like any
  * decision, and approvers get a FRESH card — the governed code emits only a
  * Decided event for a reopen, so the hub treats it as a re-request too.
  */
@@ -138,7 +138,7 @@ export async function runApprovalRequested(ev: ApprovalEvent, opts: { replacemen
   if (linked.length === 0) return;
 
   // A duplicate emit must not queue a second card for a recipient whose card
-  // is still open. (A re-raised request — e.g. a reopened timesheet — has no
+  // is still open. (A re-raised request — e.g. a reopened request — has no
   // open card left, because the decision closed the old one.)
   const alreadyOpen = await recipientsWithOpenCard(
     ev,

@@ -106,9 +106,8 @@ describe("gatherDigestData", () => {
   it("sums every kind of pending approval", async () => {
     db.seed("deletion_requests", [{ id: "1", workspace_id: WS, status: "pending" }, { id: "2", workspace_id: WS, status: "committed" }]);
     db.seed("change_requests", [{ id: "1", workspace_id: WS, status: "under_review" }, { id: "2", workspace_id: WS, status: "approved" }]);
-    db.seed("timesheet_submissions", [{ id: "1", workspace_id: WS, status: "submitted" }, { id: "2", workspace_id: WS, status: "approved" }]);
     db.seed("rebaselines", [{ id: "1", workspace_id: WS, status: "pending_approval" }, { id: "2", workspace_id: WS, status: "applied" }]);
-    expect((await gatherDigestData(WS, { now: NOW })).pendingApprovals).toBe(4);
+    expect((await gatherDigestData(WS, { now: NOW })).pendingApprovals).toBe(3);
   });
 
   it("degrades a failing section to empty/zero instead of failing the whole digest", async () => {

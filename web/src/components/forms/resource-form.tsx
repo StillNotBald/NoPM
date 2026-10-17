@@ -116,7 +116,7 @@ export function ResourceForm() {
       {/* Capacity & cost */}
       <FormSection title="Capacity & Cost">
         <FormGrid cols={2}>
-          <Field label="Cost Rate / hr" error={fieldErrors.cost_rate}>
+          <Field label="Cost Rate / hr" error={fieldErrors.cost_rate} hint="Used for planning only; actual cost comes from expenses.">
             <Input
               type="number"
               min={0}

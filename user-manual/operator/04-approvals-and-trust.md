@@ -49,7 +49,6 @@ The same rule (admins and managers only, never the person who raised it) applies
 
 - **Change requests:** approve, reject or defer, with a rationale (UC-10).
 - **Rebaselines:** sign off go or no go, then apply (on `/baselines`, see [`03-schedule-and-lock.md`](03-schedule-and-lock.md)).
-- **Timesheets:** approve, reject, or reopen a week.
 
 If you see "Only managers and admins can approve", ask an admin or manager to take the decision; nothing was changed.
 

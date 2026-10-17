@@ -1,5 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { changeRequestEvent, timesheetEvent, projectNameOf } from "@/lib/governance/decide";
+import { changeRequestEvent, projectNameOf } from "@/lib/governance/decide";
 import { runApprovalRequested } from "@/lib/integrations/emit";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import type { ApprovalEvent } from "@/lib/integrations/types";
@@ -80,22 +80,6 @@ export async function catchUpPendingApprovals(workspaceId: string): Promise<{ co
     if (error) throw error;
     const out: ApprovalEvent[] = [];
     for (const r of (data ?? []) as Row[]) out.push(await changeRequestEvent(db, workspaceId, r as never));
-    return out;
-  });
-
-  await collect("timesheets", async () => {
-    const { data, error } = await db
-      .from("timesheet_submissions")
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .eq("status", "submitted")
-      // A reopened sheet waits for the member to amend it, not for a decision.
-      .is("reopened_at", null)
-      .order("created_at", { ascending: true })
-      .limit(CATCH_UP_LIMIT_PER_KIND);
-    if (error) throw error;
-    const out: ApprovalEvent[] = [];
-    for (const r of (data ?? []) as Row[]) out.push(await timesheetEvent(db, workspaceId, r as never));
     return out;
   });
 

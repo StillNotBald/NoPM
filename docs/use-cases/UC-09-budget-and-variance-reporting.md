@@ -1,10 +1,10 @@
 # UC-09 · Budget tracking and variance reporting
 
-**Goal:** Track planned, committed, and actual cost for a project (labor plus expenses), and see variance and burn against plan without a spreadsheet.
+**Goal:** Track planned, committed, and actual cost for a project (actual = expenses only), and see variance and burn against plan without a spreadsheet.
 
 **Actors:** Finance / PMO, Project Manager. AI agent via token with `budget:read`/`budget:write` (read-only in the MCP tool catalogue — `get_budget` only, no write tool shipped).
 
-**Preconditions:** A project exists. Labor actuals depend on logged time entries (UC-08); expense actuals depend on recorded expenses.
+**Preconditions:** A project exists. Actuals come from recorded expenses only. Hour logging was removed on 2026-10-17 (owner decision 18), so there is no labor cost from hours x cost-rate.
 
 **Trigger:** A stakeholder needs to know whether a project is on budget, or PMO needs a portfolio-wide cost picture.
 
@@ -12,8 +12,8 @@
 
 1. Set or update the budget envelope: `PUT /api/projects/{id}/budget` (scope `budget:write`; `PATCH` is an alias for the same operation) with `planned_amount`, `committed_amount`, `currency`.
 2. Record project expenses: `POST /api/projects/{id}/expenses` (scope `budget:write`).
-3. Actual labor cost accrues automatically from time entries (UC-08) — each entry's cost is `hours * member.cost_rate`, snapshotted at log time.
-4. Read the rolled-up summary: `GET /api/projects/{id}/budget` (scope `budget:read`) returns `planned`, `committed`, `actual` (labor + expenses), `variance`, `burn_pct`.
+3. Actual cost is the sum of the project's expenses (no hours x cost-rate labor; UI label "Actual (expenses)").
+4. Read the rolled-up summary: `GET /api/projects/{id}/budget` (scope `budget:read`) returns `planned`, `committed`, `actual` (expenses only), `variance`, `burn_pct`.
 5. MCP: `get_budget` tool, scope `budget:read` — read-only; there is no MCP write tool for budget, so an agent can report on budget but not set it.
 
 ## Alternate and exception flows
@@ -29,7 +29,6 @@
 
 ## Reporting and evidence
 
-- The time report (UC-08) states its own reconciliation rule explicitly in its caption: totals match the labor actual exactly when the billable filter is off.
 - Program rollup cards (UC-01, R-71) show budget variance and actual-vs-planned cost per program, aggregating the child projects' budget summaries.
 - No `entity=budget` value is documented on `GET /api/export`'s entity list `[UNVERIFIED]` — board-pack export of budget figures likely goes through the deck export (UC-14) rather than a raw CSV.
 - Deck export (`GET /reports/deck`, `GET /reports/project/{id}`, scope `audit:read`, `?format=pptx|pdf|html`) includes budget figures as part of the portfolio/project report (R-40).

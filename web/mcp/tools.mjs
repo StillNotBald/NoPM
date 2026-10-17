@@ -39,7 +39,6 @@ export const PENDING_APPROVAL_KINDS = [
   "task_deletion",
   "project_deletion",
   "change_request",
-  "timesheet",
   "rebaseline",
 ];
 
@@ -670,7 +669,7 @@ const RAW_TOOLS = [
     name: "list_pending_approvals",
     description:
       "List the governed decisions waiting on a human in this workspace, oldest first: task and " +
-      "project deletion requests, change requests (raised/under review), submitted timesheets, " +
+      "project deletion requests, change requests (raised/under review), " +
       "and rebaselines awaiting sign-off. Each item has can_decide plus reason_if_not " +
       "(missing scope, or four-eyes: the requester cannot decide their own request). READ-ONLY — " +
       "there is deliberately no approve/decide tool: a person decides in the console. Use this " +
@@ -840,22 +839,6 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
       path: `/api/rebaselines/${idSeg("rebaseline_id", args.rebaseline_id)}/apply`,
       method: "POST",
     }),
-  },
-  {
-    name: "submit_timesheet",
-    description:
-      "Submit a member's weekly timesheet for approval (scope: time:submit). period_start must be a Monday. The week " +
-      "locks while it is under review; an admin or manager other than the member decides it.",
-    parameters: {
-      type: "object",
-      properties: {
-        member_id: { type: "string", description: "Member (resource) UUID" },
-        period_start: { type: "string", description: "The Monday of the week, YYYY-MM-DD" },
-      },
-      required: ["member_id", "period_start"],
-      additionalProperties: false,
-    },
-    toRequest: (args) => ({ path: "/api/timesheet-submissions", method: "POST", body: args }),
   },
   {
     name: "create_decision",

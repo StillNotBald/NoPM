@@ -13,7 +13,7 @@
  *   changeControl change_requests raised|under_review, not requested by the actor
  *   decisions     decisions proposed
  *   review        the review-queue kinds with no dedicated page: rebaselines
- *                 pending_approval (not own), timesheets submitted (not own),
+ *                 pending_approval (not own),
  *                 open high/critical risks, unresolved clashes, documents in_review
  *
  * A failing query (including a not-yet-migrated table) counts as 0 so a
@@ -57,7 +57,7 @@ export async function getPendingCounts(
 ): Promise<PendingCounts> {
   const { userId, workspaceId } = actor;
 
-  const [approvals, changeControl, decisions, rebaselines, timesheets, risks, clashes, documents] =
+  const [approvals, changeControl, decisions, rebaselines, risks, clashes, documents] =
     await Promise.all([
       count(() =>
         head(db, "deletion_requests", workspaceId)
@@ -77,11 +77,6 @@ export async function getPendingCounts(
           .or(`requested_by.is.null,requested_by.neq.${userId}`),
       ),
       count(() =>
-        head(db, "timesheet_submissions", workspaceId)
-          .eq("status", "submitted")
-          .or(`submitted_by_type.neq.user,submitted_by.neq.${userId}`),
-      ),
-      count(() =>
         head(db, "risks", workspaceId)
           .in("severity", ["high", "critical"])
           .not("status", "in", '("closed","accepted")'),
@@ -90,6 +85,6 @@ export async function getPendingCounts(
       count(() => head(db, "documents", workspaceId).eq("status", "in_review")),
     ]);
 
-  const review = rebaselines + timesheets + risks + clashes + documents;
+  const review = rebaselines + risks + clashes + documents;
   return { review, approvals, changeControl, decisions, total: review + approvals + changeControl + decisions };
 }

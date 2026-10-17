@@ -298,7 +298,7 @@ describe("decided card", () => {
 
   it("colours and labels each status", () => {
     const tmpl = (status: string) =>
-      (buildDecidedCard({ ref: { kind: "timesheet", id: ID }, title: "t", status, appUrl: APP }).header as { template: string }).template;
+      (buildDecidedCard({ ref: { kind: "change_request", id: ID }, title: "t", status, appUrl: APP }).header as { template: string }).template;
     expect(tmpl("approved")).toBe("green");
     expect(tmpl("committed")).toBe("green");
     expect(tmpl("rejected")).toBe("red");
@@ -332,8 +332,7 @@ describe("links", () => {
     expect(deepLinkFor(APP, { kind: "change_request", id: ID })).toBe(`${APP}/change-control?cr=${ID}`);
     expect(deepLinkFor(APP, { kind: "task_deletion", id: ID })).toBe(`${APP}/approvals`);
     expect(deepLinkFor(APP, { kind: "project_deletion", id: ID })).toBe(`${APP}/approvals`);
-    expect(deepLinkFor(APP, { kind: "timesheet", id: ID })).toBe(`${APP}/timesheets`);
-    expect(deepLinkFor("", { kind: "timesheet", id: ID })).toBe("");
+    expect(deepLinkFor("", { kind: "change_request", id: ID })).toBe("");
   });
 
   it("normalises the base url and refuses non-http(s) schemes", () => {
@@ -362,7 +361,7 @@ describe("updatable (shared) cards", () => {
     const all: LarkCard[] = [
       buildApprovalRequestCard(deletionEvent, { actionToken: TOKEN, appUrl: APP }),
       buildApprovalRequestCard(changeEvent, { actionToken: TOKEN, appUrl: "" }),
-      buildDecidedCard({ ref: { kind: "timesheet", id: ID }, title: "t", status: "approved", appUrl: APP }),
+      buildDecidedCard({ ref: { kind: "change_request", id: ID }, title: "t", status: "approved", appUrl: APP }),
       buildDecisionUpdateCard(decidedEvent, { appUrl: APP }),
       buildDigestCard(digest),
       buildHelpCard(APP),

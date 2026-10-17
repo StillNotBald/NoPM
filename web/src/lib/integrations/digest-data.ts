@@ -86,13 +86,12 @@ export async function gatherDigestData(
       count("risks", (q) => q.in("severity", ["high", "critical"]).not("status", "in", '("closed","accepted")')),
     ),
     safe("approvals", 0, async () => {
-      const [deletions, changes, timesheets, rebaselines] = await Promise.all([
+      const [deletions, changes, rebaselines] = await Promise.all([
         count("deletion_requests", (q) => q.eq("status", "pending")),
         count("change_requests", (q) => q.in("status", ["raised", "under_review"])),
-        count("timesheet_submissions", (q) => q.eq("status", "submitted")),
         count("rebaselines", (q) => q.eq("status", "pending_approval")),
       ]);
-      return deletions + changes + timesheets + rebaselines;
+      return deletions + changes + rebaselines;
     }),
   ]);
 

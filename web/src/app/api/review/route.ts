@@ -17,7 +17,7 @@ export const runtime = "nodejs";
  * GET /api/review
  * "What is waiting for me?" — every governed decision currently pending in the
  * actor's workspace, oldest first, across deletion requests (task + project),
- * change requests (raised / under_review), timesheet submissions (submitted)
+ * change requests (raised / under_review)
  * and rebaselines (pending_approval). READ-ONLY: it exposes no way to decide
  * anything — each item says whether the caller `can_decide` it (scope +
  * four-eyes, by person) and `reason_if_not`, then the existing decision
@@ -25,12 +25,12 @@ export const runtime = "nodejs";
  *
  * Auth: any authenticated actor. A session user sees every kind; a Bearer
  * token sees the kinds it can read through each family's own list endpoint
- * (task:read | audit:read for deletions, change:read, time:read,
+ * (task:read | audit:read for deletions, change:read,
  * project:read) and `hidden_kinds` names the rest. A token holding none of
  * them gets 403. Query logic lives in @/lib/review/pending.
  *
  * Query: ?kind=<comma list of task_deletion|project_deletion|change_request|
- * timesheet|rebaseline> · ?page (default 1) · ?limit (1..200, default 50).
+ * rebaseline> · ?page (default 1) · ?limit (1..200, default 50).
  * Response: { data: PendingItem[], total, page, limit, hidden_kinds }.
  */
 export const GET = route(async ({ actor, request }) => {
