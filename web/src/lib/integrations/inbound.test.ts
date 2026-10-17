@@ -449,6 +449,13 @@ describe("never throws to the platform", () => {
   });
 });
 
+describe("mapDecisionError — a retired request kind (F10)", () => {
+  it("never shows the internal 'Unsupported approval kind' text; says the request is no longer handled here", () => {
+    const err = new RuleError("Unsupported approval kind: timesheet", "unsupported_kind");
+    expect(mapDecisionError(err)).toEqual({ status: "invalid", message: "This kind of request is no longer handled here. Open NoPM." });
+  });
+});
+
 describe("mapDecisionError", () => {
   it.each([
     [new ScopeError("Self-approval is not allowed (four-eyes)"), "self_approval"],

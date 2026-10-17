@@ -26,12 +26,45 @@ export type ConnectorHealth = {
   last_cron_at: string | null;
   /** Counts from that scheduler run. */
   last_cron: CronRunView | null;
+  /**
+   * False when the scheduler state table could not be read (migration 0051 not applied, or a
+   * lookup error). Then last_cron_at is null for that reason, not because the scheduler never ran.
+   */
+  cron_state_available: boolean;
+  /**
+   * True when the scheduler has not processed this connector for longer than SCHEDULER_STALE_MS
+   * (36 hours: a daily tick plus slack), counting from the connector's creation when it never has.
+   * Null when that cannot be told (the scheduler state is unavailable).
+   */
+  scheduler_stale: boolean | null;
 };
+
+/** A daily scheduler that has not touched a connector for this long has stopped. */
+export const SCHEDULER_STALE_MS = 36 * 60 * 60 * 1000;
+
+/** Whether the scheduler is overdue for a connector; null when the state is unknown. */
+export function isSchedulerStale(
+  lastCronAt: string | null,
+  cronStateAvailable: boolean,
+  connectorCreatedAt: string | null | undefined,
+  now: Date,
+): boolean | null {
+  if (!cronStateAvailable) return null;
+  const since = lastCronAt ?? connectorCreatedAt ?? null;
+  if (!since) return null;
+  const t = Date.parse(since);
+  if (Number.isNaN(t)) return null;
+  return now.getTime() - t > SCHEDULER_STALE_MS;
+}
 
 /**
  * Null when the lookup itself failed: "unknown" must never read as "0 dead".
  */
-export async function getConnectorHealth(workspaceId: string, connectorId: string): Promise<ConnectorHealth | null> {
+export async function getConnectorHealth(
+  workspaceId: string,
+  connectorId: string,
+  opts: { now?: Date; connectorCreatedAt?: string | null } = {},
+): Promise<ConnectorHealth | null> {
   const db = createAdminClient();
   const scoped = () => db.from("integration_deliveries").select("id", { count: "exact", head: true }).eq("workspace_id", workspaceId).eq("connector_id", connectorId);
   const count = async (status: string): Promise<number> => {
@@ -61,7 +94,10 @@ export async function getConnectorHealth(workspaceId: string, connectorId: strin
         .eq("connector_id", connectorId)
         .in("status", ["retry", "dead"])
         .not("last_error", "is", null)
-        .order("created_at", { ascending: false })
+        // The latest ATTEMPT, not the newest row: a retry row's next_attempt_at is its last attempt plus the
+        // backoff, and a dead row keeps the time its final attempt was due, so this orders by recency of
+        // failure. Creation time would show a weeks-old dead letter after many later successes.
+        .order("next_attempt_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
       db
@@ -74,6 +110,7 @@ export async function getConnectorHealth(workspaceId: string, connectorId: strin
     for (const r of [sent, failed]) if (r.error) throw r.error;
     // The scheduler record is the one optional part: a database that has not applied migration 0051
     // yet has no such table, and the queue counts above are still worth showing.
+    const cronStateAvailable = !cron.error;
     if (cron.error) console.error("[integrations] cron state unavailable:", sanitizeError(cron.error));
     const state = (cron.error ? null : cron.data) as { last_run_at: string; last_summary: CronRunView | null } | null;
     return {
@@ -84,6 +121,8 @@ export async function getConnectorHealth(workspaceId: string, connectorId: strin
       last_error: (failed.data as { last_error: string | null } | null)?.last_error ?? null,
       last_cron_at: state?.last_run_at ?? null,
       last_cron: state?.last_summary ?? null,
+      cron_state_available: cronStateAvailable,
+      scheduler_stale: isSchedulerStale(state?.last_run_at ?? null, cronStateAvailable, opts.connectorCreatedAt, opts.now ?? new Date()),
     };
   } catch (err) {
     // The connector list must still load when the health lookup does not.
