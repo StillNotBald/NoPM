@@ -8,11 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiGet, apiPost, type ApiError } from "@/lib/api-client";
-import {
-  FieldLabel,
-  FieldError,
-  SelectInput,
-} from "@/components/forms/project-form";
+import { Field, FormError, SelectInput } from "@/components/forms/project-form";
 import {
   FormSection,
   FormGrid,
@@ -140,16 +136,11 @@ export function AllocationForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Member + project selection */}
       <FormSection title="Assignment">
-        <div>
-          <FieldLabel required>Team Member</FieldLabel>
+        <Field label="Team Member" required error={fieldErrors.member_id}>
           <SelectInput
             value={memberId}
             onChange={(e) => setMemberId(e.target.value)}
@@ -165,8 +156,7 @@ export function AllocationForm({
               </option>
             ))}
           </SelectInput>
-          <FieldError message={fieldErrors.member_id} />
-        </div>
+        </Field>
 
         {selectedMember && (
           <p className="text-xs text-ink-muted">
@@ -174,8 +164,7 @@ export function AllocationForm({
           </p>
         )}
 
-        <div>
-          <FieldLabel>Project</FieldLabel>
+        <Field label="Project" error={fieldErrors.project_id}>
           <SelectInput
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
@@ -191,15 +180,13 @@ export function AllocationForm({
               </option>
             ))}
           </SelectInput>
-          <FieldError message={fieldErrors.project_id} />
-        </div>
+        </Field>
       </FormSection>
 
       {/* Allocation details */}
       <FormSection title="Allocation">
         <FormGrid cols={2}>
-          <div>
-            <FieldLabel>Allocation %</FieldLabel>
+          <Field label="Allocation %" error={fieldErrors.allocation_pct}>
             <Input
               type="number"
               min={0}
@@ -210,11 +197,9 @@ export function AllocationForm({
               placeholder="e.g. 100"
               className="h-11 sm:h-10 text-base sm:text-sm tabular-nums"
             />
-            <FieldError message={fieldErrors.allocation_pct} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Hours</FieldLabel>
+          <Field label="Hours" error={fieldErrors.hours}>
             <Input
               type="number"
               min={0}
@@ -224,32 +209,27 @@ export function AllocationForm({
               placeholder="e.g. 40"
               className="h-11 sm:h-10 text-base sm:text-sm tabular-nums"
             />
-            <FieldError message={fieldErrors.hours} />
-          </div>
+          </Field>
         </FormGrid>
 
         <FormGrid cols={2}>
-          <div>
-            <FieldLabel>Window Start</FieldLabel>
+          <Field label="Window Start" error={fieldErrors.window_start}>
             <Input
               type="date"
               value={windowStart}
               onChange={(e) => setWindowStart(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.window_start} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Window End</FieldLabel>
+          <Field label="Window End" error={fieldErrors.window_end}>
             <Input
               type="date"
               value={windowEnd}
               onChange={(e) => setWindowEnd(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.window_end} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -266,7 +246,7 @@ export function AllocationForm({
         <Button
           type="submit"
           variant="primary"
-          disabled={saving || !memberId}
+          disabled={saving}
           className="w-full sm:w-auto h-11 sm:h-10"
         >
           {saving ? (

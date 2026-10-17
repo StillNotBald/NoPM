@@ -104,8 +104,8 @@ describe("runAssistantFallback — never selects a write tool, across all intent
       "fetch",
       routedFetch(
         [
-          ["/api/projects?", { data: [{ id: "p1", name: "Proj One", rag_status: "green" }], total: 1, page: 1, limit: 50 }],
-          ["/api/projects/p1/risks", { data: [{ title: "Data breach", status: "open", severity: "critical" }], total: 1, page: 1, limit: 50 }],
+          ["/api/projects?", { data: [{ id: "00000000-0000-4000-a000-0000000000a1", name: "Proj One", rag_status: "green" }], total: 1, page: 1, limit: 50 }],
+          ["/api/projects/00000000-0000-4000-a000-0000000000a1/risks", { data: [{ title: "Data breach", status: "open", severity: "critical" }], total: 1, page: 1, limit: 50 }],
           ["/api/audit", { data: [{ action: "project.create", target_type: "project" }], total: 1, page: 1, limit: 5 }],
         ],
         calls,
@@ -189,7 +189,7 @@ describe("runAssistantFallback — unmatched input default path", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
-        jsonResponse(200, { data: [{ id: "p1", name: "Proj One" }], total: 4, page: 1, limit: 5 }),
+        jsonResponse(200, { data: [{ id: "00000000-0000-4000-a000-0000000000a1", name: "Proj One" }], total: 4, page: 1, limit: 5 }),
       ),
     );
 
@@ -258,6 +258,41 @@ describe("runAssistantFallback — ephemeral token lifecycle", () => {
     // the fallback itself does not throw.
     expect(result.usedFallback).toBe(true);
     expect(mintEphemeralToken).toHaveBeenCalledTimes(1);
+    expect(revokeEphemeralToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A refused tool argument is a failed call, not an aborted reply (R1 M4 follow-up)
+// ---------------------------------------------------------------------------
+describe("runAssistantFallback — a refused argument does not abort the reply", () => {
+  it("a project id that is not a UUID (e.g. a hostile API value) is skipped as a failed action; no request is made for it", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      routedFetch(
+        [["/api/projects?", { data: [{ id: "../unlock", name: "Evil" }], total: 1, page: 1, limit: 50 }]],
+        calls,
+      ),
+    );
+
+    const result = await runAssistantFallback({
+      actor: testActor(),
+      message: "what are the top open risks?",
+      origin: "http://localhost:3000",
+      rateCheck: async () => {},
+    });
+
+    expect(result.usedFallback).toBe(true);
+    expect(result.reply.length).toBeGreaterThan(0);
+    // Only the projects list was fetched — nothing was requested for the bad id.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("/api/projects?");
+    expect(calls.some((c) => c.includes("unlock"))).toBe(false);
+    const failed = result.actions.find((a) => a.tool === "list_risks");
+    expect(failed).toMatchObject({ ok: false });
+    expect(failed!.summary).toContain("project_id must be a UUID");
+    // The token is still revoked.
     expect(revokeEphemeralToken).toHaveBeenCalledTimes(1);
   });
 });

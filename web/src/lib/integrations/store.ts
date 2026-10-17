@@ -158,6 +158,30 @@ export function toRedactedConnector(row: ConnectorRow): RedactedConnector {
   };
 }
 
+/** Mask a platform id for display or audit: enough to recognise, not enough to reuse. */
+export function maskExternalId(id: string): string {
+  return id.length <= 10 ? `${id.slice(0, 2)}…` : `${id.slice(0, 6)}…${id.slice(-4)}`;
+}
+
+/**
+ * The connector as it is written to an audit row's `before` / `after`. The
+ * audit stream is readable by every workspace member, and the console hides the
+ * app id, the group chat id and the tenant pin from non-admins (see
+ * `toRedactedConnector`), so the audit trail must not hand them back: ids are
+ * masked (enough to see THAT they changed), the tenant is reduced to the
+ * `tenant_pinned` flag, and nothing secret is ever in the view to begin with.
+ */
+export function toAuditConnector(view: PublicConnector): Omit<PublicConnector, "app_id" | "digest"> & {
+  app_id: string;
+  digest: { enabled: boolean; chat_id: string | null; weekday: number };
+} {
+  return {
+    ...view,
+    app_id: view.app_id ? maskExternalId(view.app_id) : view.app_id,
+    digest: { ...view.digest, chat_id: view.digest.chat_id ? maskExternalId(view.digest.chat_id) : null },
+  };
+}
+
 /** The three non-secret URLs an admin pastes into the Lark developer console. */
 export function callbackUrls(base: string, connectorId: string) {
   return {

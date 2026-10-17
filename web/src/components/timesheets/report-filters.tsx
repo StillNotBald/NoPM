@@ -145,13 +145,13 @@ export function ReportFilters() {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger-ink">
+        <div role="alert" className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger-ink">
           Failed to load time entries: {error}
         </div>
       )}
 
       {loading && (
-        <div className="flex items-center gap-2 py-8 justify-center text-sm text-ink-muted">
+        <div role="status" className="flex items-center gap-2 py-8 justify-center text-sm text-ink-muted">
           <Spinner size="sm" /> Loading report…
         </div>
       )}
@@ -196,7 +196,7 @@ export function ReportFilters() {
 
           <p className="text-xs text-ink-muted">
             {report.entryCount} entr{report.entryCount === 1 ? "y" : "ies"}{" "}
-            <span className="text-ink-muted/80">(current page{total > rows.length ? `, ${total} total match` : ""})</span>
+            <span className="text-ink-muted">(current page{total > rows.length ? `, ${total} total match` : ""})</span>
             {" — "}
             {billableFilterActive
               ? "the billable filter is on, so this total legitimately diverges from /budget's labour actual."

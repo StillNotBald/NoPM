@@ -7,6 +7,10 @@ import {
   assertRationaleOnReject,
   assertNoOpenDuplicate,
   assertHasEntriesToSubmit,
+  assertTimesheetContentUnchanged,
+  summariseEntries,
+  timesheetContentDigest,
+  type TimesheetEntryRow,
   type TimesheetSubmissionRow,
 } from "./timesheet-decision";
 
@@ -168,5 +172,110 @@ describe("assertHasEntriesToSubmit", () => {
 
   it("422s (RuleError) with zero entries", () => {
     expect(() => assertHasEntriesToSubmit(0)).toThrow(RuleError);
+  });
+});
+
+// ── R1/H2: an approval is bound to the content that was submitted ─────────
+
+const entry = (over: Partial<TimesheetEntryRow> = {}): TimesheetEntryRow => ({
+  id: "aaaaaaaa-0000-4000-8000-000000000001",
+  entry_date: "2026-10-13",
+  hours: 8,
+  project_id: "bbbbbbbb-0000-4000-8000-000000000001",
+  billable: true,
+  ...over,
+});
+
+const week = (): TimesheetEntryRow[] => [
+  entry(),
+  entry({ id: "aaaaaaaa-0000-4000-8000-000000000002", entry_date: "2026-10-14", hours: 6.5 }),
+];
+
+describe("summariseEntries", () => {
+  it("sums in whole hundredths, so 0.1 + 0.2 is 0.3 and not 0.30000000000000004", () => {
+    expect(summariseEntries([{ hours: 0.1 }, { hours: 0.2 }])).toEqual({ hoursTotal: 0.3, entryCount: 2 });
+  });
+
+  it("reads numeric strings (PostgREST returns numeric as text) and tolerates nulls", () => {
+    expect(summariseEntries([{ hours: "8.00" }, { hours: "6.50" }, { hours: null }])).toEqual({ hoursTotal: 14.5, entryCount: 3 });
+  });
+});
+
+describe("timesheetContentDigest", () => {
+  it("is stable and independent of row order", () => {
+    expect(timesheetContentDigest(week())).toBe(timesheetContentDigest([...week()].reverse()));
+    expect(timesheetContentDigest(week())).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("treats '8' and '8.00' as the same hours", () => {
+    expect(timesheetContentDigest([entry({ hours: 8 })])).toBe(timesheetContentDigest([entry({ hours: "8.00" })]));
+  });
+
+  it("changes when ANY covered column changes: day, hours, project, billable, or the entry itself", () => {
+    const base = timesheetContentDigest(week());
+    const variants: Partial<TimesheetEntryRow>[] = [
+      { entry_date: "2026-10-15" },
+      { hours: 7 },
+      { project_id: "bbbbbbbb-0000-4000-8000-000000000002" },
+      { billable: false },
+      { id: "aaaaaaaa-0000-4000-8000-0000000000ff" },
+    ];
+    for (const v of variants) {
+      expect(timesheetContentDigest([entry(v), week()[1]]), JSON.stringify(v)).not.toBe(base);
+    }
+  });
+
+  it("ignores a task link: deleting a task nulls task_id and must not invalidate an approved week", () => {
+    const withTask = { ...entry(), task_id: "cccccccc-0000-4000-8000-000000000001" } as TimesheetEntryRow;
+    expect(timesheetContentDigest([withTask])).toBe(timesheetContentDigest([entry()]));
+  });
+});
+
+describe("assertTimesheetContentUnchanged", () => {
+  const submitted = () => {
+    const entries = week();
+    return {
+      snapshot: { hours_total: "14.50", entry_count: 2, content_digest: timesheetContentDigest(entries) },
+      entries,
+    };
+  };
+
+  it("passes when the live entries are exactly what was submitted", () => {
+    const { snapshot, entries } = submitted();
+    expect(() => assertTimesheetContentUnchanged(snapshot, entries)).not.toThrow();
+  });
+
+  it("422 timesheet_changed when an entry was ADDED after submission (the 8h -> 48h case)", () => {
+    const { snapshot, entries } = submitted();
+    const err = (() => {
+      try {
+        assertTimesheetContentUnchanged(snapshot, [...entries, entry({ id: "aaaaaaaa-0000-4000-8000-000000000003", hours: 40 })]);
+      } catch (e) {
+        return e as RuleError;
+      }
+    })();
+    expect(err).toBeInstanceOf(RuleError);
+    expect([err?.status, err?.code]).toEqual([422, "timesheet_changed"]);
+  });
+
+  it("422 when an entry was REMOVED", () => {
+    const { snapshot, entries } = submitted();
+    expect(() => assertTimesheetContentUnchanged(snapshot, entries.slice(1))).toThrow(RuleError);
+  });
+
+  it("422 on a SWAP that totals cannot see: same hours, same count, different project", () => {
+    const { snapshot, entries } = submitted();
+    const swapped = [entry({ project_id: "bbbbbbbb-0000-4000-8000-000000000009" }), entries[1]];
+    expect(summariseEntries(swapped)).toEqual(summariseEntries(entries));
+    expect(() => assertTimesheetContentUnchanged(snapshot, swapped)).toThrow(RuleError);
+  });
+
+  it("a legacy row with no digest falls back to the totals check", () => {
+    const { entries } = submitted();
+    const legacy = { hours_total: 14.5, entry_count: 2, content_digest: null };
+    expect(() => assertTimesheetContentUnchanged(legacy, entries)).not.toThrow();
+    expect(() => assertTimesheetContentUnchanged(legacy, [...entries, entry({ id: "aaaaaaaa-0000-4000-8000-000000000003" })])).toThrow(
+      RuleError,
+    );
   });
 });

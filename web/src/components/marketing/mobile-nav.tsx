@@ -24,10 +24,31 @@ export function MobileNavMenu({ links, className }: { links: MobileNavLink[]; cl
   useInertShell(open);
   useReturnFocus(open, closeRef, triggerRef);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        return;
+      }
+      // Keep Tab inside the sheet. Unlike the console shells there is no
+      // `[data-app-shell]` here for useInertShell to mark inert, so without
+      // this the page behind stays in the tab order while the sheet covers it.
+      if (e.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>("a[href], button:not([disabled])");
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !dialogRef.current?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !dialogRef.current?.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -41,7 +62,7 @@ export function MobileNavMenu({ links, className }: { links: MobileNavLink[]; cl
         aria-label="Open menu"
         aria-expanded={open}
         onClick={() => setOpen(true)}
-        className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken hover:text-ink"
+        className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken hover:text-ink focus-ring"
       >
         <MenuIcon />
       </button>
@@ -56,6 +77,7 @@ export function MobileNavMenu({ links, className }: { links: MobileNavLink[]; cl
             onClick={() => setOpen(false)}
           />
           <div
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-label="Site menu"
@@ -68,7 +90,7 @@ export function MobileNavMenu({ links, className }: { links: MobileNavLink[]; cl
                 type="button"
                 aria-label="Close menu"
                 onClick={() => setOpen(false)}
-                className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken hover:text-ink"
+                className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken hover:text-ink focus-ring"
               >
                 <CloseIcon />
               </button>
@@ -79,7 +101,7 @@ export function MobileNavMenu({ links, className }: { links: MobileNavLink[]; cl
                   key={link.href}
                   href={link.href}
                   onClick={() => setOpen(false)}
-                  className="flex min-h-[44px] items-center border-b border-border-subtle text-sm text-ink-secondary last:border-b-0 hover:text-ink"
+                  className="flex min-h-[44px] items-center border-b border-border-subtle text-sm text-ink-secondary last:border-b-0 hover:text-ink focus-ring"
                 >
                   {link.label}
                 </a>

@@ -1,9 +1,10 @@
 import { requireScope, type Actor } from "@/lib/auth/guard";
+import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
-import { emitApprovalDecided, emitApprovalRequested } from "@/lib/integrations/emit";
+import { emitApprovalChanged, emitApprovalDecided, emitApprovalRequested } from "@/lib/integrations/emit";
 import type {
   ApprovalDecidedEvent,
   ApprovalEvent,
@@ -20,8 +21,13 @@ import {
   assertNotSelfDecision,
   assertRationaleOnReject,
   assertReopenable,
+  assertTimesheetContentUnchanged,
+  TIMESHEET_CHANGED_MESSAGE,
+  TIMESHEET_ENTRY_COLUMNS,
   type TimesheetDecision,
+  type TimesheetEntryRow,
 } from "@/lib/governance/timesheet-decision";
+import { weekLockRuleError } from "@/lib/governance/period-lock";
 
 /**
  * One governed decision path for every surface (UI, REST, CLI, MCP, Lark).
@@ -61,6 +67,8 @@ type Db = ReturnType<typeof createAdminClient>;
 
 // ── principal helpers (shared with the rebaseline routes) ─────────────────
 
+export const CHILDREN_CHANGED_MESSAGE =
+  "This project gained records (tasks, milestones, risks, ...) after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 export const NO_PRINCIPAL_MESSAGE =
   "This token has no recorded owner, so it cannot approve (four-eyes)";
 export const SELF_APPROVAL_MESSAGE = "Self-approval is not allowed (four-eyes)";
@@ -79,6 +87,25 @@ export function principalOf(actor: Actor): string | null {
 export function requirePrincipal(actor: Actor): string {
   const principal = principalOf(actor);
   if (!principal) throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
+  return principal;
+}
+
+export const NO_MAKER_PRINCIPAL_MESSAGE =
+  "This token has no recorded owner, so it cannot raise a governed request (four-eyes needs a human on both sides)";
+
+/**
+ * The MAKER side of the same rule (red-team R1/H3). `requirePrincipal` makes the
+ * decider fail closed; this makes the requester fail closed. Without it a token
+ * with no recorded owner could raise a request whose requester principal is
+ * null — and a null requester is, by design, comparable to nobody
+ * (assertNotRequesterPrincipal passes) — so the same person could then approve
+ * their own request from a normal session. Every route that RAISES a governed
+ * request (task / project deletion, change request, timesheet submission,
+ * rebaseline proposal) calls this before touching anything.
+ */
+export function requireMakerPrincipal(actor: Actor): string {
+  const principal = principalOf(actor);
+  if (!principal) throw new ScopeError(NO_MAKER_PRINCIPAL_MESSAGE, "no_principal");
   return principal;
 }
 
@@ -171,6 +198,20 @@ export function announceRequested(ev: ApprovalEvent): void {
     emitApprovalRequested(ev);
   } catch (err) {
     console.error("[governance] emitApprovalRequested failed", err);
+  }
+}
+
+/**
+ * Tell the integration hub that a PENDING request's content changed after its
+ * approval card went out (a requester editing a change request): the old card
+ * must stop being actionable and approvers get a fresh one with the current
+ * content. Same never-throws contract as the other two announcers.
+ */
+export function announceChanged(ev: ApprovalEvent): void {
+  try {
+    emitApprovalChanged(ev);
+  } catch (err) {
+    console.error("[governance] emitApprovalChanged failed", err);
   }
 }
 
@@ -308,6 +349,15 @@ export async function approveDeletion(
     if (m.includes("NO_PRINCIPAL") || error.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
     if (m.includes("PROJECT_LOCKED") || error.code === "P0010")
       throw new RuleError("Project is locked — unlock or rebaseline before committing this deletion.", "project_locked");
+    // R1/M4: the project gained children after the request was raised (migration
+    // 0049 trigger on projects). The approver must see the CURRENT scope, so the
+    // request is refused; withdraw it and raise a new one.
+    if (m.includes("CHILDREN_CHANGED") || error.code === "P0016")
+      throw new RuleError(CHILDREN_CHANGED_MESSAGE, "children_changed");
+    // Time entries inside a submitted/approved timesheet week cannot be removed
+    // by a cascade either (the week locks of migrations 0040 / 0049).
+    const weekLocked = weekLockRuleError(error);
+    if (weekLocked) throw weekLocked;
     throw new Error(error.message || "Failed to commit deletion");
   }
 
@@ -509,6 +559,8 @@ type ChangeRow = {
   requested_by_id: string | null;
   requested_by_label: string | null;
   requested_principal_id: string | null;
+  /** The content version: the table's trigger bumps it on every edit. */
+  updated_at?: string | null;
 };
 
 function changeTitle(cr: ChangeRow): string {
@@ -526,7 +578,7 @@ function changeTitle(cr: ChangeRow): string {
 export async function decideChangeRequest(
   actor: Actor,
   id: string,
-  input: { decision: ChangeDecision; rationale: string },
+  input: { decision: ChangeDecision; rationale: string; expected_updated_at?: string | null },
 ): Promise<KindOutcome> {
   requireScope(actor, "change:decide");
   const db = createAdminClient();
@@ -554,10 +606,18 @@ export async function decideChangeRequest(
   if (isSameActor(actor, cr.requested_by_type, cr.requested_by_id)) throw selfApprovalError();
   assertNotRequesterPrincipal(cr.requested_principal_id, principal);
 
+  // Bait-and-switch guard (Lark red-team): a requester can edit a PENDING
+  // request after the approver was shown it. A caller that says which version
+  // it saw (`expected_updated_at` — the console sends the value it rendered, a
+  // chat card carries the version it was issued for) is refused with 412 if the
+  // request has changed since. Opt-in, like every R-90 write: a caller that
+  // sends nothing keeps today's behaviour.
+  checkOptimisticConcurrency(cr.updated_at, input.expected_updated_at);
+
   const newStatus = CHANGE_STATUS[input.decision];
   const now = new Date().toISOString();
 
-  const { data: updated, error: updateError } = await db
+  let decideQuery = db
     .from("change_requests")
     .update({
       status: newStatus,
@@ -571,12 +631,20 @@ export async function decideChangeRequest(
     })
     .eq("id", id)
     .eq("workspace_id", actor.workspaceId)
-    .in("status", [...CHANGE_DECIDABLE])
-    .select()
-    .maybeSingle();
+    .in("status", [...CHANGE_DECIDABLE]);
+  // The decision write is pinned to the version that was checked above, closing
+  // the narrow window in which an edit lands between that check and this write.
+  if (input.expected_updated_at !== undefined && input.expected_updated_at !== null) {
+    decideQuery = decideQuery.eq("updated_at", cr.updated_at);
+  }
+  const { data: updated, error: updateError } = await decideQuery.select().maybeSingle();
 
   if (updateError) throw new Error(updateError.message);
   if (!updated) {
+    if (input.expected_updated_at !== undefined && input.expected_updated_at !== null) {
+      // Edited or decided between our read and our write — tell the caller to look again.
+      throw new PreconditionFailedError("Record changed since you loaded it");
+    }
     // Lost the race: someone decided between our read and our write.
     throw new RuleError("Change request already decided", "already_decided");
   }
@@ -615,18 +683,23 @@ export async function decideChangeRequest(
   };
 }
 
-async function changeBaseEvent(db: Db, actor: Actor, cr: ChangeRow): Promise<ApprovalEvent> {
+/** The hub event for a change request as it reads NOW (also used when a pending one is edited). */
+export async function changeRequestEvent(db: Db, workspaceId: string, cr: ChangeRow): Promise<ApprovalEvent> {
   return {
-    workspaceId: actor.workspaceId,
+    workspaceId,
     kind: "change_request",
     id: cr.id,
     title: changeTitle(cr),
     summary: cr.impact_summary ?? cr.description,
     projectId: cr.project_id,
-    projectName: await projectNameOf(db, actor.workspaceId, cr.project_id),
+    projectName: await projectNameOf(db, workspaceId, cr.project_id),
     requestedByLabel: storedLabel(cr.requested_by_label, cr.requested_by_type),
     requesterPrincipalId: cr.requested_principal_id,
   };
+}
+
+function changeBaseEvent(db: Db, actor: Actor, cr: ChangeRow): Promise<ApprovalEvent> {
+  return changeRequestEvent(db, actor.workspaceId, cr);
 }
 
 // ── timesheet submissions ─────────────────────────────────────────────────
@@ -643,7 +716,34 @@ type TimesheetRow = {
   submitted_by_type: "user" | "token";
   submitted_by_label: string;
   submitted_principal_id: string | null;
+  /** Digest of the entries as submitted (null on rows that predate migration 0049). */
+  content_digest?: string | null;
 };
+
+/**
+ * R1/M1: the person whose HOURS these are may not decide the sheet. `member_id`
+ * is the work identity (resource_members); `profile_id` bridges it to a login.
+ * A member with no linked login has no human to compare against and passes —
+ * the submitter check still applies.
+ */
+async function assertNotTimesheetSubject(
+  db: Db,
+  workspaceId: string,
+  memberId: string,
+  principal: string,
+): Promise<void> {
+  const { data, error } = await db
+    .from("resource_members")
+    .select("profile_id")
+    .eq("id", memberId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const profileId = (data as { profile_id?: string | null } | null)?.profile_id ?? null;
+  if (profileId && profileId === principal) {
+    throw selfApprovalError("You cannot decide a timesheet for your own hours (four-eyes)");
+  }
+}
 
 /** Event for a timesheet submission (also used when one is first submitted). */
 export async function timesheetEvent(
@@ -711,7 +811,23 @@ export async function decideTimesheet(
     throw err;
   }
   assertNotRequesterPrincipal(submission.submitted_principal_id, principal);
+  await assertNotTimesheetSubject(db, actor.workspaceId, submission.member_id, principal);
   assertRationaleOnReject(decision, rationale);
+
+  // R1/H2: an approval is bound to the CONTENT that was submitted. The live
+  // entries must still match the recorded totals and digest, or the sheet can't
+  // be approved as it stands (reject it; the member resubmits).
+  if (decision === "approved") {
+    const { data: entries, error: entriesError } = await db
+      .from("time_entries")
+      .select(TIMESHEET_ENTRY_COLUMNS)
+      .eq("member_id", submission.member_id)
+      .eq("workspace_id", actor.workspaceId)
+      .gte("entry_date", submission.period_start)
+      .lte("entry_date", submission.period_end);
+    if (entriesError) throw new Error(entriesError.message);
+    assertTimesheetContentUnchanged(submission, (entries ?? []) as TimesheetEntryRow[]);
+  }
 
   const now = new Date().toISOString();
   const expectedStatus = decision === "reopened" ? "approved" : "submitted";
@@ -728,6 +844,9 @@ export async function decideTimesheet(
             decided_principal_id: null,
             decided_at: null,
             decision_rationale: null,
+            // Marks the sheet as open for amendment: the week lock (period-lock.ts,
+            // migration 0049) only freezes a SUBMITTED sheet that was never reopened.
+            reopened_at: now,
           }
         : {
             status: decision,
@@ -745,7 +864,14 @@ export async function decideTimesheet(
     .select()
     .maybeSingle();
 
-  if (updateError) throw new Error(updateError.message);
+  if (updateError) {
+    // DB backstop for the content binding (migration 0049, errcode P0013).
+    const failure = `${updateError.message} ${(updateError as { code?: string }).code ?? ""}`;
+    if (failure.includes("TIMESHEET_CHANGED") || failure.includes("P0013")) {
+      throw new RuleError(TIMESHEET_CHANGED_MESSAGE, "timesheet_changed");
+    }
+    throw new Error(updateError.message);
+  }
   if (!updated) throw new RuleError("Timesheet submission already decided", "already_decided");
 
   // Single governance row per decision — domain rows were written at submit
@@ -835,6 +961,7 @@ export async function decideApproval(
   ref: ApprovalRef,
   action: "approve" | "reject",
   note?: string,
+  opts: { expectedUpdatedAt?: string | null } = {},
 ): Promise<DecisionResult> {
   const text = note?.trim() ? note.trim() : undefined;
   if (action === "reject" && !text) {
@@ -855,6 +982,7 @@ export async function decideApproval(
       const out = await decideChangeRequest(actor, ref.id, {
         decision: action,
         rationale: text ?? DEFAULT_CHANGE_APPROVE_RATIONALE(channelOf(actor)),
+        expected_updated_at: opts.expectedUpdatedAt,
       });
       return out.result;
     }

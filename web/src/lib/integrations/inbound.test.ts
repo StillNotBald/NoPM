@@ -2,12 +2,29 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
-const { decideMock } = vi.hoisted(() => ({ decideMock: vi.fn() }));
+const { decideMock, changeEventMock, timesheetEventMock, runChangedMock, scheduled } = vi.hoisted(() => ({
+  decideMock: vi.fn(),
+  changeEventMock: vi.fn(),
+  timesheetEventMock: vi.fn(),
+  runChangedMock: vi.fn(async () => {}),
+  scheduled: [] as { label: string; workspaceId: string; task: () => Promise<unknown> }[],
+}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
-vi.mock("@/lib/governance/decide", () => ({ decideApproval: decideMock }));
+vi.mock("@/lib/governance/decide", () => ({
+  decideApproval: decideMock,
+  changeRequestEvent: changeEventMock,
+  timesheetEvent: timesheetEventMock,
+}));
+// The edit path is exercised for real in emit.test.ts; here it is observed.
+vi.mock("@/lib/integrations/emit", () => ({
+  schedule: (label: string, workspaceId: string, task: () => Promise<unknown>) => {
+    scheduled.push({ label, workspaceId, task });
+  },
+  runApprovalChanged: runChangedMock,
+}));
 
-import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
-import { handleApprovalAction, mapDecisionError, type ApprovalActionInput } from "./inbound";
+import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
+import { handleApprovalAction, mapDecisionError, reissueAfterChange, type ApprovalActionInput } from "./inbound";
 import {
   CONNECTOR_ID,
   FakeDb,
@@ -413,5 +430,172 @@ describe("tenant pin", () => {
     const out = await handleApprovalAction(input({ connector: pinnedConnector }));
     expect(out.status).toBe("decided");
     expect(decideMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("handleApprovalAction — approve what you saw (content-version binding)", () => {
+  const V1 = "2026-10-16T08:00:00.000Z"; // what the seeded change request starts at
+  const V2 = "2026-10-16T11:45:00.000Z";
+  const CR_TOKEN = "npa_raw-token-for-cr-0000000001";
+  const crRow = () => db.rows("change_requests")[0];
+  const crDecision = {
+    kind: "change_request",
+    id: ids.approval,
+    status: "approved",
+    title: "Change request CR-7: rename a label",
+    requesterPrincipalId: ids.requester,
+  };
+
+  function issueCrToken(version: string | null = V1, over: Record<string, unknown> = {}) {
+    issueToken(CR_TOKEN, ids.manager, { approval_kind: "change_request", approval_version: version, ...over });
+  }
+
+  beforeEach(() => {
+    decideMock.mockResolvedValue(crDecision);
+    scheduled.length = 0;
+    runChangedMock.mockReset();
+  });
+
+  it("decides when the request is still at the version the card was issued for, and PINS the decision write to it", async () => {
+    issueCrToken();
+    const out = await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-ver-ok" }));
+
+    expect(out.status).toBe("decided");
+    expect(decideMock).toHaveBeenCalledTimes(1);
+    const [, ref, action, note, opts] = decideMock.mock.calls[0];
+    expect(ref).toEqual({ kind: "change_request", id: ids.approval });
+    expect(action).toBe("approve");
+    expect(note).toBeUndefined();
+    expect(opts).toEqual({ expectedUpdatedAt: V1 });
+  });
+
+  it("REFUSES a tap on a card whose request was edited since: nothing is decided, the request stays pending", async () => {
+    issueCrToken();
+    crRow().updated_at = V2; // the requester edited it after the card went out
+
+    const out = await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-stale" }));
+
+    expect(out).toEqual({ status: "changed" });
+    expect(decideMock).not.toHaveBeenCalled();
+    expect(crRow().status).toBe("raised");
+    // the spent token is marked as retired-by-edit, and the outcome is on the ledger
+    expect(token(CR_TOKEN)).toMatchObject({ superseded_reason: "changed" });
+    expect(token(CR_TOKEN).used_at).not.toBeNull();
+    expect(claims().find((c) => c.external_event_id === "evt-stale")?.outcome).toEqual({ status: "changed" });
+  });
+
+  it("answers a repeat tap, and a replay of the same event, with the same 'changed' (never 'already decided')", async () => {
+    issueCrToken();
+    crRow().updated_at = V2;
+    await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-stale-1" }));
+
+    expect(await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-stale-2" }))).toEqual({ status: "changed" });
+    expect(await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-stale-1" }))).toEqual({ status: "changed" });
+    expect(decideMock).not.toHaveBeenCalled();
+  });
+
+  it("re-issues fresh cards in the background, so a harmless bump is never a dead end", async () => {
+    issueCrToken();
+    crRow().updated_at = V2;
+    await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-stale-3" }));
+
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0].workspaceId).toBe(WS);
+    changeEventMock.mockResolvedValueOnce({ workspaceId: WS, kind: "change_request", id: ids.approval, title: "CR-7 as it reads now" });
+    await scheduled[0].task();
+    expect(runChangedMock).toHaveBeenCalledWith(expect.objectContaining({ id: ids.approval, title: "CR-7 as it reads now", version: V2 }));
+  });
+
+  it("treats a 412 from the decision write (an edit landed after the check) as 'changed' too", async () => {
+    issueCrToken();
+    decideMock.mockRejectedValueOnce(new PreconditionFailedError("Record changed since you loaded it"));
+
+    const out = await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-412" }));
+
+    expect(out).toEqual({ status: "changed" });
+    expect(token(CR_TOKEN)).toMatchObject({ superseded_reason: "changed" });
+    expect(token(CR_TOKEN).used_at).not.toBeNull(); // the old card cannot be retried
+    expect(scheduled).toHaveLength(1);
+  });
+
+  it("leaves a request that is already decided to the decision code (it answers precisely)", async () => {
+    issueCrToken();
+    Object.assign(crRow(), { status: "approved", updated_at: V2 });
+    decideMock.mockRejectedValueOnce(new RuleError("Change request already decided (status: approved)", "already_decided"));
+
+    const out = await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-decided" }));
+
+    expect(out).toEqual({ status: "already_decided" });
+    expect(scheduled).toHaveLength(0);
+  });
+
+  it("checks nothing for a token with no version (a deletion request, or a card from before versioning) and pins nothing", async () => {
+    const out = await handleApprovalAction(input({ externalEventId: "evt-noversion" })); // the seeded task_deletion token
+    expect(out.status).toBe("decided");
+    expect(decideMock.mock.calls[0][4]).toEqual({});
+  });
+
+  it("works the same for a timesheet submission's version", async () => {
+    issueToken(CR_TOKEN, ids.manager, { approval_kind: "timesheet", approval_version: V1 });
+    db.rows("timesheet_submissions")[0].updated_at = V2;
+    expect(await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-ts" }))).toEqual({ status: "changed" });
+    expect(decideMock).not.toHaveBeenCalled();
+  });
+
+  it("a different recipient's stale token is still 'not sent to you', not a hint about the request", async () => {
+    issueCrToken();
+    crRow().updated_at = V2;
+    const out = await handleApprovalAction(
+      input({ actionToken: CR_TOKEN, externalUserId: "ou_mia", externalEventId: "evt-wrong-person" }),
+    );
+    expect(out).toEqual({ status: "not_recipient" });
+  });
+
+  it("a request in another workspace with the same id does not satisfy the version check", async () => {
+    issueCrToken();
+    db.rows("change_requests")[0].workspace_id = OTHER_WS; // the request is not in this workspace at all
+    const out = await handleApprovalAction(input({ actionToken: CR_TOKEN, externalEventId: "evt-foreign" }));
+    // not "pending in this workspace": left to the decision code, which finds nothing
+    expect(out.status).not.toBe("changed");
+  });
+});
+
+describe("mapDecisionError — a 412 is a change", () => {
+  it("maps PreconditionFailedError to changed", () => {
+    expect(mapDecisionError(new PreconditionFailedError())).toEqual({ status: "changed" });
+  });
+});
+
+describe("reissueAfterChange", () => {
+  const V2 = "2026-10-16T11:45:00.000Z";
+
+  beforeEach(() => runChangedMock.mockReset());
+
+  it("builds the change request's event as it reads NOW and runs the edit path with its version", async () => {
+    db.rows("change_requests")[0].updated_at = V2;
+    changeEventMock.mockResolvedValueOnce({ workspaceId: WS, kind: "change_request", id: ids.approval, title: "CR-7 now" });
+    await reissueAfterChange(WS, { kind: "change_request", id: ids.approval });
+    expect(runChangedMock).toHaveBeenCalledWith({ workspaceId: WS, kind: "change_request", id: ids.approval, title: "CR-7 now", version: V2 });
+  });
+
+  it("builds a pending timesheet's event the same way", async () => {
+    db.rows("timesheet_submissions")[0].updated_at = V2;
+    timesheetEventMock.mockResolvedValueOnce({ workspaceId: WS, kind: "timesheet", id: ids.approval, title: "Timesheet now" });
+    await reissueAfterChange(WS, { kind: "timesheet", id: ids.approval });
+    expect(runChangedMock).toHaveBeenCalledWith(expect.objectContaining({ kind: "timesheet", version: V2 }));
+  });
+
+  it("does nothing for a request that is no longer pending, is missing, or has no version (a deletion)", async () => {
+    db.rows("change_requests")[0].status = "approved";
+    await reissueAfterChange(WS, { kind: "change_request", id: ids.approval });
+    db.tables.timesheet_submissions = [];
+    await reissueAfterChange(WS, { kind: "timesheet", id: ids.approval });
+    await reissueAfterChange(WS, { kind: "task_deletion", id: ids.approval });
+    expect(runChangedMock).not.toHaveBeenCalled();
+  });
+
+  it("is workspace-scoped", async () => {
+    await reissueAfterChange(OTHER_WS, { kind: "change_request", id: ids.approval });
+    expect(runChangedMock).not.toHaveBeenCalled();
   });
 });

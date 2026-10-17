@@ -60,6 +60,8 @@ function loadSdk(): Promise<Sdk> {
 
 /** Hard ceiling for one platform call (the SDK's default HTTP instance has no timeout). */
 export const LARK_CALL_TIMEOUT_MS = 10_000;
+/** Platform limit for the message `uuid` (idempotency key). */
+export const MAX_UUID_CHARS = 50;
 /** Card payload ceiling from the platform docs (30 KB). */
 export const MAX_CARD_BYTES = 30 * 1024;
 
@@ -156,6 +158,65 @@ export type ClientOverrides = {
   timeoutMs?: number;
 };
 
+type SdkHttp = NonNullable<SdkClientParams["httpInstance"]>;
+
+/**
+ * The SDK's default HTTP instance has no timeout: `withTimeout` below only
+ * stops US waiting, and the socket stays open until the OS gives up. Wrapping
+ * the default instance with an axios `timeout` makes a slow call actually
+ * abort (`ECONNABORTED`, classified as a retryable network error). The server
+ * may still process a request we gave up on, which is what the per-delivery
+ * idempotency key in `sendCard` is for.
+ */
+export function withRequestTimeout(base: SdkHttp, timeout: number): SdkHttp {
+  const bare = (method: "get" | "delete" | "head" | "options") => (url: string, opts?: object) =>
+    (base[method] as unknown as (u: string, o: object) => Promise<unknown>)(url, { timeout, ...opts });
+  const withBody = (method: "post" | "put" | "patch") => (url: string, data?: unknown, opts?: object) =>
+    (base[method] as unknown as (u: string, d: unknown, o: object) => Promise<unknown>)(url, data, { timeout, ...opts });
+  return {
+    request: (opts: object) => (base.request as unknown as (o: object) => Promise<unknown>)({ timeout, ...opts }),
+    get: bare("get"),
+    delete: bare("delete"),
+    head: bare("head"),
+    options: bare("options"),
+    post: withBody("post"),
+    put: withBody("put"),
+    patch: withBody("patch"),
+  } as unknown as SdkHttp;
+}
+
+/**
+ * One tenant-token cache PER CONNECTOR (and per credential pair).
+ *
+ * The SDK keeps the tenant access token in a cache and, when none is passed,
+ * falls back to a process-wide one keyed by `app_id` alone. `app_id` is not a
+ * secret (it travels in every event header), and nothing stops two workspaces
+ * registering the same one: with the shared cache, a second connector with a
+ * WRONG app secret rode the first connector's cached token, so its "Test
+ * connection" passed and its sends went out as the first workspace's bot until
+ * the token aged out. Keying the cache by connector id plus a hash of the
+ * credentials means a token is only ever reused for the credentials that
+ * fetched it, and a changed secret starts a clean cache.
+ */
+const TOKEN_CACHES = new Map<string, InstanceType<Sdk["DefaultCache"]>>();
+const MAX_TOKEN_CACHES = 200;
+
+function tokenCacheFor(sdk: Sdk, connector: ConnectorRow, secrets: LarkSecrets): InstanceType<Sdk["DefaultCache"]> {
+  const credentials = createHash("sha256").update(`${connector.config.appId}
+${secrets.appSecret}`).digest("hex").slice(0, 16);
+  const key = `${connector.id}:${credentials}`;
+  let cache = TOKEN_CACHES.get(key);
+  if (!cache) {
+    if (TOKEN_CACHES.size >= MAX_TOKEN_CACHES) {
+      const oldest = TOKEN_CACHES.keys().next().value;
+      if (oldest !== undefined) TOKEN_CACHES.delete(oldest);
+    }
+    cache = new sdk.DefaultCache();
+    TOKEN_CACHES.set(key, cache);
+  }
+  return cache;
+}
+
 export async function createLarkClient(
   connector: ConnectorRow,
   secrets: LarkSecrets,
@@ -163,6 +224,11 @@ export async function createLarkClient(
 ): Promise<SdkClient> {
   const base = overrides.domain ?? resolveApiBaseOverride();
   const sdk = await loadSdk();
+  const httpInstance =
+    overrides.httpInstance ??
+    (sdk.defaultHttpInstance
+      ? withRequestTimeout(sdk.defaultHttpInstance as unknown as SdkHttp, overrides.timeoutMs ?? LARK_CALL_TIMEOUT_MS)
+      : undefined);
   return new sdk.Client({
     appId: connector.config.appId,
     appSecret: secrets.appSecret,
@@ -170,8 +236,8 @@ export async function createLarkClient(
     loggerLevel: sdk.LoggerLevel.fatal,
     logger: SILENT_LOGGER,
     source: "nopm",
-    ...(overrides.httpInstance ? { httpInstance: overrides.httpInstance } : {}),
-    ...(overrides.cache ? { cache: overrides.cache } : {}),
+    ...(httpInstance ? { httpInstance } : {}),
+    cache: overrides.cache ?? tokenCacheFor(sdk, connector, secrets),
   });
 }
 
@@ -287,10 +353,18 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Send an interactive card. The `uuid` is derived from recipient + content so a
- * retry of the SAME delivery (e.g. after a timeout whose first attempt actually
- * landed) is deduplicated by the platform for an hour, while any change to the
- * card (a fresh action token, a new digest timestamp) is a new message.
+ * Send an interactive card. The platform deduplicates sends that carry the same
+ * `uuid` for an hour, so the key is what makes a retry safe: when the first
+ * attempt landed but the response was lost (a timeout, a dropped connection),
+ * the retry returns the original message instead of creating a second card.
+ *
+ * The hub passes the DELIVERY id as `msg.idempotencyKey`: stable across every
+ * attempt of one delivery, and independent of the card content. A key derived
+ * from the content is not safe for cards, because content can legitimately
+ * differ between attempts and then every retry looks like a new message. The
+ * content-derived fallback is only for callers with no delivery row (an
+ * immediate bot reply), where an identical reply to the same person inside an
+ * hour is rightly collapsed.
  */
 export async function sendCard(
   connector: ConnectorRow,
@@ -302,7 +376,9 @@ export async function sendCard(
   if (Buffer.byteLength(content, "utf8") > MAX_CARD_BYTES) {
     return { ok: false, retryable: false, error: "card exceeds the 30 KB platform limit" };
   }
-  const uuid = createHash("sha256").update(`${msg.receiveIdType}:${msg.receiveId}:${content}`).digest("hex").slice(0, 48);
+  const uuid = (msg.idempotencyKey?.trim() ||
+    createHash("sha256").update(`${msg.receiveIdType}:${msg.receiveId}:${content}`).digest("hex")
+  ).slice(0, MAX_UUID_CHARS);
   try {
     const client = await createLarkClient(connector, secrets, overrides);
     const res = await withTimeout(

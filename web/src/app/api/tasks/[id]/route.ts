@@ -8,8 +8,9 @@ import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
-import { actorLabel, announceRequested, principalOf, projectNameOf } from "@/lib/governance/decide";
+import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
 import { assertProjectUnlocked, SCHEDULE_SHAPE_TASK_FIELDS, touchesScheduleShape } from "@/lib/governance/lock";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -87,6 +88,13 @@ export const PATCH = route(async ({ actor, params, request }) => {
     );
   }
 
+  // Cross-tenant guard: assignee (resource_member) and blocker (task) must be
+  // in THIS workspace. null clears the reference and is always allowed.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: input.assignee_id, field: "assignee_id" },
+    { table: "tasks", id: input.blocked_by, field: "blocked_by" },
+  ]);
+
   // If milestone_id is being changed, validate it belongs to the same project + workspace
   if (input.milestone_id !== undefined && input.milestone_id !== null) {
     const { data: milestone } = await db
@@ -145,6 +153,10 @@ export const PATCH = route(async ({ actor, params, request }) => {
  */
 export const DELETE = route(async ({ actor, params, request }) => {
   requireScope(actor, "task:delete:request");
+  // A token with no recorded owner can't raise the request (R1/H3): its
+  // requester principal would be null, comparable to nobody, so the same
+  // person could then approve it from a normal session.
+  const requesterPrincipal = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
 
@@ -214,9 +226,9 @@ export const DELETE = route(async ({ actor, params, request }) => {
       requested_by_id: actor.id,
       requested_by_label: actor.label,
       // The HUMAN behind the requester (the user, or the token's creator) —
-      // four-eyes compares this, not the actor id. NULL only for a legacy
-      // token with no recorded creator.
-      requested_principal_id: principalOf(actor),
+      // four-eyes compares this, not the actor id. Never null: an ownerless
+      // token was refused above.
+      requested_principal_id: requesterPrincipal,
       before: task,
     })
     .select()
@@ -259,7 +271,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
     projectId: task.project_id ?? null,
     projectName: await projectNameOf(db, actor.workspaceId, task.project_id),
     requestedByLabel: actorLabel(actor),
-    requesterPrincipalId: principalOf(actor),
+    requesterPrincipalId: requesterPrincipal,
   });
 
   // Return 202 Accepted with the deletion_request

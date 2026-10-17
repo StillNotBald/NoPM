@@ -84,10 +84,25 @@ const spec = {
       "made by a person in the console or on a chat card. " +
       "Error bodies carry a stable machine-readable `code` beside `error` (e.g. unauthorized, " +
       "forbidden_scope, not_found, rule_violation, rate_limited, self_approval, no_principal, " +
-      "already_decided, project_locked) — branch on it, not on the message. " +
+      "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
+      "rebaseline_not_pending, already_applied, change_request_decided, children_changed, " +
+      "invalid_reference, decision_in_use) — branch on it, not on the message. " +
+      "A request raised by a token with no recorded owner is refused up front (403, code no_principal) on every " +
+      "route that RAISES a governed request — task / project deletion, change request, timesheet submission, " +
+      "rebaseline proposal — not only on the deciding side, because a requester with no person behind it is " +
+      "comparable to nobody. " +
+      "Cross-tenant reference guard: any id in a request body that points at another record (owner_id, " +
+      "assignee_id, blocked_by, supersedes, project_id, task_id, member_id, profile_id, ...) must belong to the " +
+      "caller's workspace. Otherwise the call is refused with 422, code invalid_reference, and `fields` naming " +
+      "every offending field; a missing id and an id from another workspace give the SAME message, so the " +
+      "response is not an existence oracle. null clears a reference and is always allowed. " +
       "Integrations (Lark / Feishu): a workspace admin connects ONE app per workspace under " +
-      "/integrations/connectors; approvers get a card with Approve / Reject buttons, and every click " +
-      "runs the same governed decision as the console (one audit row, channel `lark`). The three " +
+      "/integrations/connectors (webhook mode requires an Encrypt Key); approvers get a card with Approve / " +
+      "Reject buttons, and every click runs the same governed decision as the console (one audit row, channel " +
+      "`lark`). A card describes the request as it was when sent: if a pending change request is edited, the old " +
+      "card is retired and a fresh one issued, and a tap on a stale card decides nothing (a `changed` toast). One " +
+      "approver is sent at most 20 cards an hour; past that they get a single \"N approvals are waiting\" roll-up " +
+      "message instead, so a flood of requests cannot bury a person in chat. The three " +
       "/integrations/lark/{connectorId}/* routes are called by the platform (or the self-host " +
       "relay worker), authenticate by signature rather than a NoPM token, and answer in the " +
       "PLATFORM's contract, not the { data } envelope. A read-only milestone calendar feed " +
@@ -165,7 +180,9 @@ const spec = {
             description:
               "Stable machine-readable error code, present on most errors (e.g. unauthorized, forbidden_scope, " +
               "not_found, rule_violation, rate_limited, precondition_failed, self_approval, no_principal, " +
-              "already_decided, project_locked). Branch on this, not on the message.",
+              "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
+              "rebaseline_not_pending, already_applied, change_request_decided, children_changed, " +
+              "invalid_reference, decision_in_use). Branch on this, not on the message.",
           },
           fields: {
             type: "array",
@@ -247,12 +264,50 @@ const spec = {
           has_encrypt_key: { type: "boolean" },
           secrets_readable: { type: "boolean", description: "false when the stored credentials cannot be decrypted (server key missing or rotated)" },
           has_relay_secret: { type: "boolean" },
-          tenant_pinned: { type: "boolean", description: "true once the first account link pinned the connector to one Lark tenant" },
+          tenant_pinned: { type: "boolean", description: "true once the first account link by an ADMIN or MANAGER pinned the connector to one Lark tenant; a link by any other role never pins it (a non-approver cannot lock the real tenant out by linking from a foreign one) but is still refused when the connector is already pinned to a different tenant" },
           created_by: { type: ["string", "null"], format: "uuid" },
           created_at: { type: "string", format: "date-time" },
           updated_at: { type: "string", format: "date-time" },
           revoked_at: { type: ["string", "null"], format: "date-time" },
           callback_urls: { $ref: "#/components/schemas/LarkCallbackUrls" },
+          health: {
+            description:
+              "Operator visibility (GET /integrations/connectors, admin view only). Counts and timestamps only — never a " +
+              "payload or message text. null for a revoked connector, or when the lookup itself failed, so \"unknown\" " +
+              "never reads as \"0 dead\". Absent from create / update / revoke responses.",
+            oneOf: [{ $ref: "#/components/schemas/ConnectorHealth" }, { type: "null" }],
+          },
+        },
+      },
+      ConnectorHealth: {
+        type: "object",
+        description: "Delivery-queue health of one connector.",
+        required: ["pending", "retry", "dead", "last_sent_at", "last_error", "last_cron_at", "last_cron"],
+        properties: {
+          pending: { type: "integer", description: "Queued and never attempted yet" },
+          retry: { type: "integer", description: "Failed at least once and waiting for the next attempt (retries follow 1 m / 5 m / 30 m / 2 h / 12 h)" },
+          dead: { type: "integer", description: "Gave up — a card that never reached anyone. Pruned after the retention window (60 days)." },
+          last_sent_at: { type: ["string", "null"], format: "date-time", description: "When the most recent message went out" },
+          last_error: { type: ["string", "null"], description: "Why the most recent failing delivery failed — already sanitised (no secrets), at most 300 characters" },
+          last_cron_at: { type: ["string", "null"], format: "date-time", description: "When the daily scheduler last processed this connector (null if it never has, or the database has not applied migration 0051)" },
+          last_cron: {
+            description: "Counts from that scheduler run",
+            oneOf: [
+              {
+                type: "object",
+                properties: {
+                  claimed: { type: "integer" },
+                  sent: { type: "integer" },
+                  retried: { type: "integer" },
+                  dead: { type: "integer" },
+                  superseded: { type: "integer" },
+                  digest: { type: "string", enum: ["sent", "skipped", "queued", "failed"] },
+                  partial: { type: "boolean", description: "true when the deadline or a timeout cut the pass short, so a backlog may remain for the next tick" },
+                },
+              },
+              { type: "null" },
+            ],
+          },
         },
       },
       IntegrationConnectorRedacted: {
@@ -383,7 +438,11 @@ const spec = {
       get: {
         tags: ["tokens"],
         summary: "List API tokens",
-        description: "scope: admin or manager user session",
+        description:
+          "scope: admin or manager user session. Lists every credential of the workspace except the in-app assistant's " +
+          "per-turn ephemeral tokens, which are hidden by their KIND (api_tokens.kind = 'assistant', set only by the " +
+          "assistant's own mint path and not settable through POST /tokens) — never by name, so a token somebody " +
+          "deliberately names \"AI Assistant · build\" still shows up in this inventory.",
         operationId: "listTokens",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -474,8 +533,12 @@ const spec = {
         summary: "Accept a link invite — provisions a new login (L-47/L-48)",
         description:
           "No auth required — this is the one route in NoPM that creates a brand-new auth user from an " +
-          "unauthenticated request. Rate-limited explicitly (10/req per minute, keyed by IP — this " +
-          "endpoint cannot use the baseline actor-keyed limiter since there is no actor pre-auth). Body " +
+          "unauthenticated request. Rate-limited explicitly (10/req per minute, keyed by client network — this " +
+          "endpoint cannot use the baseline actor-keyed limiter since there is no actor pre-auth). The key is the " +
+          "address YOUR proxy appended to X-Forwarded-For (IPv6 collapsed to its /64), never the caller's own first " +
+          "entry, which a caller can rotate for a fresh bucket each request: on Vercel it is read from the platform's " +
+          "header; anywhere else NOTHING is trusted unless NOPM_TRUSTED_PROXY_HOPS is set to the number of reverse " +
+          "proxies in front of the app — with no trustworthy address every caller shares ONE conservative bucket. Body " +
           "has NO email field: the accepted email is always the invite's own. Ordering (D6): " +
           "admin.auth.admin.createUser FIRST (email_confirm: true), THEN the atomic nopm_accept_invite " +
           "RPC (writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). " +
@@ -539,7 +602,13 @@ const spec = {
       patch: {
         tags: ["projects"],
         summary: "Update a project",
-        description: "scope: project:write",
+        description:
+          "scope: project:write. A LOCKED project's baseline is frozen: changing start_date, target_date, baseline_start_date " +
+          "or baseline_target_date is refused with 422 project_locked (recorded as a project.update.blocked audit row), exactly " +
+          "as for tasks and milestones — the way to move a frozen baseline is a governed unlock or an approved rebaseline, " +
+          "never one holder of project:write. A field sent with its stored value is not a change. Name, owner, RAG, " +
+          "commentary and the rest stay editable under lock. owner_id must be a member of THIS workspace (422 " +
+          "invalid_reference otherwise).",
         operationId: "updateProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateProjectSchema),
@@ -547,7 +616,7 @@ const spec = {
           "200": { description: "Updated project", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "412": { $ref: "#/components/responses/PreconditionFailed" },
-          "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; project_locked (the patch changes a schedule date of a locked project); or invalid_reference (owner_id)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       delete: {
@@ -562,7 +631,11 @@ const spec = {
           "deletion, a LOCKED project is refused at this request step (422, code project_locked, recorded " +
           "as a project.delete_request.blocked audit row) rather than left to sit in the approvers' queue; " +
           "the atomic commit RPC re-checks the lock at approval as a backstop for a lock applied after " +
-          "the request was raised. Owner-locked (Decision 3, " +
+          "the request was raised. A token with no recorded owner cannot raise the request (403, code no_principal): its " +
+          "requester principal would be null, comparable to nobody. The request snapshots not only the project row but " +
+          "how many rows of each child kind hang off it (before.child_counts); if the project gains records afterwards, " +
+          "the approval is refused (422 children_changed) so an approver never destroys children they were not shown. " +
+          "Owner-locked (Decision 3, " +
           "requirements/devops-wave1/README.md): maker-checker extends to PROJECTS ONLY — milestones/" +
           "risks/issues stay single-step hard deletes and are never routed through deletion_requests.",
         operationId: "requestProjectDeletion",
@@ -570,6 +643,7 @@ const spec = {
         requestBody: zodBody(ProjectDeleteRequestSchema),
         responses: {
           "202": { description: "Deletion request created (pending)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing project:delete:request (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error (reason required); project_locked (the project is locked — refused at request time); or a pending deletion request already exists for this project (code duplicate_deletion_request)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -806,13 +880,19 @@ const spec = {
         summary: "Submit a weekly timesheet for a member (four-eyes maker step, L-31)",
         description:
           "scope: time:submit. period_start must be a Monday; period_end is derived (+6 days). Snapshots " +
-          "hours_total/entry_count from time_entries in that window at submit time — never recomputed " +
-          "afterwards. 422 if the member has no time entries in the period (\"nothing to submit\"), or if " +
-          "an open (submitted|approved) submission already exists for this member+period.",
+          "hours_total/entry_count — and a content digest of the entries (id, day, hours, project, billable) — from " +
+          "time_entries in that window at submit time; never recomputed afterwards. The approval is BOUND to that " +
+          "snapshot (POST /timesheet-submissions/{id}/decision refuses with 422 timesheet_changed if the live entries no " +
+          "longer match), and the week's entries are FROZEN while the sheet is submitted and awaiting a decision (422 " +
+          "timesheet_locked on POST/DELETE /time-entries; a rejection unlocks the week). 422 if the member has no time " +
+          "entries in the period (\"nothing to submit\"), or if an open (submitted|approved) submission already exists " +
+          "for this member+period. A token with no recorded owner cannot submit (403, code no_principal): the " +
+          "submitter's human is what four-eyes compares the approver against.",
         operationId: "submitTimesheet",
         requestBody: zodBody(createTimesheetSubmissionSchema),
         responses: {
           "201": { description: "Timesheet submission created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing time:submit (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Resource member not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error, nothing to submit, or an open submission already exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -827,21 +907,26 @@ const spec = {
           "The deciding PERSON must differ from the submitter — compared on the submitter's principal " +
           "(the user, or the user who minted the submitting token) plus the legacy compound (id AND type) " +
           "comparison, guard symmetry across ALL THREE verbs; a token with no recorded owner can never " +
-          "decide (403, code no_principal). approve/reject require status='submitted'; reopen requires the INVERSE — " +
+          "decide (403, code no_principal). The person whose HOURS these are cannot decide the sheet either: if the " +
+          "timesheet's member is linked to the decider's login (resource_members.profile_id), the call is a 403 " +
+          "self_approval — a member with no linked login has no human to compare, and the submitter check still " +
+          "applies. approve/reject require status='submitted'; reopen requires the INVERSE — " +
           "status='approved' (reopen is the governed unlock for the period-close lock, R-76: an " +
           "approved week's time entries reject create/delete until reopened, migration " +
-          "20260815000040). Rejection AND reopen both require a non-empty rationale; approval does not. " +
-          "Reopen reverts status to 'submitted' and clears decided_by/_type/_label/decided_at/" +
-          "decision_rationale, and notifies the workspace's approvers (the sheet re-enters the Review " +
-          "Queue as a fresh approval request) rather than the submitter.",
+          "20260815000040). CONTENT BINDING on approve: the live entries for the member and week must still match what " +
+          "was submitted (same totals, same content digest); otherwise 422 timesheet_changed — reject the sheet with a " +
+          "reason and have the member resubmit. Rejection AND reopen both require a non-empty rationale; approval does not. " +
+          "Reopen reverts status to 'submitted', marks the sheet open for amendment (reopened_at) and clears decided_by/" +
+          "_type/_label/decided_at/decision_rationale, and notifies the workspace's approvers (the sheet re-enters the " +
+          "Review Queue as a fresh approval request) rather than the submitter.",
         operationId: "decideTimesheetSubmission",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(timesheetDecisionSchema),
         responses: {
           "200": { description: "Decision recorded", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-decision rejected (four-eyes, code self_approval) — includes self-reopen; no recorded owner on the token (no_principal); or missing time:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Self-decision rejected (four-eyes, code self_approval) — includes self-reopen and deciding a sheet for your own hours; no recorded owner on the token (no_principal); or missing time:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Already decided (approve/reject — code already_decided), not approved yet (reopen — code not_reopenable), or rationale missing on reject/reopen (code rationale_required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Already decided (approve/reject — code already_decided), not approved yet (reopen — code not_reopenable), rationale missing on reject/reopen (code rationale_required), or the time entries changed since the sheet was submitted (approve — code timesheet_changed)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1091,12 +1176,13 @@ const spec = {
       delete: {
         tags: ["tasks"],
         summary: "Request task deletion (maker step)",
-        description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending. Returns 202. A different PERSON holding scope task:delete:approve must approve it (a token you minted counts as you). 422 project_locked when the project is locked (deletion always reshapes the schedule).",
+        description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending. Returns 202. A different PERSON holding scope task:delete:approve must approve it (a token you minted counts as you). A token with no recorded owner cannot raise the request (403, code no_principal). 422 project_locked when the project is locked (deletion always reshapes the schedule).",
         operationId: "requestTaskDeletion",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(TaskDeleteRequestSchema),
         responses: {
           "202": { description: "Deletion request created (pending)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing task:delete:request (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Duplicate pending request (code duplicate_deletion_request), or project_locked when the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -1445,14 +1531,18 @@ const spec = {
         summary: "Log a time entry",
         description:
           "scope: time:write. Cost is auto-computed as hours * member.cost_rate. 422 if the entry's " +
-          "week already has an APPROVED timesheet submission for this member — the week is locked " +
+          "week is locked for this member: code period_locked when an APPROVED timesheet submission covers it " +
           "(R-76/L-32; reopen the submission via POST /timesheet-submissions/{id}/decision with " +
-          "decision='reopened' to unlock it).",
+          "decision='reopened' to unlock it), or code timesheet_locked when a SUBMITTED one does — the sheet is under " +
+          "review and what the approver sees must be what they approve (a rejection unlocks the week; a reopened " +
+          "sheet is open for amendment again, but an amended sheet can no longer be approved as submitted — 422 " +
+          "timesheet_changed — so reject it and have the member resubmit). task_id, when " +
+          "sent, must be a task in this workspace (422 invalid_reference).",
         operationId: "createTimeEntry",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id", "project_id", "entry_date", "hours"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, entry_date: { type: "string", format: "date" }, hours: { type: "number", minimum: 0 }, note: { type: "string" }, billable: { type: "boolean", description: "L-29: whether this entry counts as billable. Omitted → defaults from the owning project's default_billable." } } } } } },
         responses: {
           "201": { description: "Time entry created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Validation error, or the entry's week is locked (approved timesheet submission)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; the entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision); or invalid_reference (task_id)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1461,14 +1551,15 @@ const spec = {
         tags: ["time-entries"],
         summary: "Delete a time entry",
         description:
-          "scope: time:write. 422 if the entry's week already has an APPROVED timesheet submission for " +
-          "this member — the week is locked (R-76/L-32; reopen the submission to unlock it).",
+          "scope: time:write. 422 if the entry's week is locked for this member: period_locked when an APPROVED " +
+          "timesheet submission covers it (R-76/L-32; reopen the submission to unlock it), timesheet_locked when a " +
+          "SUBMITTED one does (under review; a rejection unlocks the week).",
         operationId: "deleteTimeEntry",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "The entry's week is locked (approved timesheet submission)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1580,8 +1671,12 @@ const spec = {
           "Dispatches by target_type to the matching atomic commit RPC " +
           "(nopm_commit_task_deletion / nopm_commit_project_deletion) — deletes the target and commits " +
           "the request in one transaction. " +
-          "For target_type=project, also 422s if the project's schedule was frozen " +
-          "after the deletion was requested (message: Project is locked).",
+          "For target_type=project, also 422s project_locked if the project's schedule was frozen " +
+          "after the deletion was requested, and 422s children_changed if the project gained records (tasks, " +
+          "milestones, risks, ...) after the request was raised — the request no longer describes what would be " +
+          "deleted, so reject or withdraw it and raise a new one. A cascade that would remove time entries inside a " +
+          "submitted or approved timesheet week is refused the same way as deleting them directly " +
+          "(period_locked / timesheet_locked).",
         operationId: "approveDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: {
@@ -1601,7 +1696,7 @@ const spec = {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Missing the per-type approve scope (forbidden_scope); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided (already_decided), the project is locked (target_type=project, schedule frozen since the request was made), or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1642,7 +1737,7 @@ const spec = {
         summary: "Query the immutable audit log",
         description:
           "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id, " +
-          "?channel (R-82: one of ui|api|cli|mcp|assistant, unrecognized values ignored). " +
+          "?channel (R-82: one of ui|api|cli|mcp|assistant|lark, unrecognized values ignored). " +
           "R-85 cursor params for tailing the log: ?since (ISO 8601 timestamp, rows with " +
           "created_at >= since; 422 if unparsable), ?after_id (uuid of a row already seen; " +
           "looked up within the caller's workspace and its created_at used as a strict lower " +
@@ -1654,9 +1749,10 @@ const spec = {
           "written before migration 20260906000042_audit_channel.sql. " +
           "A decision made from a chat card (Lark) is recorded with channel `lark`, plus via_connector_id, " +
           "external_event_id and external_actor_ref — all SERVER-DERIVED from the verified connector binding, " +
-          "never accepted from X-NoPM-Client. The ?channel filter recognises only the five declarable values " +
-          "(ui|api|cli|mcp|assistant); `lark` is not one of them, so ?channel=lark is currently ignored like any " +
-          "unrecognized value — filter on ?action=... or inspect the channel field of returned rows instead.",
+          "never accepted from X-NoPM-Client (a caller can only DECLARE ui|api|cli|mcp|assistant); ?channel=lark filters " +
+          "to the decisions and account links made through the chat connector. The audit rows of connector management " +
+          "carry the Lark app id, group chat id and platform user / tenant ids abbreviated, because this stream is " +
+          "readable by every workspace member.",
         operationId: "listAuditLog",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -1818,12 +1914,18 @@ const spec = {
         tags: ["auth"],
         summary: "One-click demo login (R-53)",
         description:
-          "No auth required. Signs in with the pre-seeded demo account (credentials in server-only env vars DEMO_EMAIL / DEMO_PASSWORD) and redirects to /dashboard. Returns 503 if the demo account is not configured, 302 to /login?error=demo_unavailable on auth failure.",
+          "No auth required. Signs in with the pre-seeded demo account (credentials in server-only env vars DEMO_EMAIL / DEMO_PASSWORD) and redirects to /dashboard. " +
+          "Failures depend on WHO is calling. A browser navigation (the landing page's form post sends Accept: text/html) " +
+          "is never left on a page of raw JSON: every failure is a 302 back to /login?error=<code>, which the login page " +
+          "explains — demo_unconfigured when this deployment has no DEMO_EMAIL / DEMO_PASSWORD, demo_unavailable when the " +
+          "demo account rejects the sign-in (for example during a reseed) or the auth host cannot be reached. Programmatic " +
+          "callers (curl, agents — no text/html in Accept) keep the JSON contract: 503 { error } when the demo account is " +
+          "not configured, and 302 to /login?error=demo_unavailable when the sign-in fails.",
         security: [],
         operationId: "demoLogin",
         responses: {
-          "302": { description: "Redirect to /dashboard (session cookies set)" },
-          "503": { description: "Demo account not configured on this deployment" },
+          "302": { description: "Redirect to /dashboard (session cookies set); or, on failure, to /login?error=demo_unavailable | demo_unconfigured (see the description for which callers get which)", headers: { Location: { schema: { type: "string" } } } },
+          "503": { description: "Demo account not configured on this deployment — programmatic callers only (a browser navigation is redirected to /login?error=demo_unconfigured instead)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2129,12 +2231,16 @@ const spec = {
           "scope, priority to medium, status to raised). `status` may only be raised or under_review: every terminal " +
           "status needs a decider, so approved / rejected / deferred / implemented are reached through " +
           "POST /change-requests/{id}/decision — sending one at creation is a 422 validation error, never a raw " +
-          "database error.",
+          "database error. A token with no recorded owner cannot raise a change request (403, code no_principal): " +
+          "a requester with no person behind it is comparable to nobody, so the same person could then decide their " +
+          "own request from a session.",
         operationId: "createChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createChangeRequestSchema),
         responses: {
           "201": { description: "Change request created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing change:write (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error — including a status other than raised | under_review", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2154,24 +2260,35 @@ const spec = {
       patch: {
         tags: ["change-requests"],
         summary: "Update a change request",
-        description: "scope: change:write. `status` is NOT updatable here — every status transition goes through the four-eyes POST /change-requests/{id}/decision.",
+        description:
+          "scope: change:write. `status` is NOT updatable here — every status transition goes through the four-eyes " +
+          "POST /change-requests/{id}/decision. Editable ONLY while the request is still open (raised / under_review): once " +
+          "decided it is part of the decision record, and editing its impact_cost after approval would rewrite what the " +
+          "decider looked at — 422 change_request_decided (raise a new change request instead); the write is a " +
+          "compare-and-set on the open statuses, so a decision landing mid-edit wins. Editing a field an approver decides " +
+          "on (title, description, category, priority, impact_summary, impact_schedule_days, impact_cost, target_date) " +
+          "bumps the request's updated_at — its content version — and retires any approval card already sent, issuing a " +
+          "fresh one with the current content, so a tap on the old card can never approve content it did not show. " +
+          "Editing raised_at alone re-issues nothing.",
         operationId: "updateChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateChangeRequestSchema),
         responses: {
           "200": { description: "Updated change request", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error, or the request is no longer open (code change_request_decided)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       delete: {
         tags: ["change-requests"],
         summary: "Delete a change request",
-        description: "scope: change:write",
+        description: "scope: change:write. Only while the request is still open (raised / under_review): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
         operationId: "deleteChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The request is no longer open (code change_request_decided)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2184,7 +2301,12 @@ const spec = {
           "requester (four-eyes, compared on the requester's principal — the user, or the user who minted the token that " +
           "raised it — plus the legacy actor checks); a token with no recorded owner can never decide (403, code " +
           "no_principal). Status must be raised or under_review, and the update is a compare-and-set, so two deciders " +
-          "racing cannot both win (the loser gets 422 already_decided). rationale is required.",
+          "racing cannot both win (the loser gets 422 already_decided). rationale is required. APPROVE WHAT YOU SAW " +
+          "(opt-in, like every R-90 write): send expected_updated_at — the updated_at of the change request you were " +
+          "looking at — and if it was edited since, the decision is refused with 412 (code precondition_failed) instead " +
+          "of approving content the decider never saw; omit it and today's behaviour is unchanged. The decision write is " +
+          "itself pinned to that version, so an edit landing between the check and the write also fails with 412. A " +
+          "decision made from a chat card is always pinned to the version the card was issued for.",
         operationId: "decideChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(decisionActionSchema),
@@ -2192,6 +2314,7 @@ const spec = {
           "200": { description: "Decision recorded (the updated change request)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Self-approval rejected (code self_approval), token has no recorded owner (no_principal), or missing change:decide (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { description: "expected_updated_at no longer matches: the change request was edited (or decided) since you loaded it (code precondition_failed; current_updated_at is included when known). Re-read it and decide again.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Already decided (code already_decided), or validation error (decision/rationale)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2241,7 +2364,7 @@ const spec = {
       patch: {
         tags: ["decisions"],
         summary: "Update a decision",
-        description: "scope: decision:write",
+        description: "scope: decision:write. `supersedes` must name another decision in this workspace; a decision cannot supersede itself (422 validation error on fields[supersedes]).",
         operationId: "updateDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
@@ -2253,12 +2376,13 @@ const spec = {
       delete: {
         tags: ["decisions"],
         summary: "Delete a decision",
-        description: "scope: decision:write",
+        description: "scope: decision:write. A decision that another decision supersedes cannot be deleted — 422 decision_in_use, naming the superseding decision; remove that link first.",
         operationId: "deleteDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Another decision supersedes this one, or something outside this workspace still references it (code decision_in_use)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2308,12 +2432,20 @@ const spec = {
       post: {
         tags: ["rebaselines"],
         summary: "Create a rebaseline request",
-        description: "scope: project:write. If the project is locked, status is pending_approval; otherwise draft.",
+        description:
+          "scope: project:write. If the project is locked, status is pending_approval; otherwise draft (a draft on an " +
+          "unlocked project is not awaiting sign-off, and sign-off on it is refused). Proposing is the maker step of the " +
+          "rebaseline four-eyes flow, so a token with no recorded owner cannot propose (403, code no_principal): its " +
+          "requester principal would be null, comparable to nobody, and the same person could then sign off their own " +
+          "proposal. Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected; " +
+          "applied and rejected are terminal.",
         operationId: "createRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string" }, before: { type: "object" }, after: { type: "object" } } } } } },
         responses: {
           "201": { description: "Rebaseline created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing project:write (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2335,7 +2467,7 @@ const spec = {
           "200": { description: "Signoff recorded; rebaseline status may update ({ signoff, rebaseline })", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Self-signoff by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error, or the requester signing off their own rebaseline as the same user (self_approval)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; the requester signing off their own rebaseline as the same user (self_approval); or the rebaseline is not pending_approval — a draft, or already approved / rejected / applied — so it can no longer be voted on (code rebaseline_not_pending, also returned when a concurrent sign-off decided it first)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2350,7 +2482,7 @@ const spec = {
           "200": { description: "Rebaseline applied", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Self-apply by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "The requester applying their own rebaseline as the same user (self_approval), or the rebaseline is not in status approved", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The requester applying their own rebaseline as the same user (self_approval); the rebaseline is already applied (code already_applied — also returned to the loser of two concurrent applies); or it is not in status approved (code rule_violation)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2654,11 +2786,21 @@ const spec = {
         description:
           "Public — no NoPM auth: the secret in the URL IS the credential, because a calendar app cannot send a Bearer " +
           "header. Returns an RFC 5545 calendar (text/calendar): one all-day VEVENT per milestone with a target date " +
-          "(stable UID milestone-<id>@<host>, SEQUENCE from updated_at, a deep link in URL), limited to the feed's " +
-          "workspace and, if set, project. Cache-Control: private, max-age=900 and Referrer-Policy: no-referrer. " +
+          "(stable UID milestone-<id>@<host>, SEQUENCE from the later of the milestone's and its project's updated_at — " +
+          "so renaming a project refreshes its events — and a deep link in URL), limited to the feed's workspace and, " +
+          "if set, project. WINDOW: milestones from 90 days ago to the end of the schedule, in date order — older, " +
+          "long-finished milestones fall out of the subscription (a subscribing client replaces its copy on every poll). " +
+          "CAP: at most 2000 events; a feed that hits it answers with the header X-NoPM-Feed-Truncated: 1 (the far end " +
+          "of the schedule is what is cut, never the near-term milestones). " +
+          "REVALIDATION: the body carries a strong ETag (a hash of the deterministic serialisation); send it back as " +
+          "If-None-Match and an unchanged feed answers 304 with no body. Cache-Control: private, max-age=900 and " +
+          "Referrer-Policy: no-referrer on both 200 and 304. " +
+          "THROTTLING (this route is public, so it limits itself): 120 requests/min per client address, counted before " +
+          "the token is looked up (NOPM_RATE_CAL_IP_PER_MIN), then 60/min per feed (NOPM_RATE_CAL_PER_MIN); over either " +
+          "is 429 with Retry-After. Calendar apps poll every 15 minutes to a few hours, far below that. " +
           "Unknown, malformed and revoked tokens all get the same 404, so the response cannot be used to probe which " +
           "tokens exist. Not audited per fetch (a calendar polls every few minutes); the feed's last_fetched_at is " +
-          "updated after the response. Create the URL with POST /calendar-feeds.",
+          "updated after the response, also for a 304. Create the URL with POST /calendar-feeds.",
         security: [],
         operationId: "getCalendarFeedIcs",
         parameters: [
@@ -2669,17 +2811,39 @@ const spec = {
             schema: { type: "string", pattern: "^npc_[A-Za-z0-9_-]{43}(\\.ics)?$" },
             description: "The feed secret (npc_ + 43 URL-safe characters), optionally followed by .ics — the form calendar apps expect",
           },
+          {
+            name: "If-None-Match",
+            in: "header",
+            required: false,
+            schema: { type: "string" },
+            description: "An ETag from an earlier 200 (a list, or *): an unchanged feed answers 304 with no body",
+          },
         ],
         responses: {
           "200": {
             description: "iCalendar document (CRLF line endings, 75-octet folding)",
             headers: {
+              ETag: { schema: { type: "string" }, description: "Strong validator of this body" },
               "Cache-Control": { schema: { type: "string" }, description: "private, max-age=900" },
               "Referrer-Policy": { schema: { type: "string" }, description: "no-referrer" },
+              "X-NoPM-Feed-Truncated": { schema: { type: "string", enum: ["1"] }, description: "Present only when the feed hit its 2000-event cap and the far end of the schedule was left out" },
             },
             content: { "text/calendar": { schema: { type: "string" } } },
           },
+          "304": {
+            description: "Not modified — the If-None-Match ETag still matches. No body; the ETag, Cache-Control and Referrer-Policy headers are repeated.",
+            headers: {
+              ETag: { schema: { type: "string" } },
+              "Cache-Control": { schema: { type: "string" }, description: "private, max-age=900" },
+              "Referrer-Policy": { schema: { type: "string" }, description: "no-referrer" },
+            },
+          },
           "404": { description: "Unknown, malformed or revoked feed token (one uniform response)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": {
+            description: "Throttled (per client address or per feed). Body is { error: \"Too many requests\" } — note: no `code` field on this route.",
+            headers: { "Retry-After": { schema: { type: "integer" }, description: "Seconds to wait" } },
+            content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+          },
         },
       },
     },
@@ -2690,8 +2854,10 @@ const spec = {
         description:
           "scope: signed-in user session, any role (token actors get 403). The shape depends on the role. ADMIN: the full " +
           "masked view of every connector including revoked history — presence flags for the credentials (has_app_secret, " +
-          "has_verification_token, has_encrypt_key, has_relay_secret, tenant_pinned), the non-secret config, and the " +
-          "callback_urls to paste into the platform console; never a secret value, ciphertext or hash. Any OTHER member, " +
+          "has_verification_token, has_encrypt_key, has_relay_secret, tenant_pinned), the non-secret config, the " +
+          "callback_urls to paste into the platform console, and a `health` block (queue counts pending / retry / dead, " +
+          "last_sent_at, last_error, last_cron_at, last_cron — null for a revoked connector or when the lookup failed); " +
+          "never a secret value, ciphertext or hash. Any OTHER member, " +
           "viewers included: a REDACTED view of the live (non-revoked) connectors only — id, name, kind, status, region, " +
           "mode, approvals.enabled, digest.enabled — enough to say \"Lark is connected; approvals on\" without exposing " +
           "the app id, chat id or URLs. Unpaginated: page is always 1 and limit is the item count.",
@@ -2722,11 +2888,16 @@ const spec = {
         summary: "Connect a Lark / Feishu app",
         description:
           "scope: admin user session only (a manager, member, viewer or token gets 403). One live connector per workspace — " +
-          "a second returns 422 (code connector_exists) until the first is revoked. app_secret, verification_token and the " +
-          "optional encrypt_key are encrypted at rest and NEVER returned by any API. The relay secret used by the self-host " +
-          "worker (mode long_connection) is generated here and returned exactly once as `relay_secret` — store it now; only " +
-          "its hash is kept. digest.chat_id is required when digest.enabled. Audited as integration.connector.create " +
-          "(the audit row carries the masked view, never a secret).",
+          "a second returns 422 (code connector_exists) until the first is revoked. app_secret, verification_token and " +
+          "encrypt_key are encrypted at rest and NEVER returned by any API. encrypt_key is REQUIRED when mode is webhook " +
+          "(the default): webhook mode makes the Lark-facing URLs public, and without the key the verification token — " +
+          "which sits in clear text in every event and is visible to every collaborator on the Lark app — would be the " +
+          "only proof an event came from Lark; with it every event is signed and encrypted. Omitting it is a 422 with " +
+          "fields[encrypt_key]. long_connection mode never exposes a public URL, so it may omit the key. The relay " +
+          "secret used by the self-host worker (mode long_connection) is generated here and returned exactly once as " +
+          "`relay_secret` — store it now; only its hash is kept. digest.chat_id is required when digest.enabled. " +
+          "Audited as integration.connector.create (the audit row carries the masked view — app id and chat id " +
+          "abbreviated, because the audit stream is readable by every member — never a secret).",
         operationId: "createIntegrationConnector",
         requestBody: zodBody(createConnectorSchema),
         responses: {
@@ -2750,7 +2921,7 @@ const spec = {
             },
           },
           "403": { description: "Not an admin user session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error, or a live connector already exists in this workspace (code connector_exists)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error — including a webhook-mode connector without encrypt_key (fields[encrypt_key]) — or a live connector already exists in this workspace (code connector_exists)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "503": { description: "The server's credential-encryption key is not configured (code encryption_unavailable)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2763,9 +2934,15 @@ const spec = {
           "scope: admin user session only. Rename, set status active <-> paused (the kill switch: paused stops BOTH " +
           "directions — no cards sent, no clicks accepted), change the non-secret config (merged over what is stored), " +
           "replace credentials (write-only: send only the ones that change), clear_tenant_pin to let the connector be re-" +
-          "pinned by the next first account link, or rotate_relay_secret to mint a new relay secret (returned once as " +
-          "`relay_secret`; the old one stops working). Revoking is DELETE, not a status here. At least one field is " +
-          "required. Audited as integration.connector.update — the row records WHICH secrets changed, never their values.",
+          "pinned by the next first account link made by an admin or manager, or rotate_relay_secret to mint a new relay " +
+          "secret (returned once as `relay_secret`; the old one stops working). Revoking is DELETE, not a status here. " +
+          "At least one field is required. WEBHOOK MODE NEEDS AN ENCRYPT KEY: whenever an update touches the mode or the " +
+          "credentials and the connector will be in webhook mode, it must end up holding an encrypt_key — switching a " +
+          "keyless long_connection connector to webhook without sending one, replacing credentials on a keyless webhook " +
+          "connector without supplying one, or sending encrypt_key: null on a webhook connector is a 422 with " +
+          "fields[encrypt_key]. A pause, a rename or a digest change is never held up by this. Audited as " +
+          "integration.connector.update — the row records WHICH secrets changed, never their values, and the app id " +
+          "and chat id appear abbreviated (the audit stream is readable by every member).",
         operationId: "updateIntegrationConnector",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateConnectorSchema),
@@ -2773,7 +2950,7 @@ const spec = {
           "200": { description: "Updated connector (the masked view, without callback_urls); includes `relay_secret` once when rotate_relay_secret was set", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Not an admin user session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error; the connector is revoked (code connector_revoked); or the stored credentials cannot be read and only part of them was sent (code secrets_unreadable)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error — including a webhook-mode connector left without an encrypt_key (fields[encrypt_key]); the connector is revoked (code connector_revoked); or the stored credentials cannot be read and only part of them was sent (code secrets_unreadable)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "503": { description: "The server's credential-encryption key is not configured (code encryption_unavailable)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2842,8 +3019,10 @@ const spec = {
         description:
           "scope: admin user session only. Gathers the workspace digest and posts it once, immediately, to the connector's " +
           "configured group chat. Because it sends workspace data to a third party it is audited BEFORE anything is queued " +
-          "(integration.digest.send, trigger manual). A manual send never occupies the once-per-ISO-week scheduled slot. " +
-          "The connector must be active and have a digest chat id.",
+          "(integration.digest.send, trigger manual; the chat id appears abbreviated in the audit row). A manual send " +
+          "never occupies the once-per-ISO-week scheduled slot. The delivery id is the platform idempotency key, so a " +
+          "retry of a send whose first attempt actually landed cannot post twice. The connector must be active and " +
+          "have a digest chat id.",
         operationId: "sendIntegrationDigest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -2917,7 +3096,12 @@ const spec = {
           "what binds that account to YOUR NoPM profile (never by email match). Any member may link themselves, viewers " +
           "included: the link grants nothing by itself, and approving still needs the decide scope and an eligible role " +
           "at click time. Audited as integration.identity.code (the audit row never contains the code); the link itself " +
-          "is audited as integration.identity.link with channel lark.",
+          "is audited as integration.identity.link with channel lark. Guarding the code: a failed or repeated `link` " +
+          "attempt from the bot is rate-limited (8 per Lark account and 120 per connector per 10 minutes). If using a " +
+          "code REPLACES an earlier link of yours, you get an in-app notice (type integration.link_replaced) and the " +
+          "Lark account that just lost the link is told by direct message, so a leaked or phished code cannot silently " +
+          "re-point your approvals. The first link made by an admin or manager also pins the connector to that Lark " +
+          "tenant; a link by any other role never pins it.",
         operationId: "createIdentityLinkCode",
         responses: {
           "201": {
@@ -2972,10 +3156,17 @@ const spec = {
         description:
           "NOT a user or PAT route. The only credential is Authorization: Bearer <CRON_SECRET> — the deployment's CRON_SECRET " +
           "environment variable, which the host's cron scheduler attaches to its own calls — compared in constant time; an " +
-          "unset CRON_SECRET authorises nobody. For every ACTIVE connector (paused and revoked ones are skipped entirely) " +
-          "it drains deliveries that are due for retry and posts the weekly digest on the connector's configured weekday " +
-          "(UTC), once per ISO week. Idempotent: a second call the same day re-drains (leases prevent double sends) and " +
-          "never repeats a digest. Runs daily at 01:00 UTC per vercel.json.",
+          "unset CRON_SECRET authorises nobody (and is logged, because it otherwise looks like a cron that merely never " +
+          "runs). For every ACTIVE connector (paused and revoked ones are skipped entirely) it drains deliveries that are " +
+          "due for retry, posts the weekly digest on the connector's configured weekday (UTC), once per ISO week, and " +
+          "prunes old bookkeeping rows (sent / dead / superseded deliveries after 60 days, spent action tokens 14 days " +
+          "after expiry, inbound idempotency rows after 90 days — audit_log is never touched). Idempotent: a second call " +
+          "the same day re-drains (leases prevent double sends) and never repeats a digest. Runs daily at 01:07 UTC " +
+          "per vercel.json (off the hour and half-hour, when the platform sheds load). It is only the FLOOR of the retry " +
+          "ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead): due retries are also drained whenever the workspace has " +
+          "approval traffic. It is built to finish inside the 60 s function limit: every connector's digest is queued " +
+          "first (database work only, so being cut off cannot lose a week's digest), connectors are drained 3 at a time, " +
+          "and no new work STARTS after 40 s — what is left stays queued for the next tick.",
         security: [{ cronSecret: [] }],
         operationId: "runIntegrationsCron",
         responses: {
@@ -3000,12 +3191,26 @@ const spec = {
                             dead: { type: "integer" },
                             superseded: { type: "integer" },
                             deferred: { type: "integer" },
+                            deadlineSkipped: { type: "integer", description: "Rows the deadline stopped us reaching; still queued" },
                           },
                         },
                         digests: {
                           type: "object",
-                          properties: { sent: { type: "integer" }, skipped: { type: "integer" }, failed: { type: "integer" } },
+                          description: "One count per connector",
+                          properties: {
+                            sent: { type: "integer", description: "Went out" },
+                            skipped: { type: "integer", description: "None owed this tick, or already queued this ISO week" },
+                            queued: { type: "integer", description: "Claimed and waiting — the deadline stopped us before its send; the next tick delivers it" },
+                            failed: { type: "integer", description: "The step threw, or its send failed and is waiting to retry or is dead" },
+                          },
                         },
+                        skippedForDeadline: { type: "integer", description: "Connectors the deadline stopped us reaching (their queue is untouched for the next tick)" },
+                        timedOut: { type: "integer", description: "Connector jobs that overran the deadline and were abandoned" },
+                        pruned: {
+                          type: "object",
+                          properties: { deliveries: { type: "integer" }, action_tokens: { type: "integer" }, inbound_actions: { type: "integer" } },
+                        },
+                        elapsedMs: { type: "integer" },
                       },
                     },
                   },
@@ -3028,10 +3233,16 @@ const spec = {
           "envelope. url_verification handshake -> { challenge }. im.message.receive_v1 (a direct message to the bot) -> " +
           "{} at once; the commands `help`, `link <code>` and `approvals` are answered afterwards as a DM from the bot, " +
           "and anything else gets the help card. card.action.trigger -> the card route's reply (so one URL pasted into both " +
-          "console fields also works). Any other event -> {}. Unknown, paused or revoked connectors are a bare 404 and " +
-          "every verification failure is the same generic 401 (the reason is logged server-side only), so the endpoint " +
-          "is neither a connector-existence nor a decryption oracle. Authenticated requests are limited to 300/min per " +
-          "connector (NOPM_RATE_LARK_PER_MIN); failed verifications are capped separately.",
+          "console fields also works). Any other event -> {}. An unknown, paused or revoked connector and every " +
+          "verification failure are ONE generic 401 { error: \"Invalid request\" } — same body, same work (the request " +
+          "is run through the verifier either way), reason logged server-side only — so the endpoint is neither a " +
+          "connector-state nor a decryption oracle. A malformed id is 404. Only an ACTIVE connector that cannot decrypt " +
+          "its own stored secrets (an operator fault) answers differently: a generic 503 { error: \"Service unavailable\" }. " +
+          "Webhook mode needs an Encrypt Key on the connector, so a correctly configured connector only ever accepts " +
+          "signed + encrypted events. Authenticated requests are limited to 300/min per connector " +
+          "(NOPM_RATE_LARK_PER_MIN); failed verifications are capped separately — 30/min per connector and 60/min per " +
+          "client network (the network key is the address your own proxy appended, see NOPM_TRUSTED_PROXY_HOPS; failures " +
+          "from an unknown connector can only be counted per network) — and answered 429 with Retry-After.",
         security: [{ larkWebhook: [] }],
         operationId: "larkEvents",
         parameters: [connectorIdParam, ...larkSignatureHeaders],
@@ -3062,12 +3273,12 @@ const spec = {
               },
             },
           },
-          "401": { description: "Verification failed (bad signature, stale timestamp, undecryptable body or wrong verification token) — one generic body { error: \"Invalid request\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { description: "Verification failed (bad signature, stale timestamp, undecryptable body or wrong verification token), or the connector is unknown, paused or revoked — one generic body { error: \"Invalid request\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "403": { description: "The connector is not in webhook mode (code wrong_mode) — only returned to an authenticated caller", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "404": { description: "Malformed id, or an unknown, paused or revoked connector — { error: \"Not found\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Malformed connector id only — { error: \"Not found\" }. An unknown, paused or revoked connector is the generic 401 instead.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "413": { description: "Body larger than 256 KiB", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "429": { description: "Per-connector budget exceeded, or too many failed verifications — Retry-After header gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "500": { description: "The connector's stored credentials cannot be read — { error: \"Connector is misconfigured\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Per-connector budget exceeded, or too many failed verifications (per connector or per client network) — Retry-After header gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "The active connector's stored credentials cannot be decrypted — { error: \"Service unavailable\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -3081,8 +3292,13 @@ const spec = {
           "verified, single-use approve / reject of an existing governed request: the button's { t, a } is handed to " +
           "the integration hub, which maps the platform-verified operator to a linked NoPM user, consumes the single-use " +
           "recipient-bound token and runs the same decision as the console — scopes, four-eyes by person, locks and one " +
-          "audit row with channel lark. No linked account, an expired or spent card, a non-recipient, a self-approval or an " +
-          "already-decided request are each answered with a toast, never an HTTP error. Replies HTTP 200 within the " +
+          "audit row with channel lark. APPROVE WHAT YOU SAW: a card is a snapshot with a seven-day life but the request " +
+          "behind it can be edited (a change request's cost or scope, say). The card's token carries the request's content " +
+          "version, and a tap on a card whose request has since changed decides NOTHING — it answers a `changed` toast and " +
+          "fresh cards with the current content are issued to the approvers; the same version also pins the decision " +
+          "write itself, so an edit landing between the check and the write fails the decision rather than slipping " +
+          "through. No linked account, an expired or spent card, a non-recipient, a self-approval, an already-decided " +
+          "request and a changed request are each answered with a toast, never an HTTP error. Replies HTTP 200 within the " +
           "platform's 3 s deadline with { toast, card? }: the toast is shown to the person, the card (if any) replaces the " +
           "one they pressed. Even a rate-limited click gets a 200 toast. The body is the platform's contract, not the " +
           "{ data } envelope.",
@@ -3103,12 +3319,12 @@ const spec = {
         },
         responses: {
           "200": { description: "Toast, and optionally a replacement card", content: { "application/json": { schema: { $ref: "#/components/schemas/LarkCardCallbackResponse" } } } },
-          "401": { description: "Verification failed — one generic body { error: \"Invalid request\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { description: "Verification failed, or the connector is unknown, paused or revoked — one generic body { error: \"Invalid request\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "403": { description: "The connector is not in webhook mode (code wrong_mode)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "404": { description: "Malformed id, or an unknown, paused or revoked connector", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Malformed connector id only. An unknown, paused or revoked connector is the generic 401.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "413": { description: "Body larger than 256 KiB", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "429": { description: "Too many failed verifications — Retry-After header gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "500": { description: "The connector's stored credentials cannot be read", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Too many failed verifications (per connector or per client network) — Retry-After header gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "The active connector's stored credentials cannot be decrypted — { error: \"Service unavailable\" }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -3129,8 +3345,14 @@ const spec = {
           "success); event -> {} (a bot reply, if any, is sent after the response); card -> { toast, card? } returned to Lark " +
           "VERBATIM. Errors use the standard { error, code } contract. Replay safety comes from the layer below — inbound " +
           "actions are idempotent on the platform event id and action tokens are single-use — so a replayed request is a no-op. " +
-          "Limits: 120/min per client IP (before authentication) and 600/min per connector; a rate-limited CARD click is " +
-          "answered 200 with a toast instead of an error.",
+          "Limits: 120/min per client network (before authentication) and 600/min per connector; a rate-limited CARD click " +
+          "is answered 200 with a toast instead of an error. The pre-authentication network key is the address YOUR proxy " +
+          "appended to X-Forwarded-For, never the caller's own first entry: on Vercel it is read from the platform's " +
+          "header; anywhere else NOTHING is trusted unless NOPM_TRUSTED_PROXY_HOPS is set to the number of reverse proxies " +
+          "you run in front of the app (1 for a single nginx / Caddy / load balancer). With no trustworthy address the " +
+          "pre-authentication cap is skipped and the HMAC and the per-connector cap are the only guards (IPv6 clients " +
+          "share a bucket per /64). Whether a connector exists is not revealed before the signature is checked: an " +
+          "unknown id gets the same 401 invalid_relay_signature, after the same work, as a wrong signature.",
         security: [{ relayHmac: [] }],
         operationId: "larkRelay",
         parameters: [
@@ -3197,13 +3419,13 @@ const spec = {
               },
             },
           },
-          "401": { description: "Bad signature or missing headers (code invalid_relay_signature), timestamp outside +/-300 s (stale_relay_timestamp), or the connector has no relay secret (no_relay_secret)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { description: "Bad signature or missing headers, or an UNKNOWN connector id (code invalid_relay_signature — indistinguishable from a wrong signature); timestamp outside +/-300 s (stale_relay_timestamp); or the connector has no relay secret (no_relay_secret)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "403": { description: "The connector is not active (connector_inactive) or not in long_connection mode (wrong_mode) — only revealed to an authenticated caller", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "404": { description: "Malformed id or unknown connector (code connector_not_found)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Malformed connector id only (code connector_not_found)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "413": { description: "Body larger than 256 KiB (code body_too_large)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Not valid JSON, wrong shape (fields lists the problems), or type does not match the event type (code invalid_relay_request)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "429": { description: "Rate limit exceeded (code rate_limited)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "500": { description: "The connector's stored credentials cannot be read (code connector_misconfigured)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "The connector's stored credentials cannot be decrypted (code connector_unavailable) — a generic body; the operator sees the cause in the server log", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -3259,6 +3481,67 @@ const spec = {
     },
   },
 };
+
+/**
+ * Cross-tenant reference guard (assertRefsInWorkspace, @/lib/api/workspace-refs).
+ *
+ * Every route below checks that the listed body fields — ids that point at
+ * another record — live in the caller's workspace, and answers 422 with code
+ * `invalid_reference` and a `fields` list when one does not. The table is the
+ * one place that names them, keyed "method /path", and it is applied to the
+ * operations' 422 responses after the spec is built, so a new guarded route is
+ * one line here instead of a hand-edited sentence. Keep it in step with the
+ * `assertRefsInWorkspace(...)` calls (grep for them): a route in this table
+ * that no longer checks a field, or a guarded route missing from it, is drift.
+ */
+const REFERENCE_CHECKED_FIELDS: Record<string, string> = {
+  "post /allocations": "member_id, project_id, task_id",
+  "patch /allocations/{id}": "member_id, project_id, task_id",
+  "post /clashes": "project_a_id, project_b_id, resource_member_id, owner_id",
+  "patch /clashes/{id}": "project_a_id, project_b_id, resource_member_id, owner_id",
+  "post /projects/{id}/decisions": "supersedes",
+  "patch /decisions/{id}": "supersedes",
+  "post /documents": "project_id, owner_id",
+  "patch /documents/{id}": "project_id, owner_id",
+  "post /projects/{id}/issues": "owner_id",
+  "patch /issues/{id}": "owner_id",
+  "post /projects/{id}/milestones": "owner_id",
+  "patch /milestones/{id}": "owner_id",
+  "post /programs": "owner_id (a resource member)",
+  "patch /programs/{id}": "owner_id (a resource member)",
+  "post /projects": "owner_id",
+  "patch /projects/{id}": "owner_id",
+  "post /projects/{id}/risks": "owner_id",
+  "patch /risks/{id}": "owner_id",
+  "post /projects/{id}/tasks": "assignee_id (a resource member), blocked_by (a task)",
+  "patch /tasks/{id}": "assignee_id (a resource member), blocked_by (a task)",
+  "post /resources": "profile_id",
+  "patch /resources/{id}": "profile_id",
+  "post /time-entries": "task_id",
+};
+
+type DecoratedOperation = {
+  responses: Record<string, { description?: string; content?: unknown; $ref?: string }>;
+};
+
+function documentReferenceGuard(): void {
+  const paths = spec.paths as unknown as Record<string, Record<string, DecoratedOperation | undefined>>;
+  for (const [key, fields] of Object.entries(REFERENCE_CHECKED_FIELDS)) {
+    const [method, path] = key.split(" ");
+    const operation = paths[path]?.[method];
+    if (!operation) throw new Error(`REFERENCE_CHECKED_FIELDS names ${key}, which is not in the spec`);
+    const note =
+      `invalid_reference — ${fields} must exist in this workspace (code invalid_reference; fields[] names each offending field; ` +
+      "null clears a reference and is always allowed)";
+    const existing = operation.responses["422"];
+    if (existing?.description?.includes("invalid_reference")) continue;
+    operation.responses["422"] = existing
+      ? { ...existing, description: `${existing.description ?? "Validation error"}; or ${note}` }
+      : { description: `Validation error, or ${note}`, content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } };
+  }
+}
+
+documentReferenceGuard();
 
 export const GET = route(async () => Response.json(spec), { auth: false });
 

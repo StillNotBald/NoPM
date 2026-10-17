@@ -55,6 +55,7 @@ const patch = (body: unknown, id = CONNECTOR_ID) =>
 const del = (id = CONNECTOR_ID) =>
   DELETE(new NextRequest(`http://localhost:3000/api/integrations/connectors/${id}`, { method: "DELETE" }), params(id));
 
+const SEEDED_ENCRYPT_KEY = "ek-seeded-0001";
 let db: FakeDb;
 const connectorInDb = () => db.rows("integration_connectors")[0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 const lastAudit = () => writeAuditMock.mock.calls.at(-1)![0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -68,7 +69,12 @@ beforeEach(() => {
   requireAuthMock.mockResolvedValue(admin());
   db = new FakeDb();
   state.db = db;
-  seedWorkspace(db);
+  seedWorkspace(
+    db,
+    connectorRow({
+      secret_enc: encryptSecrets({ appSecret: APP_SECRET, verificationToken: VERIFICATION_TOKEN, encryptKey: SEEDED_ENCRYPT_KEY }),
+    }),
+  );
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -123,7 +129,7 @@ describe("PATCH /api/integrations/connectors/[id]", () => {
     expect(decryptSecrets(connectorInDb().secret_enc)).toEqual({
       appSecret: "brand-new-app-secret-77",
       verificationToken: VERIFICATION_TOKEN, // untouched
-      encryptKey: null,
+      encryptKey: SEEDED_ENCRYPT_KEY, // untouched
     });
     expect(text).not.toContain("brand-new-app-secret-77");
     expect(lastAudit().after.secrets_changed).toEqual(["app_secret"]);
@@ -131,11 +137,18 @@ describe("PATCH /api/integrations/connectors/[id]", () => {
     expect(JSON.stringify(lastAudit())).not.toContain(APP_SECRET);
   });
 
-  it("sets and clears the encrypt key", async () => {
+  it("replaces the encrypt key, and clears it only in long-connection mode", async () => {
     await patch({ encrypt_key: "ek-set-0001" });
     expect(decryptSecrets(connectorInDb().secret_enc).encryptKey).toBe("ek-set-0001");
     expect(((await (await patch({ encrypt_key: "ek-set-0001" })).json()) as { data: { has_encrypt_key: boolean } }).data.has_encrypt_key).toBe(true);
-    await patch({ encrypt_key: null });
+
+    // a webhook connector cannot drop it
+    const refused = await patch({ encrypt_key: null });
+    expect(refused.status).toBe(422);
+    expect(decryptSecrets(connectorInDb().secret_enc).encryptKey).toBe("ek-set-0001");
+
+    // ...but may once it no longer exposes a public URL
+    expect((await patch({ mode: "long_connection", encrypt_key: null })).status).toBe(200);
     expect(decryptSecrets(connectorInDb().secret_enc).encryptKey).toBeNull();
   });
 
@@ -165,9 +178,13 @@ describe("PATCH /api/integrations/connectors/[id]", () => {
     expect(partial.status).toBe(422);
     expect(((await partial.json()) as { code: string }).code).toBe("secrets_unreadable");
 
-    const full = await patch({ app_secret: "fresh-app-secret", verification_token: "fresh-verification" });
+    // the unreadable blob held the key too, so a webhook connector must supply it again
+    const noKey = await patch({ app_secret: "fresh-app-secret", verification_token: "fresh-verification" });
+    expect(noKey.status).toBe(422);
+
+    const full = await patch({ app_secret: "fresh-app-secret", verification_token: "fresh-verification", encrypt_key: "ek-fresh-0002" });
     expect(full.status).toBe(200);
-    expect(decryptSecrets(connectorInDb().secret_enc)).toMatchObject({ appSecret: "fresh-app-secret", verificationToken: "fresh-verification" });
+    expect(decryptSecrets(connectorInDb().secret_enc)).toMatchObject({ appSecret: "fresh-app-secret", verificationToken: "fresh-verification", encryptKey: "ek-fresh-0002" });
   });
 
   it.each([
@@ -304,5 +321,62 @@ describe("PATCH clear_tenant_pin", () => {
     requireAuthMock.mockResolvedValue(admin({ role: "manager" }));
     expect((await patch({ clear_tenant_pin: true })).status).toBe(403);
     expect(connectorInDb().tenant_key).toBe("tenant-A");
+  });
+});
+
+describe("PATCH /api/integrations/connectors/[id] — webhook mode requires an Encrypt Key", () => {
+  const keyless = () => {
+    connectorInDb().secret_enc = encryptSecrets({ appSecret: APP_SECRET, verificationToken: VERIFICATION_TOKEN, encryptKey: null });
+  };
+
+  it("refuses to switch a keyless long-connection connector to webhook mode", async () => {
+    keyless();
+    connectorInDb().config = { ...connectorInDb().config, mode: "long_connection" };
+    const res = await patch({ mode: "webhook" });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(await res.json())).toMatch(/encrypt_key/);
+    expect(connectorInDb().config.mode).toBe("long_connection");
+  });
+
+  it("accepts the switch when the key is supplied in the same request", async () => {
+    keyless();
+    connectorInDb().config = { ...connectorInDb().config, mode: "long_connection" };
+    expect((await patch({ mode: "webhook", encrypt_key: "ek-new-0003" })).status).toBe(200);
+    expect(connectorInDb().config.mode).toBe("webhook");
+  });
+
+  it("does not hold up a pause, a rename or a digest change on an older keyless webhook connector", async () => {
+    keyless();
+    expect((await patch({ status: "paused" })).status).toBe(200);
+    expect((await patch({ name: "Renamed", digest: { weekday: 3 } })).status).toBe(200);
+  });
+
+  it("does make a keyless webhook connector supply one when its credentials are replaced", async () => {
+    keyless();
+    expect((await patch({ app_secret: "rotated-app-secret-9" })).status).toBe(422);
+    expect((await patch({ app_secret: "rotated-app-secret-9", encrypt_key: "ek-new-0003" })).status).toBe(200);
+  });
+});
+
+describe("connector audit rows are member-readable, so the ids in them are masked", () => {
+  it("masks app_id and chat_id in before AND after of an update, and in a revoke", async () => {
+    await patch({ digest: { enabled: true, chat_id: "oc_privateroom99" } });
+    let text = JSON.stringify(lastAudit());
+    expect(text).not.toContain("cli_a1b2c3");
+    expect(text).not.toContain("oc_privateroom99");
+    expect(lastAudit().after.app_id).toMatch(/…/);
+    expect(lastAudit().after.digest.chat_id).toMatch(/…/);
+    expect(lastAudit().before.app_id).toMatch(/…/);
+
+    await del();
+    text = JSON.stringify(lastAudit());
+    expect(text).not.toContain("cli_a1b2c3");
+    expect(text).not.toContain("oc_privateroom99");
+  });
+
+  it("still shows THAT an id changed", async () => {
+    await patch({ app_id: "cli_brand_new_app_id" });
+    expect(lastAudit().before.app_id).not.toBe(lastAudit().after.app_id);
+    expect(JSON.stringify(lastAudit())).not.toContain("cli_brand_new_app_id");
   });
 });

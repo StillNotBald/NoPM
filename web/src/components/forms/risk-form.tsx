@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { validateFields } from "@/lib/forms/validate";
 
@@ -87,16 +87,33 @@ const IMPACT_AREA_OPTIONS: { value: RiskImpactArea; label: string }[] = [
 
 // ── RiskForm ──────────────────────────────────────────────────────────────────
 
+/**
+ * `projectId` is the project a NEW risk is filed under (and the project an
+ * existing one belongs to). Pass `projects` from a cross-project register
+ * (/risks) to show a required Project picker: without it the form can only
+ * file under the id it was handed, and a register has no honest default.
+ * Project pages omit `projects` — their project is fixed. Editing never moves
+ * a risk between projects, so the picker is create-only.
+ */
 export function RiskForm({
   projectId,
+  projects,
   risk,
 }: {
   projectId: string;
+  projects?: Array<{ id: string; name: string }>;
   risk?: Risk;
 }) {
   const inspector = useInspector();
   const router = useRouter();
   const toast = useToast();
+
+  const showProjectPicker = !risk && !!projects;
+  const [selectedProjectId, setSelectedProjectId] = useState(() => {
+    if (!projects) return projectId;
+    if (projects.some((p) => p.id === projectId)) return projectId;
+    return projects.length === 1 ? projects[0].id : "";
+  });
 
   const [title, setTitle] = useState(risk?.title ?? "");
   const [description, setDescription] = useState(risk?.description ?? "");
@@ -156,7 +173,10 @@ export function RiskForm({
 
     // Client-side validation — immediate feedback before the network round-trip.
     const clientResult = validateFields([
-      { key: "title", value: title, message: "Risk title is required" },
+      { key: "title", value: title.trim(), message: "Risk title is required" },
+      ...(showProjectPicker
+        ? [{ key: "project_id", value: selectedProjectId, message: "Choose a project" }]
+        : []),
     ]);
     if (!clientResult.ok) {
       setFieldErrors(clientResult.errors);
@@ -196,7 +216,7 @@ export function RiskForm({
         await apiPatch(`/api/risks/${risk.id}`, payload);
         toast.success("Risk updated");
       } else {
-        await apiPost(`/api/projects/${projectId}/risks`, payload);
+        await apiPost(`/api/projects/${selectedProjectId}/risks`, payload);
         toast.success("Risk created");
       }
       router.refresh();
@@ -216,30 +236,40 @@ export function RiskForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Title — prominent */}
-      <div>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Risk title"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.title} />
-      </div>
+      <TitleField
+        label="Risk title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Risk title"
+        required
+        error={fieldErrors.title}
+      />
+
+      {showProjectPicker && (
+        <Field label="Project" required error={fieldErrors.project_id}>
+          <SelectInput
+            value={selectedProjectId}
+            onChange={(e) => setSelectedProjectId(e.target.value)}
+            required
+          >
+            <option value="">— Select a project —</option>
+            {projects!.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </SelectInput>
+        </Field>
+      )}
 
       {/* Section: Classification */}
       <FormSection title="Classification">
         <FormGrid>
           {/* Severity */}
-          <div>
-            <FieldLabel>Severity</FieldLabel>
+          <Field label="Severity" error={fieldErrors.severity}>
             <SelectInput
               value={severity}
               onChange={(e) => setSeverity(e.target.value as Risk["severity"])}
@@ -249,12 +279,10 @@ export function RiskForm({
               <option value="high">High</option>
               <option value="critical">Critical</option>
             </SelectInput>
-            <FieldError message={fieldErrors.severity} />
-          </div>
+          </Field>
 
           {/* Likelihood */}
-          <div>
-            <FieldLabel>Likelihood</FieldLabel>
+          <Field label="Likelihood" error={fieldErrors.likelihood}>
             <SelectInput
               value={likelihood}
               onChange={(e) => setLikelihood(e.target.value as Risk["likelihood"])}
@@ -264,12 +292,10 @@ export function RiskForm({
               <option value="high">High</option>
               <option value="critical">Critical</option>
             </SelectInput>
-            <FieldError message={fieldErrors.likelihood} />
-          </div>
+          </Field>
 
           {/* Risk category */}
-          <div>
-            <FieldLabel>Risk Category</FieldLabel>
+          <Field label="Risk Category" error={fieldErrors.risk_category}>
             <SelectInput
               value={riskCategory}
               onChange={(e) =>
@@ -283,20 +309,17 @@ export function RiskForm({
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.risk_category} />
-          </div>
+          </Field>
 
           {/* Category (free-text) */}
-          <div>
-            <FieldLabel>Category (free text)</FieldLabel>
+          <Field label="Category (free text)" error={fieldErrors.category}>
             <Input
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               placeholder="Technical, Resource…"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.category} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -304,8 +327,7 @@ export function RiskForm({
       <FormSection title="Assessment">
         <FormGrid>
           {/* Probability (%) */}
-          <div>
-            <FieldLabel>Probability (%)</FieldLabel>
+          <Field label="Probability (%)" error={fieldErrors.probability_pct}>
             <Input
               type="number"
               min={0}
@@ -316,12 +338,10 @@ export function RiskForm({
               placeholder="0–100"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.probability_pct} />
-          </div>
+          </Field>
 
           {/* Impact score (1–5) */}
-          <div>
-            <FieldLabel>Impact Score (1–5)</FieldLabel>
+          <Field label="Impact Score (1–5)" error={fieldErrors.impact_score}>
             <Input
               type="number"
               min={1}
@@ -332,12 +352,10 @@ export function RiskForm({
               placeholder="1–5"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.impact_score} />
-          </div>
+          </Field>
 
           {/* Impact area */}
-          <div>
-            <FieldLabel>Impact Area</FieldLabel>
+          <Field label="Impact Area" error={fieldErrors.impact_area}>
             <SelectInput
               value={impactArea}
               onChange={(e) =>
@@ -351,8 +369,7 @@ export function RiskForm({
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.impact_area} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -360,8 +377,7 @@ export function RiskForm({
       <FormSection title="Response">
         <FormGrid>
           {/* Response strategy */}
-          <div>
-            <FieldLabel>Response Strategy</FieldLabel>
+          <Field label="Response Strategy" error={fieldErrors.response_strategy}>
             <SelectInput
               value={responseStrategy}
               onChange={(e) =>
@@ -373,12 +389,10 @@ export function RiskForm({
               <option value="mitigate">Mitigate</option>
               <option value="accept">Accept</option>
             </SelectInput>
-            <FieldError message={fieldErrors.response_strategy} />
-          </div>
+          </Field>
 
           {/* Status */}
-          <div>
-            <FieldLabel>Status</FieldLabel>
+          <Field label="Status" error={fieldErrors.status}>
             <SelectInput
               value={status}
               onChange={(e) => setStatus(e.target.value as Risk["status"])}
@@ -388,39 +402,34 @@ export function RiskForm({
               <option value="accepted">Accepted</option>
               <option value="closed">Closed</option>
             </SelectInput>
-            <FieldError message={fieldErrors.status} />
-          </div>
+          </Field>
 
           {/* Due date */}
-          <div>
-            <FieldLabel>Due Date</FieldLabel>
+          <Field label="Due Date" error={fieldErrors.due_date}>
             <Input
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.due_date} />
-          </div>
+          </Field>
         </FormGrid>
 
         {/* Mitigation — progressive disclosure */}
         {showMitigation ? (
-          <div>
-            <FieldLabel>Mitigation Plan</FieldLabel>
+          <Field label="Mitigation Plan" error={fieldErrors.mitigation}>
             <TextareaInput
               value={mitigation}
               onChange={(e) => setMitigation(e.target.value)}
               placeholder="Steps to mitigate this risk…"
               rows={2}
             />
-            <FieldError message={fieldErrors.mitigation} />
-          </div>
+          </Field>
         ) : (
           <button
             type="button"
             onClick={() => setShowMitigation(true)}
-            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+            className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
           >
             + Add mitigation plan
           </button>
@@ -431,49 +440,43 @@ export function RiskForm({
       <FormSection title="Details">
         {/* Description — progressive disclosure */}
         {showDescription ? (
-          <div>
-            <FieldLabel>Description</FieldLabel>
+          <Field label="Description" error={fieldErrors.description}>
             <TextareaInput
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the risk…"
               rows={2}
             />
-            <FieldError message={fieldErrors.description} />
-          </div>
+          </Field>
         ) : (
           <button
             type="button"
             onClick={() => setShowDescription(true)}
-            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+            className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
           >
             + Add description
           </button>
         )}
 
         {/* Trigger — early-warning indicator */}
-        <div>
-          <FieldLabel>Trigger / Early Warning</FieldLabel>
+        <Field label="Trigger / Early Warning" error={fieldErrors.trigger}>
           <TextareaInput
             value={trigger}
             onChange={(e) => setTrigger(e.target.value)}
             placeholder="What signals that this risk is materializing…"
             rows={2}
           />
-          <FieldError message={fieldErrors.trigger} />
-        </div>
+        </Field>
 
         {/* Residual risk — remaining after the chosen response */}
-        <div>
-          <FieldLabel>Residual Risk</FieldLabel>
+        <Field label="Residual Risk" error={fieldErrors.residual_risk}>
           <TextareaInput
             value={residualRisk}
             onChange={(e) => setResidualRisk(e.target.value)}
             placeholder="Risk remaining after the response is applied…"
             rows={2}
           />
-          <FieldError message={fieldErrors.residual_risk} />
-        </div>
+        </Field>
       </FormSection>
 
       {/* Actions */}
@@ -481,7 +484,7 @@ export function RiskForm({
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving || !title.trim()} className="w-full sm:w-auto h-11 sm:h-10">
+        <Button type="submit" variant="primary" disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

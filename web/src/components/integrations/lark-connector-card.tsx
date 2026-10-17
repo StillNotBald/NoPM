@@ -3,7 +3,6 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
-import { EmptyState } from "@/components/ui/empty-state";
 import { ConnectForm } from "./connect-form";
 import { ConnectedPanel } from "./connected-panel";
 import type { ResourceState } from "./hooks";
@@ -113,15 +112,27 @@ export function LarkConnectorCard({
           }}
         />
       ) : (
-        <EmptyState
-          className="py-8"
-          purpose="Approve or reject deletion and change requests from a Lark or Feishu chat card, and post a weekly portfolio digest to a group. Every decision is still recorded once in the Trust Center."
-          action={
-            <Button variant="primary" size="md" className="h-11 sm:h-10" onClick={() => setShowForm(true)}>
-              Connect Lark or Feishu
-            </Button>
-          }
-        />
+        // Compact on purpose: one line of value, what to bring from Lark, and the button.
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm text-ink">
+              Approve or reject deletion and change requests from a chat card. Every decision is still recorded once in
+              the Trust Center.
+            </p>
+            <p className="text-xs text-ink-muted">
+              You&apos;ll need a self-built app from the Lark developer console: its App ID, App Secret and Verification
+              Token (plus an Encrypt Key for a webhook).
+            </p>
+          </div>
+          <Button
+            variant="primary"
+            size="md"
+            className="h-11 w-full shrink-0 sm:h-10 sm:w-auto"
+            onClick={() => setShowForm(true)}
+          >
+            Connect Lark or Feishu
+          </Button>
+        </div>
       );
     } else {
       const serverUrls =

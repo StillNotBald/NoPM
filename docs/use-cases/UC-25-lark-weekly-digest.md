@@ -12,7 +12,7 @@
 
 ## Main flow
 
-1. **Daily tick.** Vercel Cron calls `GET /api/integrations/cron` with `Authorization: Bearer <CRON_SECRET>` once a day at 01:00 UTC. The secret is checked in constant time.
+1. **Daily tick.** Vercel Cron calls `GET /api/integrations/cron` with `Authorization: Bearer <CRON_SECRET>` once a day at 01:07 UTC (off the hour and half-hour, when the platform sheds load). The secret is checked in constant time.
 2. **Select connectors.** For each active Lark connector whose digest weekday is today, the hub checks its deliveries for a digest already sent in this ISO week. If none exists, a digest is due.
 3. **Build.** The hub assembles the digest from the workspace's governed data (`digest-data.ts`). The content is fixed in code. An admin does not write it.
 4. **Send.** The hub renders the digest card and sends it to the group chat. It records a `digest` delivery with the outcome and the attempt count.
@@ -22,7 +22,7 @@
 
 - **Paused or revoked connector.** The daily tick skips it. "Send now" is refused with an error.
 - **Missing or wrong secret on the cron call.** The call gets `401`, and nothing is sent.
-- **The platform refuses the send** (the bot is not in the group, a rate limit, or a server error). The delivery is marked `retry` with a truncated error. v1: the next daily tick retries it, so the spacing is one day, not the 1-minute-to-12-hour ladder (ADR 0012, known gap). After six attempts the delivery is `dead`.
+- **The platform refuses the send** (the bot is not in the group, a rate limit, or a server error). The delivery is marked `retry` with a truncated error and retried on a ladder: after 1 minute, 5 minutes, 30 minutes, 2 hours and 12 hours, and after the sixth attempt it is `dead`. The ladder advances whenever the workspace has approval traffic (every approval event also drains up to ten due retries for that workspace); the daily tick is the floor underneath. On a quiet workspace nothing triggers a drain between ticks, so each attempt may wait for the next daily tick (ADR 0012). The send carries the delivery id as the platform's idempotency key, so a retry of a send whose first attempt actually landed cannot post the digest twice.
 - **Rate limit.** The platform's reset time is respected. The delivery waits for the next tick.
 - **Digest already sent this ISO week.** No second scheduled digest is sent. A changed weekday takes effect on the next tick, but a week that has already been sent is not sent again.
 - **Manual send in a week that already had one.** v1: a manual send is an extra message. It does not replace the scheduled digest, so the scheduled one still goes out. PLAN does not say whether a manual send counts toward the weekly guard.
@@ -57,4 +57,4 @@
 - **Manual send and the weekly guard.** Whether a manual send should count toward the once-per-week guard. This UC assumes it does not.
 - **Audit for scheduled sends.** PLAN audits the manual send only, but the convention is one audit row per governed mutation. Decide whether a scheduled digest is a mutation that needs its own row.
 - **Empty workspace.** Whether the digest still sends, with empty sections, when there is no governed data. PLAN is silent.
-- **Retry spacing.** Known gap (ADR 0012): retries are daily until a sub-daily tick is decided.
+- **Retry spacing on a quiet workspace.** Retries follow the 1 minute / 5 minutes / 30 minutes / 2 hours / 12 hours ladder only while the workspace has approval traffic to trigger a drain; otherwise they wait for the daily tick (about a day per attempt). A sub-daily tick would close the gap and is an infrastructure decision for the owner (ADR 0012).

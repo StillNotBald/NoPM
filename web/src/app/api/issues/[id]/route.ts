@@ -6,6 +6,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { updateIssueSchema } from "@/app/api/issues/_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -54,6 +55,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: input.owner_id, field: "owner_id" },
+  ]);
 
   // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
   // the caller doesn't send it (today's last-write-wins, unchanged).

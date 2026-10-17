@@ -90,7 +90,7 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   }
 
   return (
-    <PageContainer className="space-y-5">
+    <PageContainer width="wide" className="space-y-5">
       {/* Deep-link auto-opener — opens inspector for ?issue=<id> */}
       <Suspense>
         <IssueFocusOpener issues={rows} projectMap={projectMap} />

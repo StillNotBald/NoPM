@@ -49,6 +49,10 @@ export const decisionActionSchema = z.object({
     error: "decision must be approve, reject, or defer",
   }),
   rationale: z.string().min(1, "rationale is required"),
+  // Optimistic concurrency (R-90), opt-in: the `updated_at` of the change request
+  // the decider was looking at. If it was edited since, the decision is refused
+  // with 412 instead of approving content the approver never saw.
+  expected_updated_at: z.string().datetime({ offset: true }).optional(),
 });
 
 export type CreateChangeRequestInput = z.infer<typeof createChangeRequestSchema>;

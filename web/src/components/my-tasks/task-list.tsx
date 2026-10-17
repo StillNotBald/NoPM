@@ -29,22 +29,26 @@ type Filter = "all" | "overdue" | "in_progress" | "to_do";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const TODAY = (() => {
+// "Today" is read per render, never at module load: a module-level constant is
+// evaluated once per server process, so on a long-lived Node server the
+// overdue / due-soon badges kept the day the process started and could
+// disagree with the hydrated client.
+function startOfToday(): Date {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
-})();
+}
 
 const DUE_SOON_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
 
-function isOverdue(due: string | null) {
-  return !!due && new Date(due) < TODAY;
+function isOverdue(due: string | null, today: Date) {
+  return !!due && new Date(due) < today;
 }
 
-function isDueSoon(due: string | null) {
+function isDueSoon(due: string | null, today: Date) {
   if (!due) return false;
   const d = new Date(due);
-  return d >= TODAY && d.getTime() - TODAY.getTime() <= DUE_SOON_MS;
+  return d >= today && d.getTime() - today.getTime() <= DUE_SOON_MS;
 }
 
 function statusTone(st: string): "neutral" | "info" | "success" | "warning" | "danger" {
@@ -53,9 +57,9 @@ function statusTone(st: string): "neutral" | "info" | "success" | "warning" | "d
   return "neutral";
 }
 
-function matchesFilter(task: ProjectTask, filter: Filter): boolean {
+function matchesFilter(task: ProjectTask, filter: Filter, today: Date): boolean {
   if (filter === "all") return true;
-  if (filter === "overdue") return isOverdue(task.due_date);
+  if (filter === "overdue") return isOverdue(task.due_date, today);
   if (filter === "in_progress") return task.status_type === "started";
   if (filter === "to_do") return task.status_type === "unstarted";
   return true;
@@ -63,16 +67,24 @@ function matchesFilter(task: ProjectTask, filter: Filter): boolean {
 
 // ── Task row ──────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, dateDisplayPref }: { task: ProjectTask; dateDisplayPref: DateDisplayPref }) {
-  const overdue = isOverdue(task.due_date);
-  const soon = !overdue && isDueSoon(task.due_date);
+function TaskRow({
+  task,
+  dateDisplayPref,
+  today,
+}: {
+  task: ProjectTask;
+  dateDisplayPref: DateDisplayPref;
+  today: Date;
+}) {
+  const overdue = isOverdue(task.due_date, today);
+  const soon = !overdue && isDueSoon(task.due_date, today);
   const due = formatByPref(task.due_date, dateDisplayPref);
 
   return (
     <div className="flex flex-col gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken sm:flex-row sm:items-center sm:gap-3 sm:py-2">
       {/* name row — always its own line so the title never truncates to a
           couple of characters on phones (was "R…"/"Pr…"/"I…" at 390px) */}
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-h-11 min-w-0 items-center gap-3 sm:min-h-0">
         {/* urgency dot */}
         <span
           aria-hidden
@@ -87,7 +99,7 @@ function TaskRow({ task, dateDisplayPref }: { task: ProjectTask; dateDisplayPref
           kind="task"
           id={task.id}
           projectId={task.project_id}
-          className="min-w-0 flex-1 font-medium"
+          className="min-w-0 flex-1 self-stretch font-medium"
         >
           {task.name}
         </EntityLink>
@@ -150,10 +162,11 @@ function FilterPill({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
         // 44px hit area via an invisible ::before pseudo-element — visual
         // pill size (px-3 py-1) is unchanged.
-        "relative inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
+        "focus-ring relative inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors",
         "before:absolute before:left-1/2 before:top-1/2 before:h-11 before:min-w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']",
         active
           ? "bg-accent text-accent-ink"
@@ -178,22 +191,23 @@ function FilterPill({
 export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
   const [filter, setFilter] = useState<Filter>("all");
   const dateDisplayPref = useDateDisplayPref();
+  const today = useMemo(() => startOfToday(), []);
 
   // Derived counts for filter pills
   const counts = useMemo(
     () => ({
       all: tasks.length,
-      overdue: tasks.filter((t) => isOverdue(t.due_date)).length,
+      overdue: tasks.filter((t) => isOverdue(t.due_date, today)).length,
       in_progress: tasks.filter((t) => t.status_type === "started").length,
       to_do: tasks.filter((t) => t.status_type === "unstarted").length,
     }),
-    [tasks],
+    [tasks, today],
   );
 
   // Apply filter
   const filtered = useMemo(
-    () => tasks.filter((t) => matchesFilter(t, filter)),
-    [tasks, filter],
+    () => tasks.filter((t) => matchesFilter(t, filter, today)),
+    [tasks, filter, today],
   );
 
   // Group by project
@@ -267,7 +281,7 @@ export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
             {/* Task rows */}
             <div className="p-2 space-y-0.5">
               {group.tasks.map((t) => (
-                <TaskRow key={t.id} task={t} dateDisplayPref={dateDisplayPref} />
+                <TaskRow key={t.id} task={t} dateDisplayPref={dateDisplayPref} today={today} />
               ))}
             </div>
           </div>

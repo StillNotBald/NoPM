@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Sun, Moon } from "lucide-react";
-import { cn } from "@/lib/cn";
+import { IconButton } from "@/components/ui/icon-button";
 import { readAppearanceCookie, buildAppearanceCookieHeader } from "@/lib/theme/appearance";
 
 /**
@@ -45,15 +45,12 @@ export function ThemeToggle({ className }: { className?: string }) {
   };
 
   return (
-    <button
+    <IconButton
       onClick={toggle}
-      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
-      className={cn(
-        "grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken",
-        className,
-      )}
+      label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      className={className}
     >
       {dark ? <Sun size={18} /> : <Moon size={18} />}
-    </button>
+    </IconButton>
   );
 }

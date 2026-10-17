@@ -353,6 +353,57 @@ export function buildDecisionUpdateCard(ev: ApprovalDecidedEvent, ctx: { appUrl:
   });
 }
 
+/**
+ * What an approval card is patched to when its request was EDITED after the card
+ * went out: no buttons, a clear "this is not what you would be approving" notice
+ * and the pointer to the replacement. The old content is deliberately not shown.
+ */
+export function buildChangedUpdateCard(ev: ApprovalEvent, ctx: { appUrl: string }): LarkCard {
+  const ids = new ElementIds();
+  const kind = KIND_LABEL[ev.kind];
+  const elements: Record<string, unknown>[] = [
+    md(ids, `**${escapeLarkMd(ev.title, 200)}**`),
+    md(ids, "This request was edited after this card was sent, so it can no longer be approved or rejected from here. A new card with the current details follows."),
+  ];
+  elements.push(...linkLine(ids, "Open in NoPM", deepLinkFor(ctx.appUrl, { kind: ev.kind, id: ev.id })));
+  return frame({
+    title: `${kind}: updated, see the new card`,
+    template: "orange",
+    summary: `${kind} updated: ${oneLine(ev.title, 80)}`,
+    elements,
+  });
+}
+
+/** The single roll-up an approver gets once they hit the hourly card budget. */
+export function buildBacklogNoticeCard(input: { waiting: number; limit: number; appUrl: string }): LarkCard {
+  const count = Number.isFinite(input.waiting) && input.waiting > 0 ? Math.floor(input.waiting) : 0;
+  const lead = count > 0 ? `**${count}** approval${count === 1 ? " is" : "s are"} waiting for you in NoPM.` : "More approvals are waiting for you in NoPM.";
+  return buildNoticeCard({
+    tone: "warning",
+    title: "More approvals waiting",
+    lines: [
+      lead,
+      `To keep this chat readable I send at most ${input.limit} approval cards an hour. The rest are in NoPM, where you can decide them.`,
+    ],
+    appUrl: input.appUrl ? `${normalizeAppUrl(input.appUrl)}/approvals` : "",
+    linkLabel: "Open approvals",
+  });
+}
+
+/** Sent to the OLD Lark account when a link code moves a NoPM user's link to another account. */
+export function buildLinkReplacedCard(input: { appUrl: string }): LarkCard {
+  return buildNoticeCard({
+    tone: "warning",
+    title: "This Lark account was unlinked",
+    lines: [
+      "Your NoPM user was just linked to a different Lark account, so approval requests will no longer come to this chat.",
+      "If that was not you, open NoPM now, unlink the new account under Integrations, and ask an admin to review.",
+    ],
+    appUrl: input.appUrl,
+    linkLabel: "Open NoPM",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Digest
 // ---------------------------------------------------------------------------

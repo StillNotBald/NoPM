@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { route } from "@/lib/api/handler";
 import { ApiError, NotFoundError, RateLimitError } from "@/lib/api/errors";
+import { ipRateKey } from "@/lib/api/client-ip";
 import { validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CONNECTOR_COLUMNS, normalizeConfig } from "@/lib/integrations/store";
@@ -22,21 +23,14 @@ export const runtime = "nodejs";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NO_STORE = { "Cache-Control": "no-store" } as const;
+/** A well-formed hash nobody holds the preimage of: what the verifier runs against when the id matches no connector. */
+const DECOY_RELAY_HASH = "0".repeat(64);
 
 /** Pre-auth guard, per client IP: keeps unauthenticated garbage off the connector lookup. */
 const IP_RATE_MAX = 120;
 /** Post-auth guard, per connector: bounds a runaway (or hostile tenant's) worker. */
 const CONNECTOR_RATE_MAX = 600;
 const RATE_WINDOW_SECONDS = 60;
-
-function clientIp(request: Request): string | null {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) {
-    const first = fwd.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return request.headers.get("x-real-ip");
-}
 
 /**
  * Same baseline as invites/accept and lib/api/rate-limit.ts: DB-backed fixed
@@ -86,10 +80,13 @@ async function rateCheck(
  *        returned to Lark VERBATIM as the callback response ({ toast, card }),
  *        hence not wrapped in { data }; ping -> { data: { ok, connector_id, mode, status } }.
  * Errors use the standard { error, code } contract:
- *        401 invalid_relay_signature | stale_relay_timestamp | no_relay_secret,
- *        403 connector_inactive | wrong_mode, 404 connector_not_found,
- *        413 body_too_large, 422 invalid_relay_request, 429 rate_limited,
- *        500 sanitised. (A rate-limited CARD click is answered 200 with a toast
+ *        401 invalid_relay_signature | stale_relay_timestamp | no_relay_secret
+ *        (an unknown connector id is the same 401 invalid_relay_signature: before
+ *        the HMAC is checked nothing says whether a connector exists),
+ *        403 connector_inactive | wrong_mode (authenticated callers only),
+ *        404 connector_not_found (a malformed id only), 413 body_too_large,
+ *        422 invalid_relay_request, 429 rate_limited, 503 connector_unavailable
+ *        (its secrets cannot be decrypted), 500 sanitised. (A rate-limited CARD click is answered 200 with a toast
  *        instead, like the webhook routes: the person sees words, not an error code.)
  *
  * Order matters: (1) cheap shape checks, (2) IP-keyed rate limit running in
@@ -112,10 +109,13 @@ export const POST = route(
     }
 
     const db = createAdminClient();
-    // With no forwarded IP (app exposed directly, no proxy) every caller would
-    // share one bucket, and a stranger could then lock the real worker out; in
-    // that case skip the pre-auth cap and rely on the HMAC + per-connector cap.
-    const ip = clientIp(request);
+    // The key comes from the address the operator's own proxy appended (IPv6
+    // collapsed to its /64), never from a header the caller wrote, so rotating
+    // a header buys neither a fresh bucket nor a fresh counter row. With no
+    // trustworthy address (app exposed directly, no proxy) every caller would
+    // share one bucket and a stranger could lock the real worker out; in that
+    // case skip the pre-auth cap and rely on the HMAC + per-connector cap.
+    const ip = ipRateKey(request.headers);
     const [ipRate, lookup] = await Promise.all([
       ip ? rateCheck(db, `lark-relay-ip:${ip}`, IP_RATE_MAX) : Promise.resolve(null),
       db.from("integration_connectors").select(CONNECTOR_COLUMNS).eq("id", connectorId).eq("kind", "lark").maybeSingle(),
@@ -128,15 +128,28 @@ export const POST = route(
     // (handlers read connector.workspace_id); there is no workspace to filter
     // by before it is loaded, the id is an unguessable uuid, and the HMAC check
     // right after proves the caller holds this connector's relay secret.
-    if (!lookup.data) throw new NotFoundError("Connector not found", RELAY_ERROR_CODES.notFound);
+    // An unknown id gets the same 401 a wrong signature does (below), after the
+    // same work, so a caller without the relay secret cannot tell "no such
+    // connector" from "wrong secret".
+    const row = (lookup.data ?? null) as unknown as ConnectorRow | null;
     // `config` is free-form jsonb: normalise so `mode` is never undefined.
-    const row = lookup.data as unknown as ConnectorRow;
-    const connector: ConnectorRow = { ...row, config: normalizeConfig(row.config) };
+    const found: ConnectorRow | null = row ? { ...row, config: normalizeConfig(row.config) } : null;
 
     const rawBody = await request.text();
     if (Buffer.byteLength(rawBody, "utf8") > RELAY_MAX_BODY_BYTES) {
       throw new ApiError(413, "Relay body too large", RELAY_ERROR_CODES.tooLarge);
     }
+
+    if (!found) {
+      verifyRelaySignature({
+        secretHash: DECOY_RELAY_HASH,
+        timestamp: request.headers.get(RELAY_TIMESTAMP_HEADER),
+        signature: request.headers.get(RELAY_SIGNATURE_HEADER),
+        rawBody,
+      });
+      throw new ApiError(401, "Invalid relay signature", RELAY_ERROR_CODES.invalidSignature);
+    }
+    const connector: ConnectorRow = found;
 
     const verdict = verifyRelaySignature({
       secretHash: connector.relay_secret_hash,
@@ -214,7 +227,7 @@ export const POST = route(
       bound = productionContext(connector);
     } catch {
       console.error("[nopm][lark-relay] connector secrets are unreadable", { connector: connector.id });
-      throw new ApiError(500, "Connector is misconfigured", "connector_misconfigured");
+      throw new ApiError(503, "Service unavailable", "connector_unavailable");
     }
 
     const result = await handleLarkPayload(bound.ctx, req.payload, bound.deps);

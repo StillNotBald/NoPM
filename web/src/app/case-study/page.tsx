@@ -1,16 +1,23 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 import { DownloadOnePagerButton } from "@/components/case-study/download-button";
 import { DemoLoginButton } from "@/components/demo-login-button";
 import { TerminalCard } from "@/components/ui/terminal-card";
-import { WedgeGrid } from "@/components/marketing/wedges";
+import { ButtonLink, marketingNavLinkClass } from "@/components/marketing/button-link";
+import { MarketingShell } from "@/components/marketing/marketing-shell";
 import { MobileNavMenu } from "@/components/marketing/mobile-nav";
+import { pageMetadata } from "@/components/marketing/page-metadata";
+import { ProofTranscript } from "@/components/marketing/transcript";
+import { WedgeGrid } from "@/components/marketing/wedges";
+import { Wordmark } from "@/components/marketing/wordmark";
 import metrics from "@/lib/metrics.gen.json";
 
-export const metadata = {
-  title: "Case Study",
+export const metadata: Metadata = pageMetadata({
+  title: "Case study — NoPM",
   description:
-    `How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, maker-checker approval, BYOK assistant, and ${metrics.rids} traced requirements shipped in eight waves.`,
-};
+    `How a solo PMP Tech PMO built an AI-native, governance-grade lite PM tool as a live portfolio artifact — immutable audit, scoped PATs, four-eyes approval, BYOK assistant, and ${metrics.rids} traced requirements shipped in eight waves.`,
+  path: "/case-study",
+});
 
 // ─── shared primitives ────────────────────────────────────────────────────────
 
@@ -23,7 +30,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 }
 
 function Rule() {
-  return <hr className="border-border-subtle" />;
+  return <hr aria-hidden="true" className="border-border-subtle" />;
 }
 
 function Metric({ value, label }: { value: string; label: string }) {
@@ -38,9 +45,66 @@ function Metric({ value, label }: { value: string; label: string }) {
 function ModuleRow({ children }: { children: React.ReactNode }) {
   return (
     <li className="flex items-start gap-2 text-sm text-ink-secondary">
-      <span className="mt-[5px] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+      <span aria-hidden="true" className="mt-[7px] inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-ink-muted" />
       {children}
     </li>
+  );
+}
+
+// The 2026-09-06 review, as re-run. Rendered as a table from `sm` up and as
+// stacked finding/state pairs below it (the table needed a 640px scroller whose
+// answers column started off-screen on a phone).
+const CLOSED_DEFECTS: ReadonlyArray<readonly [string, string]> = [
+  ["Eleven mutating routes never wrote an audit row, including the BYOK key set and delete.", "Closed. A coverage test fails the build for any unaudited write; the key lifecycle is audited without the key."],
+  ["Ordinary writes persist before the audit row; only two flows are transactional.", "Open by decision. The Trust Center now says so in plain words."],
+  ["One scope both raised and decided change requests; a token requester left the DB check vacuous.", "Closed. change:decide is a separate scope agents never hold; requester and decider are typed identities checked in the API and the database."],
+  ["Unlocking a frozen baseline took no reason.", "Partly closed. A reason is required in the API, the dialog and the CLI; the same person can still unlock."],
+  ["Audit rows carried no client origin or request id.", "Partly closed. Every row records the declared client and a request id echoed on the response, including rows written inside database functions. No hash chain yet."],
+  ["No record could point at a Jira key or a Slack thread.", "Closed. Tasks, projects, risks, issues and decisions carry source, external_ref and external_url, in the API, the MCP tools and the CLI."],
+  ["No public page said the product complements Jira, Slack or Teams.", "Closed. README, landing, this page and the product doc say it."],
+  ["The lock and rebaseline flow had no navigation home; a demo page sat in the Governance section.", "Closed. Baselines lives under Governance; the demo page moved to My Work."],
+  ["The audit immutability triggers had no regression test.", "Closed. A migration-text test fails if any migration drops, disables or bypasses them."],
+  ["Tool and metric counts drifted between surfaces.", "Closed. Counts are generated and CI-checked; the pitch notes were realigned."],
+];
+
+function ClosedDefects() {
+  return (
+    <>
+      <ul className="mt-6 divide-y divide-border-subtle rounded-md border border-border-subtle sm:hidden">
+        {CLOSED_DEFECTS.map(([before, after]) => (
+          <li key={before} className="px-4 py-3 text-sm">
+            <dl className="space-y-2">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Finding (morning)</dt>
+                <dd className="mt-0.5 text-ink-secondary">{before}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">State (evening)</dt>
+                <dd className="mt-0.5 text-ink">{after}</dd>
+              </div>
+            </dl>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-6 hidden overflow-x-auto rounded-md border border-border-subtle sm:block">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-sunken text-xs uppercase tracking-wide text-ink-muted">
+            <tr>
+              <th scope="col" className="px-4 py-2 font-medium">Finding (morning)</th>
+              <th scope="col" className="px-4 py-2 font-medium">State (evening)</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border-subtle text-ink-secondary">
+            {CLOSED_DEFECTS.map(([before, after]) => (
+              <tr key={before}>
+                <td className="px-4 py-2.5 align-top">{before}</td>
+                <td className="px-4 py-2.5 align-top text-ink">{after}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -48,38 +112,45 @@ function ModuleRow({ children }: { children: React.ReactNode }) {
 
 export default function CaseStudyPage() {
   return (
-    <div className="min-h-screen bg-canvas text-ink">
-
-      {/* ── nav ── */}
-      <header className="mx-auto flex max-w-4xl items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2">
-          <Link href="/" className="flex items-center gap-2">
-            <span className="grid h-7 w-7 place-items-center rounded-[8px] bg-accent text-sm font-semibold text-white">
-              N
+    <MarketingShell
+      header={
+        <header className="mx-auto flex max-w-4xl items-center justify-between px-6 py-3">
+          <Wordmark />
+          <nav aria-label="Primary" className="flex items-center gap-3 text-sm sm:gap-4">
+            <Link href="/" className={`hidden md:inline-flex ${marketingNavLinkClass}`}>Home</Link>
+            <Link href="/login" className={`hidden md:inline-flex ${marketingNavLinkClass}`}>Sign in</Link>
+            {/* From sm up; on a phone the hero's own button is the one primary in view. */}
+            <div className="hidden sm:block">
+              <DemoLoginButton size="sm" />
+            </div>
+            <MobileNavMenu
+              className="md:hidden"
+              links={[
+                { href: "/", label: "Home" },
+                { href: "/login", label: "Sign in" },
+              ]}
+            />
+          </nav>
+        </header>
+      }
+      footer={
+        <footer className="border-t border-border-subtle">
+          <div className="mx-auto flex max-w-4xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              Built solo with an AI multi-agent workflow.
             </span>
-            <span className="font-medium">NoPM</span>
-          </Link>
-        </div>
-        <nav className="flex items-center gap-3 text-sm text-ink-secondary sm:gap-4">
-          <Link href="/" className="hidden md:inline hover:text-ink">Home</Link>
-          <Link href="/login" className="hidden md:inline hover:text-ink">Sign in</Link>
-          <DemoLoginButton className="px-3 py-1.5 text-sm" label="Try the demo →" />
-          <MobileNavMenu
-            className="md:hidden"
-            links={[
-              { href: "/", label: "Home" },
-              { href: "/login", label: "Sign in" },
-            ]}
-          />
-        </nav>
-      </header>
-
+            <span className="font-mono text-xs">stillnotbald.com</span>
+          </div>
+        </footer>
+      }
+    >
       {/* ── hero ── */}
       <section className="mx-auto max-w-4xl px-6 pb-10 pt-12">
         <div className="rise">
           <SectionLabel>Portfolio case study</SectionLabel>
         </div>
-        <h1 className="rise rise-1 mt-3 font-display text-3xl sm:text-5xl leading-[1.05] tracking-tight text-ink">
+        {/* No entrance animation on the h1: it is the LCP element and must paint at once. */}
+        <h1 className="mt-3 font-display text-3xl sm:text-5xl leading-[1.05] tracking-tight text-ink">
           I build the systems that make unclear requirements impossible.
         </h1>
         <p className="rise rise-2 mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">
@@ -89,23 +160,12 @@ export default function CaseStudyPage() {
           <em>engineered into the data and API layer</em>, not bolted onto the UI.
           Shipped solo in eight waves using an AI multi-agent workflow.
         </p>
-        <div className="rise rise-3 mt-6 flex flex-wrap items-center gap-3">
-          <DemoLoginButton className="px-4 py-2 text-sm" label="Open the live demo →" />
-          <Link
-            href="/login"
-            className="flex min-h-[44px] items-center text-sm font-medium text-ink-secondary hover:text-ink"
-          >
+        <div className="rise rise-3 mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+          <DemoLoginButton block />
+          <ButtonLink href="/login" variant="link" className="justify-center sm:justify-start">
             Sign in →
-          </Link>
+          </ButtonLink>
           <DownloadOnePagerButton />
-          <a
-            href="https://stillnotbald.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex min-h-[44px] items-center font-mono text-xs text-ink-muted hover:text-ink"
-          >
-            stillnotbald.com
-          </a>
         </div>
       </section>
 
@@ -134,7 +194,8 @@ export default function CaseStudyPage() {
           key cannot rewrite history. The UI is just a consumer of the same
           governed API your agent calls.
         </p>
-        <blockquote className="mt-6 border-l-2 border-accent pl-4">
+        {/* A sunken well, not a coloured left rule: DESIGN.md rejects border-left accents. */}
+        <blockquote className="mt-6 max-w-2xl rounded-lg border border-border-subtle bg-sunken px-5 py-4">
           <p className="text-sm leading-relaxed text-ink-secondary italic">
             &ldquo;The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI,
             an <code className="font-mono">llms.txt</code> index, and scoped
@@ -178,17 +239,7 @@ export default function CaseStudyPage() {
           className="mt-6"
           title="governance is invisible to the operator — provable in audit"
         >
-          <pre className="overflow-x-auto px-5 py-4 font-mono text-[12px] leading-relaxed text-white/80">
-{`$ nopm tasks rm task_8f3a --reason "superseded by revised cutover plan"
-⏸  delete requested — pending a checker's approval (four-eyes)
-
-$ nopm approve req_2c91          # a different token: task:delete:approve
-✓  approved & committed           # one immutable audit row written
-
-$ nopm audit --limit 1
-created_at            actor_label     action        target
-2026-06-08T…          checker (agent) task.delete   task_8f3a`}
-          </pre>
+          <ProofTranscript />
         </TerminalCard>
 
         <div className="mt-8 grid gap-x-8 gap-y-2 sm:grid-cols-2">
@@ -246,21 +297,27 @@ created_at            actor_label     action        target
         <h2 className="mt-3 text-xl font-semibold text-ink">
           Numbers that show the governance isn&apos;t hand-waving.
         </h2>
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {/* Every numeral here is read from metrics.gen.json; nothing is typed in. */}
+        <div className="mt-6 grid gap-3 sm:grid-cols-3">
           <Metric value={String(metrics.rids)} label="traced requirements (R-IDs) in RTM" />
           <Metric value={String(metrics.tests)} label="governance-focused tests (vitest)" />
           <Metric value={String(metrics.endpoints)} label="documented REST endpoints + OpenAPI" />
-          <Metric value="1" label="immutable audit row per mutation — no exceptions" />
-          <Metric value="0" label="bundled LLM — governance ships without any model key" />
         </div>
         <p className="mt-6 text-sm leading-relaxed text-ink-muted">
-          These numbers are not typed into this page — they are generated from
+          The three counts above are not typed into this page — they are generated from
           the RTM, the test run, and the API route tree, and CI fails if they
           drift from reality. Every requirement has an R-ID, a status, and a
           traceability row. Tests target the governance rules first: can a
           maker self-approve? Does a missing scope return 403? Does a delete
           without a four-eyes approval fail?
         </p>
+        <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+          Invariants (stated, not counted)
+        </p>
+        <ul className="mt-2 space-y-1.5 text-sm text-ink-secondary">
+          <li>One immutable audit row per mutation — no exceptions.</li>
+          <li>No bundled LLM — governance ships without any model key.</li>
+        </ul>
       </section>
 
       <div className="mx-auto max-w-4xl px-6">
@@ -279,35 +336,7 @@ created_at            actor_label     action        target
           verifier confirmed ten defects. The same day, two sprints closed or narrowed
           them, and the verifier re-ran. The record below is the re-run, not the plan.
         </p>
-        <div className="mt-6 overflow-x-auto rounded-md border border-border-subtle">
-          <table className="w-full min-w-[640px] text-left text-sm">
-            <thead className="bg-sunken text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th className="sticky left-0 z-10 bg-sunken px-4 py-2 font-medium">Finding (morning)</th>
-                <th className="px-4 py-2 font-medium">State (evening)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border-subtle text-ink-secondary">
-              {[
-                ["Eleven mutating routes never wrote an audit row, including the BYOK key set and delete.", "Closed. A coverage test fails the build for any unaudited write; the key lifecycle is audited without the key."],
-                ["Ordinary writes persist before the audit row; only two flows are transactional.", "Open by decision. The Trust Center now says so in plain words."],
-                ["One scope both raised and decided change requests; a token requester left the DB check vacuous.", "Closed. change:decide is a separate scope agents never hold; requester and decider are typed identities checked in the API and the database."],
-                ["Unlocking a frozen baseline took no reason.", "Partly closed. A reason is required in the API, the dialog and the CLI; the same person can still unlock."],
-                ["Audit rows carried no client origin or request id.", "Partly closed. Every row records the declared client and a request id echoed on the response, including rows written inside database functions. No hash chain yet."],
-                ["No record could point at a Jira key or a Slack thread.", "Closed. Tasks, projects, risks, issues and decisions carry source, external_ref and external_url, in the API, the MCP tools and the CLI."],
-                ["No public page said the product complements Jira, Slack or Teams.", "Closed. README, landing, this page and the product doc say it."],
-                ["The lock and rebaseline flow had no navigation home; a demo page sat in the Governance section.", "Closed. Baselines lives under Governance; the demo page moved to My Work."],
-                ["The audit immutability triggers had no regression test.", "Closed. A migration-text test fails if any migration drops, disables or bypasses them."],
-                ["Tool and metric counts drifted between surfaces.", "Closed. Counts are generated and CI-checked; the pitch notes were realigned."],
-              ].map(([before, after]) => (
-                <tr key={before}>
-                  <td className="sticky left-0 z-10 bg-canvas px-4 py-2.5 align-top">{before}</td>
-                  <td className="px-4 py-2.5 align-top text-ink">{after}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <ClosedDefects />
         <p className="mt-4 text-sm leading-relaxed text-ink-muted">
           The review, the sprint receipts and the re-verification are in the repo under{" "}
           <code className="font-mono">docs/research</code> and{" "}
@@ -393,39 +422,20 @@ created_at            actor_label     action        target
           Every endpoint is documented. Every mutation is audited. The console is
           open.
         </p>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-          <DemoLoginButton className="px-5 py-2.5 text-sm" label="Open the live demo →" />
-          <Link
-            href="/login"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken sm:min-h-0"
-          >
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
+          <DemoLoginButton block />
+          <ButtonLink href="/login" variant="secondary" block>
             Sign in →
-          </Link>
-          <a
-            href="/api/openapi.json"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken sm:min-h-0"
-          >
+          </ButtonLink>
+          <ButtonLink plain href="/api/openapi.json" variant="secondary" block>
             OpenAPI spec
-          </a>
-          <a
-            href="/llms.txt"
-            className="inline-flex min-h-[44px] items-center justify-center rounded-md border border-border-strong px-5 py-2.5 text-sm font-medium text-ink hover:bg-sunken sm:min-h-0"
-          >
+          </ButtonLink>
+          <ButtonLink plain href="/llms.txt" variant="secondary" block>
             Agent API (llms.txt)
-          </a>
+          </ButtonLink>
           <DownloadOnePagerButton />
         </div>
       </section>
-
-      {/* ── footer ── */}
-      <footer className="border-t border-border-subtle">
-        <div className="mx-auto flex max-w-4xl flex-col gap-2 px-6 py-8 text-sm text-ink-muted sm:flex-row sm:items-center sm:justify-between">
-          <span>
-            Built solo with an AI multi-agent workflow.
-          </span>
-          <span className="font-mono text-xs">stillnotbald.com</span>
-        </div>
-      </footer>
-    </div>
+    </MarketingShell>
   );
 }

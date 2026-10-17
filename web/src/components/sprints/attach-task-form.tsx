@@ -77,7 +77,12 @@ export function AttachTaskForm({
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <SelectInput value={taskId} onChange={(e) => setTaskId(e.target.value)} className="sm:max-w-xs">
+        <SelectInput
+          aria-label="Task to attach"
+          value={taskId}
+          onChange={(e) => setTaskId(e.target.value)}
+          className="sm:max-w-xs"
+        >
           <option value="">— Select a task to attach —</option>
           {options.map((t) => (
             <option key={t.id} value={t.id}>
@@ -110,7 +115,7 @@ export function AttachTaskForm({
                 onClick={() => detach(t.id)}
                 disabled={busy !== null}
                 aria-label={`Detach ${t.name}`}
-                className="grid h-11 w-11 shrink-0 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1"
+                className="focus-ring grid h-11 w-11 shrink-0 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink disabled:opacity-50 sm:h-auto sm:w-auto sm:p-1"
               >
                 {busy === t.id ? <Spinner size="sm" /> : <X size={14} />}
               </button>

@@ -371,10 +371,16 @@ describe("a different human decides (the happy paths still work)", () => {
   });
 
   it("rebaseline: a person has one vote however many identities they use (session then PAT update the same row)", async () => {
+    // Another approver's vote is still outstanding, so Bob's first vote does not decide the
+    // rebaseline (a decided rebaseline takes no more votes, R1/M2).
+    db.tables.rebaseline_signoffs = [
+      { id: "so-other", workspace_id: WS, rebaseline_id: "rb-user", approver_id: "someone-else", vote: "pending" },
+    ];
     await call(signoff, session(BOB), "rb-user", { vote: "go" });
     await call(signoff, bobPat(), "rb-user", { vote: "no_go" });
-    expect(db.rows("rebaseline_signoffs")).toHaveLength(1);
-    expect(db.rows("rebaseline_signoffs")[0].vote).toBe("no_go");
+    const bobVotes = db.rows("rebaseline_signoffs").filter((r) => r.approver_id === BOB);
+    expect(bobVotes).toHaveLength(1);
+    expect(bobVotes[0].vote).toBe("no_go");
   });
 
   it("rebaseline: apply by a different human", async () => {
@@ -467,12 +473,15 @@ describe("every request-creation insert records the requester's principal and em
     expect((emitted.requested[0] as { requestedByLabel: string }).requestedByLabel).toBe("Alice");
   });
 
-  it("a legacy token with no creator can still RAISE a request (principal NULL) — it just can't decide one", async () => {
+  it("a token with no recorded creator can NOT raise a task deletion request (403 no_principal, R1/H3) — nothing is queued or announced", async () => {
     db.tables.deletion_requests = [];
+    const auditBefore = db.rows("audit_log").length;
     const res = await call(deleteTask, pat("tok-orphan", null, ["task:delete:request"]), "task-1", { reason: "x" }, "DELETE");
-    expect(res.status).toBe(202);
-    expect(db.rows("deletion_requests")[0].requested_principal_id).toBeNull();
-    expect((emitted.requested[0] as { requesterPrincipalId: unknown }).requesterPrincipalId).toBeNull();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("no_principal");
+    expect(db.rows("deletion_requests")).toHaveLength(0);
+    expect(db.rows("audit_log")).toHaveLength(auditBefore);
+    expect(emitted.requested).toHaveLength(0);
   });
 
   it("project deletion request", async () => {

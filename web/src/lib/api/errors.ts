@@ -43,6 +43,23 @@ export class RuleError extends ApiError {
 }
 
 /**
+ * Field-level validation failure that is discovered AFTER zod parsing, in the
+ * handler (e.g. a referenced id that is not in the caller's workspace). Same
+ * 422 + `{ error, fields }` body the zod path produces through
+ * `validationError`, so a client handles both with one code path; thrown (not
+ * returned) so a shared helper can raise it from anywhere in a handler.
+ */
+export class FieldsError extends ApiError {
+  constructor(
+    message: string,
+    public readonly fields: { field: string; message: string }[],
+    code = "validation_failed",
+  ) {
+    super(422, message, code);
+  }
+}
+
+/**
  * Optimistic concurrency conflict (R-90): the caller sent
  * `expected_updated_at` on a PATCH and the row's current `updated_at` no
  * longer matches — someone else wrote it first. `currentUpdatedAt`, when
@@ -75,6 +92,12 @@ export function toErrorResponse(error: unknown): NextResponse {
         ...(error.code ? { code: error.code } : {}),
         ...(error.currentUpdatedAt ? { current_updated_at: error.currentUpdatedAt } : {}),
       },
+      { status: error.status },
+    );
+  }
+  if (error instanceof FieldsError) {
+    return NextResponse.json(
+      { error: error.message, ...(error.code ? { code: error.code } : {}), fields: error.fields },
       { status: error.status },
     );
   }

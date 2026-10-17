@@ -8,12 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import {
-  FieldLabel,
-  FieldError,
-  SelectInput,
-  TextareaInput,
-} from "@/components/forms/project-form";
+import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import { validateFields } from "@/lib/forms/validate";
 
@@ -86,7 +81,7 @@ export function MilestoneForm({
 
     // Client-side validation — immediate feedback before the network round-trip.
     const clientResult = validateFields([
-      { key: "name", value: name, message: "Milestone name is required" },
+      { key: "name", value: name.trim(), message: "Milestone name is required" },
     ]);
     if (!clientResult.ok) {
       setFieldErrors(clientResult.errors);
@@ -136,29 +131,22 @@ export function MilestoneForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Title — prominent, borderless */}
-      <div>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Milestone name"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.name} />
-      </div>
+      <TitleField
+        label="Milestone name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Milestone name"
+        required
+        error={fieldErrors.name}
+      />
 
       {/* Section: Status & Schedule */}
       <FormSection title="Status & Schedule">
         <FormGrid>
-          <div>
-            <FieldLabel>Status</FieldLabel>
+          <Field label="Status" error={fieldErrors.status}>
             <SelectInput
               value={status}
               onChange={(e) => setStatus(e.target.value as Milestone["status"])}
@@ -169,11 +157,9 @@ export function MilestoneForm({
               <option value="delayed">Delayed</option>
               <option value="completed">Completed</option>
             </SelectInput>
-            <FieldError message={fieldErrors.status} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Completion %</FieldLabel>
+          <Field label="Completion %" error={fieldErrors.completion_pct}>
             <Input
               type="number"
               min={0}
@@ -183,76 +169,63 @@ export function MilestoneForm({
               placeholder="0"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.completion_pct} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Start Date</FieldLabel>
+          <Field label="Start Date" error={fieldErrors.start_date}>
             <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.start_date} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Target Date</FieldLabel>
+          <Field label="Target Date" error={fieldErrors.target_date}>
             <Input
               type="date"
               value={targetDate}
               onChange={(e) => setTargetDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.target_date} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Baseline Target Date</FieldLabel>
+          <Field label="Baseline Target Date" error={fieldErrors.baseline_target_date}>
             <Input
               type="date"
               value={baselineTargetDate}
               onChange={(e) => setBaselineTargetDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.baseline_target_date} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Actual Date</FieldLabel>
+          <Field label="Actual Date" error={fieldErrors.actual_date}>
             <Input
               type="date"
               value={actualDate}
               onChange={(e) => setActualDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.actual_date} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
       {/* Section: Definition */}
       <FormSection title="Definition">
-        <div>
-          <FieldLabel>Description</FieldLabel>
+        <Field label="Description" error={fieldErrors.description}>
           <TextareaInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Milestone narrative — what this milestone represents and why it matters."
           />
-          <FieldError message={fieldErrors.description} />
-        </div>
+        </Field>
 
-        <div>
-          <FieldLabel>Deliverable</FieldLabel>
+        <Field label="Deliverable" error={fieldErrors.deliverable}>
           <TextareaInput
             value={deliverable}
             onChange={(e) => setDeliverable(e.target.value)}
             placeholder="WBS deliverable / acceptance output produced at this milestone."
           />
-          <FieldError message={fieldErrors.deliverable} />
-        </div>
+        </Field>
       </FormSection>
 
       {/* Actions */}
@@ -260,7 +233,7 @@ export function MilestoneForm({
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving || !name.trim()} className="w-full sm:w-auto h-11 sm:h-10">
+        <Button type="submit" variant="primary" disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

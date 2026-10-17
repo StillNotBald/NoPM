@@ -3,11 +3,14 @@ import type { ApprovalDecidedEvent, ApprovalEvent, DigestData } from "@/lib/inte
 import {
   MAX_REJECT_REASON,
   buildApprovalRequestCard,
+  buildBacklogNoticeCard,
+  buildChangedUpdateCard,
   buildDecidedCard,
   buildDecisionUpdateCard,
   buildDigestCard,
   buildHelpCard,
   buildLinkConfirmationCard,
+  buildLinkReplacedCard,
   buildNoticeCard,
   buildPendingApprovalsCard,
   buildUnlinkedCard,
@@ -392,5 +395,78 @@ describe("cardCallbackResponse", () => {
     const withCard = cardCallbackResponse("success", "Done", buildHelpCard(""));
     expect(withCard.card?.type).toBe("raw");
     expect((withCard.card?.data as { schema: string }).schema).toBe("2.0");
+  });
+});
+
+describe("buildChangedUpdateCard", () => {
+  const ev = {
+    workspaceId: "w",
+    kind: "change_request" as const,
+    id: "cr-1",
+    title: "Change request CR-7: <at id=all> [x](https://evil.example)",
+    requestedByLabel: "Rae",
+    requesterPrincipalId: null,
+    version: "2026-10-16T10:00:00.000Z",
+  };
+
+  it("is an updatable card with no buttons, no form and no token, saying the request was edited", () => {
+    const card = buildChangedUpdateCard(ev, { appUrl: "https://pm.example.test" });
+    const text = JSON.stringify(card);
+    expect(isUpdatableCard(card)).toBe(true);
+    expect(text).not.toContain('"button"');
+    expect(text).not.toContain('"form"');
+    expect(text).not.toContain("callback");
+    expect(text).toMatch(/edited after this card was sent/);
+    expect(text).toMatch(/can no longer be approved or rejected from here/);
+    expect((card.header as { template: string }).template).toBe("orange");
+    expect(text).toContain("https://pm.example.test/change-control?cr=cr-1");
+  });
+
+  it("escapes the title so it cannot become a mention or a link", () => {
+    // the rendered markdown elements (the plain-text chat-list preview is not interpreted by the client)
+    const card = buildChangedUpdateCard(ev, { appUrl: "https://pm.example.test" }) as { body: { elements: unknown[] } };
+    const text = JSON.stringify(card.body.elements);
+    expect(text).not.toContain("<at id=all>");
+    expect(text).not.toContain("[x](https://evil.example)");
+    expect(text).toContain("&#60;at id=all&#62;");
+  });
+
+  it("omits the link when no app url is configured, rather than pointing at a wrong host", () => {
+    expect(JSON.stringify(buildChangedUpdateCard(ev, { appUrl: "" }))).not.toContain("Open in NoPM");
+  });
+});
+
+describe("buildBacklogNoticeCard", () => {
+  it("says how many are waiting, why only some cards were sent, and links to the approvals page", () => {
+    const text = JSON.stringify(buildBacklogNoticeCard({ waiting: 31, limit: 20, appUrl: "https://pm.example.test" }));
+    expect(text).toContain("**31** approvals are waiting for you");
+    expect(text).toMatch(/at most 20 approval cards an hour/);
+    expect(text).toContain("https://pm.example.test/approvals");
+    expect(text).not.toContain('"button"');
+  });
+
+  it("handles one, zero and nonsense counts", () => {
+    expect(JSON.stringify(buildBacklogNoticeCard({ waiting: 1, limit: 20, appUrl: "" }))).toContain("**1** approval is waiting");
+    expect(JSON.stringify(buildBacklogNoticeCard({ waiting: 0, limit: 20, appUrl: "" }))).toContain("More approvals are waiting");
+    expect(JSON.stringify(buildBacklogNoticeCard({ waiting: Number.NaN, limit: 20, appUrl: "" }))).toContain("More approvals are waiting");
+    expect(JSON.stringify(buildBacklogNoticeCard({ waiting: 5.9, limit: 20, appUrl: "" }))).toContain("**5** approvals");
+  });
+
+  it("is updatable and links nowhere when the app url is unknown", () => {
+    const card = buildBacklogNoticeCard({ waiting: 2, limit: 20, appUrl: "" });
+    expect(isUpdatableCard(card)).toBe(true);
+    expect(JSON.stringify(card)).not.toContain("Open approvals");
+  });
+});
+
+describe("buildLinkReplacedCard", () => {
+  it("warns the old account, tells it what to do if that was not the owner, and carries no action", () => {
+    const card = buildLinkReplacedCard({ appUrl: "https://pm.example.test" });
+    const text = JSON.stringify(card);
+    expect((card.header as { title: { content: string } }).title.content).toBe("This Lark account was unlinked");
+    expect(text).toMatch(/if that was not you/i);
+    expect(text).toMatch(/unlink the new account/i);
+    expect(text).not.toContain('"button"');
+    expect(text).not.toContain("callback");
   });
 });

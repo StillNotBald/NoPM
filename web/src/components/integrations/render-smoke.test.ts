@@ -62,9 +62,14 @@ describe("ConnectForm", () => {
     expect(labelsAreWired(markup)).toEqual([]);
   });
 
-  it("masks secrets by default and marks the optional one", () => {
+  it("masks secrets by default", () => {
     expect(markup).toMatch(/id="lark-app-secret"[^>]*type="password"|type="password"[^>]*id="lark-app-secret"/);
-    expect(markup).toContain("(optional)");
+  });
+
+  it("marks the Encrypt Key required for the default webhook mode (no '(optional)' on it)", () => {
+    expect(markup).toContain("Required for a webhook connection");
+    expect(markup).not.toContain("(optional)");
+    expect(markup).toMatch(/id="lark-encrypt-key"[^>]*aria-required="true"|aria-required="true"[^>]*id="lark-encrypt-key"/);
   });
 
   it("offers region and mode as radio groups with legends", () => {
@@ -211,6 +216,25 @@ describe("ConnectedPanel", () => {
     expect(withHealth).toContain("Healthy");
     expect(withHealth).toContain("5 sent");
   });
+
+  it("renders the admin view's health block as one quiet status line, and tolerates its absence", () => {
+    const quiet = render(connector({ health: { pending: 0, retry: 0, dead: 0, last_sent_at: "2020-01-01T00:00:00Z" } }));
+    expect(quiet).toContain("Healthy");
+    expect(quiet).toContain("last sent");
+    const failing = render(connector({ health: { pending: 1, retry: 2, dead: 1, last_sent_at: null, last_error: "bot not in group" } }));
+    expect(failing).toContain("Failing");
+    expect(failing).toContain("1 failed");
+    expect(failing).toContain("Last error: bot not in group");
+    expect(render(connector({ health: null }))).not.toMatch(/Healthy|Failing|Retrying/);
+  });
+
+  it("renders Revoke as a danger action (the colour override is no longer lost)", () => {
+    const markup = render(connector());
+    const revoke = markup.match(/<button[^>]*class="([^"]*)"[^>]*>Revoke<\/button>/);
+    expect(revoke).not.toBeNull();
+    expect(revoke![1]).toContain("text-danger-ink");
+    expect(revoke![1]).not.toContain("text-ink-secondary");
+  });
 });
 
 describe("LarkConnectorCard", () => {
@@ -229,8 +253,19 @@ describe("LarkConnectorCard", () => {
   it("admin with no connector sees the value sentence and a Connect button, not the long form", () => {
     const markup = card({});
     expect(markup).toContain("Connect Lark or Feishu");
-    expect(markup).toContain("recorded once in the Trust Center");
-    expect(markup).not.toContain("App Secret");
+    expect(markup).toContain("recorded once in");
+    expect(markup).toContain("Trust Center");
+    expect(markup).not.toContain("<form");
+    expect(markup).not.toContain('id="lark-app-secret"');
+  });
+
+  it("the empty state is compact and says what to bring from Lark", () => {
+    const markup = card({});
+    expect(markup).toContain("self-built app from the Lark developer console");
+    expect(markup).toContain("App ID, App Secret and Verification");
+    // no centred, padded EmptyState block any more
+    expect(markup).not.toContain("py-8");
+    expect(markup).not.toContain("text-center");
   });
 
   it("admin with a connector sees the connected panel", () => {
@@ -331,12 +366,19 @@ describe("LarkAccountCard", () => {
     expect(markup).not.toContain("Member Two");
   });
 
-  it("blocks linking, with the reason, when no connector is live", () => {
+  it("explains the prerequisite once, and offers no faded disabled button, when no connector is live", () => {
     const none = card({ connector: null, connectorKnown: true });
-    expect(none).toContain("Ask a workspace admin to connect it");
-    expect(none).toMatch(/<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Link my Lark account/);
-    expect(card({ connector: null, connectorKnown: true, isAdmin: true })).toContain("Connect it above");
-    expect(card({ connector: connector({ status: "paused" }) })).toContain("paused");
+    expect(none).toContain("once a workspace admin has connected Lark");
+    expect(none).not.toContain("Link my Lark account");
+    expect(none).not.toContain("disabled");
+    expect(none.match(/connected/g)?.length).toBe(1);
+    const admin = card({ connector: null, connectorKnown: true, isAdmin: true });
+    expect(admin).toContain("Connect Lark in the card above first");
+    expect(admin).not.toContain("Link my Lark account");
+    const paused = card({ connector: connector({ status: "paused" }) });
+    expect(paused).toContain("once an admin resumes Lark");
+    expect(paused).not.toContain("Link my Lark account");
+    expect(card({ connector: connector({ status: "paused" }), isAdmin: true })).toContain("Resume it above");
   });
 
   it("does not block when the connector is simply not visible to this member", () => {

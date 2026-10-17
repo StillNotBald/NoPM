@@ -5,6 +5,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { updateDocumentSchema } from "@/app/api/documents/_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -54,20 +55,12 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const input = parsed.data;
 
-  // If project_id is being changed, verify it belongs to this workspace.
-  if (input.project_id !== undefined && input.project_id !== null) {
-    const { data: proj } = await db
-      .from("projects")
-      .select("id")
-      .eq("id", input.project_id)
-      .eq("workspace_id", actor.workspaceId)
-      .maybeSingle();
-    if (!proj) {
-      return validationError("Validation failed", [
-        { field: "project_id", message: "Project not found in this workspace" },
-      ]);
-    }
-  }
+  // Cross-tenant guard: a changed project and owner (a profile) must both
+  // belong to THIS workspace. null clears the link and is always allowed.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "projects", id: input.project_id, field: "project_id" },
+    { table: "profiles", id: input.owner_id, field: "owner_id" },
+  ]);
 
   // Build only the fields provided in the patch.
   const updates: Record<string, unknown> = {};

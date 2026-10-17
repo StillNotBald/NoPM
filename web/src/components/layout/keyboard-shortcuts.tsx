@@ -1,37 +1,43 @@
 "use client";
 
-import { useEffect } from "react";
+import { useId, useRef, type RefObject } from "react";
 import { X, Command } from "lucide-react";
-import { cn } from "@/lib/cn";
+import { Portal } from "@/components/ui/portal";
+import { useDialog } from "@/lib/hooks/use-sheet";
+import { modKeyLabel, useIsMac } from "./use-is-mac";
 
 type ShortcutRow = {
   label: string;
   keys: string[];
 };
 
-const isMac =
-  typeof navigator !== "undefined" && /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+type ShortcutGroup = { section: string; rows: ShortcutRow[] };
 
-const MOD = isMac ? "⌘" : "Ctrl";
-
-const SHORTCUTS: { section: string; rows: ShortcutRow[] }[] = [
-  {
-    section: "Navigation",
-    rows: [
-      { label: "Command palette", keys: [MOD, "K"] },
-      { label: "Go to Dashboard", keys: [MOD, "1"] },
-      { label: "Go to Projects", keys: [MOD, "2"] },
-      { label: "Go to Risks", keys: [MOD, "3"] },
-    ],
-  },
-  {
-    section: "General",
-    rows: [
-      { label: "Close inspector / modal", keys: ["Esc"] },
-      { label: "Open keyboard shortcuts", keys: [MOD, "/"] },
-    ],
-  },
-];
+/**
+ * Every shortcut listed here is implemented — and this is all of them. The
+ * only global key binding is Cmd/Ctrl+K (command-palette.tsx); the rest are
+ * keys that work inside the palette and Escape on any overlay (use-sheet.ts).
+ * Do not add a row without adding the handler.
+ */
+export function shortcutGroups(mod: string): ShortcutGroup[] {
+  return [
+    {
+      section: "Navigation",
+      rows: [{ label: "Open or close the command palette", keys: [mod, "K"] }],
+    },
+    {
+      section: "In the command palette",
+      rows: [
+        { label: "Move through results", keys: ["↑", "↓"] },
+        { label: "Run the highlighted result", keys: ["↵"] },
+      ],
+    },
+    {
+      section: "General",
+      rows: [{ label: "Close the open dialog, sheet or panel", keys: ["Esc"] }],
+    },
+  ];
+}
 
 function Kbd({ children }: { children: string }) {
   return (
@@ -44,75 +50,85 @@ function Kbd({ children }: { children: string }) {
 interface KeyboardShortcutsProps {
   open: boolean;
   onClose: () => void;
+  /** Where focus goes on close. The menu item that opened this is gone by then, so pass the menu trigger. */
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
 
-export function KeyboardShortcuts({ open, onClose }: KeyboardShortcutsProps) {
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+export function KeyboardShortcuts({ open, onClose, returnFocusRef }: KeyboardShortcutsProps) {
+  const isMac = useIsMac();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  // Escape (top-most only), Tab trap, focus onto Close and back to the opener
+  // when it shuts.
+  useDialog({ open, onClose, containerRef: dialogRef, initialFocusRef: closeRef, openerRef: returnFocusRef, sheet: true });
 
   if (!open) return null;
 
-  return (
-    /* backdrop */
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Keyboard shortcuts"
-    >
-      <div
-        className={cn(
-          "relative w-full max-w-sm rounded-xl border border-border-subtle bg-canvas shadow-xl",
-          "focus:outline-none",
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* header */}
-        <div className="flex items-center justify-between border-b border-border-subtle px-5 py-4">
-          <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-            <Command size={15} className="text-ink-muted" />
-            Keyboard shortcuts
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="grid h-7 w-7 place-items-center rounded-md text-ink-muted hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-          >
-            <X size={14} />
-          </button>
-        </div>
+  const groups = shortcutGroups(modKeyLabel(isMac));
 
-        {/* body */}
-        <div className="divide-y divide-border-subtle px-5 py-3">
-          {SHORTCUTS.map((group) => (
-            <div key={group.section} className="py-3 first:pt-0 last:pb-0">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
-                {group.section}
-              </p>
-              <ul className="space-y-1.5">
-                {group.rows.map((row) => (
-                  <li key={row.label} className="flex items-center justify-between gap-4">
-                    <span className="text-sm text-ink">{row.label}</span>
-                    <span className="flex items-center gap-1">
-                      {row.keys.map((k) => (
-                        <Kbd key={k}>{k}</Kbd>
-                      ))}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+  // Rendered through <Portal>: inside the header it was laid out against the
+  // header (a 56px band) instead of the viewport and its title/close button
+  // sat off-screen.
+  return (
+    <Portal>
+      {/* backdrop */}
+      <div
+        data-shell-chrome
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        onClick={onClose}
+      >
+        <div
+          ref={dialogRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          className="relative max-h-full w-full max-w-sm overflow-y-auto rounded-xl border border-border-subtle bg-canvas shadow-lg focus:outline-none"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* header */}
+          <div className="flex items-center justify-between border-b border-border-subtle py-2 pl-5 pr-3">
+            <h2 id={titleId} className="flex items-center gap-2 text-sm font-semibold text-ink">
+              <Command size={15} className="text-ink-muted" aria-hidden="true" />
+              Keyboard shortcuts
+            </h2>
+            <button
+              ref={closeRef}
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="focus-ring grid h-11 w-11 place-items-center rounded-md text-ink-muted hover:bg-sunken sm:h-8 sm:w-8"
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* body */}
+          <div className="divide-y divide-border-subtle px-5 py-3">
+            {groups.map((group) => (
+              <div key={group.section} className="py-3 first:pt-0 last:pb-0">
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+                  {group.section}
+                </p>
+                <ul className="space-y-1.5">
+                  {group.rows.map((row) => (
+                    <li key={row.label} className="flex items-center justify-between gap-4">
+                      <span className="text-sm text-ink">{row.label}</span>
+                      <span className="flex items-center gap-1">
+                        {row.keys.map((k) => (
+                          <Kbd key={k}>{k}</Kbd>
+                        ))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
-    </div>
+    </Portal>
   );
 }

@@ -1,8 +1,10 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ApiError, NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { ApiError, NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import { hashToken } from "@/lib/auth/tokens";
 import type { Actor } from "@/lib/auth/guard";
-import { decideApproval } from "@/lib/governance/decide";
+import { changeRequestEvent, decideApproval, timesheetEvent } from "@/lib/governance/decide";
+import { readRequest, sameVersion } from "@/lib/integrations/deliveries";
+import { runApprovalChanged, schedule } from "@/lib/integrations/emit";
 import { externalActorRef } from "@/lib/integrations/identity";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import { TENANT_MISMATCH_MESSAGE, tenantMismatch } from "@/lib/integrations/store";
@@ -19,9 +21,19 @@ import type { ApprovalKind, ConnectorRow, InboundOutcome } from "@/lib/integrati
  *   external event id; a replay returns the stored outcome) -> verified
  *   platform user -> ACTIVE external_identities row -> profile in the SAME
  *   workspace -> atomically consume the action token (unused, unexpired,
- *   recipient = this profile) -> build the Actor -> decideApproval (the same
- *   governed code path the REST routes use: four-eyes by HUMAN principal,
- *   scopes, locks, the single audit row with channel='lark') -> store outcome.
+ *   recipient = this profile) -> content-version check (the request must still
+ *   be at the version the card was issued for) -> build the Actor ->
+ *   decideApproval (the same governed code path the REST routes use: four-eyes
+ *   by HUMAN principal, scopes, locks, the single audit row with
+ *   channel='lark', the decision pinned to that version) -> store outcome.
+ *
+ * Approve-what-you-saw: a card is a snapshot with a seven-day life, but the
+ * request behind it can be edited. The token carries the request's content
+ * version from when the card was issued; a tap is refused (`changed`, nothing
+ * decided) when the request has moved on, and the same version pins the decision
+ * write itself, so an edit landing between the check and the write fails the
+ * decision rather than slipping through. A refused tap re-issues fresh cards
+ * with the current content, so there is no dead end.
  *
  * Trust boundary: the ONLY identity input is the platform-verified
  * (tenant, user id) the adapter extracted after checking the callback's
@@ -50,9 +62,13 @@ type TokenRow = {
   recipient_profile_id: string;
   approval_kind: ApprovalKind;
   approval_id: string;
+  approval_version?: string | null;
+  superseded_reason?: string | null;
   used_at: string | null;
   expires_at: string;
 };
+
+const TOKEN_COLUMNS = "id, recipient_profile_id, approval_kind, approval_id, approval_version, superseded_reason, used_at, expires_at";
 
 export async function handleApprovalAction(input: ApprovalActionInput): Promise<InboundOutcome> {
   const { connector } = input;
@@ -130,7 +146,7 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
       .eq("recipient_profile_id", profile.id)
       .is("used_at", null)
       .gt("expires_at", nowIso)
-      .select("id, recipient_profile_id, approval_kind, approval_id, used_at, expires_at");
+      .select(TOKEN_COLUMNS);
     if (consumeError) throw consumeError;
 
     if (!consumed || consumed.length === 0) {
@@ -140,6 +156,17 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
     const token = consumed[0] as TokenRow;
     tokenId = token.id;
     const ref = { kind: token.approval_kind, id: token.approval_id };
+    const cardVersion = token.approval_version ?? null;
+
+    // ── is it still the request the card showed? ────────────────────────────
+    // Nothing is decided on a mismatch. A request that is already decided or
+    // gone is left to the decision code, which answers it precisely.
+    if (cardVersion) {
+      const current = await readRequest({ workspace_id: workspaceId, approval_kind: ref.kind, approval_id: ref.id });
+      if (current.state === "pending" && current.version && !sameVersion(cardVersion, current.version)) {
+        return await refuseChanged(claimId, token, workspaceId, profile.id, ref);
+      }
+    }
 
     // ── the governed decision ───────────────────────────────────────────────
     const actor: Actor = {
@@ -158,7 +185,10 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
 
     let outcome: InboundOutcome;
     try {
-      const result = await decideApproval(actor, ref, input.action, note);
+      // The decision write is pinned to the version the card was issued for, so
+      // an edit that lands after the check above fails it (412) instead of
+      // being approved unseen.
+      const result = await decideApproval(actor, ref, input.action, note, cardVersion ? { expectedUpdatedAt: cardVersion } : {});
       outcome = {
         status: "decided",
         action: input.action,
@@ -168,6 +198,10 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
       };
     } catch (err) {
       outcome = mapDecisionError(err);
+    }
+
+    if (outcome.status === "changed") {
+      return await refuseChanged(claimId, token, workspaceId, profile.id, ref);
     }
 
     // A failure that did not decide anything for a reason the recipient can
@@ -192,6 +226,8 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
 
 /** Map what decideApproval throws onto a typed outcome the adapter can render. */
 export function mapDecisionError(err: unknown): InboundOutcome {
+  // The request moved on between the version check and the decision write.
+  if (err instanceof PreconditionFailedError) return { status: "changed" };
   // The governed code attaches a stable `code`; branch on it first and fall
   // back to the message only for errors thrown without one.
   if (err instanceof ApiError) {
@@ -234,7 +270,7 @@ async function classifyTokenFailure(
   const db = createAdminClient();
   const { data, error } = await db
     .from("action_tokens")
-    .select("id, recipient_profile_id, approval_kind, approval_id, used_at, expires_at")
+    .select(TOKEN_COLUMNS)
     .eq("token_hash", tokenHash)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -242,6 +278,8 @@ async function classifyTokenFailure(
   const row = data as TokenRow | null;
   if (!row) return { status: "invalid", message: "This approval link isn't valid." };
   if (row.recipient_profile_id !== profileId) return { status: "not_recipient" };
+  // Retired because the request was edited and a new card replaced this one.
+  if (row.used_at && row.superseded_reason === "changed") return { status: "changed" };
   // Used covers both "I already clicked" and "decided from another channel"
   // (a decision stamps every open token of the request as used).
   if (row.used_at) return { status: "already_decided" };
@@ -331,4 +369,70 @@ async function dropClaim(claimId: string, workspaceId: string): Promise<void> {
 async function releaseToken(tokenId: string, workspaceId: string): Promise<void> {
   const db = createAdminClient();
   await db.from("action_tokens").update({ used_at: null }).eq("id", tokenId).eq("workspace_id", workspaceId);
+}
+
+// ── an edited request ──────────────────────────────────────────────────────
+
+/**
+ * The tap was refused because the request changed after the card was issued.
+ * The token stays spent and is marked 'changed' (so a repeat tap gets the same
+ * answer), the outcome is recorded, and fresh cards with the CURRENT content
+ * are issued in the background: a card refused for a harmless bump (an edit
+ * that changed nothing an approver decides on) is never a dead end.
+ */
+async function refuseChanged(
+  claimId: string,
+  token: TokenRow,
+  workspaceId: string,
+  principalId: string,
+  ref: { kind: ApprovalKind; id: string },
+): Promise<InboundOutcome> {
+  const db = createAdminClient();
+  const { error } = await db
+    .from("action_tokens")
+    .update({ used_at: new Date().toISOString(), superseded_reason: "changed" })
+    .eq("id", token.id)
+    .eq("workspace_id", workspaceId);
+  if (error) console.error("[integrations] failed to retire a stale token:", sanitizeError(error));
+
+  const outcome: InboundOutcome = { status: "changed" };
+  await finish(claimId, outcome, { principalId, ref });
+  schedule("stale card tapped", workspaceId, () => reissueAfterChange(workspaceId, ref));
+  return outcome;
+}
+
+/**
+ * Re-issue the cards for a request whose card was just refused as stale: build
+ * the event from the request as it reads NOW and run the same path an explicit
+ * edit takes (retire the old tokens, patch the old cards, send fresh ones).
+ * Only change requests and timesheets carry a version; anything no longer
+ * pending is left alone.
+ */
+export async function reissueAfterChange(workspaceId: string, ref: { kind: ApprovalKind; id: string }): Promise<void> {
+  const db = createAdminClient();
+  if (ref.kind === "change_request") {
+    const { data, error } = await db
+      .from("change_requests")
+      .select("*")
+      .eq("id", ref.id)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (error) throw error;
+    const row = data as ({ status: string; updated_at?: string | null } & Record<string, unknown>) | null;
+    if (!row || !["raised", "under_review"].includes(row.status)) return;
+    const ev = await changeRequestEvent(db, workspaceId, row as never);
+    await runApprovalChanged({ ...ev, version: row.updated_at ?? null });
+  } else if (ref.kind === "timesheet") {
+    const { data, error } = await db
+      .from("timesheet_submissions")
+      .select("*")
+      .eq("id", ref.id)
+      .eq("workspace_id", workspaceId)
+      .maybeSingle();
+    if (error) throw error;
+    const row = data as ({ status: string; updated_at?: string | null } & Record<string, unknown>) | null;
+    if (!row || row.status !== "submitted") return;
+    const ev = await timesheetEvent(db, workspaceId, row as never);
+    await runApprovalChanged({ ...ev, version: row.updated_at ?? null });
+  }
 }

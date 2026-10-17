@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { WEBHOOK_BAD_ATTEMPTS_MAX, WEBHOOK_RATE_MAX, handleLarkWebhook, type WebhookDeps } from "./http";
+import { WEBHOOK_BAD_ATTEMPTS_MAX, WEBHOOK_BAD_IP_MAX, WEBHOOK_RATE_MAX, handleLarkWebhook, type WebhookDeps } from "./http";
 import { MAX_WEBHOOK_BODY_BYTES } from "./verify";
 import {
   FIXTURE_APP_URL,
@@ -60,12 +60,17 @@ describe("handleLarkWebhook - routing and lookup", () => {
     expect(wd.loadConnector).not.toHaveBeenCalled();
   });
 
-  it("404s unknown, paused and revoked connectors alike", async () => {
+  it("answers unknown, paused and revoked connectors with the SAME 401 a failed check gets", async () => {
+    const wrong = plain(urlVerificationBody("wrong"));
+    const { wd: real } = setup();
+    const failed = await handleLarkWebhook(wrong, FIXTURE_CONNECTOR_ID, real);
     for (const row of [null, fixtureConnector({ status: "paused" }), fixtureConnector({ status: "revoked" })]) {
       const { wd } = setup({ loadConnector: vi.fn(async () => row) });
       const res = await handleLarkWebhook(plain(urlVerificationBody()), FIXTURE_CONNECTOR_ID, wd);
-      expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "Not found" });
+      expect(res.status).toBe(failed.status);
+      expect(await res.json()).toEqual({ error: "Invalid request" });
+      expect(wd.readSecrets).not.toHaveBeenCalled(); // never decrypts a connector that is not serving
+      expect(wd.buildContext).toBeDefined();
     }
   });
 
@@ -85,15 +90,15 @@ describe("handleLarkWebhook - routing and lookup", () => {
     expect((await handleLarkWebhook(actual, FIXTURE_CONNECTOR_ID, wd)).status).toBe(413);
   });
 
-  it("500s (and logs) when the stored secrets cannot be read", async () => {
+  it("503s with a generic body (and logs) when the stored secrets cannot be read", async () => {
     const { wd } = setup({
       readSecrets: vi.fn(() => {
         throw new Error("bad key");
       }),
     });
     const res = await handleLarkWebhook(plain(messageEvent()), FIXTURE_CONNECTOR_ID, wd);
-    expect(res.status).toBe(500);
-    expect(JSON.stringify(await res.json())).not.toContain("bad key");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Service unavailable" });
   });
 });
 
@@ -218,5 +223,66 @@ describe("handleLarkWebhook - rate limit", () => {
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("9");
     expect(hub.sent).toHaveLength(0);
+  });
+});
+
+describe("handleLarkWebhook - pre-authentication limits", () => {
+  const withIp = (ip: string | null) => ({ ipKey: vi.fn(() => ip) });
+
+  it("counts a failure on an UNKNOWN connector only against the caller's network (no counter row keyed by a guessed id)", async () => {
+    const { wd, rateCheck } = setup({ loadConnector: vi.fn(async () => null), ...withIp("203.0.113.7") });
+    const res = await handleLarkWebhook(plain(urlVerificationBody()), FIXTURE_CONNECTOR_ID, wd);
+    expect(res.status).toBe(401);
+    expect(rateCheck.mock.calls.map((c) => c[0])).toEqual(["lark-bad-ip:203.0.113.7"]);
+  });
+
+  it("counts a failed check on a real connector against both the network and the connector", async () => {
+    const { wd, rateCheck } = setup(withIp("203.0.113.7"));
+    await handleLarkWebhook(plain(messageEvent({ token: "wrong" })), FIXTURE_CONNECTOR_ID, wd);
+    expect(rateCheck.mock.calls.map((c) => c[0])).toEqual(["lark-bad-ip:203.0.113.7", `lark-bad:${FIXTURE_CONNECTOR_ID}`]);
+    expect(rateCheck).toHaveBeenCalledWith("lark-bad-ip:203.0.113.7", WEBHOOK_BAD_IP_MAX);
+  });
+
+  it("429s with Retry-After once the network has failed too often, whichever connector it aimed at", async () => {
+    const { wd, rateCheck } = setup({ loadConnector: vi.fn(async () => null), ...withIp("203.0.113.7") });
+    rateCheck.mockResolvedValueOnce({ allowed: false, retryAfterSeconds: 31 });
+    const res = await handleLarkWebhook(plain(urlVerificationBody()), FIXTURE_CONNECTOR_ID, wd);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("retry-after")).toBe("31");
+  });
+
+  it("never counts a GOOD request against the network (Lark's servers carry every tenant's traffic)", async () => {
+    const { wd, rateCheck } = setup(withIp("203.0.113.7"));
+    const res = await handleLarkWebhook(plain(messageEvent()), FIXTURE_CONNECTOR_ID, wd);
+    expect(res.status).toBe(200);
+    expect(rateCheck.mock.calls.map((c) => c[0])).toEqual([`lark:${FIXTURE_CONNECTOR_ID}`]);
+  });
+
+  it("with no trustworthy address, an unknown connector creates no counter at all", async () => {
+    const { wd, rateCheck } = setup({ loadConnector: vi.fn(async () => null), ...withIp(null) });
+    expect((await handleLarkWebhook(plain(urlVerificationBody()), FIXTURE_CONNECTOR_ID, wd)).status).toBe(401);
+    expect(rateCheck).not.toHaveBeenCalled();
+  });
+
+  it("an unknown connector still reads and checks the body, so a miss costs about what a hit does (and an oversized one is still 413)", async () => {
+    const { wd } = setup({ loadConnector: vi.fn(async () => null) });
+    const big = post(JSON.stringify({ pad: "x".repeat(MAX_WEBHOOK_BODY_BYTES) }));
+    expect((await handleLarkWebhook(big, FIXTURE_CONNECTOR_ID, wd)).status).toBe(413);
+  });
+
+  it("answers identically for a paused connector, an unknown one and a wrong token", async () => {
+    const bodies = new Set<string>();
+    const statuses = new Set<number>();
+    for (const wd of [
+      setup({ loadConnector: vi.fn(async () => null) }).wd,
+      setup({ loadConnector: vi.fn(async () => fixtureConnector({ status: "paused" })) }).wd,
+      setup().wd,
+    ]) {
+      const res = await handleLarkWebhook(plain(messageEvent({ token: "wrong" })), FIXTURE_CONNECTOR_ID, wd);
+      statuses.add(res.status);
+      bodies.add(JSON.stringify(await res.json()));
+    }
+    expect([...statuses]).toEqual([401]);
+    expect([...bodies]).toEqual([JSON.stringify({ error: "Invalid request" })]);
   });
 });

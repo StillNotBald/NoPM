@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
 import { DocumentsClient, NewDocumentButton } from "@/components/documents/documents-client";
 
 export const metadata = { title: "Documents" };
@@ -28,6 +31,9 @@ export default async function DocumentsPage() {
       db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     ]);
   const canWrite = viewerProfile?.role !== "viewer";
+  const dateDisplayPref = parseAppearancePrefs(
+    (await cookies()).get(APPEARANCE_COOKIE_NAME)?.value,
+  ).dateDisplay;
 
   const projectMap = Object.fromEntries(
     (projects ?? []).map((p) => [p.id, p.name]),
@@ -40,26 +46,25 @@ export default async function DocumentsPage() {
   }
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <PageHeader
-          title="Documents"
-          action={<NewDocumentButton projects={projects ?? []} />}
-        />
+    <PageContainer width="wide" className="space-y-6">
+      <PageHeader
+        title="Documents"
+        action={<NewDocumentButton projects={projects ?? []} />}
+      />
 
-        <Card className="overflow-hidden">
-          {/* Suspense boundary required by useSearchParams inside DocumentsClient */}
-          <Suspense>
-            <DocumentsClient
-              documents={documents ?? []}
-              projects={projects ?? []}
-              projectMap={projectMap}
-              ownerMap={ownerMap}
-              canWrite={canWrite}
-            />
-          </Suspense>
-        </Card>
-      </div>
-    </div>
+      <Card className="overflow-hidden">
+        {/* Suspense boundary required by useSearchParams inside DocumentsClient */}
+        <Suspense>
+          <DocumentsClient
+            documents={documents ?? []}
+            projects={projects ?? []}
+            projectMap={projectMap}
+            ownerMap={ownerMap}
+            canWrite={canWrite}
+            dateDisplayPref={dateDisplayPref}
+          />
+        </Suspense>
+      </Card>
+    </PageContainer>
   );
 }

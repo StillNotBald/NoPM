@@ -160,11 +160,15 @@ export default async function ProjectDetailPage({
   return (
     <div className="mx-auto min-w-0 max-w-6xl space-y-8 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
       <CrumbLabel id={safeProject.id} label={safeProject.code ?? safeProject.name} />
-      {/* Header */}
-      <div>
-        {/* Title row: stacks on mobile, side-by-side on sm+
-            (wayfinding handled by the shell-level Breadcrumbs bar) */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      {/* Header. An `@container`: the right-hand inspector (task / risk detail)
+          narrows this column to ~530px WITHOUT changing the viewport, and the
+          old viewport breakpoints (`sm:`) then kept the side-by-side title row,
+          crushing the title to nothing under the badges and actions. The
+          header now lays out by its own width. */}
+      <div className="@container">
+        {/* Title row: stacks until the header is `@4xl` (56rem) wide, then sits
+            side by side (wayfinding handled by the shell-level Breadcrumbs bar) */}
+        <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-start @4xl:justify-between">
           <div className="flex items-start gap-3 min-w-0">
             {safeProject.code && (
               <span className="mt-1 font-mono text-xs text-ink-muted bg-sunken border border-border-subtle rounded px-2 py-0.5 shrink-0">
@@ -182,7 +186,7 @@ export default async function ProjectDetailPage({
           </div>
 
           {/* Right: badges + actions */}
-          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:justify-end sm:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap @4xl:flex-nowrap @4xl:justify-end @4xl:shrink-0">
             <Badge tone={ragTone(safeProject.rag_status as RagStatus)}>
               {ragLabel(safeProject.rag_status as RagStatus)}
             </Badge>

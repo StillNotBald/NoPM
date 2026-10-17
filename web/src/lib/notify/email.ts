@@ -2,14 +2,46 @@
  * renderNotificationEmail — pure function, no sending.
  * Returns a branded HTML email and subject line for any notification type.
  * Resend is demo-mode; this is for preview rendering only.
+ *
+ * Mail clients drop CSS variables, <style> and media queries, so the colours
+ * are literal hex written inline. They are the product's LIGHT-theme tokens
+ * from globals.css (white card, near-black ink, Fluent-blue accent, the fixed
+ * dark terminal bar) — email-palette.test.ts pins every value to its token so
+ * this template cannot drift to a different brand again (it was cream/coral
+ * after the 2026-08-13 retheme, with a white-on-coral CTA at 3.12:1).
  */
 
-const BRAND_CREAM = "#FAF9F5";
-const BRAND_CORAL = "#D97757";
-const BRAND_INK = "#1C1B18";
-const BRAND_INK_MUTED = "#6B6860";
-const BRAND_SURFACE = "#FFFFFF";
-const BRAND_BORDER = "#E8E6DF";
+/** Literal hex per role → the globals.css token it mirrors (light theme). */
+export const EMAIL_PALETTE = {
+  /** page backdrop — --bg-sunken */
+  backdrop: "#F0F0F2",
+  /** card surface — --bg-surface */
+  surface: "#FFFFFF",
+  /** hairlines — --border-subtle */
+  border: "#E5E5E8",
+  /** title — --text-primary */
+  ink: "#161616",
+  /** body copy — --text-secondary */
+  inkSecondary: "#555559",
+  /** footer / fine print — --text-muted */
+  inkMuted: "#6A6A70",
+  /** CTA fill + brand blue — --accent (white text on it: 4.53:1) */
+  accent: "#0078D4",
+  /** text on the accent — --accent-ink */
+  accentInk: "#FFFFFF",
+  /** header bar, the product's fixed-dark terminal window — --terminal-surface */
+  terminal: "#0A0A0B",
+  /** wordmark on the terminal bar — white */
+  terminalInk: "#FFFFFF",
+  /** type label on the terminal bar — --terminal-text-muted (~7.5:1) */
+  terminalMuted: "#A1A1AA",
+  /** traffic-light dots — --terminal-red / -amber / -green */
+  dotRed: "#FF5F57",
+  dotAmber: "#FEBC2E",
+  dotGreen: "#28C840",
+} as const;
+
+const P = EMAIL_PALETTE;
 
 export type NotificationEmailInput = {
   type: string;
@@ -59,7 +91,7 @@ export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmai
   const ctaUrl = `https://stillnotbald.com${ctaPath}`;
 
   const bodyHtml = n.body
-    ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:${BRAND_INK_MUTED}">${escapeHtml(n.body)}</p>`
+    ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:${P.inkSecondary}">${escapeHtml(n.body)}</p>`
     : "";
 
   const typeLabel = TYPE_SUBJECT_PREFIXES[n.type]
@@ -73,24 +105,24 @@ export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmai
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${escapeHtml(subject)}</title>
 </head>
-<body style="margin:0;padding:0;background-color:${BRAND_CREAM};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+<body style="margin:0;padding:0;background-color:${P.backdrop};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
   <!-- Outer wrapper -->
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:${BRAND_CREAM};padding:40px 16px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:${P.backdrop};padding:40px 16px;">
     <tr>
       <td align="center">
         <!-- Card -->
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:${BRAND_SURFACE};border-radius:10px;border:1px solid ${BRAND_BORDER};overflow:hidden;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:${P.surface};border-radius:10px;border:1px solid ${P.border};overflow:hidden;">
 
-          <!-- Coral header bar -->
+          <!-- Terminal-window header bar: traffic lights, wordmark, type label -->
           <tr>
-            <td style="background-color:${BRAND_CORAL};padding:18px 28px;">
+            <td style="background-color:${P.terminal};padding:16px 28px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
                   <td>
-                    <span style="font-family:ui-monospace,'Cascadia Code','Fira Code',monospace;font-size:16px;font-weight:700;color:#FFFFFF;letter-spacing:-0.01em;">nopm</span>
+                    <span style="display:inline-block;width:10px;height:10px;border-radius:5px;background-color:${P.dotRed};margin-right:6px;"></span><span style="display:inline-block;width:10px;height:10px;border-radius:5px;background-color:${P.dotAmber};margin-right:6px;"></span><span style="display:inline-block;width:10px;height:10px;border-radius:5px;background-color:${P.dotGreen};margin-right:12px;"></span><span style="font-family:ui-monospace,'Cascadia Code','Fira Code',monospace;font-size:16px;font-weight:700;color:${P.terminalInk};letter-spacing:-0.01em;">nopm</span>
                   </td>
                   <td align="right">
-                    <span style="font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.75);">${escapeHtml(typeLabel)}</span>
+                    <span style="font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:${P.terminalMuted};">${escapeHtml(typeLabel)}</span>
                   </td>
                 </tr>
               </table>
@@ -101,7 +133,7 @@ export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmai
           <tr>
             <td style="padding:32px 28px 24px;">
               <!-- Title -->
-              <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;line-height:1.3;color:${BRAND_INK};letter-spacing:-0.01em;">${escapeHtml(n.title)}</h1>
+              <h1 style="margin:0 0 16px;font-size:20px;font-weight:600;line-height:1.3;color:${P.ink};letter-spacing:-0.01em;">${escapeHtml(n.title)}</h1>
 
               <!-- Body text -->
               ${bodyHtml}
@@ -109,8 +141,8 @@ export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmai
               <!-- CTA button -->
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td style="border-radius:6px;background-color:${BRAND_CORAL};">
-                    <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:600;color:#FFFFFF;text-decoration:none;border-radius:6px;letter-spacing:0.01em;">View in NoPM &rarr;</a>
+                  <td style="border-radius:6px;background-color:${P.accent};">
+                    <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;padding:11px 22px;font-size:14px;font-weight:600;color:${P.accentInk};text-decoration:none;border-radius:6px;letter-spacing:0.01em;">View in NoPM &rarr;</a>
                   </td>
                 </tr>
               </table>
@@ -120,15 +152,15 @@ export function renderNotificationEmail(n: NotificationEmailInput): RenderedEmai
           <!-- Divider -->
           <tr>
             <td style="padding:0 28px;">
-              <hr style="border:none;border-top:1px solid ${BRAND_BORDER};margin:0;" />
+              <hr style="border:none;border-top:1px solid ${P.border};margin:0;" />
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
             <td style="padding:16px 28px 24px;">
-              <p style="margin:0;font-size:11px;line-height:1.5;color:${BRAND_INK_MUTED};">
-                <strong style="color:${BRAND_CORAL};">Demo-mode preview</strong> &mdash; NoPM does not send email. Resend runs in demo-mode; this shows exactly what would be delivered. &middot; <a href="https://stillnotbald.com" style="color:${BRAND_INK_MUTED};text-decoration:underline;">stillnotbald.com</a>
+              <p style="margin:0;font-size:11px;line-height:1.5;color:${P.inkMuted};">
+                <strong style="color:${P.ink};">Demo-mode preview</strong> &mdash; NoPM does not send email. Resend runs in demo-mode; this shows exactly what would be delivered. &middot; <a href="https://stillnotbald.com" style="color:${P.inkMuted};text-decoration:underline;">stillnotbald.com</a>
               </p>
             </td>
           </tr>

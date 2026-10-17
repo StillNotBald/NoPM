@@ -17,12 +17,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   assertProjectUnlocked,
   touchesScheduleShape,
+  changedScheduleShapeFields,
+  SCHEDULE_SHAPE_PROJECT_FIELDS,
   SCHEDULE_SHAPE_TASK_FIELDS,
   SCHEDULE_SHAPE_MILESTONE_FIELDS,
 } from "./lock";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { TaskUpdateSchema } from "@/app/api/tasks/_schema";
 import { updateMilestoneSchema } from "@/app/api/milestones/_schema";
+import { updateProjectSchema } from "@/app/api/projects/_schema";
 
 const PROJECT_ID = "11111111-2222-4333-8444-555555555555";
 const WORKSPACE_ID = "ws_1";
@@ -213,5 +216,63 @@ describe("updateMilestoneSchema field classification (schedule-shape subset)", (
     for (const field of SCHEDULE_SHAPE_MILESTONE_FIELDS) {
       expect(milestoneFields.has(field)).toBe(true);
     }
+  });
+});
+
+// ── R1/H1: the project row's own schedule shape ───────────────────────────
+
+describe("SCHEDULE_SHAPE_PROJECT_FIELDS / changedScheduleShapeFields", () => {
+  const current = {
+    start_date: "2027-01-01",
+    target_date: "2027-06-30",
+    baseline_start_date: "2027-01-01",
+    baseline_target_date: "2027-06-30",
+    name: "Billing Migration",
+  };
+
+  it("lists exactly the four project schedule/baseline dates (mirrors the 0049 trigger WHEN clause)", () => {
+    expect([...SCHEDULE_SHAPE_PROJECT_FIELDS].sort()).toEqual(
+      ["baseline_start_date", "baseline_target_date", "start_date", "target_date"].sort(),
+    );
+  });
+
+  it("flags a different date, whichever of the four it is", () => {
+    for (const field of SCHEDULE_SHAPE_PROJECT_FIELDS) {
+      expect(changedScheduleShapeFields({ [field]: "2029-01-01" }, current, SCHEDULE_SHAPE_PROJECT_FIELDS)).toEqual([field]);
+    }
+  });
+
+  it("does not flag name / owner / RAG-style edits", () => {
+    expect(changedScheduleShapeFields({ name: "Renamed", rag_status: "red" }, current, SCHEDULE_SHAPE_PROJECT_FIELDS)).toEqual([]);
+  });
+
+  it("echoing the stored value back is not a change (a form that re-sends the whole record)", () => {
+    expect(changedScheduleShapeFields({ ...current, name: "Renamed" }, current, SCHEDULE_SHAPE_PROJECT_FIELDS)).toEqual([]);
+  });
+
+  it("compares dates by calendar day: an ISO timestamp for the same day is not a change", () => {
+    expect(
+      changedScheduleShapeFields({ target_date: "2027-06-30T00:00:00.000Z" }, current, SCHEDULE_SHAPE_PROJECT_FIELDS),
+    ).toEqual([]);
+  });
+
+  it("clearing a set date IS a change; clearing an already-empty one is not", () => {
+    expect(changedScheduleShapeFields({ baseline_target_date: null }, current, SCHEDULE_SHAPE_PROJECT_FIELDS)).toEqual([
+      "baseline_target_date",
+    ]);
+    expect(
+      changedScheduleShapeFields({ baseline_target_date: null }, { ...current, baseline_target_date: null }, SCHEDULE_SHAPE_PROJECT_FIELDS),
+    ).toEqual([]);
+  });
+
+  it("setting a date where there was none IS a change", () => {
+    expect(
+      changedScheduleShapeFields({ start_date: "2027-02-01" }, { ...current, start_date: null }, SCHEDULE_SHAPE_PROJECT_FIELDS),
+    ).toEqual(["start_date"]);
+  });
+
+  it("every field is a real updatable project field", () => {
+    const projectFields = new Set(Object.keys(updateProjectSchema.shape));
+    for (const field of SCHEDULE_SHAPE_PROJECT_FIELDS) expect(projectFields.has(field)).toBe(true);
   });
 });

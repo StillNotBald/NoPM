@@ -5,7 +5,7 @@
  *
  * Renders "Failed to load <what>: <message>" in the danger ink, announced to
  * assistive tech via role="alert". Mirrors the inline block previously
- * hand-written in projects/page.tsx. Not yet adopted by pages.
+ * hand-written in projects/page.tsx.
  */
 import { cn } from "@/lib/cn";
 

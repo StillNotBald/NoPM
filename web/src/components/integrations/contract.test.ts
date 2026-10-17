@@ -25,10 +25,13 @@ const valid: ConnectFormValues = {
   appId: "cli_a1b2c3",
   appSecret: "app-secret-value",
   verificationToken: "verification-token-value",
+  // A webhook connection (the default mode) needs an Encrypt Key: the form requires it
+  // and the API rejects a create without one.
+  encryptKey: "encrypt-key-value",
 };
 
 describe("POST /api/integrations/connectors body", () => {
-  it("is accepted for a minimal first connection", () => {
+  it("is accepted for a minimal first connection (webhook: the three credentials plus the Encrypt Key)", () => {
     const parsed = createConnectorSchema.safeParse(buildCreateConnectorBody(valid));
     expect(parsed.error?.issues).toBeUndefined();
     expect(parsed.success).toBe(true);

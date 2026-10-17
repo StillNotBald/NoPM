@@ -5,52 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { EntityLink } from "@/components/ui/entity-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
-import { ChangeDetail } from "@/components/change-control/change-detail";
+import {
+  CATEGORY_LABELS,
+  ChangeDetail,
+  priorityTone,
+  statusLabel,
+  statusTone,
+} from "@/components/change-control/change-detail";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
 import type { ChangeRequest } from "@/components/change-control/change-form";
-import type { Tone } from "@/lib/status";
-
-// ── Local helpers ─────────────────────────────────────────────────────────────
-
-type CRStatus = ChangeRequest["status"];
-type CRPriority = ChangeRequest["priority"];
-type CRCategory = ChangeRequest["category"];
-
-function statusTone(s: CRStatus): Tone {
-  if (s === "approved" || s === "implemented") return "success";
-  if (s === "rejected") return "danger";
-  if (s === "deferred") return "warning";
-  if (s === "under_review") return "info";
-  return "neutral";
-}
-
-function statusLabel(s: CRStatus): string {
-  const labels: Record<CRStatus, string> = {
-    raised: "Raised",
-    under_review: "Under Review",
-    approved: "Approved",
-    rejected: "Rejected",
-    deferred: "Deferred",
-    implemented: "Implemented",
-  };
-  return labels[s] ?? s;
-}
-
-function priorityTone(p: CRPriority): Tone {
-  if (p === "critical") return "danger";
-  if (p === "high") return "warning";
-  if (p === "medium") return "info";
-  return "neutral";
-}
-
-const CATEGORY_LABELS: Record<CRCategory, string> = {
-  scope: "Scope",
-  schedule: "Schedule",
-  cost: "Cost",
-  quality: "Quality",
-  resource: "Resource",
-  other: "Other",
-};
 
 // ── ChangeTable ───────────────────────────────────────────────────────────────
 
@@ -110,7 +73,9 @@ export function ChangeTable({ rows, projectMap, projects, canWrite = true }: Cha
       header: "Title",
       primary: true,
       cell: (cr) => (
-        <span className="block min-w-0 max-w-[200px] truncate font-medium text-ink">{cr.title}</span>
+        <span className="line-clamp-2 min-w-0 max-w-[220px] break-words font-medium text-ink" title={cr.title}>
+          {cr.title}
+        </span>
       ),
     },
     {

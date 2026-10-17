@@ -59,7 +59,7 @@ export default async function ClashesPage({ searchParams }: { searchParams: Prom
   const clashList = (clashes ?? []) as ClashRow[];
 
   return (
-    <PageContainer className="space-y-5">
+    <PageContainer width="wide" className="space-y-5">
       {/* Deep-link auto-open: ?clash=<id> scrolls to and highlights the matching row */}
       <Suspense fallback={null}>
         <ClashFocusOpener clashes={clashList} projectMap={projectMap} />

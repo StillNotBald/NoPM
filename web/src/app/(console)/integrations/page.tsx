@@ -21,7 +21,7 @@ export default async function IntegrationsPage() {
   if (!user) redirect("/login");
 
   return (
-    <PageContainer width="narrow">
+    <PageContainer>
       <PageHeader title="Integrations" />
       <IntegrationsConsole />
     </PageContainer>

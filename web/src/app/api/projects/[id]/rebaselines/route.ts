@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
-import { principalOf } from "@/lib/governance/decide";
+import { requireMakerPrincipal } from "@/lib/governance/decide";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
@@ -53,8 +53,14 @@ export const GET = route(async ({ actor, params, request }) => {
 });
 
 // POST /api/projects/[id]/rebaselines — create a rebaseline (project:write)
+//
+// Proposing is the maker step of the rebaseline four-eyes flow, so the actor
+// must have a human behind it (R1/H3): a token with no recorded owner gets 403
+// `no_principal` — its requester principal would be null, comparable to nobody,
+// and the same person could then sign off their own proposal.
 export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "project:write");
+  const requesterPrincipal = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
 
@@ -113,7 +119,7 @@ export const POST = route(async ({ actor, params, request }) => {
       // legacy requested_by above is user-only, so a token-raised rebaseline
       // used to carry no requester at all and sign-off four-eyes had nothing
       // to compare against.
-      requested_principal_id: principalOf(actor),
+      requested_principal_id: requesterPrincipal,
       before: (parsed.data.before ?? null) as object | null,
       after: (parsed.data.after ?? null) as object | null,
       created_at: now,

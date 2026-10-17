@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from "vitest";
 import { DefaultCache } from "@larksuiteoapi/node-sdk";
-import { MAX_CARD_BYTES, classifyLarkError, patchCard, sendCard, testBot, type ClientOverrides } from "./client";
+import { MAX_CARD_BYTES, classifyLarkError, patchCard, sendCard, testBot, withRequestTimeout, type ClientOverrides } from "./client";
 import { fixtureConnector, fixtureConfig, fixtureSecrets } from "./fixtures";
 
 type Call = { url?: string; method?: string; data?: Record<string, unknown>; params?: Record<string, unknown>; headers?: Record<string, unknown> };
@@ -333,5 +333,174 @@ describe("against a loopback server (real axios error shapes)", () => {
       { domain: "http://127.0.0.1:1", cache: new DefaultCache(), timeoutMs: 3000 },
     );
     expect(res).toMatchObject({ ok: false, retryable: true });
+  });
+});
+
+describe("sendCard — idempotency key", () => {
+  const send = (h: ReturnType<typeof makeHttp>, body: Record<string, unknown>, idempotencyKey?: string) =>
+    sendCard(fixtureConnector(), fixtureSecrets(), { receiveIdType: "open_id", receiveId: "ou_abc", body, idempotencyKey }, overrides(h));
+
+  it("sends the delivery's key as the platform uuid, whatever the card content is", async () => {
+    const h = makeHttp();
+    const key = "7d1f2a50-1c3e-4b8e-9a77-0f4d2c1b9e10"; // a delivery id (36 chars)
+    await send(h, card, key);
+    await send(h, { ...card, body: { elements: [{ tag: "div", text: "a fresh token changed the content" }] } }, key);
+    await send(h, card, "another-delivery");
+    const uuids = h.calls.map((c) => String(c.data?.uuid));
+    expect(uuids[0]).toBe(key);
+    expect(uuids[1]).toBe(key); // same delivery, different bytes: still ONE message at the platform
+    expect(uuids[2]).toBe("another-delivery");
+  });
+
+  it("clips an over-long key to the platform's 50 characters and ignores a blank one", async () => {
+    const h = makeHttp();
+    await send(h, card, "k".repeat(80));
+    await send(h, card, "   ");
+    const uuids = h.calls.map((c) => String(c.data?.uuid));
+    expect(uuids[0]).toBe("k".repeat(50));
+    expect(uuids[1]).toHaveLength(50); // fell back to the content-derived key
+    expect(uuids[1]).not.toBe("   ");
+  });
+});
+
+describe("withRequestTimeout", () => {
+  it("adds the timeout to every call the SDK can make, and lets a caller's own value win", async () => {
+    const seen: { method: string; opts?: { timeout?: number } }[] = [];
+    const record = (method: string) => async (...args: unknown[]) => {
+      seen.push({ method, opts: args[args.length - 1] as { timeout?: number } });
+      return { method };
+    };
+    const base = {
+      request: record("request"),
+      get: record("get"),
+      delete: record("delete"),
+      head: record("head"),
+      options: record("options"),
+      post: record("post"),
+      put: record("put"),
+      patch: record("patch"),
+    } as unknown as Parameters<typeof withRequestTimeout>[0];
+
+    const http = withRequestTimeout(base, 4000);
+    await http.request({ url: "/a" });
+    await http.get("/b");
+    await http.delete("/c", { headers: {} });
+    await http.head("/d");
+    await http.options("/e");
+    await http.post("/f", { x: 1 });
+    await http.put("/g", { x: 1 });
+    await http.patch("/h", { x: 1 }, { timeout: 99 });
+
+    expect(seen.map((s) => s.method)).toEqual(["request", "get", "delete", "head", "options", "post", "put", "patch"]);
+    expect(seen.slice(0, 7).every((s) => s.opts?.timeout === 4000)).toBe(true);
+    expect(seen[7].opts?.timeout).toBe(99);
+  });
+});
+
+describe("a slow platform call is aborted, not just abandoned", () => {
+  let server: Server;
+  let base = "";
+  const closed: Promise<void>[] = [];
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      req.on("data", () => undefined);
+      req.on("end", () => {
+        if (req.url?.includes("tenant_access_token")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ code: 0, msg: "ok", tenant_access_token: "t-slow", expire: 7200 }));
+          return;
+        }
+        // the message call: never answer; note when the client hangs up
+        closed.push(new Promise<void>((resolve) => res.on("close", () => resolve())));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  it("returns a retryable network error and closes the socket", async () => {
+    const res = await sendCard(
+      fixtureConnector(),
+      fixtureSecrets(),
+      { receiveIdType: "open_id", receiveId: "ou_slow", body: card, idempotencyKey: "slow-delivery" },
+      { domain: base, cache: new DefaultCache(), timeoutMs: 300 },
+    );
+
+    expect(res).toMatchObject({ ok: false, retryable: true });
+    expect(closed).toHaveLength(1);
+    // The client hung up: the server sees the connection close well within a second.
+    await expect(Promise.race([closed[0].then(() => "closed"), new Promise((r) => setTimeout(() => r("still open"), 2000))])).resolves.toBe(
+      "closed",
+    );
+  });
+});
+
+describe("the tenant-token cache is per connector (a wrong secret cannot ride another workspace's token)", () => {
+  let server: Server;
+  let base = "";
+  let tokenCalls = 0;
+  const GOOD = "secret-of-workspace-A";
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (c) => (raw += c));
+      req.on("end", () => {
+        res.writeHead(200, { "content-type": "application/json" });
+        if (req.url?.includes("tenant_access_token")) {
+          tokenCalls += 1;
+          const secret = (JSON.parse(raw || "{}") as { app_secret?: string }).app_secret;
+          res.end(
+            JSON.stringify(
+              secret === GOOD
+                ? { code: 0, msg: "ok", tenant_access_token: "t-workspace-a", expire: 7200 }
+                : { code: 10003, msg: "invalid param" },
+            ),
+          );
+          return;
+        }
+        res.end(JSON.stringify({ code: 0, msg: "success", data: { message_id: "om_cache" } }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+  afterAll(() => new Promise<void>((resolve) => server.close(() => resolve())));
+
+  const msg = { receiveIdType: "open_id" as const, receiveId: "ou_cache", body: card };
+  const A = () => fixtureConnector({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" });
+  const B = () => fixtureConnector({ id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" }); // same app id as A
+  const send = (connector: ReturnType<typeof fixtureConnector>, appSecret: string) =>
+    sendCard(connector, fixtureSecrets({ appSecret }), msg, { domain: base });
+
+  it("reuses a connector's own token across calls (one token fetch for two sends)", async () => {
+    tokenCalls = 0;
+    expect(await send(A(), GOOD)).toMatchObject({ ok: true });
+    expect(await send(A(), GOOD)).toMatchObject({ ok: true });
+    expect(tokenCalls).toBe(1);
+  });
+
+  it("does NOT let a second connector with the same app id and a WRONG secret use the first one's token", async () => {
+    expect(await send(A(), GOOD)).toMatchObject({ ok: true }); // A is warm
+    tokenCalls = 0;
+
+    const res = await send(B(), "a-wrong-secret");
+
+    expect(res).toMatchObject({ ok: false, retryable: false });
+    expect(tokenCalls).toBe(1); // B went to the platform with ITS credentials and was refused
+  });
+
+  it("does not let the test-connection check be fooled either", async () => {
+    expect(await send(A(), GOOD)).toMatchObject({ ok: true });
+    const fooled = await testBot(B(), fixtureSecrets({ appSecret: "a-wrong-secret" }), { domain: base });
+    expect(fooled.ok).toBe(false);
+  });
+
+  it("a connector whose secret changed starts a clean cache (the old secret's token is not reused)", async () => {
+    const connector = fixtureConnector({ id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
+    expect(await send(connector, GOOD)).toMatchObject({ ok: true });
+    expect(await send(connector, "rotated-wrong-secret")).toMatchObject({ ok: false });
   });
 });

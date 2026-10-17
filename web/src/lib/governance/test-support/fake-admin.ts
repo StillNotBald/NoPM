@@ -31,6 +31,10 @@ export class FakeDb {
     }),
     nopm_commit_task_deletion: commitDeletionRpc,
     nopm_commit_project_deletion: commitDeletionRpc,
+    nopm_project_child_counts: (args, db) => ({
+      data: projectChildCounts(db, args.p_project_id as string),
+      error: null,
+    }),
   };
   private seq = 0;
   private hooks: Hook[] = [];
@@ -199,8 +203,8 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
         break;
       }
       case "delete": {
-        const keep = rows.filter((r) => !match(r));
-        this.db.tables[this.table] = keep;
+        result = rows.filter(match).map((r) => ({ ...r }));
+        this.db.tables[this.table] = rows.filter((r) => !match(r));
         break;
       }
     }
@@ -212,6 +216,30 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
       ? { data: returned[0], error: null }
       : { data: null, error: { message: "JSON object requested, multiple (or no) rows returned" } };
   }
+}
+
+// ── project child counts, as migration 0049 defines them ──────────────────
+
+const CHILD_TABLES = [
+  "milestones",
+  "tasks",
+  "risks",
+  "issues",
+  "change_requests",
+  "decisions",
+  "rebaselines",
+  "time_entries",
+  "documents",
+  "expenses",
+  "allocations",
+  "sprints",
+] as const;
+
+/** Mirrors nopm_project_child_counts (0049): one count per child table that hangs off a project. */
+export function projectChildCounts(db: FakeDb, projectId: string): Record<string, number> {
+  return Object.fromEntries(
+    CHILD_TABLES.map((t) => [t, db.rows(t).filter((r) => r.project_id === projectId).length]),
+  );
 }
 
 // ── the deletion-commit RPCs, as migration 0045 defines them ──────────────
@@ -241,6 +269,11 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
   if (isProject) {
     const proj = db.rows("projects").find((p) => p.id === r.target_id && p.workspace_id === args.p_workspace_id);
     if (proj?.is_locked) return rpcError("P0010", "PROJECT_LOCKED");
+    // 0049: BEFORE DELETE trigger on projects — the scope recorded on the request must still hold.
+    const expected = (r.before as { child_counts?: Record<string, number> } | null)?.child_counts;
+    if (expected && JSON.stringify(projectChildCounts(db, r.target_id as string)) !== JSON.stringify(expected)) {
+      return rpcError("P0016", "CHILDREN_CHANGED");
+    }
     db.tables.projects = db.rows("projects").filter((p) => p.id !== r.target_id);
   } else {
     db.tables.tasks = db.rows("tasks").filter((t) => t.id !== r.target_id);

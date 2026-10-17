@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useId, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
@@ -8,6 +8,12 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { useModal } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
+import { ShowOncePanel } from "@/components/governance/show-once-panel";
+import { ConfirmDialog, CopyButton, Field, InlineAlert } from "@/components/integrations/shared";
+import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 import { createClient } from "@/lib/supabase/client";
 import { useRequireSession } from "@/lib/auth/use-require-session";
 import {
@@ -50,8 +56,7 @@ type MfaStep =
   | "verify"       // showing QR/secret, waiting for 6-digit code
   | "verifying"    // waiting for POST /verify response
   | "backup"       // showing one-time backup codes
-  | "enabled"      // MFA already active
-  | "disabling";   // waiting for POST /disable response
+  | "enabled";     // MFA already active
 
 interface EnrollPayload {
   secret: string;
@@ -74,18 +79,19 @@ function ProfileSection() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const nameId = useId();
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/me").then((r) => r.json()).catch(() => null),
+      apiGet<{ label?: string; role?: string | null; workspaceId?: string } | null>("/api/me").catch(() => null),
       createClient().auth.getUser().then(({ data }) => data.user?.email ?? null).catch(() => null),
     ])
-      .then(([json, mail]) => {
-        if (json?.data) {
+      .then(([me, mail]) => {
+        if (me) {
           const id: Identity = {
-            label: json.data.label ?? "",
-            role: json.data.role ?? null,
-            workspaceId: json.data.workspaceId ?? "",
+            label: me.label ?? "",
+            role: me.role ?? null,
+            workspaceId: me.workspaceId ?? "",
           };
           setIdentity(id);
           setDisplayName(id.label);
@@ -101,16 +107,8 @@ function ProfileSection() {
     setSaveError(null);
     setSaveSuccess(false);
     try {
-      const res = await fetch("/api/me", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: displayName.trim() }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Could not save profile.");
-      setIdentity((prev) =>
-        prev ? { ...prev, label: json.data.label ?? displayName.trim() } : prev,
-      );
+      const saved = await apiPatch<{ label?: string } | null>("/api/me", { display_name: displayName.trim() });
+      setIdentity((prev) => (prev ? { ...prev, label: saved?.label ?? displayName.trim() } : prev));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     } catch (e) {
@@ -150,19 +148,19 @@ function ProfileSection() {
             </div>
 
             {/* Display name — editable */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                Display name
-              </label>
-              <Input
-                type="text"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                disabled={saving}
-                className="h-10"
-              />
-            </div>
+            <Field id={nameId} label="Display name">
+              {(a11y) => (
+                <Input
+                  {...a11y}
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  disabled={saving}
+                  autoComplete="name"
+                />
+              )}
+            </Field>
 
             {/* Read-only identity */}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -192,18 +190,13 @@ function ProfileSection() {
               </div>
             </div>
 
-            {saveError && (
-              <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{saveError}</p>
-            )}
-            {saveSuccess && (
-              <p className="rounded-md bg-success/15 px-3 py-2 text-sm text-success-ink">
-                Profile saved.
-              </p>
-            )}
+            {saveError && <InlineAlert>{saveError}</InlineAlert>}
+            {saveSuccess && <InlineAlert tone="success">Profile saved.</InlineAlert>}
 
             <Button
               variant="primary"
               size="md"
+              className="h-11 w-full sm:h-10 sm:w-auto"
               onClick={handleSave}
               disabled={saving || !displayName.trim()}
             >
@@ -257,39 +250,56 @@ function applyAppearanceLive(prefs: AppearancePrefs) {
   html.style.fontSize = style.fontSize;
 }
 
-function SegmentedControl<T extends string | number>({
+/**
+ * A captioned group of exclusive options. The caption names the group
+ * (`role="group"` + `aria-labelledby`, not a label element over buttons), and each
+ * option is a toggle button (`aria-pressed`). The selected option is marked by
+ * border, weight and tint together, never by colour alone.
+ */
+function OptionGroup<T extends string | number>({
+  label,
   options,
   labels,
   value,
   onChange,
   columns,
+  children,
 }: {
+  label: string;
   options: readonly T[];
   labels: Record<T, string>;
   value: T;
   onChange: (v: T) => void;
   columns: number;
+  children?: React.ReactNode;
 }) {
+  const captionId = useId();
   return (
-    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-      {options.map((opt) => (
-        <button
-          key={opt}
-          type="button"
-          aria-pressed={value === opt}
-          // h-11 (44px) keeps every option a valid touch target at 390px (R-63) —
-          // no icon-only compression here the way the per-table density toggle uses.
-          className={cn(
-            "flex h-11 items-center justify-center rounded-md border px-2 text-sm font-medium transition-colors",
-            value === opt
-              ? "border-accent bg-accent/10 text-accent"
-              : "border-border-subtle bg-surface text-ink-secondary hover:bg-sunken",
-          )}
-          onClick={() => onChange(opt)}
-        >
-          {labels[opt]}
-        </button>
-      ))}
+    <div role="group" aria-labelledby={captionId} className="space-y-1.5">
+      <p id={captionId} className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+        {label}
+      </p>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+        {options.map((opt) => (
+          <button
+            key={opt}
+            type="button"
+            aria-pressed={value === opt}
+            // h-11 (44px) keeps every option a valid touch target at 390px (R-63) —
+            // no icon-only compression here the way the per-table density toggle uses.
+            className={cn(
+              "focus-ring flex h-11 items-center justify-center rounded-md border px-2 text-sm transition-colors",
+              value === opt
+                ? "border-accent bg-accent/10 font-semibold text-ink"
+                : "border-border-subtle bg-surface font-medium text-ink-secondary hover:bg-sunken",
+            )}
+            onClick={() => onChange(opt)}
+          >
+            {labels[opt]}
+          </button>
+        ))}
+      </div>
+      {children}
     </div>
   );
 }
@@ -358,60 +368,45 @@ function AppearanceSection() {
             : " Density and date format follow your account when you're signed in (not on the shared demo login)."}
         </p>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Theme
-          </label>
-          <SegmentedControl
-            options={APPEARANCE_MODES}
-            labels={MODE_LABEL}
-            value={prefs.mode}
-            onChange={(v) => update("mode", v)}
-            columns={3}
-          />
-        </div>
+        <OptionGroup
+          label="Theme"
+          options={APPEARANCE_MODES}
+          labels={MODE_LABEL}
+          value={prefs.mode}
+          onChange={(v) => update("mode", v)}
+          columns={3}
+        />
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Text size
-          </label>
-          <SegmentedControl
-            options={FONT_SCALES}
-            labels={Object.fromEntries(FONT_SCALES.map((s) => [s, `${s}%`])) as Record<FontScale, string>}
-            value={prefs.fontScale}
-            onChange={(v) => update("fontScale", v)}
-            columns={4}
-          />
-        </div>
+        <OptionGroup
+          label="Text size"
+          options={FONT_SCALES}
+          labels={Object.fromEntries(FONT_SCALES.map((s) => [s, `${s}%`])) as Record<FontScale, string>}
+          value={prefs.fontScale}
+          onChange={(v) => update("fontScale", v)}
+          columns={4}
+        />
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Density
-          </label>
-          <SegmentedControl
-            options={DENSITIES}
-            labels={DENSITY_LABEL}
-            value={prefs.density}
-            onChange={(v) => update("density", v)}
-            columns={2}
-          />
-        </div>
+        <OptionGroup
+          label="Density"
+          options={DENSITIES}
+          labels={DENSITY_LABEL}
+          value={prefs.density}
+          onChange={(v) => update("density", v)}
+          columns={2}
+        />
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Dates
-          </label>
-          <SegmentedControl
-            options={DATE_DISPLAYS}
-            labels={DATE_DISPLAY_LABEL}
-            value={prefs.dateDisplay}
-            onChange={(v) => update("dateDisplay", v)}
-            columns={2}
-          />
+        <OptionGroup
+          label="Dates"
+          options={DATE_DISPLAYS}
+          labels={DATE_DISPLAY_LABEL}
+          value={prefs.dateDisplay}
+          onChange={(v) => update("dateDisplay", v)}
+          columns={2}
+        >
           <p className="text-xs text-ink-muted">
             Relative dates (&quot;In 3d&quot;) always show the exact date on hover.
           </p>
-        </div>
+        </OptionGroup>
       </CardBody>
     </Card>
   );
@@ -480,29 +475,28 @@ function NavigationSection() {
             : " Your choice follows this account across devices."}
         </p>
 
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
-            Sidebar
-          </label>
-          {mode ? (
-            <SegmentedControl
-              options={["essentials", "all"] as const}
-              labels={NAV_MODE_LABEL}
-              value={mode}
-              onChange={chooseMode}
-              columns={2}
-            />
-          ) : (
+        {mode ? (
+          <OptionGroup
+            label="Sidebar"
+            options={["essentials", "all"] as const}
+            labels={NAV_MODE_LABEL}
+            value={mode}
+            onChange={chooseMode}
+            columns={2}
+          />
+        ) : (
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Sidebar</p>
             <div className="h-11 animate-pulse rounded-md bg-sunken" />
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between gap-4 border-t border-border-subtle pt-5">
           <div>
             <p className="text-sm text-ink">Page hints</p>
             <p className="text-xs text-ink-muted">Bring back the dismissed &quot;what is this page for&quot; strips.</p>
           </div>
-          <Button variant="secondary" size="sm" onClick={resetHints}>
+          <Button variant="secondary" size="sm" className="h-11 shrink-0 sm:h-8" onClick={resetHints}>
             {resetHintsDone ? "Reset" : "Reset hints"}
           </Button>
         </div>
@@ -518,7 +512,7 @@ function NavigationSection() {
               .
             </p>
           </div>
-          <Button variant="secondary" size="sm" onClick={showStartAgain}>
+          <Button variant="secondary" size="sm" className="h-11 shrink-0 sm:h-8" onClick={showStartAgain}>
             {showStartDone ? "Shown" : "Show again"}
           </Button>
         </div>
@@ -568,7 +562,10 @@ function SettingsSectionNav() {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const modal = useModal();
+  const toast = useToast();
   const sessionStatus = useRequireSession();
+  const codeId = useId();
 
   // --- global loading ---
   const [loading, setLoading] = useState(true);
@@ -580,17 +577,13 @@ export default function SettingsPage() {
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState<string | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
-  const [copiedBackup, setCopiedBackup] = useState(false);
 
   const loadMfaStatus = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await fetch("/api/auth/mfa");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Could not load 2FA status.");
-      const enabled: boolean = json.data?.enabled ?? false;
-      setStep(enabled ? "enabled" : "idle");
+      const status = await apiGet<{ enabled?: boolean } | null>("/api/auth/mfa");
+      setStep(status?.enabled ? "enabled" : "idle");
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -607,10 +600,8 @@ export default function SettingsPage() {
     setStep("enrolling");
     setCodeError(null);
     try {
-      const res = await fetch("/api/auth/mfa/enroll", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Enrollment failed.");
-      setEnroll({ secret: json.data.secret, otpauth: json.data.otpauth });
+      const enrolled = await apiPost<EnrollPayload>("/api/auth/mfa/enroll");
+      setEnroll({ secret: enrolled.secret, otpauth: enrolled.otpauth });
       setStep("verify");
     } catch (e) {
       setCodeError(e instanceof Error ? e.message : "Enrollment failed.");
@@ -626,14 +617,8 @@ export default function SettingsPage() {
     setStep("verifying");
     setCodeError(null);
     try {
-      const res = await fetch("/api/auth/mfa/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Verification failed — check your code.");
-      setBackupCodes(json.data?.backupCodes ?? []);
+      const verified = await apiPost<{ backupCodes?: string[] } | null>("/api/auth/mfa/verify", { code });
+      setBackupCodes(verified?.backupCodes ?? []);
       setCode("");
       setStep("backup");
       router.refresh();
@@ -643,25 +628,27 @@ export default function SettingsPage() {
     }
   };
 
-  const handleDisable = async () => {
-    setStep("disabling");
-    try {
-      const res = await fetch("/api/auth/mfa/disable", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Could not disable 2FA.");
-      setStep("idle");
-      router.refresh();
-    } catch (e) {
-      // revert to enabled, surface message
-      setCodeError(e instanceof Error ? e.message : "Could not disable 2FA.");
-      setStep("enabled");
-    }
-  };
-
-  const handleCopyBackup = async () => {
-    await navigator.clipboard.writeText(backupCodes.join("\n"));
-    setCopiedBackup(true);
-    setTimeout(() => setCopiedBackup(false), 2000);
+  // Turning 2FA off lowers the account's protection, so it asks first; the
+  // dialog stays open with the API's message if the call fails.
+  const askDisable = () => {
+    modal.open(
+      <ConfirmDialog
+        heading="Turn off two-factor authentication?"
+        confirmLabel="Disable 2FA"
+        failureFallback="Could not disable 2FA."
+        onConfirm={async () => {
+          await apiPost("/api/auth/mfa/disable");
+          setCodeError(null);
+          setStep("idle");
+          toast.success("Two-factor authentication is off.");
+          router.refresh();
+        }}
+      >
+        <p>Signing in will only need your password. Your backup codes stop working.</p>
+        <p>You can turn it on again at any time.</p>
+      </ConfirmDialog>,
+      { title: "Disable 2FA", size: "sm" },
+    );
   };
 
   // Client-safe auth guard — settings is a Client Component (it hosts MFA
@@ -671,8 +658,7 @@ export default function SettingsPage() {
   if (sessionStatus !== "authenticated") return null;
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <div className="mx-auto max-w-xl space-y-8">
+    <PageContainer width="narrow" className="max-w-xl space-y-8">
         <PageHeader title="Account settings" />
 
         <SettingsSectionNav />
@@ -716,7 +702,7 @@ export default function SettingsPage() {
                   <span className="text-sm text-ink-secondary">Checking 2FA status…</span>
                 </div>
               ) : loadError ? (
-                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{loadError}</p>
+                <InlineAlert>{loadError}</InlineAlert>
               ) : null}
 
               {/* ── IDLE: not enrolled ── */}
@@ -728,7 +714,8 @@ export default function SettingsPage() {
                     enabled, signing in will ask for a code from your app (or a backup code) before
                     letting you into the workspace.
                   </p>
-                  <Button variant="primary" size="md" onClick={handleEnroll}>
+                  {codeError && <InlineAlert>{codeError}</InlineAlert>}
+                  <Button variant="primary" size="md" className="h-11 w-full sm:h-10 sm:w-auto" onClick={handleEnroll}>
                     Enable 2FA
                   </Button>
                 </div>
@@ -769,31 +756,29 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
-                      Verification code
-                    </label>
-                    <Input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="\d{6}"
-                      maxLength={6}
-                      placeholder="000000"
-                      value={code}
-                      onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                      disabled={step === "verifying"}
-                      className="font-mono tracking-widest text-center h-11 sm:h-10 text-base sm:text-sm"
-                    />
-                  </div>
-
-                  {codeError && (
-                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{codeError}</p>
-                  )}
+                  <Field id={codeId} label="Verification code" error={codeError ?? undefined}>
+                    {(a11y) => (
+                      <Input
+                        {...a11y}
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="\d{6}"
+                        maxLength={6}
+                        placeholder="000000"
+                        value={code}
+                        onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                        disabled={step === "verifying"}
+                        className="font-mono tracking-widest text-center h-11 sm:h-10 text-base sm:text-sm"
+                      />
+                    )}
+                  </Field>
 
                   <div className="flex items-center gap-3">
                     <Button
                       variant="primary"
                       size="md"
+                      className="h-11 sm:h-10"
                       onClick={handleVerify}
                       disabled={step === "verifying" || code.length !== 6}
                     >
@@ -808,6 +793,7 @@ export default function SettingsPage() {
                     <Button
                       variant="ghost"
                       size="md"
+                      className="h-11 sm:h-10"
                       disabled={step === "verifying"}
                       onClick={() => {
                         setStep("idle");
@@ -824,44 +810,31 @@ export default function SettingsPage() {
 
               {/* ── BACKUP: one-time codes ── */}
               {step === "backup" && (
-                <div className="space-y-5">
-                  <div className="flex items-start gap-3 rounded-lg bg-success/15 border border-border-subtle px-4 py-3">
-                    <span className="text-success-ink text-base mt-0.5">✓</span>
-                    <p className="text-sm text-ink">
-                      <span className="font-medium">2FA is now active.</span> Save these backup codes
-                      somewhere secure — they are shown once and can each be used once if you lose
-                      access to your authenticator.
-                    </p>
+                <ShowOncePanel
+                  heading="2FA is now active. Save your backup codes"
+                  notice="Shown once — save them now."
+                  dismissLabel="Done — I have saved my codes"
+                  onDismiss={() => {
+                    setBackupCodes([]);
+                    setStep("enabled");
+                  }}
+                >
+                  <p className="text-sm text-ink-secondary">
+                    Keep these somewhere secure. Each code can be used once if you lose access to your
+                    authenticator.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {backupCodes.map((bc) => (
+                      <code
+                        key={bc}
+                        className="font-mono text-sm text-ink bg-canvas rounded border border-border-subtle px-2 py-1 text-center"
+                      >
+                        {bc}
+                      </code>
+                    ))}
                   </div>
-
-                  <div className="rounded-lg border border-border-subtle bg-sunken p-4 space-y-3">
-                    <p className="text-xs font-medium text-ink-muted uppercase tracking-wide">
-                      Backup codes — shown once
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {backupCodes.map((bc) => (
-                        <code
-                          key={bc}
-                          className="font-mono text-sm text-ink bg-canvas rounded border border-border-subtle px-2 py-1 text-center"
-                        >
-                          {bc}
-                        </code>
-                      ))}
-                    </div>
-                    <Button variant="secondary" size="sm" onClick={handleCopyBackup}>
-                      {copiedBackup ? "Copied!" : "Copy all codes"}
-                    </Button>
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-ink-secondary"
-                    onClick={() => setStep("enabled")}
-                  >
-                    Done — I have saved my codes
-                  </Button>
-                </div>
+                  <CopyButton value={backupCodes.join("\n")} subject="backup codes" label="Copy all" />
+                </ShowOncePanel>
               )}
 
               {/* ── ENABLED ── */}
@@ -872,28 +845,17 @@ export default function SettingsPage() {
                     app accessible.
                   </p>
 
-                  {codeError && (
-                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{codeError}</p>
-                  )}
-
                   <Button
                     variant="secondary"
                     size="md"
-                    className="text-danger-ink border-danger/30 hover:bg-danger/10"
-                    onClick={handleDisable}
+                    className="h-11 w-full border-danger/30 text-danger-ink hover:bg-danger/10 sm:h-10 sm:w-auto"
+                    onClick={askDisable}
                   >
                     Disable 2FA
                   </Button>
                 </div>
               )}
 
-              {/* ── DISABLING ── */}
-              {step === "disabling" && (
-                <div className="flex items-center gap-3 py-2">
-                  <Spinner size="sm" />
-                  <span className="text-sm text-ink-secondary">Disabling 2FA…</span>
-                </div>
-              )}
             </CardBody>
           </Card>
         </div>
@@ -926,7 +888,6 @@ export default function SettingsPage() {
             </CardBody>
           </Card>
         </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

@@ -145,11 +145,11 @@ describe("relay route — lookup and shape checks", () => {
     expect(state.rpcCalls).toHaveLength(0);
   });
 
-  it("404s an unknown connector", async () => {
+  it("answers an unknown connector with the same 401 a wrong signature gets", async () => {
     state.row = null;
     const res = await call(relayRequest({ type: "ping" }));
-    expect(res.status).toBe(404);
-    expect((await res.json()).code).toBe("connector_not_found");
+    expect(res.status).toBe(401);
+    expect((await res.json()).code).toBe("invalid_relay_signature");
     expect(handleLarkPayload).not.toHaveBeenCalled();
   });
 
@@ -296,6 +296,12 @@ describe("relay route — connector state (after authentication)", () => {
 });
 
 describe("relay route — rate limiting", () => {
+  // One reverse proxy in front: the client address is the rightmost x-forwarded-for entry
+  // (see @/lib/api/client-ip — nothing is trusted unless an operator says so).
+  beforeEach(() => {
+    vi.stubEnv("NOPM_TRUSTED_PROXY_HOPS", "1");
+  });
+
   it("applies an IP-keyed cap before authentication and a connector-keyed cap after", async () => {
     await call(relayRequest({ type: "ping" }));
     expect(state.rpcCalls.map((c) => c.key)).toEqual([`lark-relay-ip:203.0.113.7`, `lark-relay:${CONNECTOR_ID}`]);
@@ -339,9 +345,23 @@ describe("relay route — rate limiting", () => {
     expect(state.rpcCalls.map((c) => c.key)).toEqual([`lark-relay:${CONNECTOR_ID}`]);
   });
 
-  it("uses the first address of x-forwarded-for", async () => {
-    await call(relayRequest({ type: "ping" }, { forwardedFor: "198.51.100.9, 10.0.0.1" }));
+  it("keys on the address the trusted proxy appended (rightmost), never the client-written first entry", async () => {
+    await call(relayRequest({ type: "ping" }, { forwardedFor: "10.9.9.9, 198.51.100.9" }));
     expect(state.rpcCalls[0].key).toBe("lark-relay-ip:198.51.100.9");
+  });
+
+  it("rotating a spoofed first x-forwarded-for entry does not buy a fresh IP bucket (R1 E1.4)", async () => {
+    for (const spoof of ["1.1.1.1", "2.2.2.2", "3.3.3.3"]) {
+      state.rpcCalls = [];
+      await call(relayRequest({ type: "ping" }, { forwardedFor: `${spoof}, 198.51.100.9` }));
+      expect(state.rpcCalls[0].key).toBe("lark-relay-ip:198.51.100.9");
+    }
+  });
+
+  it("with no trusted proxy configured, x-forwarded-for is ignored and the IP cap is skipped", async () => {
+    vi.unstubAllEnvs();
+    await call(relayRequest({ type: "ping" }, { forwardedFor: "198.51.100.9" }));
+    expect(state.rpcCalls.map((c) => c.key)).toEqual([`lark-relay:${CONNECTOR_ID}`]);
   });
 
   it("fails open, loudly, when the rate-limit RPC itself errors", async () => {
@@ -432,14 +452,14 @@ describe("relay route — hand-off to the handlers", () => {
     expect(productionContext).not.toHaveBeenCalled();
   });
 
-  it("500s with a stable code, and no detail, when the connector's secrets cannot be decrypted", async () => {
+  it("503s with a stable code, and no detail, when the connector's secrets cannot be decrypted", async () => {
     productionContext.mockImplementation(() => {
       throw new Error("NOPM_ENCRYPTION_KEY is not set");
     });
     const res = await call(relayRequest({ type: "event", payload: messageEnvelope }));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const body = await res.json();
-    expect(body.code).toBe("connector_misconfigured");
+    expect(body.code).toBe("connector_unavailable");
     expect(JSON.stringify(body)).not.toContain("NOPM_ENCRYPTION_KEY");
     expect(handleLarkPayload).not.toHaveBeenCalled();
   });
@@ -464,5 +484,40 @@ describe("relay route — hand-off to the handlers", () => {
       headers: { [RELAY_TIMESTAMP_HEADER]: ts, [RELAY_SIGNATURE_HEADER]: signRelayBody(SECRET_HASH, ts, raw) },
     });
     expect((await call(req)).status).toBe(200);
+  });
+});
+
+describe("relay route — pre-authentication answers and keys", () => {
+  beforeEach(() => {
+    vi.stubEnv("NOPM_TRUSTED_PROXY_HOPS", "1");
+  });
+
+  it("answers an unknown connector byte-for-byte like a wrong signature on a real one", async () => {
+    const wrong = await call(relayRequest({ type: "ping" }, { secret: "npr_wrong-secret-wrong-secret-wrong" }));
+    const wrongBody = JSON.stringify(await wrong.json());
+    state.row = null;
+    const unknown = await call(relayRequest({ type: "ping" }));
+    expect(unknown.status).toBe(wrong.status);
+    expect(JSON.stringify(await unknown.json())).toBe(wrongBody);
+  });
+
+  it("an unknown connector is not even a distinguishable timing/DB path: it still runs the signature check against a decoy", async () => {
+    state.row = null;
+    const res = await call(relayRequest({ type: "ping" }, { secret: "npr_wrong-secret-wrong-secret-wrong" }));
+    expect(res.status).toBe(401);
+    expect(handleLarkPayload).not.toHaveBeenCalled();
+  });
+
+  it("keys IPv6 callers on their /64, so rotating the low bits buys no new bucket or counter row", async () => {
+    for (const addr of ["2001:db8:0:1::1", "2001:db8:0:1:ffff:ffff:ffff:ffff", "2001:DB8:0:1::abcd"]) {
+      state.rpcCalls = [];
+      await call(relayRequest({ type: "ping" }, { forwardedFor: addr }));
+      expect(state.rpcCalls[0].key).toBe("lark-relay-ip:2001:db8:0:1::/64");
+    }
+  });
+
+  it("ignores a header value that is not an address at all (no counter row keyed by junk)", async () => {
+    await call(relayRequest({ type: "ping" }, { forwardedFor: "not-an-ip'; select 1" }));
+    expect(state.rpcCalls.map((c) => c.key)).toEqual([`lark-relay:${CONNECTOR_ID}`]);
   });
 });

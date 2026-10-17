@@ -125,8 +125,11 @@ describe("POST .../digest (send now)", () => {
 
     expect(res.status).toBe(200);
     expect(body.data.status).toBe("sent");
-    expect(fake.calls.sends).toEqual([{ receiveIdType: "chat_id", receiveId: "oc_team", body: { card: "digest", projects: 1 } }]);
     const delivery = db.rows("integration_deliveries")[0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    // the delivery id is the platform idempotency key, so a retry can never double-post
+    expect(fake.calls.sends).toEqual([
+      { receiveIdType: "chat_id", receiveId: "oc_team", body: { card: "digest", projects: 1 }, idempotencyKey: delivery.id },
+    ]);
     expect(delivery).toMatchObject({ id: body.data.delivery_id, kind: "digest", status: "sent", workspace_id: WS });
     expect(delivery.payload.trigger).toBe("manual");
 
@@ -135,7 +138,7 @@ describe("POST .../digest (send now)", () => {
       workspaceId: WS,
       action: "integration.digest.send",
       targetId: CONNECTOR_ID,
-      after: { trigger: "manual", chat_id: "oc_team" },
+      after: { trigger: "manual", chat_id: "oc…" },
     });
   });
 

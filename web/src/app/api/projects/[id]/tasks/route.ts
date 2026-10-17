@@ -6,6 +6,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -90,6 +91,13 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  // Cross-tenant guard: the assignee is a resource_member and the blocker a
+  // task, both of which must live in THIS workspace (the FKs accept any row).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: input.assignee_id, field: "assignee_id" },
+    { table: "tasks", id: input.blocked_by, field: "blocked_by" },
+  ]);
 
   // Validate milestone belongs to same workspace + project if provided
   if (input.milestone_id) {

@@ -4,6 +4,21 @@ import type { Actor } from "@/lib/auth/guard";
 import { writeAudit } from "@/lib/audit/write";
 import { RateLimitError } from "@/lib/api/errors";
 
+/**
+ * The client address / network the PRE-AUTH, IP-keyed limiters may key on —
+ * re-exported here so every limiter finds it next to checkRateLimit.
+ *
+ *  - `trustedClientIp(headers)`: the validated client IP, or null when none can
+ *    be trusted. Never the caller-written first X-Forwarded-For entry (see
+ *    @/lib/api/client-ip for the Vercel / NOPM_TRUSTED_PROXY_HOPS rule).
+ *  - `ipRateKey(headers)`: the same, with IPv6 collapsed to its /64. USE THIS
+ *    to build a rate-limit key (`my-limiter:${ipRateKey(h)}`) so one client
+ *    cannot mint unlimited buckets and counter rows by rotating addresses
+ *    inside its own network. When it returns null, either skip the IP cap or
+ *    share one conservative bucket — do not invent a key from header text.
+ */
+export { clientIp as trustedClientIp, ipRateKey } from "@/lib/api/client-ip";
+
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 const WINDOW_SECONDS = 60;
 

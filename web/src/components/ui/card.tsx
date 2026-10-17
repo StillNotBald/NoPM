@@ -19,8 +19,17 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
   );
 }
 
-export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h3 className={cn("text-sm font-medium text-ink", className)} {...props} />;
+/**
+ * Card heading. Defaults to `h2`: a console page has one `h1` (PageHeader) and
+ * its cards are its sections, so the old fixed `h3` made every page jump h1 to
+ * h3. Pass `as="h3"` / `"h4"` when the card sits under another section heading.
+ */
+export function CardTitle({
+  as: Tag = "h2",
+  className,
+  ...props
+}: HTMLAttributes<HTMLHeadingElement> & { as?: "h2" | "h3" | "h4" }) {
+  return <Tag className={cn("text-sm font-medium text-ink", className)} {...props} />;
 }
 
 type CardBodyPad = "default" | "compact" | "none";

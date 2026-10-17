@@ -38,7 +38,7 @@ export function EntityLink({
       onClick={(e) => e.stopPropagation()}
       className={cn(
         "inline-flex max-w-full items-center gap-1.5 rounded underline-offset-2 transition-colors",
-        "hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        "hover:text-accent hover:underline focus-ring",
         muted ? "text-ink-secondary" : "text-ink",
         className,
       )}

@@ -5,7 +5,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
-import { actorLabel, announceRequested, principalOf } from "@/lib/governance/decide";
+import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 export const runtime = "nodejs";
@@ -75,9 +75,16 @@ export const GET = route(async ({ actor, params, request }) => {
   return okList(items ?? [], { total: count ?? 0, page, limit });
 });
 
-/** POST /api/projects/:id/change-requests — raise a change request under a project */
+/**
+ * POST /api/projects/:id/change-requests — raise a change request under a project.
+ * The maker step of the change-control four-eyes flow: the actor must have a
+ * human behind it (R1/H3). A token with no recorded owner gets 403
+ * `no_principal` — a null requester principal is comparable to nobody, so the
+ * same person could then decide their own request from a session.
+ */
 export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "change:write");
+  const requesterPrincipal = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
   const projectId = params.id;
@@ -128,7 +135,7 @@ export const POST = route(async ({ actor, params, request }) => {
       requested_by_id: actor.id,
       // The HUMAN behind the requester (the user, or the token's creator) —
       // four-eyes compares this, not the actor id.
-      requested_principal_id: principalOf(actor),
+      requested_principal_id: requesterPrincipal,
     })
     .select()
     .single();
@@ -171,7 +178,7 @@ export const POST = route(async ({ actor, params, request }) => {
     projectId,
     projectName: project.name ?? null,
     requestedByLabel: actorLabel(actor),
-    requesterPrincipalId: principalOf(actor),
+    requesterPrincipalId: requesterPrincipal,
   });
 
   return created(row);

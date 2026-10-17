@@ -9,7 +9,8 @@ import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { EntityLink } from "@/components/ui/entity-link";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { NewIssueButton } from "@/components/registers/new-issue-form";
 import { IssueDataList, IssueDetail, type IssueDetailProps } from "@/components/registers/issue-detail";
@@ -150,6 +151,7 @@ export function IssuesView({
       <IssueDetail
         issue={issue}
         projectName={issue.project_id ? (projectMap[issue.project_id] ?? undefined) : undefined}
+        dateDisplayPref={dateDisplayPref}
       />,
       issue.reference_id ? `Issue ${issue.reference_id}` : "Issue Detail",
     );
@@ -166,10 +168,24 @@ export function IssuesView({
           <span className="text-ink-muted">—</span>
         );
       case "title":
-        return <span className="block min-w-0 max-w-[260px] truncate font-medium text-ink">{i.title}</span>;
+        // A real button: the row's own click is a mouse convenience, this is the
+        // keyboard / screen-reader way to open the inspector.
+        return (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              openIssue(i);
+            }}
+            title={i.title}
+            className="focus-ring block min-w-0 max-w-[15rem] truncate rounded text-left font-medium text-ink hover:text-accent"
+          >
+            {i.title}
+          </button>
+        );
       case "project_id":
         return i.project_id ? (
-          <span className="block min-w-0 max-w-[180px]">
+          <span className="block min-w-0 max-w-[11rem]" onClick={(e) => e.stopPropagation()}>
             <EntityLink kind="project" id={i.project_id} muted>
               {projectMap[i.project_id] ?? "—"}
             </EntityLink>
@@ -190,7 +206,7 @@ export function IssuesView({
       case "due_date": {
         const due = formatByPref(i.due_date, dateDisplayPref);
         return (
-          <span className="text-xs tabular-nums text-ink-secondary" title={due.title}>
+          <span className="whitespace-nowrap text-xs tabular-nums text-ink-secondary" title={due.title}>
             {due.text}
           </span>
         );
@@ -205,7 +221,7 @@ export function IssuesView({
       <PageHeader
         title="Issues"
         exports={<ExportCsvButton href={controls.exportHref ?? "/api/export?entity=issues"} />}
-        action={<NewIssueButton projects={projects} />}
+        action={<NewIssueButton projects={projects} defaultProjectId={controls.filters.project_id} />}
       />
 
       <RegisterToolbar controls={controls} />
@@ -225,7 +241,7 @@ export function IssuesView({
                   Clear filters
                 </Button>
               ) : (
-                <NewIssueButton projects={projects} />
+                <NewIssueButton projects={projects} defaultProjectId={controls.filters.project_id} />
               )
             }
             docsHref={activeFilterCount > 0 ? undefined : "/trust"}
@@ -238,12 +254,17 @@ export function IssuesView({
               <IssueDataList issues={issues} projectMap={projectMap} dateDisplayPref={dateDisplayPref} />
             </div>
             {/* ≥md: grouped, sortable, column-chooser-driven table */}
-            <div className="hidden overflow-x-auto md:block">
-              <Table bare className="min-w-[640px]">
+            <div className="hidden md:block">
+              <ScrollTable bare label="Issue register">
                 <THead>
                   <TR>
                     {visibleColumns.map((col) => (
-                      <TH key={col.key}>
+                      <TH
+                        key={col.key}
+                        aria-sort={
+                          sort?.field === col.key ? (sort.direction === "asc" ? "ascending" : "descending") : undefined
+                        }
+                      >
                         {SORTABLE.has(col.key) ? (
                           <button
                             type="button"
@@ -289,14 +310,16 @@ export function IssuesView({
                           className="cursor-pointer transition-colors hover:bg-sunken"
                         >
                           {visibleColumns.map((col) => (
-                            <TD key={col.key}>{cell(col.key, i)}</TD>
+                            <TD key={col.key} className="whitespace-nowrap">
+                              {cell(col.key, i)}
+                            </TD>
                           ))}
                         </TR>
                       ))}
                     </Fragment>
                   ))}
                 </tbody>
-              </Table>
+              </ScrollTable>
             </div>
           </>
         )}

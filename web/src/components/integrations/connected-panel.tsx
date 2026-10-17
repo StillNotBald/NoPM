@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { cn } from "@/lib/cn";
 import {
   clearTenantPin,
   revokeConnector,
@@ -45,6 +46,20 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 const HEALTH_LABEL = { success: "Healthy", warning: "Retrying", danger: "Failing", neutral: "Idle" } as const;
+
+// One quiet status line (a dot and plain words), not a pill: it only draws the eye when something is wrong.
+const HEALTH_DOT = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  neutral: "bg-border-strong",
+} as const;
+const HEALTH_INK = {
+  success: "text-success-ink",
+  warning: "text-warning-ink",
+  danger: "text-danger-ink",
+  neutral: "text-ink-secondary",
+} as const;
 
 /**
  * The connected state of the Lark card (admin): status, the non-secret facts,
@@ -255,10 +270,11 @@ export function ConnectedPanel({
 
       {health && (
         <div className="space-y-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={health.tone}>{HEALTH_LABEL[health.tone]}</Badge>
-            <span className="text-sm text-ink-secondary">{health.text}</span>
-          </div>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-ink-secondary">
+            <span className={cn("h-2 w-2 shrink-0 rounded-full", HEALTH_DOT[health.tone])} aria-hidden="true" />
+            <span className={cn("font-medium", HEALTH_INK[health.tone])}>{HEALTH_LABEL[health.tone]}</span>
+            <span>{health.text}</span>
+          </p>
           {connector.health?.lastError && health.tone !== "success" && (
             <p className="break-words text-xs text-ink-muted">Last error: {connector.health.lastError}</p>
           )}

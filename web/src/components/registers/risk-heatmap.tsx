@@ -52,7 +52,7 @@ const BAND_LABEL: Record<ExposureBand, string> = {
 const BAND_FILL: Record<ExposureBand, string> = {
   low: "bg-success/15 text-success-ink",
   medium: "bg-warning/15 text-warning-ink",
-  high: "bg-[var(--danger)]/15 text-danger-ink",
+  high: "bg-sev-high/15 text-sev-high-ink",
   critical: "bg-danger/25 text-danger-ink",
 };
 
@@ -60,7 +60,7 @@ const BAND_FILL: Record<ExposureBand, string> = {
 const BAND_DOT: Record<ExposureBand, string> = {
   low: "bg-success",
   medium: "bg-warning",
-  high: "bg-[color-mix(in_srgb,var(--danger)_70%,var(--warning))]",
+  high: "bg-sev-high",
   critical: "bg-danger",
 };
 
@@ -156,7 +156,7 @@ export function RiskHeatmap({ risks }: { risks: RiskCell[] }) {
                         key={probBand}
                         title={`${BAND_LABEL[band]} exposure · ${count} risk${count === 1 ? "" : "s"}`}
                         className={cn(
-                          "flex aspect-square items-center justify-center rounded text-xs font-semibold tabular-nums transition-colors min-h-[56px] max-h-[72px]",
+                          "flex aspect-square items-center justify-center rounded text-xs font-semibold tabular-nums transition-colors min-h-[44px] max-h-[52px]",
                           BAND_FILL[band],
                           count === 0 && "opacity-40",
                         )}

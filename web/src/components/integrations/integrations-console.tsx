@@ -23,7 +23,8 @@ export function IntegrationsConsole() {
   const connector = useApiResource(fetchConnector);
   const identities = useApiResource(fetchIdentities);
 
-  const role = me.state.status === "ready" ? me.state.data.role : null;
+  // undefined while /api/me is loading (so the calendar card doesn't guess); null if it failed or has no role.
+  const role = me.state.status === "loading" ? undefined : me.state.status === "ready" ? me.state.data.role : null;
   const myId = me.state.status === "ready" ? me.state.data.id : null;
   // A failed /api/me degrades to the read-only view rather than a card stuck loading.
   const isAdmin = me.state.status === "loading" ? null : me.state.status === "ready" ? role === "admin" : false;
@@ -39,33 +40,45 @@ export function IntegrationsConsole() {
   const refreshLinks = identities.reload;
   const refreshConnector = connector.reload;
 
+  // Two columns once the page itself is wide enough (a container query, so a collapsed or open
+  // sidebar both work): the Lark cards on the left, the calendar feed (the one integration every
+  // role can use with no setup) beside them, on screen instead of below the fold. One column
+  // otherwise, in reading order. The governance note spans both.
   return (
-    <div className="space-y-6">
-      <LarkConnectorCard
-        isAdmin={isAdmin}
-        resource={connector.state}
-        // Only admins receive the workspace-wide list, so only they get a meaningful total.
-        linkedTotal={isAdmin ? activeLinks : null}
-        onRetry={connector.retry}
-        onChanged={() => {
-          refreshConnector();
-          refreshLinks();
-        }}
-      />
+    <div className="@container">
+    <div className="grid grid-cols-1 items-start gap-6 @4xl:grid-cols-2">
+      <div className="min-w-0 space-y-6">
+        <LarkConnectorCard
+          isAdmin={isAdmin}
+          resource={connector.state}
+          // Only admins receive the workspace-wide list, so only they get a meaningful total.
+          linkedTotal={isAdmin ? activeLinks : null}
+          onRetry={connector.retry}
+          onChanged={() => {
+            refreshConnector();
+            refreshLinks();
+          }}
+        />
 
-      <LarkAccountCard
-        isAdmin={isAdmin === true}
-        myProfileId={myId}
-        connector={connector.state.status === "ready" ? connector.state.data : null}
-        connectorKnown={connector.state.status === "ready"}
-        identities={accountIdentities}
-        onRetry={identities.retry}
-        onReload={refreshLinks}
-      />
+        <LarkAccountCard
+          isAdmin={isAdmin === true}
+          myProfileId={myId}
+          connector={connector.state.status === "ready" ? connector.state.data : null}
+          connectorKnown={connector.state.status === "ready"}
+          identities={accountIdentities}
+          onRetry={identities.retry}
+          onReload={refreshLinks}
+        />
+      </div>
 
-      <CalendarFeedsCard role={role} />
+      <div className="min-w-0">
+        <CalendarFeedsCard role={role} />
+      </div>
 
-      <GovernanceNote />
+      <div className="min-w-0 @4xl:col-span-2">
+        <GovernanceNote />
+      </div>
+    </div>
     </div>
   );
 }

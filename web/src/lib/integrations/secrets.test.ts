@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   decryptSecrets,
+  deriveActionToken,
   encryptSecrets,
   generateRelaySecret,
   hashRelaySecret,
@@ -10,6 +11,9 @@ import {
   sanitizeError,
   secretsView,
 } from "./secrets";
+import { generateToken } from "@/lib/auth/tokens";
+import { generateFeedToken } from "@/lib/calendar/feeds";
+import { generateLinkCode } from "./identity";
 import { normalizeConfig, toPublicConnector, assertIntegrationAdmin, appBaseUrl } from "./store";
 import { APP_SECRET, TEST_ENCRYPTION_KEY, VERIFICATION_TOKEN, connectorRow } from "./test-support";
 import type { Actor } from "@/lib/auth/guard";
@@ -177,5 +181,70 @@ describe("store helpers", () => {
     vi.stubEnv("VERCEL_PROJECT_PRODUCTION_URL", "pm-app.vercel.example");
     expect(appBaseUrl()).toBe("https://pm-app.vercel.example");
     expect(appBaseUrl("http://localhost:3000")).toBe("http://localhost:3000");
+  });
+});
+
+describe("sanitizeError — every secret family in the repo", () => {
+  const families: [string, () => string][] = [
+    ["npm_ personal access token", () => generateToken().raw],
+    ["npa_ card action token", () => deriveActionToken("d-1", "npa_").raw],
+    ["npr_ relay secret", () => generateRelaySecret().raw],
+    ["npi_ invite token", () => generateToken("npi_").raw],
+    ["npc_ calendar feed token", () => generateFeedToken().raw],
+    ["NPL- identity link code", () => generateLinkCode()],
+    ["Lark tenant access token", () => "t-g1048abcdefghijklmnopqrstuv"],
+  ];
+
+  it.each(families)("redacts a %s wherever it is quoted", (_label, make) => {
+    const secret = make();
+    const text = sanitizeError(new Error(`GET https://pm.example.test/api/calendar/${secret}.ics failed; token=${secret}`));
+    expect(text).not.toContain(secret);
+    expect(text).toContain("[redacted]");
+  });
+
+  it("redacts a calendar token even when it sits at the very start of a long message", () => {
+    const secret = generateFeedToken().raw;
+    expect(sanitizeError(`${secret} ${"x".repeat(400)}`)).not.toContain(secret.slice(0, 20));
+  });
+
+  it("follows a custom NOPM_TOKEN_PREFIX for PATs", async () => {
+    vi.resetModules();
+    vi.stubEnv("NOPM_TOKEN_PREFIX", "xz_");
+    const fresh = await import("./secrets");
+    const tokens = await import("@/lib/auth/tokens");
+    const raw = tokens.generateToken().raw;
+    expect(raw.startsWith("xz_")).toBe(true);
+    expect(fresh.sanitizeError(`bad token ${raw}`)).not.toContain(raw);
+    vi.resetModules();
+  });
+
+  it("leaves ordinary text that merely resembles a prefix alone", () => {
+    expect(sanitizeError("t-shirt sizes and npm_ are fine, so is NPL-ABC")).toBe("t-shirt sizes and npm_ are fine, so is NPL-ABC");
+  });
+});
+
+describe("deriveActionToken", () => {
+  it("is deterministic per delivery id and differs between deliveries", () => {
+    expect(deriveActionToken("delivery-1", "npa_")).toEqual(deriveActionToken("delivery-1", "npa_"));
+    expect(deriveActionToken("delivery-1", "npa_").raw).not.toBe(deriveActionToken("delivery-2", "npa_").raw);
+  });
+
+  it("has the same shape a random token has, and hashes with sha-256 like every other token", () => {
+    const { raw, hash } = deriveActionToken("delivery-1", "npa_");
+    expect(raw).toMatch(/^npa_[A-Za-z0-9_-]{32}$/);
+    expect(hash).toBe(createHash("sha256").update(raw).digest("hex"));
+  });
+
+  it("depends on the server's encryption key, so the delivery id alone cannot reproduce it", () => {
+    const before = deriveActionToken("delivery-1", "npa_").raw;
+    vi.stubEnv("NOPM_ENCRYPTION_KEY", Buffer.alloc(32, 9).toString("base64"));
+    expect(deriveActionToken("delivery-1", "npa_").raw).not.toBe(before);
+  });
+
+  it("refuses to mint without a usable key (a missing key must never yield a guessable token)", () => {
+    vi.stubEnv("NOPM_ENCRYPTION_KEY", "");
+    expect(() => deriveActionToken("delivery-1", "npa_")).toThrow(/NOPM_ENCRYPTION_KEY/);
+    vi.stubEnv("NOPM_ENCRYPTION_KEY", Buffer.alloc(16, 1).toString("base64"));
+    expect(() => deriveActionToken("delivery-1", "npa_")).toThrow(/NOPM_ENCRYPTION_KEY/);
   });
 });

@@ -6,6 +6,7 @@
 // .eq("workspace_id") below).
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { entityHref } from "@/lib/nav/entity-href";
+import { todayIso } from "./dates";
 
 export type TLKind = "milestone" | "task" | "risk" | "issue" | "decision" | "doc" | "steerco";
 
@@ -55,11 +56,33 @@ const PALETTE = ["#3F8E7E", "#5B6CB8", "#C98A2B", "#A65574", "#4E7CA1", "#7A8B3C
 const SEV = new Set(["low", "medium", "high", "critical"]);
 const sev = (s: unknown) => (typeof s === "string" && SEV.has(s) ? (s as TLNode["severity"]) : null);
 
-const TODAY = "2026-06-09"; // demo "now" (kept stable so the Today line is deterministic)
+export interface GatherOptions {
+  /**
+   * ISO date ("YYYY-MM-DD") to treat as today. Defaults to the real current
+   * date, read per call (never at module load, so a long-lived server cannot
+   * freeze it). Tests inject a fixed value to stay deterministic.
+   */
+  today?: string;
+  /**
+   * Called once per table whose read failed. Without it a failed read is
+   * treated as "no rows" (the API's behaviour); pages pass it so they can show
+   * the failure instead of drawing a convincing but wrong, emptier timeline.
+   */
+  onError?: (table: string, message: string) => void;
+}
 
-export async function gatherTimeline(db: SupabaseClient, workspaceId: string): Promise<TLGraph> {
-  const pick = async (t: string, cols: string) =>
-    ((await db.from(t).select(cols).eq("workspace_id", workspaceId)).data ?? []) as unknown as Record<string, unknown>[];
+export async function gatherTimeline(
+  db: SupabaseClient,
+  workspaceId: string,
+  opts: GatherOptions = {},
+): Promise<TLGraph> {
+  const TODAY = opts.today ?? todayIso();
+
+  const pick = async (t: string, cols: string) => {
+    const { data, error } = await db.from(t).select(cols).eq("workspace_id", workspaceId);
+    if (error) opts.onError?.(t, error.message);
+    return (data ?? []) as unknown as Record<string, unknown>[];
+  };
 
   const [projects, milestones, tasks, risks, issues, decisions, documents, clashes] = await Promise.all([
     pick("projects", "id, code, name, rag_status"),

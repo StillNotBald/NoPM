@@ -23,6 +23,7 @@ const FIELD_ORDER: (keyof ConnectFormValues)[] = [
   "appId",
   "appSecret",
   "verificationToken",
+  "encryptKey",
   "digestChatId",
 ];
 
@@ -31,6 +32,7 @@ const FIELD_IDS: Partial<Record<keyof ConnectFormValues, string>> = {
   appId: "lark-app-id",
   appSecret: "lark-app-secret",
   verificationToken: "lark-verification-token",
+  encryptKey: "lark-encrypt-key",
   digestChatId: "lark-connect-chat",
 };
 
@@ -61,6 +63,8 @@ export function ConnectForm({
   }, []);
 
   const patch = (p: Partial<ConnectFormValues>) => setValues((v) => ({ ...v, ...p }));
+  // A webhook connection needs the Encrypt Key; a long connection does not.
+  const encryptKeyRequired = values.mode === "webhook";
   const secretType = showSecrets ? "text" : "password";
 
   async function handleSubmit(e: FormEvent) {
@@ -118,7 +122,11 @@ export function ConnectForm({
         legend="How Lark reaches NoPM"
         name="lark-mode"
         value={values.mode}
-        onChange={(mode) => patch({ mode })}
+        onChange={(mode) => {
+          patch({ mode });
+          // The Encrypt Key is only required for a webhook: don't leave its error behind.
+          setErrors((e) => ({ ...e, encryptKey: undefined }));
+        }}
         disabled={submitting}
         options={[
           {
@@ -192,12 +200,18 @@ export function ConnectForm({
           <Field
             id="lark-encrypt-key"
             label="Encrypt Key"
-            optional
-            hint="Set one in Lark to also sign and encrypt incoming events."
+            optional={!encryptKeyRequired}
+            error={errors.encryptKey}
+            hint={
+              encryptKeyRequired
+                ? "Required for a webhook connection. Set one under Events & Callbacks, Encryption Strategy."
+                : "Not needed for a long connection. Set one in Lark to also sign and encrypt incoming events."
+            }
           >
             {(a11y) => (
               <Input
                 {...a11y}
+                aria-required={encryptKeyRequired}
                 type={secretType}
                 value={values.encryptKey}
                 onChange={(e) => patch({ encryptKey: e.target.value })}

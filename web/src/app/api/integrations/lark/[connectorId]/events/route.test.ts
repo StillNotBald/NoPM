@@ -58,8 +58,10 @@ describe("POST /api/integrations/lark/[connectorId]/events", () => {
     expect(await res.json()).toEqual({ error: "Invalid request" });
   });
 
-  it("404s an unknown connector", async () => {
+  it("answers an unknown connector exactly like a failed check (no connector-existence oracle)", async () => {
     const other = "99999999-9999-4999-8999-999999999999";
-    expect((await call(urlVerificationBody(), other)).status).toBe(404);
+    const res = await call(urlVerificationBody(), other);
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "Invalid request" });
   });
 });

@@ -4,7 +4,7 @@ import { ok } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write";
 import { drainDeliveries, enqueueDigest } from "@/lib/integrations/deliveries";
 import { gatherDigestData } from "@/lib/integrations/digest-data";
-import { appBaseUrl, assertIntegrationAdmin, getConnector, normalizeConfig } from "@/lib/integrations/store";
+import { appBaseUrl, assertIntegrationAdmin, getConnector, maskExternalId, normalizeConfig } from "@/lib/integrations/store";
 
 export const runtime = "nodejs";
 
@@ -36,7 +36,7 @@ export const POST = route(async ({ actor, params, request }) => {
     action: "integration.digest.send",
     targetType: "integration_connector",
     targetId: connector.id,
-    after: { trigger: "manual", chat_id: digest.chatId },
+    after: { trigger: "manual", chat_id: maskExternalId(digest.chatId) },
   });
 
   const queued = await enqueueDigest(connector, digest.chatId, data, "manual");

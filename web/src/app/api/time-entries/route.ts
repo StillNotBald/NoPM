@@ -1,10 +1,11 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { assertWeekUnlocked, isPeriodLockedError } from "@/lib/governance/period-lock";
+import { assertWeekUnlocked, weekLockRuleError } from "@/lib/governance/period-lock";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { createTimeEntrySchema } from "./_schema";
 import { parseTimeEntryFilters, resolveBillable } from "./_query";
 
@@ -80,9 +81,16 @@ export const POST = route(async ({ actor, request }) => {
     .maybeSingle();
   if (!member) throw new NotFoundError("Resource member not found");
 
-  // L-32/R-76: reject logging into a week whose timesheet is already
-  // approved (locked) — clean 422 before the DB backstop trigger would
-  // otherwise raise a 500-shaped PERIOD_LOCKED error (migration 20260815000040).
+  // A task link must point at a task in THIS workspace (the FK alone accepts
+  // any workspace's row — red-team R1 cross-tenant references).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "tasks", id: parsed.data.task_id, field: "task_id" },
+  ]);
+
+  // L-32/R-76 + R1/H2: reject logging into a week whose timesheet is approved
+  // (period_locked) or submitted and awaiting a decision (timesheet_locked) —
+  // clean 422 before the DB backstop trigger would otherwise raise a 500-shaped
+  // error (migrations 20260815000040 / 20261017000049).
   await assertWeekUnlocked(db, parsed.data.member_id, parsed.data.entry_date);
 
   // cost = hours * cost_rate (default cost_rate to 0 if null)
@@ -110,14 +118,10 @@ export const POST = route(async ({ actor, request }) => {
 
   if (error) {
     // Belt-and-suspenders: the assertWeekUnlocked check above is the primary
-    // defense, but map the DB backstop trigger's own PERIOD_LOCKED error
-    // (errcode P0011) to the same clean 422 in case of a TOCTOU race.
-    if (isPeriodLockedError(error)) {
-      throw new RuleError(
-        "This week's timesheet is approved and locked — reopen the submission before changing time entries.",
-        "period_locked",
-      );
-    }
+    // defense, but map the DB backstop trigger's own errors (P0011 approved,
+    // P0012 under review) to the same clean 422 in case of a TOCTOU race.
+    const locked = weekLockRuleError(error);
+    if (locked) throw locked;
     throw new Error(`Time entry insert failed: ${error.message}`);
   }
   if (!row) {

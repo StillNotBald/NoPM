@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, type FormEvent, type ReactNode } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import { ShowOncePanel } from "@/components/governance/show-once-panel";
 import { createFeed, fetchFeeds, fetchProjects, revokeFeed } from "./api";
 import { absoluteUrl, formatDate, formatRelativeTime, toWebcalUrl } from "./format";
 import { useApiResource, useNow, useOrigin } from "./hooks";
@@ -21,19 +21,17 @@ const SUBSCRIBE_HINTS: { app: string; how: string }[] = [
   { app: "Lark", how: "Calendar, subscribe to an external calendar, then paste the link." },
 ];
 
-/** Shown once, straight after a feed is created: the secret URL is not retrievable afterwards. */
+/**
+ * Shown once, straight after a feed is created: the secret URL is not retrievable afterwards.
+ * Same pattern as a new API token (focus moves here, it scrolls into view, it waits for "I've saved it").
+ */
 function CreatedPanel({ url, onDismiss }: { url: string; onDismiss: () => void }) {
   return (
-    <section
-      aria-labelledby="feed-created-heading"
-      className="space-y-3 rounded-lg border border-border-subtle bg-sunken p-4"
+    <ShowOncePanel
+      heading="Your subscription link"
+      onDismiss={onDismiss}
+      returnFocusTo={() => document.getElementById("feed-name")}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h4 id="feed-created-heading" className="text-sm font-medium text-ink">
-          Your subscription link
-        </h4>
-        <Badge tone="warning">Shown once — copy it now.</Badge>
-      </div>
       <CopyValue label="Subscription URL" value={url} subject="subscription URL" />
       <a
         href={toWebcalUrl(url)}
@@ -51,10 +49,7 @@ function CreatedPanel({ url, onDismiss }: { url: string; onDismiss: () => void }
       <p className="text-xs text-ink-muted">
         Anyone with this link can read these milestones. Revoke the feed if it leaks.
       </p>
-      <Button variant="secondary" size="sm" className="h-11 w-full sm:h-8 sm:w-auto" onClick={onDismiss}>
-        I&apos;ve saved it
-      </Button>
-    </section>
+    </ShowOncePanel>
   );
 }
 
@@ -64,7 +59,7 @@ function CreatedPanel({ url, onDismiss }: { url: string; onDismiss: () => void }
  * secret URL once into any calendar app, revoke it whenever. Fetching a feed
  * is deliberately not audited per request; creating and revoking are.
  */
-export function CalendarFeedsCard({ role }: { role: string | null }) {
+export function CalendarFeedsCard({ role }: { role: string | null | undefined }) {
   const toast = useToast();
   const modal = useModal();
   const origin = useOrigin();
@@ -79,6 +74,7 @@ export function CalendarFeedsCard({ role }: { role: string | null }) {
   const [nameError, setNameError] = useState<string | undefined>();
   const [createdUrl, setCreatedUrl] = useState<string | null>(null);
 
+  // undefined = who-am-I is still loading: don't flash a create form a viewer would then lose.
   const canCreate = role !== "viewer";
   const projectOptions: ProjectOption[] = projects.state.status === "ready" ? projects.state.data : [];
   const projectName = (id: string | null) => projectOptions.find((p) => p.id === id)?.name ?? "One project";
@@ -146,7 +142,9 @@ export function CalendarFeedsCard({ role }: { role: string | null }) {
         {feeds.state.data.map((feed) => (
           <li key={feed.id} className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-ink">{feed.name}</p>
+              <p className="truncate text-sm font-medium text-ink" title={feed.name}>
+                {feed.name}
+              </p>
               <p className="text-xs text-ink-muted">
                 {feed.projectId ? projectName(feed.projectId) : "All projects"} · created {formatDate(feed.createdAt)} ·{" "}
                 {feed.lastFetchedAt ? `last fetched ${formatRelativeTime(feed.lastFetchedAt, now)}` : "not fetched yet"}
@@ -178,7 +176,9 @@ export function CalendarFeedsCard({ role }: { role: string | null }) {
       <CardBody className="space-y-5">
         {createdUrl && <CreatedPanel url={createdUrl} onDismiss={() => setCreatedUrl(null)} />}
 
-        {canCreate ? (
+        {role === undefined ? (
+          <LoadingRow label="Checking what you can do here…" />
+        ) : canCreate ? (
           <form onSubmit={handleCreate} noValidate className="space-y-3">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field id="feed-name" label="Feed name" error={nameError}>

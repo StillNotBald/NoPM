@@ -160,7 +160,7 @@ export function FileUpload({ documentId, onSuccess }: FileUploadProps) {
           variant="secondary"
           size="sm"
           onClick={() => inputRef.current?.click()}
-          className="self-start text-xs"
+          className="min-h-[44px] self-start text-xs sm:min-h-0"
         >
           Attach file
         </Button>
@@ -168,7 +168,7 @@ export function FileUpload({ documentId, onSuccess }: FileUploadProps) {
 
       {/* Progress state */}
       {busy && (
-        <div className="flex items-center gap-2 text-xs text-ink-secondary">
+        <div role="status" className="flex items-center gap-2 text-xs text-ink-secondary">
           <Spinner size="sm" />
           {step === "signing" && "Preparing upload…"}
           {step === "uploading" && (
@@ -182,7 +182,14 @@ export function FileUpload({ documentId, onSuccess }: FileUploadProps) {
 
       {/* Progress bar (only while uploading) */}
       {step === "uploading" && progress > 0 && (
-        <div className="h-1 w-full rounded-full bg-sunken overflow-hidden">
+        <div
+          role="progressbar"
+          aria-label="Upload progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+          className="h-1 w-full rounded-full bg-sunken overflow-hidden"
+        >
           <div
             className="h-full rounded-full bg-accent transition-all duration-200"
             style={{ width: `${progress}%` }}
@@ -192,7 +199,9 @@ export function FileUpload({ documentId, onSuccess }: FileUploadProps) {
 
       {/* Error */}
       {error && (
-        <p className="text-xs text-danger-ink">{error}</p>
+        <p role="alert" className="text-xs text-danger-ink">
+          {error}
+        </p>
       )}
 
       <p className="text-[11px] text-ink-muted">Max 25 MB. PDF, images, or any file type.</p>

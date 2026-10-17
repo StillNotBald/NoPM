@@ -4,6 +4,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { createDocumentSchema } from "@/app/api/documents/_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -59,20 +60,12 @@ export const POST = route(async ({ actor, request }) => {
 
   const input = parsed.data;
 
-  // If a project_id is provided, verify it belongs to this workspace.
-  if (input.project_id) {
-    const { data: proj } = await db
-      .from("projects")
-      .select("id")
-      .eq("id", input.project_id)
-      .eq("workspace_id", actor.workspaceId)
-      .maybeSingle();
-    if (!proj) {
-      return validationError("Validation failed", [
-        { field: "project_id", message: "Project not found in this workspace" },
-      ]);
-    }
-  }
+  // Cross-tenant guard: the project and the owner (a profile) must both
+  // belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "projects", id: input.project_id, field: "project_id" },
+    { table: "profiles", id: input.owner_id, field: "owner_id" },
+  ]);
 
   // Derive next DOC-NNN reference_id.
   const { data: existing } = await db

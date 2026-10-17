@@ -1,7 +1,13 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { cookies } from "next/headers";
 import { cn } from "@/lib/cn";
+import {
+  LANDING_DESCRIPTION,
+  LANDING_TITLE,
+  SITE_NAME,
+  SITE_URL,
+} from "@/components/marketing/page-metadata";
 import {
   APPEARANCE_COOKIE_NAME,
   LEGACY_THEME_COOKIE_NAME,
@@ -18,29 +24,38 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
 });
 
-const TITLE = "NoPM — agent-operable project governance";
-const DESCRIPTION =
-  "A lite, API-first project management tool your AI agent can drive. Immutable audit, scoped tokens, maker-checker — governance built into the data layer.";
-const SITE_URL = "https://stillnotbald.com";
-
 export const metadata: Metadata = {
-  // Pages set a bare `metadata.title`; the template appends the brand once.
-  title: { default: TITLE, template: "%s — NoPM" },
-  description: DESCRIPTION,
+  // Absolute URLs (canonical, og:url, og:image) resolve against this.
+  metadataBase: new URL(SITE_URL),
+  // Console pages set a bare `metadata.title`; the template appends the brand
+  // once. The public pages (landing, case study, sign-in) pass an absolute
+  // title through `pageMetadata()` so <title>, og:title and twitter:title are
+  // the same string. This default is the landing's, so a page that sets
+  // nothing still unfurls with the one phrase of the thesis.
+  title: { default: LANDING_TITLE, template: "%s — NoPM" },
+  description: LANDING_DESCRIPTION,
+  applicationName: SITE_NAME,
+  // No `url` here on purpose: each public page declares its own og:url, and a
+  // root-level one would be wrong for every other route. The og:image is the
+  // file-based `opengraph-image.tsx` next to each public page.
   openGraph: {
-    title: TITLE,
-    description: DESCRIPTION,
-    url: SITE_URL,
-    siteName: "NoPM",
+    title: LANDING_TITLE,
+    description: LANDING_DESCRIPTION,
+    siteName: SITE_NAME,
     type: "website",
-    // No image field: no NoPM-branded asset exists in public/ yet (only
-    // Next.js boilerplate svgs) — skip rather than inventing one.
   },
   twitter: {
-    card: "summary",
-    title: TITLE,
-    description: DESCRIPTION,
+    card: "summary_large_image",
+    title: LANDING_TITLE,
+    description: LANDING_DESCRIPTION,
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0b" },
+  ],
 };
 
 export default async function RootLayout({

@@ -12,6 +12,7 @@ import { ChangeTable } from "@/components/change-control/change-table";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
 import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
 import type { ChangeRequest } from "@/components/change-control/change-form";
+import { judgeDecision } from "@/lib/review/four-eyes";
 
 export const metadata = { title: "Change Control" };
 
@@ -40,7 +41,9 @@ export default async function ChangeControlPage({
     db
       .from("change_requests")
       .select(
-        "id, workspace_id, project_id, reference_id, title, description, category, priority, status, impact_summary, impact_schedule_days, impact_cost, requested_by, requested_by_label, decided_by, decided_by_label, decision_rationale, raised_at, decided_at, target_date, created_at, updated_at",
+        // + the requester columns: read here only to work out who may decide
+        // (judgeDecision); they are dropped before the rows reach the browser.
+        "id, workspace_id, project_id, reference_id, title, description, category, priority, status, impact_summary, impact_schedule_days, impact_cost, requested_by, requested_by_type, requested_by_id, requested_principal_id, requested_by_label, decided_by, decided_by_label, decision_rationale, raised_at, decided_at, target_date, created_at, updated_at",
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
@@ -54,16 +57,28 @@ export default async function ChangeControlPage({
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
 
-  const allRows = (changeRequests ?? []) as ChangeRequest[];
+  const viewer = { id: user.id, role: (viewerProfile?.role as string | null | undefined) ?? null };
+  type RawRow = ChangeRequest & {
+    requested_by_type?: string | null;
+    requested_by_id?: string | null;
+    requested_principal_id?: string | null;
+  };
+  // Four-eyes, decided the way the API decides (by person; a token counts as its
+  // creator). Attached to each row so the inspector shows the note, not buttons
+  // that would be refused. Requester columns are not forwarded to the client.
+  const allRows: ChangeRequest[] = ((changeRequests ?? []) as RawRow[]).map((raw) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { requested_by_type, requested_by_id, requested_principal_id, ...row } = raw;
+    const open = row.status === "raised" || row.status === "under_review";
+    return open ? { ...row, decide: judgeDecision({ viewer, kind: "change_request", row: raw }) } : row;
+  });
   const projectId =
     rawProject && (projects ?? []).some((p) => p.id === rawProject) ? rawProject : "";
   const scoped = projectId ? allRows.filter((cr) => cr.project_id === projectId) : allRows;
   const changeRequestRows = status === "all" ? scoped : scoped.filter((cr) => cr.status === status);
   const count = (s: string) => scoped.filter((cr) => cr.status === s).length;
-  // Four-eyes: only CRs raised by someone else await THIS user's decision.
-  const awaitingMe = allRows.filter(
-    (cr) => (cr.status === "raised" || cr.status === "under_review") && cr.requested_by !== user.id,
-  ).length;
+  // Only requests this person is allowed to decide are waiting on them.
+  const awaitingMe = allRows.filter((cr) => cr.decide?.canDecide).length;
 
   return (
     <PageContainer className="space-y-6">

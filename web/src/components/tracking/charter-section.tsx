@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import { cn } from "@/lib/cn";
+import { bodyPreview } from "@/components/tracking/charter-preview";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ── Data shapes ────────────────────────────────────────────────────────────────
 
@@ -41,13 +44,8 @@ export interface CharterDocument {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function fmtDate(d: string | null): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function fmtDate(d: string | null, pref: DateDisplayPref): string {
+  return d ? formatByPref(d, pref).absolute : "—";
 }
 
 function docStatusTone(s: string | null): "neutral" | "success" | "info" | "warning" {
@@ -62,12 +60,6 @@ function docStatusTone(s: string | null): "neutral" | "success" | "info" | "warn
     case "archived":   return "neutral";
     default:           return "neutral";
   }
-}
-
-function bodyPreview(body: string | null, maxLen = 200): string | null {
-  if (!body || body.trim() === "") return null;
-  const text = body.replace(/#+\s/g, "").replace(/\*\*/g, "").replace(/\n+/g, " ").trim();
-  return text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
 }
 
 // ── MetaRow — a labelled field row ────────────────────────────────────────────
@@ -93,6 +85,7 @@ export function CharterSection({
   charterDoc: CharterDocument | null;
 }) {
   const rag = project.rag_status as RagStatus;
+  const pref = useDateDisplayPref();
 
   return (
     <div className="space-y-6">
@@ -122,13 +115,13 @@ export function CharterSection({
 
             <MetaRow label="Start date">
               <span className="font-mono tabular-nums text-ink-secondary">
-                {fmtDate(project.start_date)}
+                {fmtDate(project.start_date, pref)}
               </span>
             </MetaRow>
 
             <MetaRow label="Target date">
               <span className="font-mono tabular-nums text-ink-secondary">
-                {fmtDate(project.target_date)}
+                {fmtDate(project.target_date, pref)}
               </span>
             </MetaRow>
 
@@ -174,7 +167,7 @@ export function CharterSection({
             <div>
               <h3 className="text-base font-semibold text-ink">{charterDoc.title}</h3>
               <p className="mt-0.5 font-mono text-2xs text-ink-muted">
-                Created {fmtDate(charterDoc.created_at)}
+                Created {fmtDate(charterDoc.created_at, pref)}
               </p>
             </div>
 
@@ -213,7 +206,7 @@ export function CharterSection({
         </Card>
       ) : (
         /* Empty state */
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-border-subtle bg-surface py-16 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-border-subtle bg-surface py-16 text-center">
           <FileText size={32} className="text-ink-muted opacity-30" />
           <div className="space-y-1">
             <p className="text-sm font-medium text-ink-secondary">No charter document yet</p>

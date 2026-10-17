@@ -118,7 +118,7 @@ export function DataList<T>({
                 className={cn(
                   "transition-colors duration-100",
                   clickable &&
-                    "cursor-pointer hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                    "cursor-pointer hover:bg-sunken focus-ring-inset",
                 )}
               >
                 {tableColumns.map((c) => (
@@ -176,7 +176,7 @@ export function DataList<T>({
                 <button
                   type="button"
                   onClick={() => activate(row)}
-                  className="block w-full text-left transition-colors hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                  className="focus-ring-inset block w-full text-left transition-colors hover:bg-sunken"
                 >
                   {card}
                 </button>

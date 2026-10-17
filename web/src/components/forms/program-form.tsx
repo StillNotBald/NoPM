@@ -9,12 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, apiGet, type ApiError } from "@/lib/api-client";
 import { validateFields } from "@/lib/forms/validate";
-import {
-  FieldLabel,
-  FieldError,
-  SelectInput,
-  TextareaInput,
-} from "@/components/forms/project-form";
+import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import type { RagStatus } from "@/lib/status";
 
@@ -82,7 +77,7 @@ export function ProgramForm({
     setFieldErrors({});
 
     const clientResult = validateFields([
-      { key: "name", value: name, message: "Program name is required" },
+      { key: "name", value: name.trim(), message: "Program name is required" },
     ]);
     if (!clientResult.ok) {
       setFieldErrors(clientResult.errors);
@@ -121,39 +116,30 @@ export function ProgramForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Title — the only visually prominent field */}
-      <div>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Program name"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.name} />
-      </div>
+      <TitleField
+        label="Program name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Program name"
+        required
+        error={fieldErrors.name}
+      />
 
       <FormSection title="Identity">
         <FormGrid>
-          <div>
-            <FieldLabel>Code</FieldLabel>
+          <Field label="Code" error={fieldErrors.code}>
             <Input
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="PGM-001"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.code} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Owner</FieldLabel>
+          <Field label="Owner" error={fieldErrors.owner_id}>
             <SelectInput value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
               <option value="">— Unassigned —</option>
               {members.map((m) => (
@@ -163,8 +149,7 @@ export function ProgramForm({
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.owner_id} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -173,8 +158,7 @@ export function ProgramForm({
         description="Declared health — set explicitly by the program owner, shown alongside (never replaced by) the rollup computed from child projects."
       >
         <FormGrid>
-          <div>
-            <FieldLabel>RAG Status</FieldLabel>
+          <Field label="RAG Status" error={fieldErrors.rag_status}>
             <SelectInput
               value={ragStatus}
               onChange={(e) => setRagStatus(e.target.value as RagStatus)}
@@ -185,21 +169,19 @@ export function ProgramForm({
               <option value="red">Red</option>
               <option value="complete">Complete</option>
             </SelectInput>
-            <FieldError message={fieldErrors.rag_status} />
-          </div>
+          </Field>
           <div />
         </FormGrid>
       </FormSection>
 
-      <FormSection title="Description">
-        <div>
+      <FormSection>
+        <Field label="Description" error={fieldErrors.description}>
           <TextareaInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="What this program covers"
           />
-          <FieldError message={fieldErrors.description} />
-        </div>
+        </Field>
       </FormSection>
 
       <FormActions>
@@ -215,7 +197,7 @@ export function ProgramForm({
         <Button
           type="submit"
           variant="primary"
-          disabled={saving || !name.trim()}
+          disabled={saving}
           className="w-full sm:w-auto h-11 sm:h-10"
         >
           {saving ? (

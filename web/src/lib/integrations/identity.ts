@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import type { Actor } from "@/lib/auth/guard";
 import { sanitizeError } from "@/lib/integrations/secrets";
-import { TENANT_MISMATCH_MESSAGE, tenantMismatch } from "@/lib/integrations/store";
+import { TENANT_MISMATCH_MESSAGE, maskExternalId, tenantMismatch } from "@/lib/integrations/store";
 import type { ConnectorRow } from "@/lib/integrations/types";
 
 /**
@@ -42,14 +42,22 @@ export function hashLinkCode(canonical: string): string {
   return createHash("sha256").update(canonical).digest("hex");
 }
 
-/** Mask a platform id for display: enough to recognise, not enough to reuse. */
-export function maskExternalId(id: string): string {
-  return id.length <= 10 ? `${id.slice(0, 2)}…` : `${id.slice(0, 6)}…${id.slice(-4)}`;
-}
+export { maskExternalId };
 
-/** `lark:<tenant>:<user>` — the external actor reference written to audit rows. */
+/**
+ * `lark:<tenant>:<user>` — the FULL external actor reference. It is the value of
+ * the `audit_log.external_actor_ref` column, which exists so a chat-originated
+ * action stays traceable to the platform account that took it. Do not put it in
+ * a free-form audit `before`/`after`: the audit stream is readable by every
+ * workspace member (see `maskedExternalRef`).
+ */
 export function externalActorRef(provider: string, tenant: string, userId: string): string {
   return `${provider}:${tenant}:${userId}`;
+}
+
+/** The same reference with the tenant key and the open id masked, for audit `before`/`after`. */
+export function maskedExternalRef(provider: string, tenant: string, userId: string): string {
+  return `${provider}:${maskExternalId(tenant)}:${maskExternalId(userId)}`;
 }
 
 // ── mint ───────────────────────────────────────────────────────────────────
@@ -89,8 +97,20 @@ export async function mintLinkCode(input: {
 
 // ── consume (from the bot DM) ──────────────────────────────────────────────
 
+/** A link code is a 40-bit bearer secret, so guessing it is rate-limited per sender and per connector. */
+export const LINK_ATTEMPT_WINDOW_SECONDS = 10 * 60;
+export const LINK_ATTEMPTS_PER_SENDER = 8;
+export const LINK_ATTEMPTS_PER_CONNECTOR = 120;
+
 export type LinkOutcome =
-  | { status: "linked"; profileLabel: string; alreadyLinked: boolean }
+  | {
+      status: "linked";
+      profileLabel: string;
+      alreadyLinked: boolean;
+      /** Platform accounts this link replaced (the adapter tells them), never including the new one. */
+      displaced?: { externalTenant: string; externalUserId: string }[];
+    }
+  | { status: "rate_limited"; retryAfterSeconds: number }
   | { status: "invalid_code" }
   | { status: "expired" }
   | { status: "already_used" }
@@ -139,6 +159,9 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
   const externalUserId = input.externalUserId.trim();
   if (!externalTenant || !externalUserId) return { status: "error", message: "Missing platform identity" };
   if (tenantMismatch(connector, externalTenant)) return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
+
+  const budget = await linkAttemptBudget(connector, externalTenant, externalUserId);
+  if (!budget.allowed) return { status: "rate_limited", retryAfterSeconds: budget.retryAfterSeconds };
 
   let pinnedHere = false;
   let completed = false;
@@ -194,10 +217,18 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
     if (sameAccount) return { status: "linked", profileLabel: label, alreadyLinked: true };
 
     // Pin the tenant on the first NEW link (before the code is burned, so a
-    // refused tenant leaves the code usable).
-    const pin = await pinTenant(connector, externalTenant);
-    if (pin === "mismatch") return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
-    pinnedHere = pin === "pinned";
+    // refused tenant leaves the code usable) — but only when an admin or manager
+    // is linking. Any member can mint a code, so letting a viewer's first link
+    // pin the connector would let one person lock the real tenant out by
+    // linking from a foreign one. A non-approver's link still works (it grants
+    // nothing by itself); it just does not decide which tenant is trusted.
+    if (profile.role === "admin" || profile.role === "manager") {
+      const pin = await pinTenant(connector, externalTenant);
+      if (pin === "mismatch") return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
+      pinnedHere = pin === "pinned";
+    } else if (connector.tenant_key && connector.tenant_key !== externalTenant) {
+      return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
+    }
 
     const nowIso = new Date().toISOString();
     const { data: consumed, error: consumeError } = await db
@@ -265,14 +296,16 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
         action: "integration.identity.link",
         targetType: "external_identity",
         targetId: inserted.id,
+        // Masked: the audit stream is readable by every member (the unmasked
+        // reference lives in the external_actor_ref column of the actor).
         before: replacedRows.length
-          ? { external_ref: externalActorRef(connector.kind, replacedRows[0].external_tenant, replacedRows[0].external_user_id) }
+          ? { external_ref: maskedExternalRef(connector.kind, replacedRows[0].external_tenant, replacedRows[0].external_user_id) }
           : null,
         after: {
           connector_id: connector.id,
           provider: connector.kind,
           profile_id: profile.id,
-          external_ref: externalActorRef(connector.kind, externalTenant, externalUserId),
+          external_ref: maskedExternalRef(connector.kind, externalTenant, externalUserId),
           replaced_previous_link: replacedRows.length > 0,
           tenant_pinned: pinnedHere,
         },
@@ -285,13 +318,72 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
     }
 
     completed = true;
-    return { status: "linked", profileLabel: label, alreadyLinked: false };
+
+    // A code replaced the person's earlier link. A leaked or phished code could
+    // do exactly this, so the person is told on both sides: in NoPM, and on the
+    // Lark account that just lost its link (the adapter sends that DM).
+    const displaced = replacedRows
+      .filter((r) => !(r.external_tenant === externalTenant && r.external_user_id === externalUserId))
+      .map((r) => ({ externalTenant: r.external_tenant, externalUserId: r.external_user_id }));
+    if (displaced.length > 0) await notifyLinkReplaced(connector, profile.id);
+
+    return { status: "linked", profileLabel: label, alreadyLinked: false, ...(displaced.length > 0 ? { displaced } : {}) };
   } catch (err) {
     console.error("[integrations] link code consume failed:", sanitizeError(err));
     return { status: "error", message: "Could not link your account right now. Please try again." };
   } finally {
     // Any exit that did not complete the link releases a pin taken for it.
     if (pinnedHere && !completed) await releasePin(connector, externalTenant).catch(() => {});
+  }
+}
+
+/**
+ * Count one link attempt against the sender's budget and the connector's, in a
+ * 10-minute fixed window (the shared `nopm_rate_check` counter). Keys hold a
+ * hash, never the platform ids. Fail-OPEN on an infrastructure error: an abuse
+ * guard, not an auth control — the code itself is 40 bits and single use.
+ */
+async function linkAttemptBudget(
+  connector: Pick<ConnectorRow, "id">,
+  externalTenant: string,
+  externalUserId: string,
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+  const db = createAdminClient();
+  const sender = createHash("sha256").update(`${externalTenant}\n${externalUserId}`).digest("hex").slice(0, 32);
+  const checks: [string, number][] = [
+    [`lark-link:${connector.id}:${sender}`, LINK_ATTEMPTS_PER_SENDER],
+    [`lark-link-conn:${connector.id}`, LINK_ATTEMPTS_PER_CONNECTOR],
+  ];
+  for (const [key, max] of checks) {
+    const { data, error } = await db.rpc("nopm_rate_check", {
+      p_key: key,
+      p_max: max,
+      p_window_seconds: LINK_ATTEMPT_WINDOW_SECONDS,
+    });
+    if (error) {
+      console.error("[integrations] nopm_rate_check RPC failed - FAILING OPEN (link attempts not limited this call)", { error: error.message });
+      return { allowed: true, retryAfterSeconds: 0 };
+    }
+    const result = data as { allowed: boolean; retry_after_seconds: number };
+    if (!result.allowed) return { allowed: false, retryAfterSeconds: result.retry_after_seconds };
+  }
+  return { allowed: true, retryAfterSeconds: 0 };
+}
+
+/** In-app notice to the profile whose link was just replaced. Fail-soft: it never undoes the link. */
+async function notifyLinkReplaced(connector: Pick<ConnectorRow, "id" | "workspace_id">, profileId: string): Promise<void> {
+  try {
+    const { error } = await createAdminClient().from("notifications").insert({
+      workspace_id: connector.workspace_id,
+      recipient_id: profileId,
+      type: "integration.link_replaced",
+      title: "Your Lark account link was changed",
+      body: "A link code linked a different Lark account to your NoPM user, and the earlier one was unlinked. If that was not you, unlink it under Integrations and tell an admin.",
+      payload: { connector_id: connector.id },
+    });
+    if (error) console.error("[integrations] link-replaced notice failed:", sanitizeError(error));
+  } catch (err) {
+    console.error("[integrations] link-replaced notice failed:", sanitizeError(err));
   }
 }
 

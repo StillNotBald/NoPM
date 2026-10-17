@@ -42,8 +42,11 @@ import {
   decideTimesheet,
   principalOf,
   rejectDeletion,
+  requireMakerPrincipal,
   requirePrincipal,
   withdrawDeletion,
+  CHILDREN_CHANGED_MESSAGE,
+  NO_MAKER_PRINCIPAL_MESSAGE,
   NO_PRINCIPAL_MESSAGE,
 } from "./decide";
 
@@ -147,6 +150,25 @@ function sheetRow(over: Row = {}): Row {
   };
 }
 
+/** The five entries behind sheetRow(): 8 + 8 + 8 + 8 + 6.5 = 38.5 hours in the week of 2026-10-12. */
+function weekEntries(): Row[] {
+  return [
+    ["te-1", "2026-10-12", 8],
+    ["te-2", "2026-10-13", 8],
+    ["te-3", "2026-10-14", 8],
+    ["te-4", "2026-10-15", 8],
+    ["te-5", "2026-10-16", 6.5],
+  ].map(([id, entry_date, hours]) => ({
+    id,
+    workspace_id: WS,
+    member_id: "member-1",
+    project_id: "proj-1",
+    entry_date,
+    hours,
+    billable: true,
+  }));
+}
+
 function seed(extra: Record<string, Row[]> = {}): FakeDb {
   return new FakeDb({
     projects: [{ id: "proj-1", workspace_id: WS, name: "Billing Migration", is_locked: false }],
@@ -159,6 +181,7 @@ function seed(extra: Record<string, Row[]> = {}): FakeDb {
     deletion_requests: [deletionRow()],
     change_requests: [changeRow()],
     timesheet_submissions: [sheetRow()],
+    time_entries: weekEntries(),
     audit_log: [],
     notifications: [],
     ...extra,
@@ -212,6 +235,22 @@ describe("principal helpers", () => {
     }
   });
 
+  it("requireMakerPrincipal (R1/H3): the MAKER side fails closed too — an ownerless token cannot raise, a session or an owned token can", () => {
+    try {
+      requireMakerPrincipal(orphanPat());
+      throw new Error("should have thrown");
+    } catch (e) {
+      expect(e).toBeInstanceOf(ScopeError);
+      expect((e as ScopeError).status).toBe(403);
+      expect((e as ScopeError).code).toBe("no_principal");
+      expect((e as ScopeError).message).toBe(NO_MAKER_PRINCIPAL_MESSAGE);
+    }
+    expect(requireMakerPrincipal(session(ALICE))).toBe(ALICE);
+    expect(requireMakerPrincipal(pat("tok-bob", BOB, []))).toBe(BOB);
+    // The session fallback holds even if the Actor was built without the field.
+    expect(requireMakerPrincipal(session(ALICE, { principalId: undefined }))).toBe(ALICE);
+  });
+
   it("assertNotRequesterPrincipal: equal humans -> 403 self_approval; different or unknown requester passes", () => {
     expect(() => assertNotRequesterPrincipal(ALICE, ALICE)).toThrowError(ScopeError);
     expect(() => assertNotRequesterPrincipal(ALICE, BOB)).not.toThrow();
@@ -222,6 +261,46 @@ describe("principal helpers", () => {
 });
 
 // ── deletion requests ─────────────────────────────────────────────────────
+
+describe("approveDeletion — DB errors that map to a clean 422 (migration 0049)", () => {
+  const projectRequest = () =>
+    deletionRow({
+      id: "del-p",
+      target_type: "project",
+      target_id: "proj-1",
+      before: { id: "proj-1", name: "Billing Migration", child_counts: { tasks: 1 } },
+    });
+
+  async function approveWithRpcError(error: { message: string; code: string }): Promise<ApiError> {
+    db.tables.deletion_requests = [projectRequest()];
+    db.rpcHandlers.nopm_commit_project_deletion = () => ({ data: null, error });
+    return caught(approveDeletion(bobPat(), "del-p"));
+  }
+
+  it("CHILDREN_CHANGED / P0016 -> 422 children_changed (the project gained records since the request)", async () => {
+    for (const error of [
+      { message: "CHILDREN_CHANGED: the project gained records", code: "P0016" },
+      { message: "something else", code: "P0016" },
+      { message: "CHILDREN_CHANGED", code: "XX000" },
+    ]) {
+      const err = await approveWithRpcError(error);
+      expect([err.status, err.code, err.message]).toEqual([422, "children_changed", CHILDREN_CHANGED_MESSAGE]);
+    }
+  });
+
+  it("a locked timesheet week blocks the cascade: PERIOD_LOCKED -> period_locked, TIMESHEET_LOCKED -> timesheet_locked (both 422)", async () => {
+    const approved = await approveWithRpcError({ message: "PERIOD_LOCKED: this week", code: "P0011" });
+    expect([approved.status, approved.code]).toEqual([422, "period_locked"]);
+    const review = await approveWithRpcError({ message: "TIMESHEET_LOCKED: this week", code: "P0012" });
+    expect([review.status, review.code]).toEqual([422, "timesheet_locked"]);
+  });
+
+  it("an unknown database error is still not swallowed into a 4xx", async () => {
+    db.tables.deletion_requests = [projectRequest()];
+    db.rpcHandlers.nopm_commit_project_deletion = () => ({ data: null, error: { message: "boom", code: "XX000" } });
+    await expect(approveDeletion(bobPat(), "del-p")).rejects.toThrow("boom");
+  });
+});
 
 describe("approveDeletion", () => {
   it("REGRESSION: the requester cannot approve their own request with a PAT they minted (403 self_approval, nothing committed)", async () => {
@@ -630,6 +709,65 @@ describe("decideChangeRequest", () => {
     expect(db.rows("change_requests")[0].status).toBe("rejected"); // the winner's decision is intact
   });
 
+  describe("version pin (expected_updated_at) — bait-and-switch guard", () => {
+    const SEEN = "2026-10-16T09:00:00.000Z";
+    beforeEach(() => {
+      db.tables.change_requests = [changeRow({ updated_at: SEEN })];
+    });
+
+    it("the version the approver saw still current -> the decision goes through", async () => {
+      const out = await decideChangeRequest(session(BOB), "cr-1", { ...input, expected_updated_at: SEEN });
+      expect(out.result.status).toBe("approved");
+    });
+
+    it("the same instant written with different precision still matches (R-90 tolerance)", async () => {
+      await decideChangeRequest(session(BOB), "cr-1", { ...input, expected_updated_at: "2026-10-16T09:00:00Z" });
+      expect(db.rows("change_requests")[0].status).toBe("approved");
+    });
+
+    it("the request was edited since -> 412, nothing decided, nothing audited, nothing announced", async () => {
+      db.rows("change_requests")[0].updated_at = "2026-10-16T09:05:00.000Z";
+      const err = await caught(decideChangeRequest(session(BOB), "cr-1", { ...input, expected_updated_at: SEEN }));
+      expect(err.status).toBe(412);
+      expect(db.rows("change_requests")[0].status).toBe("raised");
+      expect(db.rows("audit_log")).toHaveLength(0);
+      expect(emitted.decided).toHaveLength(0);
+    });
+
+    it("no pin -> today's behaviour, however stale the caller is", async () => {
+      db.rows("change_requests")[0].updated_at = "2026-10-16T09:05:00.000Z";
+      const out = await decideChangeRequest(session(BOB), "cr-1", input);
+      expect(out.result.status).toBe("approved");
+    });
+
+    it("an edit between the check and the write is a 412, not 'already decided' and not an approval", async () => {
+      db.afterNextSelect("change_requests", (d) => {
+        d.rows("change_requests")[0].updated_at = "2026-10-16T09:30:00.000Z";
+      });
+      const err = await caught(decideChangeRequest(session(BOB), "cr-1", { ...input, expected_updated_at: SEEN }));
+      expect(err.status).toBe(412);
+      expect(db.rows("change_requests")[0].status).toBe("raised");
+    });
+
+    it("the self-approval refusal still comes first (a stale pin never leaks that the request changed)", async () => {
+      db.rows("change_requests")[0].updated_at = "2026-10-16T09:05:00.000Z";
+      const err = await caught(decideChangeRequest(aliceOwnPat(), "cr-1", { ...input, expected_updated_at: SEEN }));
+      expect([err.status, err.code]).toEqual([403, "self_approval"]);
+    });
+
+    it("decideApproval (the chat-card entry point) carries the version the card was issued for", async () => {
+      db.rows("change_requests")[0].updated_at = "2026-10-16T09:05:00.000Z";
+      const stale = await caught(
+        decideApproval(session(BOB), { kind: "change_request", id: "cr-1" }, "approve", undefined, { expectedUpdatedAt: SEEN }),
+      );
+      expect(stale.status).toBe(412);
+      const ok = await decideApproval(session(BOB), { kind: "change_request", id: "cr-1" }, "approve", undefined, {
+        expectedUpdatedAt: "2026-10-16T09:05:00.000Z",
+      });
+      expect(ok.status).toBe("approved");
+    });
+  });
+
   it("unknown id -> 404", async () => {
     await expect(decideChangeRequest(session(BOB), "nope", input)).rejects.toBeInstanceOf(NotFoundError);
   });
@@ -775,6 +913,60 @@ describe("decideTimesheet", () => {
 
   it("unknown id -> 404", async () => {
     await expect(decideTimesheet(session(BOB), "nope", { decision: "approved" })).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("R1/M1: the member whose hours these are cannot decide the sheet (403 self_approval) — approve, reject and reopen", async () => {
+    db.rows("resource_members")[0].profile_id = BOB; // Bob is Casey Member's login
+    for (const input of [
+      { decision: "approved" as const },
+      { decision: "rejected" as const, rationale: "no" },
+    ]) {
+      const err = await caught(decideTimesheet(bobPat(), "ts-1", input));
+      expect([err.status, err.code]).toEqual([403, "self_approval"]);
+    }
+    db.tables.timesheet_submissions = [sheetRow({ status: "approved" })];
+    const reopen = await caught(decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "x" }));
+    expect([reopen.status, reopen.code]).toEqual([403, "self_approval"]);
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+
+  it("R1/M1: a member with no linked login, or linked to someone else, does not block a different human", async () => {
+    db.rows("resource_members")[0].profile_id = null;
+    await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
+    expect(db.rows("timesheet_submissions")[0].status).toBe("approved");
+  });
+
+  it("R1/H2: approving with entries that no longer match the submitted totals is a 422 timesheet_changed", async () => {
+    db.rows("time_entries").push({
+      id: "te-6",
+      workspace_id: WS,
+      member_id: "member-1",
+      project_id: "proj-1",
+      entry_date: "2026-10-17",
+      hours: 40,
+      billable: true,
+    });
+    const err = await caught(decideTimesheet(bobPat(), "ts-1", { decision: "approved" }));
+    expect([err.status, err.code]).toEqual([422, "timesheet_changed"]);
+    expect(db.rows("timesheet_submissions")[0].status).toBe("submitted");
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+
+  it("R1/H2: entries OUTSIDE the sheet's week, or another member's, do not count", async () => {
+    db.rows("time_entries").push(
+      { id: "te-out", workspace_id: WS, member_id: "member-1", project_id: "proj-1", entry_date: "2026-10-19", hours: 9, billable: true },
+      { id: "te-other", workspace_id: WS, member_id: "member-2", project_id: "proj-1", entry_date: "2026-10-14", hours: 9, billable: true },
+    );
+    await decideTimesheet(bobPat(), "ts-1", { decision: "approved" });
+    expect(db.rows("timesheet_submissions")[0].status).toBe("approved");
+  });
+
+  it("R1/H2: reopen stamps reopened_at (the sheet is open for amendment) and leaves the submitted snapshot alone", async () => {
+    db.tables.timesheet_submissions = [sheetRow({ status: "approved", content_digest: "d1" })];
+    await decideTimesheet(session(BOB), "ts-1", { decision: "reopened", rationale: "missed a day" });
+    const row = db.rows("timesheet_submissions")[0];
+    expect(row.reopened_at).toEqual(expect.any(String));
+    expect(row).toMatchObject({ hours_total: "38.5", entry_count: 5, content_digest: "d1" });
   });
 });
 

@@ -43,6 +43,48 @@ export const SCHEDULE_SHAPE_MILESTONE_FIELDS = [
 ] as const;
 
 /**
+ * Fields on the PROJECT row itself whose change reshapes the schedule/baseline.
+ * A project PATCH is only guarded under lock when it actually changes one of
+ * these (see changedScheduleShapeFields) — name, owner, RAG, commentary and the
+ * rest stay live. Mirrors the WHEN clause of the projects backstop trigger in
+ * migration 0049, column for column. (Red-team R1/H1: these used to be freely
+ * rewritable on a locked project by one holder of project:write, with no
+ * rebaseline and no four-eyes.)
+ */
+export const SCHEDULE_SHAPE_PROJECT_FIELDS = [
+  "start_date",
+  "target_date",
+  "baseline_start_date",
+  "baseline_target_date",
+] as const;
+
+/** A date column compares by its calendar day: "2027-01-01" and "2027-01-01T00:00:00Z" are the same value. */
+function comparableDate(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  return String(value).slice(0, 10);
+}
+
+/**
+ * The subset of `fields` that `input` would actually CHANGE on `current`.
+ *
+ * A PATCH that echoes the stored value back (a form that re-sends the whole
+ * record) is not a change and must not trip the lock; only a different value
+ * does. A key absent from `input` is untouched. Dates are compared by day.
+ */
+export function changedScheduleShapeFields(
+  input: Record<string, unknown>,
+  current: Record<string, unknown>,
+  fields: readonly string[],
+): string[] {
+  return fields.filter(
+    (field) =>
+      Object.prototype.hasOwnProperty.call(input, field) &&
+      input[field] !== undefined &&
+      comparableDate(input[field]) !== comparableDate(current[field]),
+  );
+}
+
+/**
  * Loads a project's lock state (scoped to workspaceId) and throws a
  * RuleError (422, code "project_locked") if it is locked. Returns the
  * project's id/is_locked/lock_reason otherwise.

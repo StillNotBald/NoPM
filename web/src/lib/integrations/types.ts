@@ -43,6 +43,16 @@ export type ApprovalEvent = {
   requestedByLabel: string;
   /** The HUMAN behind the request — excluded from the approver fan-out. */
   requesterPrincipalId: string | null;
+  /**
+   * The request's content version when this event was built: the request row's
+   * `updated_at`, which the table's trigger bumps on every edit. The card's
+   * action token is bound to it, so a card describing an OLD version can never
+   * approve a request that has been edited since (the bait-and-switch). Absent
+   * on events from code that does not know it: the hub then reads the current
+   * value when it mints the token. Request kinds with no editable content
+   * (deletions) carry none.
+   */
+  version?: string | null;
 };
 
 /** Emitted after a request is approved / rejected / withdrawn / reopened, from ANY channel. */
@@ -134,6 +144,15 @@ export type OutboundMessage = {
   receiveId: string;
   /** Adapter-specific body, e.g. a Lark card JSON 2.0 object. */
   body: Record<string, unknown>;
+  /**
+   * Stable per-delivery key (the delivery row id, at most 50 characters). The
+   * platform deduplicates sends that carry the same key for an hour, so a retry
+   * of a delivery whose first attempt actually landed (a timeout, a lost
+   * response) cannot produce a second message. It must NOT be derived from the
+   * card content: content that legitimately changes between attempts would
+   * then defeat the dedup.
+   */
+  idempotencyKey?: string;
 };
 
 export type DeliverResult =
@@ -159,6 +178,8 @@ export type InboundOutcome =
   | { status: "not_recipient" }
   | { status: "self_approval" }
   | { status: "already_decided"; newStatus?: string }
+  /** The request was edited after this card was sent; nothing was decided. */
+  | { status: "changed" }
   | { status: "forbidden"; message: string }
   | { status: "invalid"; message: string }
   | { status: "error"; message: string };
@@ -172,6 +193,10 @@ export type ConnectorAdapter = {
   renderApprovalCard(ev: ApprovalEvent, ctx: { actionToken: string; appUrl: string }): Record<string, unknown>;
   renderDecisionUpdate(ev: ApprovalDecidedEvent, ctx: { appUrl: string }): Record<string, unknown>;
   renderDigest(data: DigestData): Record<string, unknown>;
+  /** What an approval card is patched to when the request was edited and a new card replaces it. */
+  renderChangedUpdate(ev: ApprovalEvent, ctx: { appUrl: string }): Record<string, unknown>;
+  /** The single roll-up message sent instead of more cards once an approver hit the hourly card budget. */
+  renderBacklogNotice(ctx: { waiting: number; limit: number; appUrl: string }): Record<string, unknown>;
   /** Send a new message. */
   send(connector: ConnectorRow, secrets: LarkSecrets, msg: OutboundMessage): Promise<DeliverResult>;
   /** Replace the content of a previously sent card. */

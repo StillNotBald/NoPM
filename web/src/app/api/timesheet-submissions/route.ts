@@ -5,8 +5,15 @@ import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
-import { assertHasEntriesToSubmit, assertNoOpenDuplicate } from "@/lib/governance/timesheet-decision";
-import { announceRequested, principalOf, timesheetEvent } from "@/lib/governance/decide";
+import {
+  assertHasEntriesToSubmit,
+  assertNoOpenDuplicate,
+  summariseEntries,
+  TIMESHEET_ENTRY_COLUMNS,
+  timesheetContentDigest,
+  type TimesheetEntryRow,
+} from "@/lib/governance/timesheet-decision";
+import { announceRequested, requireMakerPrincipal, timesheetEvent } from "@/lib/governance/decide";
 import { createTimesheetSubmissionSchema, TIMESHEET_STATUSES } from "./_schema";
 
 export const runtime = "nodejs";
@@ -85,12 +92,19 @@ export const GET = route(async ({ actor, request }) => {
 
 /**
  * POST /api/timesheet-submissions — submit a weekly timesheet for a member
- * (time:submit). Snapshots hours_total/entry_count from time_entries in
- * [period_start, period_start + 6] at submit time (never recomputed
- * afterwards — mirrors the sprint snapshot precedent, migration 0037).
+ * (time:submit). Snapshots hours_total/entry_count — and a content digest of
+ * the entries — from time_entries in [period_start, period_start + 6] at
+ * submit time (never recomputed afterwards — mirrors the sprint snapshot
+ * precedent, migration 0037). The approval step is bound to that snapshot
+ * (422 `timesheet_changed` if the entries no longer match) and the week's
+ * entries are frozen while the sheet is under review (R1/H2).
+ *
+ * A token with no recorded owner can't submit (403 `no_principal`): the
+ * submitter's human is what four-eyes compares the approver against (R1/H3).
  */
 export const POST = route(async ({ actor, request }) => {
   requireScope(actor, "time:submit");
+  const submitterPrincipal = requireMakerPrincipal(actor);
 
   const body = await safeJson(request);
   const parsed = createTimesheetSubmissionSchema.safeParse(body);
@@ -128,20 +142,18 @@ export const POST = route(async ({ actor, request }) => {
   // Snapshot hours_total + entry_count from time_entries in the period.
   const { data: entries, error: entriesError } = await db
     .from("time_entries")
-    .select("hours")
+    .select(TIMESHEET_ENTRY_COLUMNS)
     .eq("member_id", parsed.data.member_id)
     .eq("workspace_id", actor.workspaceId)
     .gte("entry_date", periodStart)
     .lte("entry_date", periodEnd);
   if (entriesError) throw entriesError;
 
-  const rows = entries ?? [];
+  const rows = (entries ?? []) as TimesheetEntryRow[];
   assertHasEntriesToSubmit(rows.length);
 
-  const hoursTotal = rows.reduce((sum: number, e: { hours: number | string | null }) => {
-    const h = typeof e.hours === "string" ? Number(e.hours) : (e.hours ?? 0);
-    return sum + (Number.isFinite(h) ? h : 0);
-  }, 0);
+  const { hoursTotal } = summariseEntries(rows);
+  const contentDigest = timesheetContentDigest(rows);
 
   const { data: row, error } = await db
     .from("timesheet_submissions")
@@ -152,13 +164,14 @@ export const POST = route(async ({ actor, request }) => {
       period_end: periodEnd,
       hours_total: hoursTotal,
       entry_count: rows.length,
+      content_digest: contentDigest,
       status: "submitted",
       submitted_by: actor.id,
       submitted_by_type: actor.type,
       submitted_by_label: actor.label,
       // The HUMAN behind the submitter (the user, or the token's creator) —
       // four-eyes compares this, not the actor id.
-      submitted_principal_id: principalOf(actor),
+      submitted_principal_id: submitterPrincipal,
     })
     .select()
     .single();

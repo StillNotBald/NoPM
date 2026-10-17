@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
+import { assertSignoffOpen, statusFromVotes } from "@/lib/governance/rebaseline-lifecycle";
 import { signoffSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
@@ -17,6 +18,12 @@ export const runtime = "nodejs";
 // rebaseline_signoffs.approver_id — an FK to profiles — is always a real
 // profile). A token with no recorded owner can't vote: 403, not the FK 500 it
 // used to be.
+//
+// Votes are accepted only while the rebaseline is `pending_approval` (R1/M2):
+// a rejected rebaseline cannot be revived by flipping a vote, an applied one
+// cannot regress to approved, a draft is not awaiting sign-off. The status write
+// is a compare-and-set on that state, and the rebaselines trigger of migration
+// 0049 is the backstop.
 export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "rebaseline:approve");
   const principal = requirePrincipal(actor);
@@ -46,6 +53,8 @@ export const POST = route(async ({ actor, params, request }) => {
     principal,
     "Four-eyes: you cannot sign off a rebaseline you requested.",
   );
+
+  assertSignoffOpen(rebaseline.status);
 
   const body = await safeJson(request);
   const parsed = signoffSchema.safeParse(body);
@@ -93,29 +102,25 @@ export const POST = route(async ({ actor, params, request }) => {
 
   if (signoffsError) throw signoffsError;
 
-  const votes = allSignoffs ?? [];
-  const hasNoGo = votes.some((s) => s.vote === "no_go");
-  const hasGo = votes.some((s) => s.vote === "go");
-  const hasPending = votes.some((s) => s.vote === "pending");
-
-  let newStatus: string = rebaseline.status;
-  if (hasNoGo) {
-    newStatus = "rejected";
-  } else if (hasGo && !hasPending) {
-    newStatus = "approved";
-  }
+  const newStatus = statusFromVotes(allSignoffs ?? [], rebaseline.status);
 
   const beforeRebaseline = { ...rebaseline };
 
+  // Compare-and-set on the state the vote was accepted in: if a concurrent
+  // sign-off already decided the rebaseline, this write matches nothing.
   const { data: updatedRebaseline, error: updateError } = await db
     .from("rebaselines")
     .update({ status: newStatus })
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
+    .eq("status", "pending_approval")
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateError) throw updateError;
+  if (!updatedRebaseline) {
+    throw new RuleError("This rebaseline was decided while your vote was being recorded.", "rebaseline_not_pending");
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

@@ -3,7 +3,7 @@ import { NotFoundError, ScopeError } from "@/lib/api/errors";
 import { ok } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { externalActorRef, maskExternalId } from "@/lib/integrations/identity";
+import { maskedExternalRef } from "@/lib/integrations/identity";
 import { isIntegrationAdmin } from "@/lib/integrations/store";
 
 export const runtime = "nodejs";
@@ -53,7 +53,7 @@ export const DELETE = route(async ({ actor, params }) => {
     before: {
       connector_id: identity.connector_id,
       profile_id: identity.profile_id,
-      external_ref: externalActorRef(identity.provider, identity.external_tenant, maskExternalId(identity.external_user_id)),
+      external_ref: maskedExternalRef(identity.provider, identity.external_tenant, identity.external_user_id),
     },
     after: { revoked: true, unlinked_by_owner: identity.profile_id === actor.id },
   });

@@ -1,6 +1,7 @@
 "use client";
 
-import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 
@@ -115,7 +116,7 @@ export function MembersList({ rows }: { rows: MemberListRow[] }) {
 
       {/* >=md (and print): DataTable primitives */}
       <div className="hidden md:block print:block">
-        <Table bare className="min-w-[760px] print:min-w-0">
+        <ScrollTable bare label="Team members" className="print:min-w-0">
           <THead>
             <TR>
               <TH>Name</TH>
@@ -126,37 +127,58 @@ export function MembersList({ rows }: { rows: MemberListRow[] }) {
               <TH align="right">Free h/wk</TH>
               <TH align="right">Open tasks</TH>
               <TH align="right">Utilisation</TH>
-              <TH>
-                <span className="sr-only">Status</span>
-              </TH>
             </TR>
           </THead>
           <tbody>
             {rows.map((r) => (
               <TR key={r.id} className="hover:bg-sunken transition-colors duration-100 print:break-inside-avoid">
-                <TD className="font-medium">{r.name}</TD>
-                <TD className="text-ink-secondary">{r.roleTitle ?? dash}</TD>
-                <TD align="right" numeric className="text-ink-secondary">{r.costRateDisplay}</TD>
-                <TD align="right" numeric className="text-ink-secondary">{r.capacityDisplay ?? dash}</TD>
-                <TD align="right" numeric className={cn("font-medium", r.allocatedIsOver && "text-danger-ink")}>
+                <TD className="whitespace-nowrap font-medium">
+                  {r.name}
+                  {/* Stacked under the name (not a Status column of its own) so the badge costs no width. */}
+                  {r.allocatedIsOver && (
+                    <Badge tone="danger" size="sm" className="mt-0.5 flex w-fit">
+                      Over-allocated
+                    </Badge>
+                  )}
+                </TD>
+                <TD className="text-ink-secondary">
+                  {r.roleTitle ? (
+                    <span className="block max-w-[10rem] truncate" title={r.roleTitle}>
+                      {r.roleTitle}
+                    </span>
+                  ) : (
+                    dash
+                  )}
+                </TD>
+                <TD align="right" numeric className="whitespace-nowrap text-ink-secondary">{r.costRateDisplay}</TD>
+                <TD align="right" numeric className="whitespace-nowrap text-ink-secondary">{r.capacityDisplay ?? dash}</TD>
+                <TD
+                  align="right"
+                  numeric
+                  className={cn("whitespace-nowrap font-medium", r.allocatedIsOver && "text-danger-ink")}
+                >
                   {r.allocatedDisplay ?? dash}
                 </TD>
                 <TD
                   align="right"
                   numeric
                   className={cn(
-                    "font-medium",
+                    "whitespace-nowrap font-medium",
                     r.freeIsNegative ? "text-danger-ink" : r.freeIsZero ? "text-warning-ink" : "text-success-ink",
                   )}
                 >
                   {r.freeDisplay ? `${r.freeIsNegative ? "" : "+"}${r.freeDisplay}` : dash}
                 </TD>
-                <TD align="right" numeric className={r.openTasks > 0 ? "font-medium" : "text-ink-muted"}>
+                <TD
+                  align="right"
+                  numeric
+                  className={cn("whitespace-nowrap", r.openTasks > 0 ? "font-medium" : "text-ink-muted")}
+                >
                   {r.openTasks}
                 </TD>
-                <TD align="right">
-                  <div className="flex items-center justify-end gap-3">
-                    <div className="h-1.5 w-20 overflow-hidden rounded-full bg-sunken print:border print:border-border-subtle">
+                <TD align="right" className="whitespace-nowrap">
+                  <div className="flex items-center justify-end gap-2">
+                    <div className="h-1.5 w-14 overflow-hidden rounded-full bg-sunken print:border print:border-border-subtle">
                       <div
                         className={cn(
                           "h-full rounded-full",
@@ -170,11 +192,10 @@ export function MembersList({ rows }: { rows: MemberListRow[] }) {
                     </span>
                   </div>
                 </TD>
-                <TD>{r.allocatedIsOver ? <Badge tone="danger" size="sm">Over-allocated</Badge> : null}</TD>
               </TR>
             ))}
           </tbody>
-        </Table>
+        </ScrollTable>
       </div>
     </>
   );

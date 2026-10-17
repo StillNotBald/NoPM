@@ -9,6 +9,7 @@ import { RiskRow, type MyRisk } from "@/components/my-work/risk-row";
 import { IssueRow, type MyIssue } from "@/components/my-work/issue-row";
 import { ApprovalRow, type PendingApproval } from "@/components/my-work/approval-row";
 import { HotStrip, type HotItem } from "@/components/my-work/hot-strip";
+import { OPEN_ISSUE_STATUSES, OPEN_RISK_STATUSES } from "@/lib/insight/open-status";
 
 export const metadata = { title: "My Work" };
 
@@ -97,7 +98,7 @@ export default async function MyWorkPage() {
       .from("risks")
       .select("id, title, severity, status, due_date, project_id, reference_id")
       .eq("owner_id", userId)
-      .in("status", ["open", "mitigating"])
+      .in("status", [...OPEN_RISK_STATUSES])
       .order("due_date", { ascending: true, nullsFirst: false }),
 
     // Issues owned by me — open/in_progress
@@ -105,13 +106,13 @@ export default async function MyWorkPage() {
       .from("issues")
       .select("id, title, priority, status, due_date, project_id, reference_id")
       .eq("owner_id", userId)
-      .in("status", ["open", "in_progress"])
+      .in("status", [...OPEN_ISSUE_STATUSES])
       .order("due_date", { ascending: true, nullsFirst: false }),
 
     // Deletion requests pending approval — exclude ones I requested
     db
       .from("deletion_requests")
-      .select("id, target_type, target_id, requested_by_label, reason, created_at")
+      .select("id, target_type, target_id, requested_by_label, reason, created_at, before")
       .eq("status", "pending")
       .neq("requested_by_id", userId)
       .order("created_at", { ascending: false }),
@@ -135,14 +136,14 @@ export default async function MyWorkPage() {
           .from("risks")
           .select("id, title, severity, status, project_id")
           .in("project_id", [...myProjectIds])
-          .in("status", ["open", "mitigating"])
+          .in("status", [...OPEN_RISK_STATUSES])
           .in("severity", ["high", "critical"])
           .order("severity", { ascending: false }),
         db
           .from("issues")
           .select("id, title, priority, status, project_id")
           .in("project_id", [...myProjectIds])
-          .in("status", ["open", "in_progress"])
+          .in("status", [...OPEN_ISSUE_STATUSES])
           .in("priority", ["high", "urgent"])
           .order("priority", { ascending: false }),
       ])
@@ -175,7 +176,15 @@ export default async function MyWorkPage() {
   }));
 
   // ── Approvals ─────────────────────────────────────────────────────────────
-  const approvals: PendingApproval[] = (approvalsResult.data ?? []) as PendingApproval[];
+  // `before` is the snapshot taken when deletion was requested; its name says
+  // what is being approved (the row used to show only "task 4e84fef8…").
+  const approvals: PendingApproval[] = (approvalsResult.data ?? []).map((a) => {
+    const { before, ...rest } = a as typeof a & { before?: { name?: unknown } | null };
+    return {
+      ...(rest as PendingApproval),
+      target_name: typeof before?.name === "string" && before.name ? before.name : null,
+    };
+  });
 
   // ── Hot strip ─────────────────────────────────────────────────────────────
   const hotItems: HotItem[] = [];
@@ -237,7 +246,7 @@ export default async function MyWorkPage() {
         action={
           <Link
             href="/email-previews"
-            className="inline-flex items-center gap-1.5 rounded text-xs text-ink-muted transition-colors hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            className="focus-ring inline-flex min-h-11 items-center gap-1.5 rounded text-xs text-ink-muted transition-colors hover:text-accent hover:underline sm:min-h-0"
           >
             <Mail size={14} />
             Email previews
@@ -272,7 +281,9 @@ export default async function MyWorkPage() {
       </Section>
 
       {/* My risks / issues */}
-      <div className="grid gap-6 md:grid-cols-[repeat(2,minmax(0,1fr))]">
+      {/* grid-cols-1 + min-w-0: with no base track the single column was sized
+          by its widest content, scrolling the whole page sideways on a phone */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[repeat(2,minmax(0,1fr))] [&>*]:min-w-0">
         <Section
           title="My risks"
           count={risks.length}

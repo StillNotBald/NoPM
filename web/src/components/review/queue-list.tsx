@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
+import { SegmentedControl, type SegmentOption } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
 import { ApprovalInlineAction, ChangeInlineAction, TimesheetInlineAction } from "@/components/review/inline-action";
@@ -103,7 +104,7 @@ function AgeChip({ days }: { days: number }) {
   return (
     <span
       className={cn(
-        "shrink-0 font-mono text-[11px] tabular-nums text-ink-muted",
+        "shrink-0 font-mono text-2xs tabular-nums text-ink-muted",
         days >= 7 && "text-warning-ink",
         days >= 14 && "text-danger-ink",
       )}
@@ -116,6 +117,10 @@ function AgeChip({ days }: { days: number }) {
 // ── Row content (shared between link and button rows) ─────────────────────────
 
 function RowContent({ item }: { item: ReviewItem }) {
+  // The server says whether THIS viewer may decide the item; when they can't,
+  // the row reads "View" (never an Approve / Reject that would be refused).
+  const blocked = item.decide !== undefined && !item.decide.canDecide;
+  const raisedByMe = item.decide?.block === "you_raised" || item.decide?.block === "your_token_raised";
   return (
     <>
       {/* Kind badge */}
@@ -124,15 +129,19 @@ function RowContent({ item }: { item: ReviewItem }) {
       </Badge>
 
       {/* Title — full row width on phones (its own line once the row
-          wraps) so it isn't squeezed to a handful of characters next to
-          four other chips; reverts to sharing the row inline at sm+. */}
-      <span className="w-full min-w-0 truncate font-medium text-ink sm:w-auto sm:flex-1">
+          wraps, up to two lines) so it isn't squeezed to a handful of
+          characters next to four other chips; reverts to sharing the row
+          inline, one line, at sm+. */}
+      <span
+        className="line-clamp-2 w-full min-w-0 break-words font-medium text-ink sm:line-clamp-1 sm:w-auto sm:flex-1"
+        title={item.title}
+      >
         {item.title}
       </span>
 
       {/* Project chip */}
       {item.project && (
-        <span className="shrink-0 rounded bg-sunken border border-border-subtle px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+        <span className="shrink-0 rounded bg-sunken border border-border-subtle px-1.5 py-0.5 font-mono text-2xs text-ink-muted">
           {item.project}
         </span>
       )}
@@ -142,12 +151,19 @@ function RowContent({ item }: { item: ReviewItem }) {
         <Severity level={item.severity} className="shrink-0" />
       )}
 
+      {raisedByMe && <span className="shrink-0 text-2xs text-ink-muted">raised by you</span>}
+
       {/* Age */}
       <AgeChip days={item.ageDays} />
 
       {/* Action label */}
-      <span className="shrink-0 rounded-md bg-accent px-2 py-1 font-mono text-[11px] font-medium text-accent-ink">
-        {item.actionLabel}
+      <span
+        className={cn(
+          "shrink-0 rounded-md px-2 py-1 font-mono text-2xs font-medium",
+          blocked ? "bg-sunken text-ink-secondary" : "bg-accent text-accent-ink",
+        )}
+      >
+        {blocked ? "View" : item.actionLabel}
       </span>
     </>
   );
@@ -257,46 +273,22 @@ function FilterTabs({
 
   if (visibleTabs.length <= 1) return null; // nothing to filter
 
+  const options: SegmentOption<FilterKind>[] = visibleTabs.map((tab) => ({
+    value: tab.key,
+    label: tab.label,
+    count: counts.get(tab.key) ?? 0,
+  }));
+
+  // A real single-select (radiogroup, arrow keys, roving tab stop) rather than
+  // a tablist with no panels.
   return (
-    <div
-      role="tablist"
-      aria-label="Filter review queue by kind"
-      className="flex flex-wrap gap-1.5"
-    >
-      {visibleTabs.map((tab) => {
-        const count = counts.get(tab.key) ?? 0;
-        const isActive = active === tab.key;
-        return (
-          <button
-            key={tab.key}
-            role="tab"
-            aria-selected={isActive}
-            type="button"
-            onClick={() => onChange(tab.key)}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md border px-3 py-1.5 font-mono text-xs font-medium transition-colors",
-              isActive
-                ? "border-border-strong bg-canvas text-ink shadow-sm"
-                : "border-border-subtle bg-surface text-ink-secondary hover:bg-sunken hover:text-ink",
-            )}
-          >
-            <span>{tab.label}</span>
-            {count > 0 && (
-              <span
-                className={cn(
-                  "rounded-full px-1.5 py-0.5 text-2xs tabular-nums",
-                  isActive
-                    ? "bg-accent text-accent-ink"
-                    : "bg-sunken text-ink-muted",
-                )}
-              >
-                {count}
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
+    <SegmentedControl<FilterKind>
+      label="Filter review queue by kind"
+      options={options}
+      value={active}
+      onChange={onChange}
+      size="md"
+    />
   );
 }
 

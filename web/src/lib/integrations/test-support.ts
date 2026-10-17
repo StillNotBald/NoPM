@@ -24,7 +24,13 @@ type Filter = (row: Row) => boolean;
 type PgError = { code?: string; message: string };
 type Result = { data: unknown; error: PgError | null; count: number | null };
 
-type UniqueSpec = { name: string; cols: string[]; where?: (row: Row) => boolean };
+type UniqueSpec = {
+  name: string;
+  cols: string[];
+  where?: (row: Row) => boolean;
+  /** Expression index: the computed key (null = never collides, like a SQL NULL). Replaces `cols`. */
+  key?: (row: Row) => string | null;
+};
 
 const nowIso = () => new Date().toISOString();
 
@@ -75,7 +81,7 @@ const DEFAULTS: Record<string, () => Row> = {
   audit_log: () => ({ created_at: nowIso() }),
 };
 
-/** The unique indexes of migration 0046 (partial predicates included). */
+/** The unique indexes of migrations 0046, 0051 and 0053 (partial predicates included). */
 const UNIQUES: Record<string, UniqueSpec[]> = {
   integration_connectors: [
     { name: "uniq_live_connector_per_kind", cols: ["workspace_id", "kind"], where: (r) => r.status !== "revoked" },
@@ -96,6 +102,30 @@ const UNIQUES: Record<string, UniqueSpec[]> = {
       where: (r) => r.kind === "approval_card" && (r.status === "pending" || r.status === "retry"),
     },
     { name: "uniq_decision_update_per_card", cols: ["parent_delivery_id"], where: (r) => r.kind === "decision_update" },
+    // 0053: one backlog roll-up per approver per hour
+    {
+      name: "uniq_backlog_notice_per_hour",
+      cols: [],
+      where: (r) =>
+        r.kind === "bot_reply" && (r.payload as Row | null)?.notice === "backlog" && r.status !== "superseded",
+      key: (r) => {
+        const hour = (r.payload as Row | null)?.notice_hour;
+        return typeof hour === "string" ? `${String(r.connector_id)}|${String(r.recipient_profile_id)}|${hour}` : null;
+      },
+    },
+    // 0051: one live scheduled digest per connector per ISO week
+    {
+      name: "uniq_scheduled_digest_per_week",
+      cols: [],
+      where: (r) =>
+        r.kind === "digest" &&
+        (r.payload as Row | null)?.trigger === "scheduled" &&
+        r.status !== "superseded",
+      key: (r) => {
+        const week = (r.payload as Row | null)?.week_start;
+        return typeof week === "string" ? `${String(r.connector_id)}|${week}` : null;
+      },
+    },
   ],
   action_tokens: [{ name: "token_hash_key", cols: ["token_hash"] }],
   inbound_actions: [{ name: "inbound_actions_unique", cols: ["connector_id", "external_event_id"] }],
@@ -366,9 +396,13 @@ class FakeQuery implements PromiseLike<Result> {
       for (const row of built) {
         for (const spec of UNIQUES[table] ?? []) {
           if (spec.where && !spec.where(row)) continue;
+          const mine = spec.key ? spec.key(row) : null;
           const clash = [...existing, ...accepted].some(
             (other) =>
-              (!spec.where || spec.where(other)) && spec.cols.every((c) => other[c] === row[c] && row[c] != null),
+              (!spec.where || spec.where(other)) &&
+              (spec.key
+                ? mine !== null && spec.key(other) === mine
+                : spec.cols.every((c) => other[c] === row[c] && row[c] != null)),
           );
           if (clash) {
             return {
@@ -401,6 +435,8 @@ class FakeQuery implements PromiseLike<Result> {
 
 export const WS = "11111111-1111-4111-8111-111111111111";
 export const OTHER_WS = "22222222-2222-4222-8222-222222222222";
+/** The content version (updated_at) the seeded change request / timesheet starts at. */
+export const REQUEST_VERSION = "2026-10-16T08:00:00.000Z";
 export const CONNECTOR_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 export const ids = {
@@ -455,7 +491,20 @@ export function seedWorkspace(db: FakeDb, connector: ConnectorRow = connectorRow
     { id: ids.viewer, workspace_id: WS, role: "viewer", display_name: "Vi Viewer", email: "vi@example.test" },
     { id: ids.requester, workspace_id: WS, role: "manager", display_name: "Rae Requester", email: "rae@example.test" },
   ]);
+  seedPendingRequests(db);
   return connector;
+}
+
+/**
+ * The governed requests behind `ids.approval`, all still awaiting a decision
+ * (one per source table, same id). A card is only sent for a request that is
+ * pending, so a drain test needs the row to exist. Flip `status` to simulate
+ * a decision that landed meanwhile.
+ */
+export function seedPendingRequests(db: FakeDb, id: string = ids.approval, workspaceId: string = WS): void {
+  db.seed("deletion_requests", [{ id, workspace_id: workspaceId, status: "pending", target_type: "task" }]);
+  db.seed("change_requests", [{ id, workspace_id: workspaceId, status: "raised", updated_at: REQUEST_VERSION }]);
+  db.seed("timesheet_submissions", [{ id, workspace_id: workspaceId, status: "submitted", updated_at: REQUEST_VERSION }]);
 }
 
 /** Link a profile to a platform user on the standard connector. */
@@ -498,6 +547,8 @@ export function createFakeAdapter() {
     },
     renderDecisionUpdate: (ev) => ({ card: "decided", status: ev.status }),
     renderDigest: (data) => ({ card: "digest", projects: data.projects.length }),
+    renderChangedUpdate: (ev) => ({ card: "changed", title: ev.title }),
+    renderBacklogNotice: (ctx) => ({ card: "backlog", waiting: ctx.waiting, limit: ctx.limit }),
     send: async (_connector, _secrets, msg) => {
       calls.sends.push(msg);
       return state.sendResult();

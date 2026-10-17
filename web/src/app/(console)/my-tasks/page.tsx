@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
+import { QueryError } from "@/components/ui/query-error";
 import { TaskList, type ProjectTask } from "@/components/my-tasks/task-list";
 
 export const metadata = { title: "My Tasks" };
@@ -34,13 +35,7 @@ export default async function MyTasksPage() {
         .order("due_date", { ascending: true, nullsFirst: false })
     : { data: [], error: null };
 
-  if (error) {
-    return (
-      <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <p className="text-sm text-danger-ink">Failed to load tasks: {error.message}</p>
-      </div>
-    );
-  }
+  if (error) return <QueryError what="tasks" message={error.message} />;
 
   // Flatten joined shape into a flat ProjectTask
   const tasks: ProjectTask[] = (rows ?? []).map((row) => {

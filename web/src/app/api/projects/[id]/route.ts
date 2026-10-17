@@ -7,8 +7,14 @@ import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
-import { actorLabel, announceRequested, principalOf } from "@/lib/governance/decide";
-import { assertProjectUnlocked } from "@/lib/governance/lock";
+import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
+import {
+  assertProjectUnlocked,
+  changedScheduleShapeFields,
+  SCHEDULE_SHAPE_PROJECT_FIELDS,
+} from "@/lib/governance/lock";
+import { CHILD_COUNTS_KEY, projectChildCounts } from "@/lib/governance/project-children";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { updateProjectSchema, ProjectDeleteRequestSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -32,6 +38,15 @@ export const GET = route(async ({ actor, params }) => {
 });
 
 // PATCH /api/projects/[id] — partial update (project:write)
+//
+// A LOCKED project's baseline is frozen (R1/H1): changing start_date,
+// target_date or either baseline_* date is refused with 422 `project_locked`,
+// exactly as it is for tasks and milestones — the way to move a frozen baseline
+// is a governed unlock or an approved rebaseline, never one holder of
+// project:write. Name, owner, RAG, commentary, etc. stay live. The projects
+// trigger of migration 0049 is the DB backstop. A field echoed back with its
+// stored value is not a change. `owner_id` must be a member of THIS workspace
+// (a foreign id would push notifications across tenants).
 export const PATCH = route(async ({ actor, params, request }) => {
   requireScope(actor, "project:write");
 
@@ -64,6 +79,25 @@ export const PATCH = route(async ({ actor, params, request }) => {
   // the caller doesn't send it (today's last-write-wins, unchanged).
   const { expected_updated_at, ...fields } = parsed.data;
   checkOptimisticConcurrency(before.updated_at, expected_updated_at);
+
+  const frozenFields = changedScheduleShapeFields(fields, before, SCHEDULE_SHAPE_PROJECT_FIELDS);
+  if (frozenFields.length > 0) {
+    await assertProjectUnlocked(db, params.id, actor.workspaceId, () =>
+      writeAudit({
+        workspaceId: actor.workspaceId,
+        actor,
+        action: "project.update.blocked",
+        targetType: "project",
+        targetId: params.id,
+        before: null,
+        after: { reason: "project_locked", project_id: params.id, fields: frozenFields },
+      }),
+    );
+  }
+
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: fields.owner_id, field: "owner_id" },
+  ]);
 
   const now = new Date().toISOString();
   let query = db
@@ -119,6 +153,9 @@ export const PATCH = route(async ({ actor, params, request }) => {
  */
 export const DELETE = route(async ({ actor, params, request }) => {
   requireScope(actor, "project:delete:request");
+  // A token with no recorded owner can't raise the request (R1/H3): its
+  // requester principal would be null, comparable to nobody.
+  const requesterPrincipal = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
 
@@ -181,6 +218,11 @@ export const DELETE = route(async ({ actor, params, request }) => {
 
   const { reason } = parsed.data;
 
+  // R1/M5: snapshot what hangs off the project, not only the project row. The
+  // approval is refused (422 `children_changed`) if the project gained records
+  // since — see lib/governance/project-children.ts.
+  const snapshot = { ...project, [CHILD_COUNTS_KEY]: await projectChildCounts(db, params.id) };
+
   const { data: deletionRequest, error: insertError } = await db
     .from("deletion_requests")
     .insert({
@@ -194,8 +236,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
       requested_by_label: actor.label,
       // The HUMAN behind the requester (the user, or the token's creator) —
       // four-eyes compares this, not the actor id.
-      requested_principal_id: principalOf(actor),
-      before: project,
+      requested_principal_id: requesterPrincipal,
+      before: snapshot,
     })
     .select()
     .single();
@@ -210,7 +252,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
     action: "project.delete_requested",
     targetType: "project",
     targetId: params.id,
-    before: project,
+    before: snapshot,
     after: null,
   });
 
@@ -237,7 +279,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
     projectId: params.id,
     projectName: project.name ?? null,
     requestedByLabel: actorLabel(actor),
-    requesterPrincipalId: principalOf(actor),
+    requesterPrincipalId: requesterPrincipal,
   });
 
   // Return 202 Accepted with the deletion_request

@@ -3,6 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { EntityLink } from "@/components/ui/entity-link";
+import { formatByPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 export interface MyRisk {
   id: string;
@@ -22,19 +24,12 @@ function statusTone(s: string) {
   return "neutral" as const;
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 export function RiskRow({ risk }: { risk: MyRisk }) {
+  const pref = useDateDisplayPref();
+  const due = risk.due_date ? formatByPref(risk.due_date, pref) : null;
   return (
     <div className="flex flex-col gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken sm:flex-row sm:items-center sm:gap-3 sm:py-2">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-h-11 min-w-0 items-center gap-3 sm:min-h-0">
         {/* Reference chip */}
         {risk.reference_id && (
           <span className="shrink-0 rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
@@ -46,7 +41,7 @@ export function RiskRow({ risk }: { risk: MyRisk }) {
         <EntityLink
           kind="risk"
           id={risk.id}
-          className="min-w-0 flex-1 font-medium"
+          className="min-w-0 flex-1 self-stretch font-medium"
         >
           {risk.title}
         </EntityLink>
@@ -70,8 +65,11 @@ export function RiskRow({ risk }: { risk: MyRisk }) {
 
         {/* Due date */}
         {risk.due_date && (
-          <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted">
-            {formatDate(risk.due_date)}
+          <span
+            title={due?.absolute}
+            className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted"
+          >
+            {due?.text}
           </span>
         )}
       </div>

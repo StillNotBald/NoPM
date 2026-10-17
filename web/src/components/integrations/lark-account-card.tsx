@@ -73,6 +73,16 @@ export function LarkAccountCard({
   }, [linked, mint, toast]);
 
   const connectorBlocksLinking = connectorKnown && (connector === null || connector.status !== "active");
+  // One sentence that names the prerequisite (and where to meet it), instead of an alert PLUS a
+  // faded, disabled button whose reason lives somewhere else.
+  const prerequisite =
+    connector === null
+      ? isAdmin
+        ? "Connect Lark in the card above first. Then you can link your own account here."
+        : "You can link your account once a workspace admin has connected Lark."
+      : isAdmin
+        ? "Lark is paused. Resume it above, then link your account here."
+        : "You can link your account once an admin resumes Lark.";
 
   async function handleMint() {
     setMinting(true);
@@ -145,19 +155,9 @@ export function LarkAccountCard({
   } else {
     body = (
       <div className="space-y-4">
-        {connectorBlocksLinking && (
-          <InlineAlert tone="neutral">
-            {connector === null
-              ? isAdmin
-                ? "Lark isn't connected yet. Connect it above, then link your account here."
-                : "Lark isn't connected yet. Ask a workspace admin to connect it, then come back to link your account."
-              : isAdmin
-                ? "Lark is paused. Resume it above to link your account."
-                : "Lark is paused for this workspace. You can link once an admin resumes it."}
-          </InlineAlert>
-        )}
-
-        {mint && !expired ? (
+        {connectorBlocksLinking ? (
+          <p className="text-sm text-ink-secondary">{prerequisite}</p>
+        ) : mint && !expired ? (
           <div className="space-y-3 rounded-lg border border-border-subtle bg-sunken p-4">
             <p className="text-sm text-ink">
               Open a direct chat with the NoPM bot in Lark and send this message:
@@ -176,7 +176,7 @@ export function LarkAccountCard({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-ink-secondary">
-              Link your Lark account so approval requests assigned to you reach you in chat.
+              You&apos;ll get a one-time code to send to the NoPM bot in a direct chat in Lark.
             </p>
             {mint && expired && <InlineAlert tone="neutral">That code has expired. Create a new one.</InlineAlert>}
             {mintError && <InlineAlert>{mintError}</InlineAlert>}
@@ -185,7 +185,7 @@ export function LarkAccountCard({
               size="md"
               className="h-11 w-full sm:h-10 sm:w-auto"
               onClick={handleMint}
-              disabled={minting || connectorBlocksLinking}
+              disabled={minting}
             >
               {minting ? (
                 <>

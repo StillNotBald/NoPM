@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
+import type { DecideState } from "@/components/governance/four-eyes-note";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import {
@@ -51,6 +52,12 @@ export interface ChangeRequest {
   target_date: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Whether the signed-in viewer may decide this request, worked out on the
+   * server (lib/review/four-eyes). Derived, never stored; absent on rows that
+   * did not come through the change-control page.
+   */
+  decide?: DecideState;
 }
 
 type Project = { id: string; name: string };
@@ -313,7 +320,7 @@ export function ChangeForm({
                     <p className="flex h-11 items-center text-sm text-ink sm:h-10">
                       {STATUS_LABEL[changeRequest.status]}
                     </p>
-                    <p className="text-[11px] text-ink-muted">
+                    <p className="text-2xs text-ink-muted">
                       Status changes through an approval decision, not this form.
                     </p>
                   </>

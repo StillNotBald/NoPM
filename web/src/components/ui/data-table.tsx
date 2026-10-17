@@ -14,7 +14,6 @@
  * `Table` wraps in a bordered, horizontally scrollable surface. Pass `bare`
  * to skip the border (the table still scrolls inside its own container, so
  * the page never scrolls horizontally).
- * Not yet adopted by pages (later waves migrate them).
  */
 import type { HTMLAttributes, TdHTMLAttributes, ThHTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
@@ -85,7 +84,7 @@ export function TD({
 }: TdHTMLAttributes<HTMLTableCellElement> & { align?: Align; numeric?: boolean }) {
   return (
     <td
-      className={cn("text-ink", alignClass[align], numeric && "font-mono tabular-nums", className)}
+      className={cn("text-ink", alignClass[align], numeric && "whitespace-nowrap font-mono tabular-nums", className)}
       style={{ ...cellPad, ...style }}
       {...props}
     />

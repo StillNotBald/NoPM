@@ -2,8 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import type { Actor } from "@/lib/auth/guard";
 import {
+  FEED_PAST_DAYS,
+  clientAddress,
+  etagMatches,
+  feedEtag,
   feedOwner,
+  feedRateCheck,
   feedUrl,
+  feedWindowStart,
   generateFeedToken,
   parseFeedSegment,
   publicBaseUrl,
@@ -107,5 +113,89 @@ describe("publicBaseUrl and feedUrl", () => {
     expect(feedUrl("https://nopm.example.com", `npc_${VALID_BODY}`)).toBe(
       `https://nopm.example.com/api/calendar/npc_${VALID_BODY}.ics`,
     );
+  });
+});
+
+describe("feedWindowStart", () => {
+  it("is the UTC date FEED_PAST_DAYS before now", () => {
+    expect(FEED_PAST_DAYS).toBe(90);
+    expect(feedWindowStart(new Date("2026-10-17T10:00:00.000Z"))).toBe("2026-07-19");
+    expect(feedWindowStart(new Date("2026-10-17T23:59:59.999Z"))).toBe("2026-07-19");
+    expect(feedWindowStart(new Date("2027-02-01T00:00:00.000Z"))).toBe("2026-11-03"); // across a year-end
+  });
+
+  it("keeps every request in a day on the same boundary so the body stays byte-identical", () => {
+    expect(feedWindowStart(new Date("2026-10-17T00:00:00Z"))).toBe(feedWindowStart(new Date("2026-10-17T23:59:00Z")));
+  });
+});
+
+describe("feedEtag and etagMatches", () => {
+  it("is a quoted, stable 128-bit tag of the body", () => {
+    const tag = feedEtag("BEGIN:VCALENDAR\r\n");
+    expect(tag).toMatch(/^"[0-9a-f]{32}"$/);
+    expect(feedEtag("BEGIN:VCALENDAR\r\n")).toBe(tag);
+    expect(feedEtag("BEGIN:VCALENDAR\r\n ")).not.toBe(tag);
+  });
+
+  it("matches an exact tag, a weak tag, a member of a list and the wildcard", () => {
+    const tag = feedEtag("body");
+    expect(etagMatches(tag, tag)).toBe(true);
+    expect(etagMatches(`W/${tag}`, tag)).toBe(true);
+    expect(etagMatches(`"other", ${tag} , "x"`, tag)).toBe(true);
+    expect(etagMatches("*", tag)).toBe(true);
+  });
+
+  it("does not match a different tag, an empty header or none at all", () => {
+    const tag = feedEtag("body");
+    expect(etagMatches(feedEtag("other body"), tag)).toBe(false);
+    expect(etagMatches("", tag)).toBe(false);
+    expect(etagMatches(null, tag)).toBe(false);
+  });
+});
+
+describe("clientAddress", () => {
+  const req = (headers: Record<string, string>) => new Request("http://x.test/", { headers });
+
+  it("takes the first address of x-forwarded-for, then x-real-ip, then 'unknown'", () => {
+    expect(clientAddress(req({ "x-forwarded-for": "203.0.113.7, 10.0.0.1", "x-real-ip": "198.51.100.2" }))).toBe("203.0.113.7");
+    expect(clientAddress(req({ "x-real-ip": "198.51.100.2" }))).toBe("198.51.100.2");
+    expect(clientAddress(req({}))).toBe("unknown");
+  });
+
+  it("keeps the value harmless as a counter key: bounded length, no odd characters", () => {
+    const key = clientAddress(req({ "x-forwarded-for": `${"9".repeat(200)}';select 1;--` }));
+    expect(key.length).toBeLessThanOrEqual(64);
+    expect(key).toMatch(/^[0-9a-zA-Z:.%_-]+$/);
+    expect(clientAddress(req({ "x-forwarded-for": "2001:db8::1" }))).toBe("2001:db8::1");
+  });
+});
+
+describe("feedRateCheck", () => {
+  const db = (reply: { data: unknown; error: { message: string } | null }) => ({
+    calls: [] as unknown[],
+    rpc(fn: string, args: Record<string, unknown>) {
+      this.calls.push({ fn, args });
+      return Promise.resolve(reply);
+    },
+  });
+
+  it("asks the shared fixed-window counter for a 60 second window", async () => {
+    const d = db({ data: { allowed: true, remaining: 5, retry_after_seconds: 0 }, error: null });
+    expect(await feedRateCheck(d, "cal:abc", 60)).toEqual({ allowed: true, retryAfterSeconds: 0 });
+    expect(d.calls).toEqual([{ fn: "nopm_rate_check", args: { p_key: "cal:abc", p_max: 60, p_window_seconds: 60 } }]);
+  });
+
+  it("reports a refusal with how long to wait", async () => {
+    const d = db({ data: { allowed: false, remaining: 0, retry_after_seconds: 17 }, error: null });
+    expect(await feedRateCheck(d, "cal:abc", 60)).toEqual({ allowed: false, retryAfterSeconds: 17 });
+  });
+
+  it("fails open, loudly, when the counter errors", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const d = db({ data: null, error: { message: "rpc down" } });
+    expect(await feedRateCheck(d, "cal-ip:203.0.113.7", 120)).toEqual({ allowed: true, retryAfterSeconds: 0 });
+    expect(log).toHaveBeenCalled();
+    expect(JSON.stringify(log.mock.calls)).not.toContain("203.0.113.7"); // the address is not logged
+    log.mockRestore();
   });
 });

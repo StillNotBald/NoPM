@@ -37,7 +37,7 @@ export function ProgramBarCard({
         <div className="min-w-0">
           <CardTitle>By Program</CardTitle>
           <span className="mt-0.5 block text-xs text-ink-muted font-mono truncate">
-            {programs.length} programs{filterLabel ? ` · ${filterLabel}` : ""}
+            {programs.length} program{programs.length === 1 ? "" : "s"}{filterLabel ? ` · ${filterLabel}` : ""}
           </span>
         </div>
         {fetchedAt && <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />}

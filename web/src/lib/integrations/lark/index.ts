@@ -11,7 +11,13 @@
  */
 
 import type { ConnectorAdapter } from "@/lib/integrations/types";
-import { buildApprovalRequestCard, buildDecisionUpdateCard, buildDigestCard } from "./cards";
+import {
+  buildApprovalRequestCard,
+  buildBacklogNoticeCard,
+  buildChangedUpdateCard,
+  buildDecisionUpdateCard,
+  buildDigestCard,
+} from "./cards";
 import { patchCard, sendCard, testBot } from "./client";
 
 export const larkAdapter: ConnectorAdapter = {
@@ -20,6 +26,8 @@ export const larkAdapter: ConnectorAdapter = {
   // The decision time is "when we render the update": the hub patches cards the moment a decision lands.
   renderDecisionUpdate: (ev, ctx) => buildDecisionUpdateCard(ev, { appUrl: ctx.appUrl, decidedAt: new Date() }),
   renderDigest: (data) => buildDigestCard(data),
+  renderChangedUpdate: (ev, ctx) => buildChangedUpdateCard(ev, ctx),
+  renderBacklogNotice: (ctx) => buildBacklogNoticeCard(ctx),
   send: (connector, secrets, msg) => sendCard(connector, secrets, msg),
   update: (connector, secrets, externalMessageId, body) => patchCard(connector, secrets, externalMessageId, body),
   testConnection: (connector, secrets) => testBot(connector, secrets),

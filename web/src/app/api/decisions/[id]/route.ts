@@ -1,10 +1,11 @@
 import { route } from "@/lib/api/handler";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { updateDecisionSchema } from "@/app/api/decisions/_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  if (input.supersedes === params.id) {
+    return validationError("Validation failed", [
+      { field: "supersedes", message: "a decision cannot supersede itself" },
+    ]);
+  }
+  // Cross-tenant guard: `supersedes` is a decision and must belong to THIS
+  // workspace (see the matching note on POST /api/projects/:id/decisions).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "decisions", id: input.supersedes, field: "supersedes" },
+  ]);
 
   const updates: Record<string, unknown> = {};
   if (input.title !== undefined) updates.title = input.title;
@@ -107,12 +119,35 @@ export const DELETE = route(async ({ actor, params }) => {
   if (fetchError) throw new Error(fetchError.message);
   if (!existing) throw new NotFoundError("Decision not found");
 
+  // decisions.supersedes is a NO ACTION foreign key: deleting a decision that
+  // another decision supersedes used to fail with a raw 500. Say so instead.
+  const { data: dependent, error: dependentError } = await db
+    .from("decisions")
+    .select("id, reference_id")
+    .eq("workspace_id", actor.workspaceId)
+    .eq("supersedes", params.id)
+    .limit(1)
+    .maybeSingle();
+  if (dependentError) throw new Error(dependentError.message);
+  if (dependent) {
+    throw new RuleError(
+      `Decision is superseded by ${dependent.reference_id ?? dependent.id} — remove that link before deleting it`,
+      "decision_in_use",
+    );
+  }
+
   const { error: deleteError } = await db
     .from("decisions")
     .delete()
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId);
 
+  // 23503 = foreign_key_violation: something we cannot see from this workspace
+  // still points here (a link written before cross-tenant references were
+  // refused). A rule failure, not a server error.
+  if (deleteError?.code === "23503") {
+    throw new RuleError("Decision is still referenced by another record", "decision_in_use");
+  }
   if (deleteError) throw new Error(deleteError.message);
 
   await writeAudit({

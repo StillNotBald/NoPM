@@ -37,6 +37,7 @@ import {
   MAX_REJECT_REASON,
   buildDecidedCard,
   buildHelpCard,
+  buildLinkReplacedCard,
   buildLinkConfirmationCard,
   buildNoticeCard,
   buildPendingApprovalsCard,
@@ -119,9 +120,14 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 200) : "unknown error";
 }
 
-/** Postgres text cannot hold NUL; control characters (other than tab / newline) have no business in an audit note. */
+/**
+ * Postgres text cannot hold NUL; control characters (other than tab / newline)
+ * have no business in an audit note. Bidirectional controls go too: a reject
+ * reason is stored verbatim in the audit trail and shown to other people, and
+ * U+202E and friends can make one sentence read as another.
+ */
 function cleanNote(raw: string): string {
-  return raw.replace(/[^\P{Cc}\t\n\r]/gu, "").trim();
+  return raw.replace(/[^\P{Cc}\t\n\r]/gu, "").replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "").trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +281,11 @@ function outcomeToResponse(ctx: LarkHandlerContext, deps: LarkHandlerDeps, outco
       return cardCallbackResponse("error", "You cannot decide a request you raised (four-eyes). Ask another approver.");
     case "already_decided":
       return cardCallbackResponse("info", "Already decided. This card will refresh shortly.");
+    case "changed":
+      return cardCallbackResponse(
+        "warning",
+        "This request changed after the card was sent, so nothing was decided. Open the new card, or open NoPM to review it.",
+      );
     case "forbidden":
       return cardCallbackResponse("error", outcome.message || "You do not have permission to decide this request.");
     case "invalid":
@@ -371,7 +382,22 @@ async function processMessageEvent(ctx: LarkHandlerContext, envelope: LarkEnvelo
         externalUnionId: str(senderId.union_id) || null,
         externalEventId: eventId,
       });
-      return reply(linkOutcomeCard(ctx, deps, res));
+      await reply(linkOutcomeCard(ctx, deps, res));
+      // The link replaced an earlier one: tell the account that just lost it.
+      // Best-effort, and only after the new account has its confirmation.
+      if (res.status === "linked" && res.displaced) {
+        for (const old of res.displaced) {
+          const sent = await deps
+            .send(ctx.connector, ctx.secrets, {
+              receiveIdType: "open_id",
+              receiveId: old.externalUserId,
+              body: buildLinkReplacedCard({ appUrl: ctx.appUrl }),
+            })
+            .catch((err): DeliverResult => ({ ok: false, retryable: true, error: errorMessage(err) }));
+          if (!sent.ok) deps.log("warn", "could not tell the displaced account", { connectorId: ctx.connector.id, retryable: sent.retryable });
+        }
+      }
+      return;
     }
   }
 }
@@ -408,6 +434,13 @@ function linkOutcomeCard(ctx: LarkHandlerContext, deps: LarkHandlerDeps, res: Li
     case "forbidden":
       // e.g. the account belongs to a different Lark tenant than the one this connector is pinned to.
       return buildNoticeCard({ tone: "error", title: "Wrong Lark workspace", lines: [escapeLarkMd(res.message, 300)], appUrl: ctx.appUrl });
+    case "rate_limited":
+      return buildNoticeCard({
+        tone: "warning",
+        title: "Too many attempts",
+        lines: ["Too many link attempts from this account. Wait a few minutes, then send the newest code from NoPM."],
+        appUrl: ctx.appUrl,
+      });
     case "paused":
       return buildNoticeCard({ tone: "warning", title: "Integration paused", lines: ["Your workspace admin has paused this integration."], appUrl: ctx.appUrl });
     case "error":

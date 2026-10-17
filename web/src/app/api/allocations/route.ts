@@ -6,6 +6,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocation } from "@/lib/clash/detect";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -61,6 +62,15 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
+
+  // Cross-tenant guard: member, project and task must all belong to THIS
+  // workspace (an allocation of a foreign member skews that tenant's capacity).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: parsed.data.member_id, field: "member_id" },
+    { table: "projects", id: parsed.data.project_id, field: "project_id" },
+    { table: "tasks", id: parsed.data.task_id, field: "task_id" },
+  ]);
+
   const { data: row, error } = await db
     .from("allocations")
     .insert({

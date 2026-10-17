@@ -81,6 +81,68 @@ const expectedUpdatedAt = {
     "If the record has changed since, the update is rejected with a 412 instead of overwriting it.",
 };
 
+// ── Path safety ───────────────────────────────────────────────────────────
+//
+// A tool argument is model- (or prompt-injection-) controlled text, and it used
+// to be interpolated straight into the request path: `project_id =
+// "<uuid>/../unlock?x="` turned `create_milestone` into POST
+// /api/projects/<uuid>/unlock, a route that is not a tool at all. Two layers:
+//
+//   1. every id that lands in a path goes through idSeg(): it must be a UUID
+//      and is encodeURIComponent-ed; anything else throws ToolArgError BEFORE a
+//      request is built (the MCP server and /api/mcp already turn a throw into
+//      a "Bad arguments" tool result);
+//   2. every finished request is checked against the SHAPE of its own tool's
+//      route (guardTool below), so even a future tool that forgets idSeg()
+//      cannot reach a different route.
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** All-zero UUID: stands in for an id the caller did not send (see idSeg). */
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
+/** Thrown when a tool argument cannot be placed in a request safely. */
+export class ToolArgError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "ToolArgError";
+  }
+}
+
+/**
+ * Path segment for an id argument. A present value must be a UUID. An ABSENT
+ * value must not throw: `toRequest({})` is probed at import time to learn each
+ * tool's method (fallback.ts), so a missing id becomes the nil UUID, which the
+ * API answers with a clean 404 instead of a request for a made-up route.
+ */
+function idSeg(name, value) {
+  if (value === undefined || value === null) return NIL_UUID;
+  if (typeof value !== "string" || !UUID_RE.test(value)) {
+    throw new ToolArgError(`${name} must be a UUID`);
+  }
+  return encodeURIComponent(value);
+}
+
+/** Query-string value for page / limit: never throws, can never add a parameter or a path part. */
+function qnum(value, fallback) {
+  return encodeURIComponent(String(value ?? fallback));
+}
+
+/** Path with every UUID segment replaced by ":id" — the route shape. */
+function routeShape(path) {
+  const cut = path.indexOf("?");
+  const pathname = cut === -1 ? path : path.slice(0, cut);
+  return pathname
+    .split("/")
+    .map((seg) => (UUID_RE.test(seg) ? ":id" : seg))
+    .join("/");
+}
+
+/** Plain, already-normalised /api path: lower-case route words and ids, nothing else. */
+const SAFE_PATHNAME = /^\/api(\/[A-Za-z0-9-]+)+$/;
+/** Printable ASCII, no spaces: no control characters, backslashes or fragments sneak in. */
+const PRINTABLE = /^[\x21-\x7e]+$/;
+
 /**
  * @typedef {{ path: string, method: string, body?: unknown }} ToolRequest
  * @typedef {{
@@ -92,7 +154,7 @@ const expectedUpdatedAt = {
  */
 
 /** @type {ToolRegistryEntry[]} */
-export const TOOL_REGISTRY = [
+const RAW_TOOLS = [
   // ── Projects ─────────────────────────────────────────────────────────────
   {
     name: "list_projects",
@@ -104,7 +166,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/projects?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -117,7 +179,7 @@ export const TOOL_REGISTRY = [
       required: ["project_id"],
       additionalProperties: false,
     },
-    toRequest: (args) => ({ path: `/api/projects/${args.project_id}`, method: "GET" }),
+    toRequest: (args) => ({ path: `/api/projects/${idSeg("project_id", args.project_id)}`, method: "GET" }),
   },
   {
     name: "create_project",
@@ -164,7 +226,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { project_id, ...body } = args;
-      return { path: `/api/projects/${project_id}`, method: "PATCH", body };
+      return { path: `/api/projects/${idSeg("project_id", project_id)}`, method: "PATCH", body };
     },
   },
   {
@@ -186,7 +248,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${args.project_id}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}`,
       method: "DELETE",
       body: { reason: args.reason },
     }),
@@ -203,7 +265,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${args.project_id}/milestones?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/milestones?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -226,7 +288,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { project_id, ...body } = args;
-      return { path: `/api/projects/${project_id}/milestones`, method: "POST", body };
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/milestones`, method: "POST", body };
     },
   },
   {
@@ -248,7 +310,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { milestone_id, ...body } = args;
-      return { path: `/api/milestones/${milestone_id}`, method: "PATCH", body };
+      return { path: `/api/milestones/${idSeg("milestone_id", milestone_id)}`, method: "PATCH", body };
     },
   },
 
@@ -263,7 +325,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${args.project_id}/tasks?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/tasks?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -276,7 +338,7 @@ export const TOOL_REGISTRY = [
       required: ["task_id"],
       additionalProperties: false,
     },
-    toRequest: (args) => ({ path: `/api/tasks/${args.task_id}`, method: "GET" }),
+    toRequest: (args) => ({ path: `/api/tasks/${idSeg("task_id", args.task_id)}`, method: "GET" }),
   },
   {
     name: "create_task",
@@ -305,7 +367,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { project_id, ...body } = args;
-      return { path: `/api/projects/${project_id}/tasks`, method: "POST", body };
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/tasks`, method: "POST", body };
     },
   },
   {
@@ -334,7 +396,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { task_id, ...body } = args;
-      return { path: `/api/tasks/${task_id}`, method: "PATCH", body };
+      return { path: `/api/tasks/${idSeg("task_id", task_id)}`, method: "PATCH", body };
     },
   },
   {
@@ -353,7 +415,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/tasks/${args.task_id}`,
+      path: `/api/tasks/${idSeg("task_id", args.task_id)}`,
       method: "DELETE",
       body: { reason: args.reason },
     }),
@@ -370,7 +432,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${args.project_id}/risks?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/risks?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -398,7 +460,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { project_id, ...body } = args;
-      return { path: `/api/projects/${project_id}/risks`, method: "POST", body };
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/risks`, method: "POST", body };
     },
   },
   {
@@ -425,7 +487,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { risk_id, ...body } = args;
-      return { path: `/api/risks/${risk_id}`, method: "PATCH", body };
+      return { path: `/api/risks/${idSeg("risk_id", risk_id)}`, method: "PATCH", body };
     },
   },
 
@@ -440,7 +502,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${args.project_id}/issues?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/issues?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -467,7 +529,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { project_id, ...body } = args;
-      return { path: `/api/projects/${project_id}/issues`, method: "POST", body };
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/issues`, method: "POST", body };
     },
   },
   {
@@ -494,7 +556,7 @@ export const TOOL_REGISTRY = [
     },
     toRequest: (args) => {
       const { issue_id, ...body } = args;
-      return { path: `/api/issues/${issue_id}`, method: "PATCH", body };
+      return { path: `/api/issues/${idSeg("issue_id", issue_id)}`, method: "PATCH", body };
     },
   },
 
@@ -508,7 +570,7 @@ export const TOOL_REGISTRY = [
       required: ["project_id"],
       additionalProperties: false,
     },
-    toRequest: (args) => ({ path: `/api/projects/${args.project_id}/budget`, method: "GET" }),
+    toRequest: (args) => ({ path: `/api/projects/${idSeg("project_id", args.project_id)}/budget`, method: "GET" }),
   },
 
   // ── Clashes ───────────────────────────────────────────────────────────────
@@ -522,7 +584,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/clashes?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/clashes?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -538,7 +600,7 @@ export const TOOL_REGISTRY = [
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/resources?page=${args.page ?? 1}&limit=${args.limit ?? 20}`,
+      path: `/api/resources?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
       method: "GET",
     }),
   },
@@ -634,3 +696,37 @@ export const TOOL_REGISTRY = [
     },
   },
 ];
+
+// ── Guarded registry ──────────────────────────────────────────────────────
+
+/**
+ * Wrap a tool so every request it builds is checked against the shape of the
+ * request it builds for `{}` (its own route): same method, same path segments
+ * with ids in the same places, nothing percent-encoded or dotted in the path.
+ */
+export function guardTool(tool) {
+  const probe = tool.toRequest({});
+  const expectedShape = routeShape(probe.path);
+  const expectedMethod = probe.method;
+  return {
+    ...tool,
+    toRequest: (args) => {
+      const req = tool.toRequest(args);
+      const cut = req.path.indexOf("?");
+      const pathname = cut === -1 ? req.path : req.path.slice(0, cut);
+      if (
+        req.method !== expectedMethod ||
+        !PRINTABLE.test(req.path) ||
+        req.path.includes("#") ||
+        !SAFE_PATHNAME.test(pathname) ||
+        routeShape(req.path) !== expectedShape
+      ) {
+        throw new ToolArgError(`${tool.name}: arguments do not resolve to this tool's own endpoint`);
+      }
+      return req;
+    },
+  };
+}
+
+/** @type {ToolRegistryEntry[]} */
+export const TOOL_REGISTRY = RAW_TOOLS.map(guardTool);

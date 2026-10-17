@@ -3,6 +3,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { createProjectSchema } from "./_schema";
 
 export const runtime = "nodejs";
@@ -64,6 +65,12 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
+
+  // owner_id must be a member of THIS workspace: a foreign id would push the
+  // project's notifications (change requests, approvals) into another tenant.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: parsed.data.owner_id, field: "owner_id" },
+  ]);
 
   const now = new Date().toISOString();
   const { data: row, error } = await db

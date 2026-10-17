@@ -69,6 +69,8 @@ describe("mintEphemeralToken — records the human it acts for", () => {
     expect(row.created_by).toBe("user-7");
     expect(row.workspace_id).toBe("w1");
     expect(row.name).toBe("AI Assistant · Pat");
+    // The reliable marker the Tokens list hides by (0052) — the name is only a label.
+    expect(row.kind).toBe("assistant");
     // and it never carries a checker scope (R-60)
     for (const s of row.scopes as string[]) expect(s).not.toMatch(/approve|decide/);
   });

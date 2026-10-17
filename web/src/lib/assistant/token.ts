@@ -1,8 +1,9 @@
 /**
  * Mint and revoke ephemeral API tokens for the assistant.
  * Each turn creates one short-lived api_tokens row (1 hour TTL).
- * The token's name starts with "AI Assistant · " so it is filtered
- * out of the human Tokens list.
+ * The row is marked `kind = 'assistant'` (migration 0052); that column — never
+ * the name, which a manager can type — is what hides it from the human Tokens
+ * list. The name "AI Assistant · <user>" is a label only.
  */
 
 export const runtime = "nodejs";
@@ -53,6 +54,8 @@ export async function mintEphemeralToken(actor: Actor): Promise<EphemeralToken> 
       token_hash: hash,
       prefix,
       scopes: scopesForActor(actor),
+      // The reliable marker (0052). Only this mint path sets it; POST /api/tokens cannot.
+      kind: "assistant",
       created_by: actor.principalId ?? (actor.type === "user" ? actor.id : null),
       expires_at: expiresAt,
     })

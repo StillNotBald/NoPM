@@ -1,5 +1,6 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { decrypt, encrypt } from "@/lib/crypto";
+import { TOKEN_PREFIX } from "@/lib/auth/tokens";
 import type { LarkSecrets } from "@/lib/integrations/types";
 
 /**
@@ -98,12 +99,60 @@ export function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb);
 }
 
+/**
+ * The per-delivery action token a card carries. DERIVED, not random: an HMAC of
+ * the delivery id under the server's encryption key. The raw value is never
+ * stored (only its SHA-256 is), yet a retry of the SAME delivery can recompute
+ * it, so one delivery has exactly one token however many times it is attempted,
+ * and a retried send carries the same card as the first. (A random token per
+ * attempt left up to six live tokens for one card, and made every retry a
+ * different message, which defeats the platform's idempotency key.)
+ *
+ * 192 bits of HMAC output, base64url, the same shape and entropy a random
+ * `generateToken()` value has. Forging one needs the encryption key, which
+ * already unlocks every connector credential; and a token on its own decides
+ * nothing: the inbound pipeline still requires a verified, linked platform
+ * identity that is the token's bound recipient.
+ */
+export function deriveActionToken(deliveryId: string, prefix: string): { raw: string; hash: string } {
+  const key = Buffer.from(process.env.NOPM_ENCRYPTION_KEY ?? "", "base64");
+  if (key.length !== 32) throw new Error("NOPM_ENCRYPTION_KEY is not configured");
+  const body = createHmac("sha256", key)
+    .update(`nopm:action-token:v1:${deliveryId}`)
+    .digest()
+    .subarray(0, 24)
+    .toString("base64url");
+  const raw = `${prefix}${body}`;
+  return { raw, hash: createHash("sha256").update(raw).digest("hex") };
+}
+
 const MAX_ERROR_LENGTH = 300;
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Every secret-bearing prefix in the repo: `npm_` PATs (the family prefix is
+ * env-configurable, so it is read from the same constant the minting code
+ * uses), `npa_` card action tokens, `npr_` relay secrets, `npi_` invites and
+ * `npc_` calendar feed tokens (those travel in a URL, which is exactly what an
+ * HTTP client error likes to quote). A new token family must be added here.
+ */
+const SECRET_TOKEN_PATTERN = new RegExp(
+  `\\b(?:${["npa_", "npr_", "npi_", "npc_", "npm_", TOKEN_PREFIX].map(escapeRegExp).join("|")})[A-Za-z0-9_-]{8,}`,
+  "g",
+);
+/** Identity link codes: `NPL-XXXX-XXXX` (dashes optional, as the parser accepts them). */
+const LINK_CODE_PATTERN = /\bNPL-?[A-Z2-9]{4}-?[A-Z2-9]{4}\b/gi;
+/** Lark tenant / user access tokens (`t-...`, `u-...`) when quoted outside an Authorization header. */
+const PLATFORM_TOKEN_PATTERN = /\b[tu]-[A-Za-z0-9]{20,}\b/g;
 
 /**
  * Make an arbitrary error safe to persist in `integration_deliveries.last_error`
- * or return to an admin: redact any known secret value and bearer-style
- * tokens, collapse whitespace, truncate. Message bodies are never stored.
+ * or return to an admin: redact any known secret value, every token family
+ * above and bearer-style tokens, collapse whitespace, truncate. Message bodies
+ * are never stored.
  */
 export function sanitizeError(err: unknown, knownSecrets: (string | null | undefined)[] = []): string {
   let text = err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
@@ -112,7 +161,9 @@ export function sanitizeError(err: unknown, knownSecrets: (string | null | undef
   }
   text = text
     .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[redacted]")
-    .replace(/\b(?:npa|npr|npm|npi)_[A-Za-z0-9_-]{8,}/g, "[redacted]")
+    .replace(SECRET_TOKEN_PATTERN, "[redacted]")
+    .replace(LINK_CODE_PATTERN, "[redacted]")
+    .replace(PLATFORM_TOKEN_PATTERN, "[redacted]")
     .replace(/\s+/g, " ")
     .trim();
   return text.length > MAX_ERROR_LENGTH ? `${text.slice(0, MAX_ERROR_LENGTH - 1)}…` : text || "Unknown error";

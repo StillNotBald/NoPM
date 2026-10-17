@@ -57,3 +57,141 @@ describe("gatherReviewItems — change requests", () => {
     expect(changes[0].ageDays).toBeGreaterThan(changes[1].ageDays);
   });
 });
+
+describe("gatherReviewItems — the record beside the decision", () => {
+  it("names the deletion target from the request's before snapshot, not just its type", async () => {
+    const { db } = fakeDb({
+      projects: [{ id: "proj-1", name: "Apollo" }],
+      deletion_requests: [
+        {
+          id: "dr-1",
+          target_type: "task",
+          target_id: "task-uuid-1",
+          reason: "Superseded",
+          requested_by_label: "maker (agent)",
+          requested_by_type: "token",
+          requested_by_id: "tok-1",
+          requested_principal_id: "user-other",
+          before: { name: "Cutover plan", project_id: "proj-1", status: "started" },
+          created_at: daysAgo(2),
+        },
+      ],
+    });
+    const [item] = (await gatherReviewItems(db)).filter((i) => i.kind === "approval");
+    expect(item.targetName).toBe("Cutover plan");
+    expect(item.targetProject).toBe("Apollo");
+    expect(item.project).toBe("Apollo");
+    expect(item.title).toBe("Delete task: Cutover plan — Superseded");
+    // no viewer given -> no verdict is invented
+    expect(item.decide).toBeUndefined();
+  });
+
+  it("carries the change request's requester and impact into the inspector summary", async () => {
+    const { db } = fakeDb({
+      projects: [{ id: "proj-1", name: "Apollo" }],
+      change_requests: [
+        {
+          id: "cr-1",
+          title: "Add SSO",
+          project_id: "proj-1",
+          status: "raised",
+          reference_id: "CR-7",
+          priority: "high",
+          category: "scope",
+          requested_by_label: "Jo",
+          requested_by: "user-jo",
+          impact_summary: "Two extra sprints",
+          impact_schedule_days: 14,
+          impact_cost: 8000,
+          description: "Enterprise customers ask for it.",
+          raised_at: daysAgo(3),
+          target_date: null,
+          updated_at: "2026-10-14T01:02:03.456+00:00",
+          created_at: daysAgo(3),
+        },
+      ],
+    });
+    const [item] = (await gatherReviewItems(db)).filter((i) => i.kind === "change");
+    expect(item.change).toMatchObject({
+      reference: "CR-7",
+      priority: "high",
+      category: "scope",
+      requestedBy: "Jo",
+      impactSummary: "Two extra sprints",
+      impactScheduleDays: 14,
+      impactCost: 8000,
+      updatedAt: "2026-10-14T01:02:03.456+00:00",
+    });
+  });
+});
+
+describe("gatherReviewItems — four-eyes verdict for the signed-in viewer", () => {
+  const me = { id: "user-me", role: "member" };
+
+  it("refuses a deletion raised through the viewer's own token, allows someone else's", async () => {
+    const { db } = fakeDb({
+      deletion_requests: [
+        {
+          id: "dr-mine",
+          target_type: "task",
+          target_id: "t1",
+          requested_by_type: "token",
+          requested_by_id: "tok-1",
+          requested_principal_id: "user-me",
+          before: { name: "A" },
+          created_at: daysAgo(1),
+        },
+        {
+          id: "dr-theirs",
+          target_type: "task",
+          target_id: "t2",
+          requested_by_type: "user",
+          requested_by_id: "user-other",
+          requested_principal_id: "user-other",
+          before: { name: "B" },
+          created_at: daysAgo(1),
+        },
+      ],
+    });
+    const items = await gatherReviewItems(db, me);
+    const byId = Object.fromEntries(items.map((i) => [i.id, i.decide]));
+    expect(byId["dr-mine"]).toEqual({ canDecide: false, block: "your_token_raised", canWithdraw: false });
+    expect(byId["dr-theirs"]).toEqual({ canDecide: true, block: null, canWithdraw: false });
+  });
+
+  it("refuses a change request the viewer raised, and a timesheet that is their own hours", async () => {
+    const { db } = fakeDb({
+      resource_members: [{ id: "m-me", name: "Me", profile_id: "user-me" }],
+      change_requests: [
+        { id: "cr-mine", title: "Mine", status: "raised", requested_by: "user-me", created_at: daysAgo(1) },
+        { id: "cr-theirs", title: "Theirs", status: "raised", requested_by: "user-other", created_at: daysAgo(1) },
+      ],
+      timesheet_submissions: [
+        {
+          id: "ts-1",
+          member_id: "m-me",
+          period_start: "2026-10-05",
+          hours_total: 38,
+          submitted_by: "user-other",
+          submitted_by_type: "user",
+          submitted_principal_id: "user-other",
+          submitted_by_label: "Other",
+          submitted_at: daysAgo(1),
+        },
+      ],
+    });
+    const items = await gatherReviewItems(db, me);
+    const decide = (id: string) => items.find((i) => i.id === id)?.decide;
+    expect(decide("cr-mine")).toMatchObject({ canDecide: false, block: "you_raised" });
+    expect(decide("cr-theirs")).toMatchObject({ canDecide: true });
+    expect(decide("ts-1")).toMatchObject({ canDecide: false, block: "your_hours" });
+  });
+
+  it("a viewer-role session is told it can view but not decide", async () => {
+    const { db } = fakeDb({
+      change_requests: [{ id: "cr-1", title: "X", status: "raised", requested_by: "user-other", created_at: daysAgo(1) }],
+    });
+    const [item] = (await gatherReviewItems(db, { id: "user-me", role: "viewer" })).filter((i) => i.kind === "change");
+    expect(item.decide).toMatchObject({ canDecide: false, block: "no_scope" });
+  });
+});

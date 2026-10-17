@@ -9,7 +9,6 @@
  * the only signal. Whether "up" is good depends on the metric, hence
  * `goodWhen` (default "up"; "neutral" = no judgement). The sparkline reuses
  * the hand-rolled SVG in components/charts/sparkline (no chart lib).
- * Not yet adopted by pages.
  */
 import type { ReactNode } from "react";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";

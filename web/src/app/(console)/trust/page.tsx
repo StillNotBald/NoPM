@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ interface AuditRow {
    *  server-side when absent. NOT an authorization input — see the "Actor
    *  types" glossary card below. Nullable: rows written before this column
    *  existed have no channel on file. */
-  channel?: "ui" | "api" | "cli" | "mcp" | "assistant" | string | null;
+  channel?: "ui" | "api" | "cli" | "mcp" | "assistant" | "lark" | string | null;
   request_id?: string | null;
 }
 
@@ -42,14 +43,38 @@ function shortRequestId(id: string | null | undefined): string | null {
   return id.length > 12 ? `${id.slice(0, 12)}…` : id;
 }
 
-function actionToBadgeTone(
-  action: string,
-): "neutral" | "accent" | "success" | "warning" | "danger" {
+// Blue means "an action you can take" or a live signal; an audit category is
+// neither, so creation reads as neutral (only the outcomes carry a status hue).
+function actionToBadgeTone(action: string): "neutral" | "success" | "warning" | "danger" {
   if (action.includes("delete") || action.includes("revoke")) return "danger";
   if (action.includes("approve")) return "success";
   if (action.includes("reject")) return "warning";
-  if (action.includes("create")) return "accent";
   return "neutral";
+}
+
+/** Who did it: the name, whether a person or a token, and the declared client. */
+function AuditActor({ entry }: { entry: AuditRow }) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+      <span className="font-medium text-ink">{entry.actor_label}</span>
+      <span
+        className={cn(
+          "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs",
+          entry.actor_type === "token" ? "bg-warning/15 text-warning-ink" : "bg-sunken text-ink-secondary",
+        )}
+      >
+        {entry.actor_type === "token" ? "token" : "user"}
+      </span>
+      {entry.channel && (
+        <span
+          title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
+          className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-2xs text-ink-secondary"
+        >
+          {entry.channel}
+        </span>
+      )}
+    </div>
+  );
 }
 
 /** Date (per the user's date-display preference) plus a fixed UTC time, so
@@ -100,6 +125,9 @@ function hrefWithParams(base: string, params: Record<string, string | undefined>
 }
 
 const CHANNEL_OPTIONS = ["ui", "api", "cli", "mcp", "assistant", "lark"] as const;
+
+/** Unpadded text links ("Clear", pager): a 44px hit area on phones, text-sized from sm. */
+const LINK_TARGET = "focus-ring inline-flex min-h-[44px] items-center rounded-sm text-xs sm:min-h-0";
 
 export default async function TrustPage({
   searchParams,
@@ -205,14 +233,13 @@ export default async function TrustPage({
   });
 
   return (
-    <div className="min-w-0 px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <div className="mx-auto min-w-0 max-w-4xl space-y-8">
+    <PageContainer width="narrow" className="space-y-8">
       <PageHeader
         title="Trust Center"
         action={
           <>
             <ExportCsvButton href={exportHref} />
-            <Badge tone="accent">Immutable</Badge>
+            <Badge tone="neutral">Immutable</Badge>
           </>
         }
       />
@@ -224,10 +251,10 @@ export default async function TrustPage({
           project detail views (?target_type=&target_id=). */}
       {hasTargetFilter && (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border-strong bg-sunken px-3 py-1 text-xs font-medium text-ink">
             History for {filters.target_type} <code className="font-mono">{shortId(filters.target_id ?? null)}</code>
           </span>
-          <a href={clearTargetHref} className="text-xs text-ink-muted hover:text-ink hover:underline">
+          <a href={clearTargetHref} className={LINK_TARGET + " text-ink-secondary hover:text-ink hover:underline"}>
             Clear
           </a>
         </div>
@@ -253,7 +280,7 @@ export default async function TrustPage({
               id="trust-channel"
               name="channel"
               defaultValue={filters.channel ?? ""}
-              className="field h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent sm:w-auto"
+              className="field h-11 rounded-md border border-border-subtle bg-canvas px-2.5 text-base text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent sm:h-10 sm:w-auto sm:text-sm"
             >
               <option value="">All</option>
               {CHANNEL_OPTIONS.map((c) => (
@@ -304,7 +331,7 @@ export default async function TrustPage({
               Filter
             </Button>
             {hasAnyFilter && (
-              <a href="/trust" className="text-xs text-ink-muted hover:text-ink hover:underline">
+              <a href="/trust" className={LINK_TARGET + " text-ink-secondary hover:text-ink hover:underline"}>
                 Clear
               </a>
             )}
@@ -326,13 +353,15 @@ export default async function TrustPage({
           {entries.length === 0 && !error && (
             <CardBody>
               <div className="flex flex-col items-center gap-3 py-12 text-center">
-                <p className="text-sm text-ink-muted">
-                  {hasAnyFilter || cursor
-                    ? "No audit events match these filters."
-                    : "No audit events recorded yet."}
+                <p className="max-w-sm text-sm text-ink-muted">
+                  {filters.channel === "lark"
+                    ? "Nothing has come through Lark yet. A decision made from a Lark chat card is recorded here with channel “lark”."
+                    : hasAnyFilter || cursor
+                      ? "No audit events match these filters."
+                      : "No audit events recorded yet."}
                 </p>
                 {(hasAnyFilter || cursor) && (
-                  <a href="/trust" className="text-xs text-accent hover:underline">
+                  <a href="/trust" className={LINK_TARGET + " text-accent hover:underline"}>
                     Clear filters
                   </a>
                 )}
@@ -341,6 +370,40 @@ export default async function TrustPage({
           )}
 
           {entries.length > 0 && (
+            <ul className="divide-y divide-border-subtle md:hidden" aria-label="Provenance stream">
+              {entries.map((entry) => {
+                const t = auditTime(entry.created_at, dateDisplayPref);
+                return (
+                  <li key={entry.id} className="space-y-2 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <Badge tone={actionToBadgeTone(entry.action)} className="font-mono text-xs">
+                        {entry.action}
+                      </Badge>
+                      <time dateTime={entry.created_at} title={t.exact} className="text-xs text-ink-secondary">
+                        {t.date} <span className="font-mono text-2xs text-ink-muted">{t.time}</span>
+                      </time>
+                    </div>
+                    <AuditActor entry={entry} />
+                    <p className="text-2xs text-ink-muted">
+                      <span className="capitalize">{entry.target_type}</span>{" "}
+                      <code className="rounded bg-sunken px-1 py-0.5 font-mono text-ink-secondary">
+                        {shortId(entry.target_id)}
+                      </code>
+                      {entry.request_id && (
+                        <>
+                          {" · "}
+                          <span className="font-mono">req: {shortRequestId(entry.request_id)}</span>
+                        </>
+                      )}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {entries.length > 0 && (
+            <div className="hidden md:block">
             <Table bare>
               <THead>
                 <TR>
@@ -378,27 +441,7 @@ export default async function TrustPage({
                         </p>
                       </TD>
                       <TD>
-                        <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                          <span className="font-medium text-ink">{entry.actor_label}</span>
-                          <span
-                            className={cn(
-                              "inline-flex items-center rounded-full px-1.5 py-0.5 text-xs",
-                              entry.actor_type === "token"
-                                ? "bg-warning/15 text-warning-ink"
-                                : "bg-sunken text-ink-secondary",
-                            )}
-                          >
-                            {entry.actor_type === "token" ? "token" : "user"}
-                          </span>
-                          {entry.channel && (
-                            <span
-                              title={`declared client: ${entry.channel} (caller-asserted, not an authorization input)`}
-                              className="inline-flex items-center rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary"
-                            >
-                              {entry.channel}
-                            </span>
-                          )}
-                        </div>
+                        <AuditActor entry={entry} />
                       </TD>
                       <TD className="hidden text-xs text-ink-muted md:table-cell">
                         <span className="capitalize">{entry.target_type}</span>
@@ -411,6 +454,7 @@ export default async function TrustPage({
                 })}
               </tbody>
             </Table>
+            </div>
           )}
 
           {(olderHref || newerHref) && (
@@ -419,14 +463,14 @@ export default async function TrustPage({
               className="flex items-center justify-between border-t border-border-subtle px-5 py-3 text-sm"
             >
               {newerHref ? (
-                <a href={newerHref} rel="prev" className="text-accent hover:underline">
+                <a href={newerHref} rel="prev" className="focus-ring inline-flex min-h-[44px] items-center rounded-sm text-accent hover:underline sm:min-h-0">
                   &larr; Newer
                 </a>
               ) : (
                 <span />
               )}
               {olderHref ? (
-                <a href={olderHref} rel="next" className="text-accent hover:underline">
+                <a href={olderHref} rel="next" className="focus-ring inline-flex min-h-[44px] items-center rounded-sm text-accent hover:underline sm:min-h-0">
                   Older &rarr;
                 </a>
               ) : (
@@ -442,7 +486,12 @@ export default async function TrustPage({
             <CardHeader>
               <CardTitle>Action glossary</CardTitle>
             </CardHeader>
-            <CardBody className="max-h-96 overflow-y-auto p-0">
+            <CardBody
+              className="max-h-96 overflow-y-auto p-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+              role="region"
+              aria-label="Action glossary entries"
+              tabIndex={0}
+            >
               <ul className="divide-y divide-border-subtle">
                 {AUDIT_ACTION_GLOSSARY.map(({ action, description }) => (
                   <li key={action} className="px-4 py-3 space-y-0.5">
@@ -479,12 +528,21 @@ export default async function TrustPage({
                 </p>
               </div>
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 inline-flex rounded bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-secondary shrink-0">
+                <span className="mt-0.5 inline-flex rounded bg-sunken px-1.5 py-0.5 font-mono text-2xs text-ink-secondary shrink-0">
                   cli
                 </span>
                 <p className="text-xs text-ink-muted">
-                  declared client — which surface (ui/api/cli/mcp/assistant) said it made the
+                  declared client — which surface (ui/api/cli/mcp/assistant/lark) said it made the
                   call. Token identity is authoritative; the channel is caller-asserted.
+                </p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="mt-0.5 inline-flex rounded bg-sunken px-1.5 py-0.5 font-mono text-2xs text-ink-secondary shrink-0">
+                  lark
+                </span>
+                <p className="text-xs text-ink-muted">
+                  a decision made from a Lark chat card. It is recorded as the NoPM person who
+                  linked that Lark account, so it shows as a user with channel lark.
                 </p>
               </div>
             </CardBody>
@@ -528,7 +586,6 @@ export default async function TrustPage({
           </Card>
         </div>
       </div>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

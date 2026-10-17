@@ -1,19 +1,24 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/cn";
-
-type DemoLoginButtonVariant = "primary" | "secondary";
-
-const variantClasses: Record<DemoLoginButtonVariant, string> = {
-  primary: "bg-accent text-white hover:bg-accent-hover",
-  secondary: "border border-border-strong text-ink hover:bg-sunken",
-};
+import {
+  marketingButtonClass,
+  type MarketingButtonSize,
+  type MarketingButtonVariant,
+} from "@/components/marketing/button-link";
 
 export type DemoLoginButtonProps = {
-  /** Extra classes — typically padding/text-size to fit the surrounding CTA context. */
+  /** Extra classes on the button (sizing comes from `size` / `block`). */
   className?: string;
-  /** Button label. Defaults to the landing-page copy. */
+  /** Button label. One wording everywhere: the demo is "Try the live demo". */
   label?: string;
-  /** Color treatment. Defaults to the filled accent button used on the landing page. */
-  variant?: DemoLoginButtonVariant;
+  /** Color treatment. Defaults to the filled accent button. */
+  variant?: Exclude<MarketingButtonVariant, "link">;
+  /** `sm` is the header size. */
+  size?: MarketingButtonSize;
+  /** Full width below `sm` so it matches the CTAs stacked with it. */
+  block?: boolean;
   /**
    * Optional one-line disclaimer rendered under the button (e.g. flagging
    * the shared-account nature of the demo). Omitted entirely when not
@@ -23,28 +28,57 @@ export type DemoLoginButtonProps = {
 };
 
 /**
- * Demo entry button — renders as a plain HTML form so it works without JS
- * and avoids any client bundle. POST /api/auth/demo-login sets the session
- * cookies server-side and redirects to /dashboard.
+ * Demo entry button — a plain HTML form, so it works without JS: POST
+ * /api/auth/demo-login sets the session cookies server-side and redirects to
+ * /dashboard (or back to /login?error=… when the demo cannot sign in).
+ *
+ * The only client code is the pending state: sign-in takes a beat, and a
+ * button that does nothing visible invites a second click. The label changes,
+ * further submits are ignored, and a back/forward-cache restore resets it.
  */
 export function DemoLoginButton({
-  className = "px-5 py-2.5",
-  label = "Try the live demo →",
+  className,
+  label = "Try the live demo",
   variant = "primary",
+  size = "md",
+  block = false,
   caption,
 }: DemoLoginButtonProps) {
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    // Coming back to a bfcache-restored page must not leave the button stuck.
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setPending(false);
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
+  }, []);
+
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <form method="POST" action="/api/auth/demo-login">
+    <div className={cn("flex flex-col gap-1.5", block && "w-full sm:w-auto", caption && "items-center")}>
+      <form
+        method="POST"
+        action="/api/auth/demo-login"
+        className={block ? "w-full sm:w-auto" : undefined}
+        onSubmit={(e) => {
+          if (pending) {
+            e.preventDefault();
+            return;
+          }
+          setPending(true);
+        }}
+      >
         <button
           type="submit"
+          aria-busy={pending}
           className={cn(
-            "inline-flex min-h-[44px] items-center justify-center rounded-md font-medium sm:min-h-0",
-            variantClasses[variant],
+            marketingButtonClass({ variant, size, block }),
+            pending && "cursor-progress opacity-80",
             className,
           )}
         >
-          {label}
+          {pending ? "Signing you in…" : label}
         </button>
       </form>
       {caption && <p className="text-xs text-ink-muted">{caption}</p>}

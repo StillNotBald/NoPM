@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { apiGet } from "@/lib/api-client";
 import { TerminalCard } from "@/components/ui/terminal-card";
+import { formatAbsoluteDate } from "@/lib/format/dates";
 
 // ─── Data shape ────────────────────────────────────────────────────────────────
 // Mirrors the immutable `audit_log` row surfaced by GET /api/audit.
@@ -30,7 +31,7 @@ interface HistoryTimelineProps {
 // ─── Time formatting ───────────────────────────────────────────────────────────
 
 function absoluteTime(iso: string): string {
-  return new Date(iso).toLocaleString("en-US", {
+  return new Date(iso).toLocaleString("en-GB", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -50,11 +51,7 @@ function relativeTime(iso: string): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+  return formatAbsoluteDate(iso);
 }
 
 // ─── HistoryTimeline ───────────────────────────────────────────────────────────

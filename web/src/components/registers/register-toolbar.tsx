@@ -64,6 +64,13 @@ export interface RegisterToolbarConfig {
   columns: readonly ColumnDef[];
   defaultColumns: readonly string[];
   groupByOptions?: readonly GroupByOption[];
+  /**
+   * Show Group by on phones too. Off by default: below md most registers render
+   * a fixed card list that ignores grouping, and a control that does nothing
+   * is worse than none. Column choice only drives the md+ table, so the
+   * chooser is always hidden on phones.
+   */
+  phoneGroupBy?: boolean;
   /** Sent as `limit` in the API query. Default 50. */
   pageSize?: number;
 }
@@ -97,7 +104,12 @@ export function useRegisterToolbar(config: RegisterToolbarConfig) {
     groupByOptions,
   } = config;
   const pageSize = config.pageSize ?? DEFAULT_PAGE_SIZE;
-  const columnsStorageKey = `nopm:columns:${register}`;
+  // The key carries the register's DEFAULT columns: the persist effect below
+  // writes the default back to localStorage on first mount, so a changed
+  // default (Project joining Tasks, Strategy leaving Risks) would otherwise
+  // never reach anyone who had already opened the page. A user's own choice
+  // is also kept in the per-user preferences store, which still wins.
+  const columnsStorageKey = `nopm:columns:${register}:${defaultColumns.join(".")}`;
 
   const router = useRouter();
   const pathname = usePathname();
@@ -266,53 +278,51 @@ export type RegisterToolbarControls = ReturnType<typeof useRegisterToolbar>;
 /** Renders the filter row + group-by + column chooser + saved-views bar for a controls object. */
 export function RegisterToolbar({ controls }: { controls: RegisterToolbarControls }) {
   const c = controls;
+  const showGroupBy = c.groupByOptions && c.groupByOptions.length > 0;
   return (
-    <>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-end gap-3">
-          {c.searchField && (
-            <FilterBar
-              fields={[c.searchField]}
-              values={c.filters}
-              onChange={c.setFilter}
-              onClear={c.clearFilters}
-              activeCount={0}
-            />
-          )}
-          {c.sheetFields.length > 0 && (
-            <FilterSheet activeCount={c.sheetActiveCount} onClear={c.clearFilters}>
-              <FilterBar
-                fields={c.sheetFields}
-                values={c.filters}
-                onChange={c.setFilter}
-                onClear={c.clearFilters}
-                activeCount={c.sheetActiveCount}
-              />
-            </FilterSheet>
-          )}
-        </div>
-        <div className="flex items-end gap-2">
-          {c.groupByOptions && c.groupByOptions.length > 0 && (
-            <GroupBySelect
-              options={c.groupByOptions}
-              value={c.groupBy}
-              onChange={c.handleGroupByChange}
-            />
-          )}
-          <ColumnChooser
-            columns={c.allColumns}
-            visible={c.columns}
-            onChange={c.handleColumnsChange}
+    <div className="flex flex-wrap items-end gap-3">
+      {c.searchField && (
+        <FilterBar
+          fields={[c.searchField]}
+          values={c.filters}
+          onChange={c.setFilter}
+          onClear={c.clearFilters}
+          activeCount={0}
+        />
+      )}
+      {c.sheetFields.length > 0 && (
+        <FilterSheet activeCount={c.sheetActiveCount} onClear={c.clearFilters}>
+          <FilterBar
+            fields={c.sheetFields}
+            values={c.filters}
+            onChange={c.setFilter}
+            onClear={c.clearFilters}
+            activeCount={c.sheetActiveCount}
           />
-        </div>
+        </FilterSheet>
+      )}
+      <div className="ml-auto flex flex-wrap items-end gap-2">
+        {showGroupBy && (
+          <GroupBySelect
+            options={c.groupByOptions!}
+            value={c.groupBy}
+            onChange={c.handleGroupByChange}
+            className={c.config.phoneGroupBy ? undefined : "hidden md:flex"}
+          />
+        )}
+        <ColumnChooser
+          columns={c.allColumns}
+          visible={c.columns}
+          onChange={c.handleColumnsChange}
+          className="hidden md:block"
+        />
+        <SavedViewsBar
+          register={c.config.register}
+          currentConfig={c.currentConfig}
+          activeViewId={c.activeViewId}
+          onApply={c.applyView}
+        />
       </div>
-
-      <SavedViewsBar
-        register={c.config.register}
-        currentConfig={c.currentConfig}
-        activeViewId={c.activeViewId}
-        onApply={c.applyView}
-      />
-    </>
+    </div>
   );
 }

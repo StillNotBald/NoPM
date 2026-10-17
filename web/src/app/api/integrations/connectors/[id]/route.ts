@@ -9,10 +9,11 @@ import {
   assertIntegrationAdmin,
   getConnector,
   normalizeConfig,
+  toAuditConnector,
   toPublicConnector,
 } from "@/lib/integrations/store";
 import type { ConnectorRow, LarkConfig, LarkSecrets } from "@/lib/integrations/types";
-import { updateConnectorSchema } from "../_schema";
+import { ENCRYPT_KEY_REQUIRED_MESSAGE, updateConnectorSchema } from "../_schema";
 
 export const runtime = "nodejs";
 
@@ -38,7 +39,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
     );
   }
   const input = parsed.data;
-  const before = toPublicConnector(connector);
+  const before = toAuditConnector(toPublicConnector(connector));
 
   // Non-secret config: shallow-merge over what is stored.
   const current = normalizeConfig(connector.config);
@@ -69,6 +70,9 @@ export const PATCH = route(async ({ actor, params, request }) => {
     input.verification_token !== undefined && "verification_token",
     input.encrypt_key !== undefined && "encrypt_key",
   ].filter(Boolean) as string[];
+  // The Encrypt Key the connector will hold after this update (undefined = not
+  // known yet; read from the stored blob only if the rule below needs it).
+  let encryptKeyAfter: string | null | undefined;
   if (secretFields.length > 0) {
     let currentSecrets: LarkSecrets | null = null;
     try {
@@ -90,10 +94,28 @@ export const PATCH = route(async ({ actor, params, request }) => {
     if (input.app_secret !== undefined) nextSecrets.appSecret = input.app_secret;
     if (input.verification_token !== undefined) nextSecrets.verificationToken = input.verification_token;
     if (input.encrypt_key !== undefined) nextSecrets.encryptKey = input.encrypt_key;
+    encryptKeyAfter = nextSecrets.encryptKey ?? null;
     try {
       patch.secret_enc = encryptSecrets(nextSecrets);
     } catch {
       throw new ApiError(503, "Server encryption key (NOPM_ENCRYPTION_KEY) is not configured", "encryption_unavailable");
+    }
+  }
+
+  // Webhook mode needs an Encrypt Key (see ENCRYPT_KEY_REQUIRED_MESSAGE). Checked
+  // on the state the update would leave behind, whenever it touches the mode or
+  // the credentials; a pause, a rename or a digest tweak on an older keyless
+  // connector is not held up by it.
+  if ((input.mode !== undefined || secretFields.length > 0) && nextConfig.mode === "webhook") {
+    if (encryptKeyAfter === undefined) {
+      try {
+        encryptKeyAfter = decryptSecrets(connector.secret_enc).encryptKey ?? null;
+      } catch {
+        encryptKeyAfter = null;
+      }
+    }
+    if (!encryptKeyAfter) {
+      return validationError("Validation failed", [{ field: "encrypt_key", message: ENCRYPT_KEY_REQUIRED_MESSAGE }]);
     }
   }
 
@@ -130,7 +152,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
     targetId: updated.id,
     before,
     after: {
-      ...after,
+      ...toAuditConnector(after),
       // Which secrets were replaced — never their values.
       secrets_changed: secretFields,
       relay_secret_rotated: rotatedRelaySecret !== null,
@@ -204,9 +226,9 @@ export const DELETE = route(async ({ actor, params }) => {
     action: "integration.connector.revoke",
     targetType: "integration_connector",
     targetId: revoked.id,
-    before: toPublicConnector(connector),
+    before: toAuditConnector(toPublicConnector(connector)),
     after: {
-      ...view,
+      ...toAuditConnector(view),
       identities_revoked: (identities ?? []).length,
       deliveries_superseded: (deliveries ?? []).length,
     },

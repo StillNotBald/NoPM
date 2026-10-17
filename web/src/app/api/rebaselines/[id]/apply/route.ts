@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
+import { assertApplicable } from "@/lib/governance/rebaseline-lifecycle";
 
 export const runtime = "nodejs";
 
@@ -38,15 +39,15 @@ export const POST = route(async ({ actor, params }) => {
     "Four-eyes: you cannot apply a rebaseline you requested.",
   );
 
-  // Only approved rebaselines may be applied
-  if (rebaseline.status !== "approved") {
-    throw new RuleError(
-      `Rebaseline cannot be applied: status is '${rebaseline.status}', must be 'approved'`,
-    );
-  }
+  // Only approved rebaselines may be applied — and only once (R1/M2: an
+  // applied rebaseline used to regress to approved after any later vote and
+  // could be applied, and re-snapshot the baselines, again).
+  assertApplicable(rebaseline.status);
 
   const now = new Date().toISOString();
 
+  // Compare-and-set approved -> applied: two concurrent applies can't both win
+  // (the rebaselines trigger of migration 0049 is the DB backstop).
   const { data: after, error: updateError } = await db
     .from("rebaselines")
     .update({
@@ -55,10 +56,14 @@ export const POST = route(async ({ actor, params }) => {
     })
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
+    .eq("status", "approved")
     .select()
-    .single();
+    .maybeSingle();
 
   if (updateError) throw updateError;
+  if (!after) {
+    throw new RuleError("This rebaseline has already been applied.", "already_applied");
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

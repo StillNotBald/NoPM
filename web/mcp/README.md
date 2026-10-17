@@ -126,6 +126,8 @@ risk:write  issue:write
 
 - **Capabilities are bounded by the PAT scopes.** A `project:read`-only token cannot create projects. The server surfaces `{ "error": "..." }` (including 403 scope errors) as the tool result so governance failures are visible — they are never silently swallowed.
 
+- **A tool can only reach its own endpoint.** Tool arguments are model-controlled text, so every id that goes into a request path (`project_id`, `task_id`, `milestone_id`, `risk_id`, `issue_id`) must be a UUID and is percent-encoded; anything else (`../unlock`, `<uuid>/../tokens`, `<uuid>?x=`) is refused with a `Bad arguments: <field> must be a UUID` tool result BEFORE any request is made. As a second layer, every built request is checked against the shape of its own tool's route (same method, same path segments, no encoded or dotted segments), so a tool cannot be steered onto a route that is not a tool, such as `POST /api/projects/:id/unlock`. `page` / `limit` are encoded and can only be query values. Locked by `src/lib/assistant/tools-path-safety.test.ts`.
+
 - **Every write produces an immutable audit log row.** You can inspect the trail at any time with the `query_audit` tool.
 
 - **Every write is tagged with its declared client.** Both transports send `X-NoPM-Client: mcp`, so the resulting audit_log rows carry `channel: mcp` (R-82, filterable via `GET /audit?channel=mcp`) — provenance only, never an authorization input; token identity stays authoritative.

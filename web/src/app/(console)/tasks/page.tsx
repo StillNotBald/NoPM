@@ -4,15 +4,19 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { type FilterFieldConfig } from "@/components/registers/use-list-controls";
 import { useRegisterToolbar, RegisterToolbar } from "@/components/registers/register-toolbar";
 import { type GroupByOption } from "@/components/registers/group-by-select";
 import { type ColumnDef } from "@/components/registers/column-chooser";
+import { ALL_COLUMNS, DEFAULT_COLUMNS, NUMERIC_COLUMNS, SORTABLE_FIELDS } from "./_columns";
 import { AggregateFooter, type AggregateSpec } from "@/components/registers/aggregate-footer";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import { apiGet } from "@/lib/api-client";
@@ -77,23 +81,6 @@ const SHEET_FIELDS: readonly FilterFieldConfig[] = [
   { key: "due", label: "Due between", type: "date-range", fromKey: "due_after", toKey: "due_before" },
 ];
 
-// Only these fields are in TASK_SORT_FIELDS (src/app/api/tasks/_query.ts) —
-// assignee/project/estimate columns below are visible but not sortable.
-const SORTABLE_FIELDS = new Set(["name", "status_type", "priority", "due_date", "completion_pct"]);
-
-const ALL_COLUMNS: readonly ColumnDef[] = [
-  { key: "name", label: "Task" },
-  { key: "status_type", label: "Status" },
-  { key: "priority", label: "Priority" },
-  { key: "due_date", label: "Due" },
-  { key: "completion_pct", label: "Done %" },
-  { key: "assignee_id", label: "Assignee" },
-  { key: "project_id", label: "Project" },
-  { key: "estimate_hours", label: "Estimate (h)" },
-];
-
-const DEFAULT_COLUMNS = ["name", "status_type", "priority", "due_date", "completion_pct"];
-
 const GROUP_BY_OPTIONS: readonly GroupByOption[] = [
   { value: "status_type", label: "Status" },
   { value: "priority", label: "Priority" },
@@ -103,10 +90,10 @@ const GROUP_BY_OPTIONS: readonly GroupByOption[] = [
 
 const PAGE_SIZE = 50;
 
-function statusTone(status: string): "neutral" | "accent" | "success" | "warning" | "danger" {
+// In progress is the info hue; the brand accent never marks status (DESIGN.md).
+function statusTone(status: string): "neutral" | "info" | "success" | "warning" | "danger" {
   if (status === "completed") return "success";
-  if (status === "started") return "accent";
-  if (status === "canceled") return "neutral";
+  if (status === "started") return "info";
   return "neutral";
 }
 
@@ -133,7 +120,14 @@ export default function TasksPage() {
   const [rows, setRows] = useState<TaskRow[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  // True once any response (or failure) has landed. Until then there is
+  // nothing to keep on screen, so a spinner stands in; afterwards a refetch
+  // dims the rows it will replace instead of unmounting them (typing in the
+  // search box would otherwise blank the table, with its scroll position and
+  // focus context, on every query).
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [memberNameById, setMemberNameById] = useState<Map<string, string>>(new Map());
   const [projectNameById, setProjectNameById] = useState<Map<string, string>>(new Map());
@@ -174,12 +168,15 @@ export default function TasksPage() {
         if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setLoaded(true);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [apiQuery]);
+  }, [apiQuery, reloadKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -224,29 +221,42 @@ export default function TasksPage() {
       : []),
   ];
 
+  const showTable = loaded && !error && rows.length > 0;
+
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <div className="mx-auto max-w-6xl space-y-5">
-        <PageHeader
-          title="Tasks"
-          action={<ExportCsvButton href={controls.exportHref ?? "/api/export?entity=tasks"} />}
-        />
+    <PageContainer width="wide" className="space-y-5">
+      <PageHeader
+        title="Tasks"
+        action={<ExportCsvButton href={controls.exportHref ?? "/api/export?entity=tasks"} />}
+      />
 
-        <RegisterToolbar controls={controls} />
+      <RegisterToolbar controls={controls} />
 
-        {error && (
-          <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger-ink">
-            Failed to load tasks: {error}
-          </div>
-        )}
+      {/* Announces the result of each (re)fetch without moving focus. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {loading ? "Loading tasks…" : error ? "" : `${total} task${total === 1 ? "" : "s"}`}
+      </p>
 
-        {loading && (
-          <div className="flex items-center gap-2 py-12 justify-center text-sm text-ink-muted">
-            <Spinner size="sm" /> Loading tasks…
-          </div>
-        )}
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger-ink"
+        >
+          <span>Failed to load tasks: {error}</span>
+          <Button variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+            Retry
+          </Button>
+        </div>
+      )}
 
-        {!loading && !error && rows.length === 0 && (
+      {!loaded && (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-ink-muted">
+          <Spinner size="sm" /> Loading tasks…
+        </div>
+      )}
+
+      {loaded && !error && rows.length === 0 && (
+        <div aria-busy={loading} className={cn(loading && "opacity-60 transition-opacity")}>
           <EmptyState
             purpose={
               activeFilterCount > 0
@@ -262,42 +272,50 @@ export default function TasksPage() {
             }
             canWrite={activeFilterCount > 0}
           />
-        )}
+        </div>
+      )}
 
-        {!loading && !error && rows.length > 0 && (
-          <div className="hidden overflow-x-auto rounded-lg border border-border-subtle md:block">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border-subtle bg-sunken text-left">
-                  {visibleColumns.map((col) => (
-                    <th key={col.key} className="px-3 py-2 font-medium text-ink-secondary">
-                      {SORTABLE_FIELDS.has(col.key) ? (
-                        <button
-                          type="button"
-                          onClick={() => toggleSort(col.key)}
-                          className={cn(
-                            "inline-flex min-h-[44px] items-center gap-1 sm:min-h-0",
-                            "hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded",
-                            sort?.field === col.key && "text-ink",
-                          )}
-                          aria-label={`Sort by ${col.label}`}
-                        >
-                          {col.label}
-                          {sort?.field === col.key &&
-                            (sort.direction === "asc" ? (
-                              <ArrowUp className="h-3.5 w-3.5" aria-hidden />
-                            ) : (
-                              <ArrowDown className="h-3.5 w-3.5" aria-hidden />
-                            ))}
-                        </button>
-                      ) : (
-                        col.label
-                      )}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border-subtle">
+      {showTable && (
+        <div aria-busy={loading} className={cn(loading && "opacity-60 transition-opacity")}>
+          <div className="hidden md:block">
+            <ScrollTable label="Task register" footer={<AggregateFooter count={rows.length} aggregates={aggregates} />}>
+              <THead>
+                <TR>
+                  {visibleColumns.map((col) => {
+                    const active = sort?.field === col.key;
+                    return (
+                      <TH
+                        key={col.key}
+                        align={NUMERIC_COLUMNS.has(col.key) ? "right" : "left"}
+                        aria-sort={active ? (sort!.direction === "asc" ? "ascending" : "descending") : undefined}
+                      >
+                        {SORTABLE_FIELDS.has(col.key) ? (
+                          <button
+                            type="button"
+                            onClick={() => toggleSort(col.key)}
+                            className={cn(
+                              "focus-ring inline-flex items-center gap-1 rounded uppercase hover:text-ink",
+                              active && "text-ink",
+                            )}
+                            aria-label={`Sort by ${col.label}`}
+                          >
+                            {col.label}
+                            {active &&
+                              (sort!.direction === "asc" ? (
+                                <ArrowUp className="h-3 w-3" aria-hidden />
+                              ) : (
+                                <ArrowDown className="h-3 w-3" aria-hidden />
+                              ))}
+                          </button>
+                        ) : (
+                          col.label
+                        )}
+                      </TH>
+                    );
+                  })}
+                </TR>
+              </THead>
+              <tbody>
                 {groups.map((group) => (
                   <GroupRows
                     key={group.key}
@@ -308,12 +326,9 @@ export default function TasksPage() {
                   />
                 ))}
               </tbody>
-            </table>
-            <AggregateFooter count={rows.length} aggregates={aggregates} />
+            </ScrollTable>
           </div>
-        )}
 
-        {!loading && !error && rows.length > 0 && (
           <div className="rounded-lg border border-border-subtle md:hidden">
             <DataList
               columns={mobileColumns}
@@ -322,35 +337,35 @@ export default function TasksPage() {
               href={(t) => entityHref("task", { id: t.id, projectId: t.project_id })}
             />
           </div>
-        )}
+        </div>
+      )}
 
-        {!loading && !error && total > PAGE_SIZE && (
-          <div className="flex items-center justify-between text-sm text-ink-muted">
-            <span>
-              Page {page} of {totalPages} · {total} tasks
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={page >= totalPages}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
+      {loaded && !error && total > PAGE_SIZE && (
+        <div className="flex items-center justify-between text-sm text-ink-muted">
+          <span>
+            Page {page} of {totalPages} · {total} tasks
+          </span>
+          <div className="flex gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page <= 1}
+              onClick={() => setPage(page - 1)}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage(page + 1)}
+            >
+              Next
+            </Button>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </PageContainer>
   );
 }
 
@@ -417,20 +432,25 @@ function GroupRows({
   return (
     <>
       {group.label !== "" && (
-        <tr className="bg-sunken/60">
-          <td colSpan={columns.length} className="px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-ink-muted">
+        <TR className="bg-sunken/60">
+          <TD colSpan={columns.length} className="text-xs font-medium uppercase tracking-wide text-ink-muted">
             {group.label} · {group.rows.length}
-          </td>
-        </tr>
+          </TD>
+        </TR>
       )}
       {group.rows.map((task) => (
-        <tr key={task.id} className="hover:bg-sunken transition-colors duration-100">
+        <TR key={task.id} className="transition-colors duration-100 hover:bg-sunken">
           {columns.map((col) => (
-            <td key={col.key} className="px-3 py-2">
+            <TD
+              key={col.key}
+              align={NUMERIC_COLUMNS.has(col.key) ? "right" : "left"}
+              numeric={NUMERIC_COLUMNS.has(col.key)}
+              className="whitespace-nowrap"
+            >
               {renderCell(col.key, task, memberNameById, projectNameById)}
-            </td>
+            </TD>
           ))}
-        </tr>
+        </TR>
       ))}
     </>
   );
@@ -447,7 +467,8 @@ function renderCell(
       return (
         <Link
           href={entityHref("task", { id: task.id, projectId: task.project_id })}
-          className="font-medium text-ink hover:text-accent"
+          title={task.name}
+          className="focus-ring block max-w-[22rem] truncate rounded font-medium text-ink hover:text-accent"
         >
           {task.name}
         </Link>
@@ -457,23 +478,29 @@ function renderCell(
     case "priority":
       return <Badge tone={priorityTone(task.priority)}>{task.priority}</Badge>;
     case "due_date":
-      return <span className="font-mono text-xs text-ink-secondary">{task.due_date ?? "—"}</span>;
+      return <span className="font-mono text-xs tabular-nums text-ink-secondary">{task.due_date ?? "—"}</span>;
     case "completion_pct":
-      return <span className="font-mono text-xs text-ink-secondary">{task.completion_pct ?? 0}%</span>;
+      return <span className="text-xs text-ink-secondary">{task.completion_pct ?? 0}%</span>;
     case "assignee_id":
       return (
         <span className="text-xs text-ink-secondary">
           {task.assignee_id ? (memberNameById.get(task.assignee_id) ?? "Unknown member") : "No assignee"}
         </span>
       );
-    case "project_id":
+    case "project_id": {
+      const name = projectNameById.get(task.project_id) ?? "Unknown project";
       return (
-        <Link href={entityHref("project", { id: task.project_id })} className="text-xs text-ink-secondary hover:text-accent">
-          {projectNameById.get(task.project_id) ?? "Unknown project"}
+        <Link
+          href={entityHref("project", { id: task.project_id })}
+          title={name}
+          className="focus-ring block max-w-[13rem] truncate rounded text-xs text-ink-secondary hover:text-accent"
+        >
+          {name}
         </Link>
       );
+    }
     case "estimate_hours":
-      return <span className="font-mono text-xs text-ink-secondary">{task.estimate_hours ?? "—"}</span>;
+      return <span className="text-xs text-ink-secondary">{task.estimate_hours ?? "—"}</span>;
     default:
       return null;
   }

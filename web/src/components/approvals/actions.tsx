@@ -1,40 +1,66 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { FieldLabel, FieldError, TextareaInput } from "@/components/forms/project-form";
+import { TextareaInput } from "@/components/forms/project-form";
 import { useToast } from "@/components/ui/toast";
-import { apiPost, type ApiError } from "@/lib/api-client";
+import { DecisionRefusal } from "@/components/governance/decision-refusal";
+import { FourEyesNote, type DecideState } from "@/components/governance/four-eyes-note";
+import { describeRefusal, fieldMessages, type Refusal } from "@/components/governance/refusal";
+import { Field, InlineAlert } from "@/components/integrations/shared";
+import { apiPost } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 
 interface ApprovalActionsProps {
   requestId: string;
-  /** The signed-in user is the original requester — four-eyes blocks their
-   *  approve/reject, so offer withdrawal instead. */
-  isOwn?: boolean;
+  /**
+   * Worked out on the server the way the API decides (see lib/review/four-eyes):
+   * Approve / Reject are offered only when `canDecide`; otherwise the four-eyes
+   * note takes their place, with Withdraw when the viewer raised it directly.
+   */
+  decide: DecideState;
+  /** What is being decided, e.g. `task “Cutover plan”`; names the buttons for screen readers. */
+  subject: string;
 }
 
 type ConfirmStep = "approve" | "reject" | "withdraw";
 
-export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsProps) {
+export function ApprovalActions({ requestId, decide, subject }: ApprovalActionsProps) {
   const router = useRouter();
   const toast = useToast();
+  const uid = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
-  // null = pick action, "approve"|"reject" = confirm step
+  // null = pick action, otherwise the confirm step
   const [confirming, setConfirming] = useState<ConfirmStep | null>(null);
   const [rejectReason, setRejectReason] = useState("");
   const [approveNote, setApproveNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [refusal, setRefusal] = useState<Refusal | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Focus follows the step: into the confirm form, and back to the first action
+  // button when the person steps back (the button they pressed was unmounted).
+  const wasConfirming = useRef(false);
+  useEffect(() => {
+    if (confirming) {
+      formRef.current?.querySelector<HTMLElement>("textarea, button[type=submit]")?.focus();
+    } else if (wasConfirming.current && !refusal) {
+      rootRef.current?.querySelector<HTMLElement>("button")?.focus();
+    }
+    wasConfirming.current = confirming !== null;
+  }, [confirming, refusal]);
 
   function reset() {
     setConfirming(null);
     setRejectReason("");
     setApproveNote("");
     setError(null);
+    setRefusal(null);
     setFieldErrors({});
   }
 
@@ -69,47 +95,41 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
       );
       router.refresh();
     } catch (err) {
-      const apiErr = err as ApiError;
-      setError(apiErr.message ?? `Failed to ${confirming} request.`);
-      const map: Record<string, string> = {};
-      for (const f of apiErr.fields ?? []) map[f.field] = f.message;
-      setFieldErrors(map);
+      const found = describeRefusal(err, `Failed to ${confirming} request.`);
+      if (found.terminal) {
+        // Refused on principle (four-eyes, already decided, locked…): retrying the
+        // same form can't work, so the message replaces it.
+        setRefusal(found);
+      } else {
+        setError(found.detail);
+        setFieldErrors(fieldMessages(err));
+      }
       setSaving(false);
     }
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* Error banner */}
-      {error && (
-        <p className="text-xs text-danger-ink bg-danger/15 rounded-md px-3 py-2 border border-danger/20">
-          {error}
-        </p>
+    <div ref={rootRef} className="flex flex-col gap-2">
+      {refusal && (
+        <DecisionRefusal
+          refusal={refusal}
+          onBack={reset}
+          onRefresh={() => {
+            reset();
+            router.refresh();
+          }}
+        />
       )}
 
-      {/* Step 1: pick action. Own requests get Withdraw only — four-eyes
-          would 403/422 the maker's approve/reject anyway. Buttons are
-          full-width and >=44px on phones (stacked in a column), the
-          original inline/compact sizing returns at sm+. */}
-      {!confirming && isOwn && (
-        <div className="flex flex-col items-stretch gap-1.5 sm:items-end">
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-11 w-full sm:h-8 sm:w-auto"
-            onClick={() => setConfirming("withdraw")}
-          >
-            Withdraw
-          </Button>
-          <p className="text-xs text-ink-muted">Your request — a different person must decide it.</p>
-        </div>
-      )}
-      {!confirming && !isOwn && (
+      {/* Step 1: pick action. Buttons are full-width and >=44px on phones
+          (stacked in a column); the compact inline sizing returns at sm+. */}
+      {!refusal && !confirming && decide.canDecide && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Button
             variant="primary"
             size="sm"
             className="h-11 w-full sm:h-8 sm:w-auto"
+            aria-label={`Approve deletion of ${subject}`}
             onClick={() => setConfirming("approve")}
           >
             Approve
@@ -118,6 +138,7 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
             variant="danger"
             size="sm"
             className="h-11 w-full sm:h-8 sm:w-auto"
+            aria-label={`Reject deletion of ${subject}`}
             onClick={() => setConfirming("reject")}
           >
             Reject
@@ -125,10 +146,30 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
         </div>
       )}
 
+      {/* Can't decide: say why, in place of the buttons. Withdraw stays for the
+          person who raised it directly. */}
+      {!refusal && !confirming && !decide.canDecide && (
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <FourEyesNote block={decide.block} variant="inline" className="sm:ml-auto sm:max-w-[16rem] sm:text-right" />
+          {decide.canWithdraw && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-11 w-full sm:h-8 sm:w-auto"
+              aria-label={`Withdraw your request to delete ${subject}`}
+              onClick={() => setConfirming("withdraw")}
+            >
+              Withdraw
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Step 2: confirm form */}
-      {confirming && (
-        <form onSubmit={handleSubmit} className="space-y-3 pt-1">
-          {/* Confirmation label */}
+      {!refusal && confirming && (
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-3 pt-1">
+          {error && <InlineAlert>{error}</InlineAlert>}
+
           <div
             className={cn(
               "rounded-md border px-3 py-2 text-xs font-medium",
@@ -148,35 +189,33 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
 
           {/* Approve: optional note */}
           {confirming === "approve" && (
-            <div>
-              <FieldLabel>Note (optional)</FieldLabel>
-              <TextareaInput
-                value={approveNote}
-                onChange={(e) => setApproveNote(e.target.value)}
-                placeholder="Any notes for the requester…"
-                rows={2}
-              />
-            </div>
+            <Field id={`${uid}-note`} label="Note" optional>
+              {(a11y) => (
+                <TextareaInput
+                  {...a11y}
+                  value={approveNote}
+                  onChange={(e) => setApproveNote(e.target.value)}
+                  placeholder="Any notes for the requester…"
+                  rows={2}
+                />
+              )}
+            </Field>
           )}
 
           {/* Reject: required reason */}
           {confirming === "reject" && (
-            <div>
-              <FieldLabel>
-                Reason{" "}
-                <span className="text-danger-ink ml-0.5" aria-hidden>
-                  *
-                </span>
-              </FieldLabel>
-              <TextareaInput
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Why are you rejecting this deletion request?"
-                rows={3}
-                aria-required="true"
-              />
-              <FieldError message={fieldErrors.reason} />
-            </div>
+            <Field id={`${uid}-reason`} label="Reason (required)" error={fieldErrors.reason}>
+              {(a11y) => (
+                <TextareaInput
+                  {...a11y}
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Why are you rejecting this deletion request?"
+                  rows={3}
+                  aria-required="true"
+                />
+              )}
+            </Field>
           )}
 
           {/* flex-col-reverse on phones puts the primary Confirm action

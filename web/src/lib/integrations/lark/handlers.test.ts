@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import type { LinkOutcome } from "@/lib/integrations/identity";
 import type { InboundOutcome } from "@/lib/integrations/types";
 import { CARD_DEADLINE_MS, handleCardAction, handleLarkPayload, type LarkHandlerContext } from "./handlers";
 import {
@@ -363,5 +364,117 @@ describe("bot DMs (im.message.receive_v1)", () => {
     expect(res.status).toBe(200);
     const logged = JSON.stringify((d.deps.log as ReturnType<typeof vi.fn>).mock.calls);
     expect(logged).toContain("lark bot reply failed");
+  });
+});
+
+describe("a card tap on a request that was edited", () => {
+  it("answers with a warning toast that says nothing was decided, and no replacement card", async () => {
+    const { deps } = fakeHandlerDeps({ handleApprovalAction: vi.fn(async (): Promise<InboundOutcome> => ({ status: "changed" })) });
+    const res = await handleCardAction(ctx(), env(cardActionEvent({ value: { t: "tok-stale", a: "approve" } })), deps);
+    expect(res.toast.type).toBe("warning");
+    expect(res.toast.content).toMatch(/changed after the card was sent/i);
+    expect(res.toast.content).toMatch(/nothing was decided/i);
+    expect(res.card).toBeUndefined();
+  });
+
+  it("is the same for a reject (the reason the person typed is not recorded anywhere)", async () => {
+    const { deps } = fakeHandlerDeps({ handleApprovalAction: vi.fn(async (): Promise<InboundOutcome> => ({ status: "changed" })) });
+    const res = await handleCardAction(
+      ctx(),
+      env(cardActionEvent({ value: { t: "tok-stale", a: "reject" }, formValue: { reason: "too big" } })),
+      deps,
+    );
+    expect(res.toast.type).toBe("warning");
+    expect(res.card).toBeUndefined();
+  });
+});
+
+describe("link command — throttled and displaced accounts", () => {
+  const run = async (text: string, deps: ReturnType<typeof fakeHandlerDeps>) => {
+    await handleLarkPayload(ctx(), env(messageEvent({ text })), deps.deps);
+    return deps;
+  };
+  const titleOf = (msg: { body: Record<string, unknown> }) => (msg.body.header as { title: { content: string } }).title.content;
+
+  it("tells a sender who is guessing to wait, in plain words", async () => {
+    const d = fakeHandlerDeps({ consumeLinkCode: vi.fn(async (): Promise<LinkOutcome> => ({ status: "rate_limited", retryAfterSeconds: 400 })) });
+    const { sent } = await run("link NPL-ABCD-2345", d);
+    expect(sent).toHaveLength(1);
+    expect(titleOf(sent[0])).toBe("Too many attempts");
+    expect(JSON.stringify(sent[0].body)).toMatch(/wait a few minutes/i);
+  });
+
+  it("confirms the new account FIRST, then tells every account that just lost the link", async () => {
+    const d = fakeHandlerDeps({
+      consumeLinkCode: vi.fn(
+        async (): Promise<LinkOutcome> => ({
+          status: "linked",
+          profileLabel: "Sam Approver",
+          alreadyLinked: false,
+          displaced: [
+            { externalTenant: FIXTURE_TENANT, externalUserId: "ou_old_account_1" },
+            { externalTenant: FIXTURE_TENANT, externalUserId: "ou_old_account_2" },
+          ],
+        }),
+      ),
+    });
+    const { sent } = await run("link NPL-ABCD-2345", d);
+
+    expect(sent.map((m) => m.receiveId)).toEqual([FIXTURE_OPEN_ID, "ou_old_account_1", "ou_old_account_2"]);
+    expect(titleOf(sent[0])).toBe("Account linked");
+    for (const notice of sent.slice(1)) {
+      expect(notice.receiveIdType).toBe("open_id");
+      expect(titleOf(notice)).toBe("This Lark account was unlinked");
+      expect(JSON.stringify(notice.body)).toMatch(/not you/i);
+    }
+  });
+
+  it("does not let a failed notice to the old account break the reply to the new one", async () => {
+    const d = fakeHandlerDeps({
+      consumeLinkCode: vi.fn(
+        async (): Promise<LinkOutcome> => ({
+          status: "linked",
+          profileLabel: "Sam Approver",
+          alreadyLinked: false,
+          displaced: [{ externalTenant: FIXTURE_TENANT, externalUserId: "ou_old_account_1" }],
+        }),
+      ),
+    });
+    const base = d.deps.send;
+    d.deps.send = vi.fn(async (c, s, m) => {
+      if (m.receiveId === "ou_old_account_1") throw new Error("socket hang up");
+      return base(c, s, m);
+    });
+    const { sent } = await run("link NPL-ABCD-2345", d);
+    expect(sent).toHaveLength(1);
+    expect(titleOf(sent[0])).toBe("Account linked");
+    expect(d.deps.log).toHaveBeenCalledWith("warn", expect.stringContaining("displaced"), expect.anything());
+  });
+
+  it("sends no extra notice for an ordinary first link or a re-confirmation", async () => {
+    const first = fakeHandlerDeps();
+    expect((await run("link NPL-ABCD-2345", first)).sent).toHaveLength(1);
+    const again = fakeHandlerDeps({
+      consumeLinkCode: vi.fn(async (): Promise<LinkOutcome> => ({ status: "linked", profileLabel: "Sam", alreadyLinked: true })),
+    });
+    expect((await run("link NPL-ABCD-2345", again)).sent).toHaveLength(1);
+  });
+});
+
+describe("reject reasons are cleaned before they reach the audit trail", () => {
+  it("strips control and bidirectional characters but keeps ordinary text, accents and emoji", async () => {
+    const { deps } = fakeHandlerDeps();
+    const reason = "  Too ‮expensive‬ ⁦now⁩‏, café 😀\u0000 ";
+    await handleCardAction(ctx(), env(cardActionEvent({ value: { t: "tok-bidi", a: "reject" }, formValue: { reason } })), deps);
+    expect(deps.handleApprovalAction).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "reject", note: "Too expensive now, café 😀" }),
+    );
+  });
+
+  it("refuses a reason that is nothing but bidirectional controls, before the hub is called", async () => {
+    const { deps } = fakeHandlerDeps();
+    const res = await handleCardAction(ctx(), env(cardActionEvent({ value: { t: "tok-bidi", a: "reject" }, formValue: { reason: "‮‬" } })), deps);
+    expect(res.toast.type).toBe("warning");
+    expect(deps.handleApprovalAction).not.toHaveBeenCalled();
   });
 });

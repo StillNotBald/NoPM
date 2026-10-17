@@ -33,7 +33,7 @@ const FILL: Record<PacingStatus, string> = {
   over: "bg-danger",
   behind: "bg-danger",
   watch: "bg-warning",
-  "on-track": "bg-accent",
+  "on-track": "bg-success", // status colour, not the brand blue (matches the "On track" word)
   "no-plan": "bg-ink-muted",
 };
 

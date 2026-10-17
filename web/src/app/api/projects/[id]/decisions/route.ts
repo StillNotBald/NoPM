@@ -5,6 +5,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { createDecisionSchema } from "@/app/api/decisions/_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -107,6 +108,15 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  // Cross-tenant guard: `supersedes` is a decision and must belong to THIS
+  // workspace. An unchecked foreign id used to be accepted, and the NO ACTION
+  // foreign key then made the OTHER tenant's delete of its own decision fail
+  // with a 500.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "decisions", id: input.supersedes, field: "supersedes" },
+  ]);
+
   const refId = await nextDecRefId(db, actor.workspaceId);
 
   const { data: row, error } = await db

@@ -298,3 +298,31 @@ describe("VEVENT content", () => {
     expect(events[1]).toContain("SUMMARY:Launch: Two");
   });
 });
+
+describe("revision (a project rename must refresh its events)", () => {
+  const seqOf = (ics: string) => Number(/SEQUENCE:(\d+)/.exec(ics)?.[1]);
+  const stampOf = (ics: string) => /DTSTAMP:(\S+)/.exec(ics)?.[1];
+
+  it("uses the milestone's own write time when the project has not changed since", () => {
+    const ics = build([milestone({ project_updated_at: "2026-10-01T00:00:00.000Z" })]);
+    expect(stampOf(ics)).toBe("20261016T083005Z");
+    expect(seqOf(ics)).toBe(Math.floor(Date.parse("2026-10-16T08:30:05.123Z") / 1000));
+  });
+
+  it("uses the project's write time when the project changed later (SUMMARY carries the project name)", () => {
+    const ics = build([milestone({ project_updated_at: "2026-10-17T12:00:00.000Z" })]);
+    expect(stampOf(ics)).toBe("20261017T120000Z");
+    expect(seqOf(ics)).toBe(Math.floor(Date.parse("2026-10-17T12:00:00.000Z") / 1000));
+  });
+
+  it("ignores a missing or unparseable project time and changes nothing for a caller that never sets it", () => {
+    const plain = build([milestone()]);
+    expect(build([milestone({ project_updated_at: null })])).toBe(plain);
+    expect(build([milestone({ project_updated_at: "not a date" })])).toBe(plain);
+  });
+
+  it("is still deterministic: the same inputs give the same bytes", () => {
+    const m = milestone({ project_updated_at: "2026-10-17T12:00:00.000Z" });
+    expect(build([m])).toBe(build([m]));
+  });
+});

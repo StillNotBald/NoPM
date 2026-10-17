@@ -11,14 +11,19 @@
  *   limit -> `handleLarkPayload` (./handlers.ts) -> JSON reply.
  *
  * Ordering is deliberate:
- *   • Everything unauthenticated is cheap and uninformative: unknown / paused /
- *     revoked connectors are a bare 404, and every verification failure is the
- *     same generic 401 (the precise reason is logged server-side only), so the
- *     endpoint is neither a connector-existence nor a decryption oracle.
+ *   • Everything unauthenticated is cheap and uninformative: unknown, paused
+ *     and revoked connectors and every verification failure are ONE generic 401
+ *     (the precise reason is logged server-side only), so the endpoint is
+ *     neither a connector-state nor a decryption oracle. Only a connector that
+ *     is active but cannot decrypt its own secrets (an operator fault) answers
+ *     differently: a generic 503.
  *   • The per-connector budget is charged only AFTER authentication, so someone
  *     who merely knows a connector id cannot spend the real tenant's budget.
  *     Failed attempts are counted in their own small bucket purely to make a
- *     guessing run visible and to cap what it costs.
+ *     guessing run visible and to cap what it costs, per connector and, when a
+ *     trustworthy client address exists, per address (a failure on an UNKNOWN
+ *     connector can only be counted per address: a bucket per guessed id would
+ *     be unbounded).
  *   • A card click is always answered with HTTP 200 + toast (even when rate
  *     limited): the platform renders the toast, whereas a bare 429 shows the
  *     person an opaque error.
@@ -34,12 +39,17 @@ import { cardCallbackResponse } from "./cards";
 import { handleLarkPayload, type LarkHandlerContext, type LarkHandlerDeps, type LogLevel } from "./handlers";
 import { MAX_WEBHOOK_BODY_BYTES, verifyLarkRequest } from "./verify";
 
+/** What the verifier is run against when there is no real connector to check, so a miss costs about what a hit does. */
+const DECOY_SECRETS: LarkSecrets = { appSecret: "decoy", verificationToken: "decoy", encryptKey: "decoy" };
+
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Requests per minute per connector once authenticated (card clicks + bot DMs). */
 export const WEBHOOK_RATE_MAX = Number(process.env.NOPM_RATE_LARK_PER_MIN ?? 300);
 /** Failed-authentication attempts per minute per connector that we will keep paying for. */
 export const WEBHOOK_BAD_ATTEMPTS_MAX = 30;
+/** Failed-authentication attempts per minute per client network, whichever connector they aim at. */
+export const WEBHOOK_BAD_IP_MAX = 60;
 
 export type WebhookDeps = {
   /** Connector by id regardless of status (the id is the only thing the URL carries). */
@@ -48,6 +58,13 @@ export type WebhookDeps = {
   readSecrets(connector: ConnectorRow): LarkSecrets;
   /** DB-backed fixed-window counter; fail-open on infrastructure errors. */
   rateCheck(key: string, max: number): Promise<{ allowed: boolean; retryAfterSeconds: number }>;
+  /**
+   * A rate-limit key for the caller's network (`ipRateKey`), or null when no
+   * trustworthy address exists. Used for FAILURES only: Lark's own servers
+   * carry every tenant's traffic from a few addresses, so counting good
+   * requests per address would throttle the platform.
+   */
+  ipKey?(headers: Headers): string | null;
   buildContext(
     connector: ConnectorRow,
     secrets: LarkSecrets,
@@ -72,7 +89,16 @@ export async function handleLarkWebhook(request: NextRequest, rawConnectorId: st
   if (declaredLength > MAX_WEBHOOK_BODY_BYTES) return json({ error: "Payload too large" }, 413);
 
   const connector = await wd.loadConnector(connectorId);
-  if (!connector || connector.status !== "active") return json({ error: "Not found" }, 404);
+  if (!connector || connector.status !== "active") {
+    // Unknown, paused and revoked look exactly like a failed check: same body,
+    // same work (the body is read and run through the verifier), no counter row
+    // keyed by the id the caller picked.
+    const rawBody = await request.text();
+    if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BODY_BYTES) return json({ error: "Payload too large" }, 413);
+    verifyLarkRequest({ rawBody, headers: request.headers, secrets: DECOY_SECRETS, now: wd.now });
+    wd.log("warn", "lark webhook rejected", { reason: connector ? "inactive" : "unknown_connector" });
+    return rejectUnauthenticated(wd, request, null);
+  }
 
   const rawBody = await request.text();
   if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BODY_BYTES) return json({ error: "Payload too large" }, 413);
@@ -82,16 +108,13 @@ export async function handleLarkWebhook(request: NextRequest, rawConnectorId: st
     secrets = wd.readSecrets(connector);
   } catch {
     wd.log("error", "lark connector secrets are unreadable", { connectorId });
-    return json({ error: "Connector is misconfigured" }, 500);
+    return json({ error: "Service unavailable" }, 503);
   }
 
   const verdict = verifyLarkRequest({ rawBody, headers: request.headers, secrets, now: wd.now });
   if (!verdict.ok) {
     wd.log("warn", "lark webhook rejected", { connectorId, reason: verdict.reason });
-    const bad = await wd.rateCheck(`lark-bad:${connectorId}`, WEBHOOK_BAD_ATTEMPTS_MAX);
-    return bad.allowed
-      ? json({ error: "Invalid request" }, 401)
-      : json({ error: "Too many requests" }, 429, { "Retry-After": String(bad.retryAfterSeconds) });
+    return rejectUnauthenticated(wd, request, connectorId);
   }
 
   // Authenticated from here: it is now safe to say why a connector refuses.
@@ -111,4 +134,24 @@ export async function handleLarkWebhook(request: NextRequest, rawConnectorId: st
   const { ctx, deps } = wd.buildContext(connector, secrets, new URL(request.url).origin);
   const result = await handleLarkPayload(ctx, envelope, deps);
   return json(result.body, result.status);
+}
+
+/**
+ * The one answer to every unauthenticated failure: a generic 401, or 429 once the
+ * failures from this connector, or from this network, pile up. `connectorId` is
+ * null when the id matched no usable connector; only the per-address counter
+ * runs then.
+ */
+async function rejectUnauthenticated(wd: WebhookDeps, request: NextRequest, connectorId: string | null): Promise<Response> {
+  const checks: [string, number][] = [];
+  const ip = wd.ipKey?.(request.headers) ?? null;
+  if (ip) checks.push([`lark-bad-ip:${ip}`, WEBHOOK_BAD_IP_MAX]);
+  if (connectorId) checks.push([`lark-bad:${connectorId}`, WEBHOOK_BAD_ATTEMPTS_MAX]);
+  for (const [key, max] of checks) {
+    const verdict = await wd.rateCheck(key, max);
+    if (!verdict.allowed) {
+      return json({ error: "Too many requests" }, 429, { "Retry-After": String(verdict.retryAfterSeconds) });
+    }
+  }
+  return json({ error: "Invalid request" }, 401);
 }

@@ -17,9 +17,14 @@ export default async function ReviewQueuePage() {
 
   if (!user) redirect("/login");
 
+  // The viewer's own role (profiles RLS lets a person read their own row): the
+  // queue works out per item whether THIS person may decide it.
+  const { data: viewerProfile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const viewer = { id: user.id, role: (viewerProfile?.role as string | null | undefined) ?? null };
+
   let items: ReviewItem[];
   try {
-    items = await gatherReviewItems(db);
+    items = await gatherReviewItems(db, viewer);
   } catch (e) {
     return <QueryError what="the review queue" message={e instanceof Error ? e.message : null} />;
   }

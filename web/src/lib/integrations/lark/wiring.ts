@@ -9,6 +9,7 @@
  */
 
 import { after } from "next/server";
+import { ipRateKey } from "@/lib/api/client-ip";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getPendingCounts } from "@/lib/governance/pending-counts";
 import { consumeLinkCode, lookupIdentity } from "@/lib/integrations/identity";
@@ -166,6 +167,7 @@ export function productionWebhookDeps(): WebhookDeps {
     loadConnector,
     readSecrets: loadConnectorSecrets,
     rateCheck,
+    ipKey: (headers) => ipRateKey(headers),
     buildContext: (connector, secrets, requestOrigin) => productionContext(connector, requestOrigin, secrets),
     now: Date.now,
     log,

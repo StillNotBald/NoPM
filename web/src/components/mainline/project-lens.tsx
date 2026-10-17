@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -33,10 +34,14 @@ export function ProjectLens({
   projects,
   selectedProjectId,
   data,
+  failure,
 }: {
   projects: ProjectLensOption[];
   selectedProjectId: string | null;
   data: ProjectLensData | null;
+  /** A load error to show instead of the chart (never an empty state: an
+   *  empty Journal and a failed one must not look alike). */
+  failure?: ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -76,7 +81,9 @@ export function ProjectLens({
         </select>
       </div>
 
-      {data?.project ? (
+      {failure ? (
+        failure
+      ) : data?.project ? (
         data.milestones.length === 0 && data.tasks.length === 0 ? (
           <EmptyState purpose={`${data.project.name} has no milestones or tasks yet.`} canWrite={false} />
         ) : (

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { hashToken } from "@/lib/auth/tokens";
 import type { Actor } from "@/lib/auth/guard";
 
@@ -51,4 +51,100 @@ export function publicBaseUrl(request: Request): string {
 
 export function feedUrl(baseUrl: string, raw: string): string {
   return `${baseUrl}/api/calendar/${raw}${ICS_SUFFIX}`;
+}
+
+// ── what a poll returns ────────────────────────────────────────────────────
+
+/**
+ * A subscription answers "what is on my calendar", not "everything that ever
+ * happened". The feed covers milestones from this many days back to the end of
+ * the schedule, in date order. Older, long-finished milestones fall out of the
+ * subscribed calendar (a subscribing client replaces its copy on every poll),
+ * which is what keeps a years-old workspace from growing the response without
+ * bound and from running into the database's row ceiling.
+ */
+export const FEED_PAST_DAYS = 90;
+/** Rows per database round trip. Below the 1,000-row ceiling PostgREST applies silently. */
+export const FEED_PAGE_SIZE = 500;
+/**
+ * Hard cap on events in one feed. Reaching it is reported (the
+ * `X-NoPM-Feed-Truncated` header and a server log), never silent. Events are
+ * served in date order from the window start, so what a capped feed loses is
+ * the far end of the schedule, not the near-term milestones.
+ */
+export const FEED_MAX_EVENTS = 2_000;
+
+/** First date (YYYY-MM-DD, UTC) a feed includes. */
+export function feedWindowStart(now: Date = new Date()): string {
+  return new Date(now.getTime() - FEED_PAST_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Strong validator for a feed body. The serialiser is deterministic (an
+ * unchanged workspace gives identical bytes), so a hash of the body is an exact
+ * "has it changed" signal. Calendar clients send it back as `If-None-Match` and
+ * get a body-less 304 instead of re-downloading hundreds of kilobytes.
+ */
+export function feedEtag(body: string): string {
+  return `"${createHash("sha256").update(body).digest("hex").slice(0, 32)}"`;
+}
+
+/** RFC 9110 `If-None-Match` (weak comparison): a list of tags, or `*`. */
+export function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
+  if (!ifNoneMatch) return false;
+  const strip = (tag: string) => tag.trim().replace(/^W\//, "");
+  const wanted = strip(etag);
+  return ifNoneMatch
+    .split(",")
+    .map(strip)
+    .some((tag) => tag === "*" || tag === wanted);
+}
+
+// ── throttling ─────────────────────────────────────────────────────────────
+
+/** Requests per minute per client address, counted before the token is even looked up. */
+export const FEED_RATE_PER_IP = Number(process.env.NOPM_RATE_CAL_IP_PER_MIN ?? 120);
+/** Requests per minute per feed. Calendar apps poll every 15 minutes to a few hours. */
+export const FEED_RATE_PER_FEED = Number(process.env.NOPM_RATE_CAL_PER_MIN ?? 60);
+const RATE_WINDOW_SECONDS = 60;
+
+/**
+ * The client address as the platform proxy reports it. Used only as a rate-limit
+ * key, never as an identity: a spoofed value can at worst spend someone else's
+ * bucket or dodge its own, and the per-feed bucket does not depend on it.
+ */
+export function clientAddress(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const candidate = forwarded || request.headers.get("x-real-ip")?.trim() || "unknown";
+  return candidate.slice(0, 64).replace(/[^0-9a-zA-Z:.%-]/g, "_");
+}
+
+type RateDb = { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message: string } | null }> };
+
+/**
+ * Same mechanism as src/lib/api/rate-limit.ts and the Lark webhook: the
+ * `nopm_rate_check` RPC, a row-locked fixed window that holds across serverless
+ * instances. `route()` only rate-limits authenticated callers, and this route
+ * is public, so it calls the counter itself. Fail-OPEN on infrastructure errors
+ * (an abuse guard, not an auth control), loudly.
+ */
+export async function feedRateCheck(
+  db: RateDb,
+  key: string,
+  max: number,
+): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
+  const { data, error } = await db.rpc("nopm_rate_check", {
+    p_key: key,
+    p_max: max,
+    p_window_seconds: RATE_WINDOW_SECONDS,
+  });
+  if (error) {
+    console.error("[nopm][calendar] nopm_rate_check RPC failed - FAILING OPEN (cap not enforced this call)", {
+      key: key.split(":")[0],
+      error: error.message,
+    });
+    return { allowed: true, retryAfterSeconds: 0 };
+  }
+  const result = data as { allowed: boolean; retry_after_seconds: number };
+  return { allowed: result.allowed, retryAfterSeconds: result.retry_after_seconds };
 }

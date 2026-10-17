@@ -40,6 +40,7 @@ const validBody = {
   app_id: "cli_a1b2c3",
   app_secret: "the-app-secret-0001",
   verification_token: "the-verification-token-0002",
+  encrypt_key: "valid-encrypt-key-0004", // webhook mode (the default) requires one
 };
 
 const post = (body: unknown) =>
@@ -320,5 +321,164 @@ describe("POST /api/integrations/connectors", () => {
     const res = await post(validBody);
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(db.rows("integration_connectors")).toHaveLength(0);
+  });
+});
+
+describe("GET /api/integrations/connectors — operator health (admin view)", () => {
+  type Health = {
+    pending: number;
+    retry: number;
+    dead: number;
+    last_sent_at: string | null;
+    last_error: string | null;
+    last_cron_at: string | null;
+    last_cron: Record<string, unknown> | null;
+  };
+  const get = async (): Promise<{ text: string; data: { id: string; health: Health | null }[] }> => {
+    const res = await GET(new NextRequest("http://localhost:3000/api/integrations/connectors"), NO_PARAMS);
+    const text = await res.text();
+    return { text, data: JSON.parse(text).data };
+  };
+  const delivery = (id: string, status: string, over: Record<string, unknown> = {}) => ({
+    id,
+    workspace_id: WS,
+    connector_id: CONNECTOR_ID,
+    kind: "digest",
+    status,
+    attempts: 1,
+    created_at: "2026-10-16T01:00:00.000Z",
+    next_attempt_at: "2026-10-16T01:00:00.000Z",
+    sent_at: null,
+    last_error: null,
+    payload: { data: { projects: [{ name: "Secret Project Name" }] } },
+    ...over,
+  });
+
+  beforeEach(() => seedWorkspace(db));
+
+  it("counts the queue by status and reports the last send, the last failure and the last scheduler run", async () => {
+    db.seed("integration_deliveries", [
+      delivery("p1", "pending"),
+      delivery("r1", "retry", { last_error: "lark 230002 (bot is not in the chat)", created_at: "2026-10-16T02:00:00.000Z" }),
+      delivery("r2", "retry", { last_error: "network error [ETIMEDOUT]", created_at: "2026-10-16T03:00:00.000Z" }),
+      delivery("d1", "dead", { last_error: "older failure", created_at: "2026-10-15T01:00:00.000Z" }),
+      delivery("s1", "sent", { sent_at: "2026-10-16T01:05:00.000Z" }),
+      delivery("s2", "sent", { sent_at: "2026-10-16T04:05:00.000Z" }),
+      delivery("x1", "superseded", { last_error: "request already decided" }),
+    ]);
+    db.seed("integration_cron_state", [
+      {
+        connector_id: CONNECTOR_ID,
+        workspace_id: WS,
+        last_run_at: "2026-10-16T01:07:00.000Z",
+        last_summary: { claimed: 3, sent: 2, retried: 1, dead: 0, superseded: 0, digest: "sent" },
+      },
+    ]);
+
+    const { data } = await get();
+
+    expect(data[0].health).toEqual({
+      pending: 1,
+      retry: 2,
+      dead: 1,
+      last_sent_at: "2026-10-16T04:05:00.000Z",
+      last_error: "network error [ETIMEDOUT]",
+      last_cron_at: "2026-10-16T01:07:00.000Z",
+      last_cron: { claimed: 3, sent: 2, retried: 1, dead: 0, superseded: 0, digest: "sent" },
+    });
+  });
+
+  it("a connector that has never sent or run reads as zeros and nulls, not as an error", async () => {
+    const { data } = await get();
+    expect(data[0].health).toEqual({
+      pending: 0,
+      retry: 0,
+      dead: 0,
+      last_sent_at: null,
+      last_error: null,
+      last_cron_at: null,
+      last_cron: null,
+    });
+  });
+
+  it("counts only this connector's deliveries in this workspace, and never exposes payloads", async () => {
+    db.seed("integration_deliveries", [
+      delivery("mine", "dead"),
+      delivery("theirs", "dead", { workspace_id: OTHER_WS, connector_id: "foreign-connector" }),
+      delivery("same-ws-other-connector", "dead", { connector_id: "second-connector" }),
+    ]);
+    const { data, text } = await get();
+    expect(data[0].health?.dead).toBe(1);
+    expect(text).not.toContain("Secret Project Name");
+    expect(text).not.toContain("payload");
+  });
+
+  it("is null for a revoked connector, and null (never a misleading zero) when the lookup fails", async () => {
+    db.seed("integration_connectors", [connectorRow({ id: "old", status: "revoked", name: "Old", revoked_at: "2026-09-01T00:00:00.000Z" })]);
+    db.failNext({ table: "integration_deliveries", op: "select", error: { message: "db down" } });
+
+    const { data } = await get();
+
+    const byId = Object.fromEntries(data.map((c) => [c.id, c.health]));
+    expect(byId.old).toBeNull();
+    expect(byId[CONNECTOR_ID]).toBeNull();
+  });
+
+  it("still reports the queue when the scheduler record is unavailable (migration not applied yet)", async () => {
+    db.seed("integration_deliveries", [delivery("d1", "dead")]);
+    db.failNext({ table: "integration_cron_state", op: "select", error: { message: "relation does not exist" } });
+    const { data } = await get();
+    expect(data[0].health).toMatchObject({ dead: 1, last_cron_at: null, last_cron: null });
+  });
+
+  it("the redacted member view carries no health at all", async () => {
+    db.seed("integration_deliveries", [delivery("d1", "dead", { last_error: "boom" })]);
+    requireAuthMock.mockResolvedValue(admin({ role: "member" }));
+    const { text } = await get();
+    expect(text).not.toContain("health");
+    expect(text).not.toContain("boom");
+  });
+});
+
+describe("POST /api/integrations/connectors — webhook mode requires an Encrypt Key", () => {
+  const withoutKey = { ...validBody, encrypt_key: undefined };
+
+  it("422s a webhook connector (the default mode) without one, naming the field and why", async () => {
+    const res = await post(withoutKey);
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { error: string; fields?: { field: string; message: string }[] };
+    expect(body.fields?.some((f) => f.field === "encrypt_key" && /webhook mode/i.test(f.message))).toBe(true);
+    expect(db.rows("integration_connectors")).toHaveLength(0);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("422s an explicit webhook connector with a null or empty key too", async () => {
+    expect((await post({ ...withoutKey, mode: "webhook", encrypt_key: null })).status).toBe(422);
+    expect((await post({ ...withoutKey, mode: "webhook", encrypt_key: "" })).status).toBe(422);
+  });
+
+  it("accepts a webhook connector that has one, and stores it", async () => {
+    expect((await post(validBody)).status).toBe(201);
+    expect(decryptSecrets(db.rows("integration_connectors")[0].secret_enc as string).encryptKey).toBe("valid-encrypt-key-0004");
+  });
+
+  it("lets a long-connection connector omit it (no public URL to protect)", async () => {
+    const res = await post({ ...withoutKey, mode: "long_connection" });
+    expect(res.status).toBe(201);
+    expect(decryptSecrets(db.rows("integration_connectors")[0].secret_enc as string).encryptKey).toBeNull();
+  });
+});
+
+describe("POST /api/integrations/connectors — the audit row is member-readable, so ids are masked", () => {
+  it("masks the app id and the digest chat id and carries no tenant", async () => {
+    await post({ ...validBody, digest: { enabled: true, chat_id: "oc_privateroom99", weekday: 2 } });
+    const audit = writeAuditMock.mock.calls[0][0] as { after: Record<string, any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const text = JSON.stringify(audit);
+    expect(text).not.toContain("cli_a1b2c3");
+    expect(text).not.toContain("oc_privateroom99");
+    expect(audit.after.app_id).toMatch(/…/);
+    expect(audit.after.digest).toMatchObject({ enabled: true, weekday: 2 });
+    expect(audit.after.digest.chat_id).toMatch(/…/);
+    expect(text).not.toMatch(/tenant_key/);
   });
 });

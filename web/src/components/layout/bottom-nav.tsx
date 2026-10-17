@@ -3,13 +3,16 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LayoutGrid, Plus, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ALL_NAV_ITEMS, pendingByHref, type NavItem } from "@/lib/nav/nav-config";
 import type { PendingCounts } from "@/lib/governance/pending-counts";
 import { usePreferences } from "@/lib/prefs/use-preferences";
 import { NavBadge } from "./nav-badge";
+import { isActiveRoute } from "./active-route";
+import { Portal } from "@/components/ui/portal";
+import { useDialog } from "@/lib/hooks/use-sheet";
 
 export type Item = NavItem;
 
@@ -112,47 +115,71 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
   const barItems = shortcuts.map(byHref).filter(Boolean) as Item[];
   const unpinned = ALL_ITEMS.filter((i) => !shortcuts.includes(i.href));
   const atCap = shortcuts.length >= MAX_SHORTCUTS;
-  const isActive = (href: string) => pathname === href || pathname?.startsWith(href + "/");
+  const isActive = (href: string) => isActiveRoute(href, pathname);
 
-  function closeSheet() {
+  const closeSheet = useCallback(() => {
     setOpen(false);
     setEditing(false);
-  }
+  }, []);
+
+  // The Apps sheet is a real modal dialog: Escape, Tab trap, scroll lock, shell
+  // inert (it renders through <Portal>, outside [data-app-shell], so it does
+  // not inert itself), focus into the sheet on open and back to "Apps" on close.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const appsBtnRef = useRef<HTMLButtonElement>(null);
+  useDialog({
+    open,
+    onClose: closeSheet,
+    containerRef: sheetRef,
+    initialFocusRef: closeBtnRef,
+    openerRef: appsBtnRef,
+    sheet: true,
+  });
 
   return (
     <>
       {/* expanded app sheet */}
       {open && (
-        <div
-          data-shell-chrome
-          className="fixed inset-0 z-50 bg-black/30 backdrop-blur-sm lg:hidden"
-          onClick={closeSheet}
-        >
+        <Portal>
           <div
-            className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-2xl bg-surface p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg"
-            onClick={(e) => e.stopPropagation()}
+            data-shell-chrome
+            className="fixed inset-0 z-50 bg-black/30 lg:hidden"
+            onClick={closeSheet}
           >
-            <div className="flex items-center justify-between px-3 py-2">
-              <span className="text-sm font-semibold text-ink">Apps</span>
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setEditing((v) => !v)}
-                  className={cn(
-                    "rounded-md px-3 py-1.5 text-sm font-medium",
-                    editing ? "bg-accent text-white" : "text-accent hover:bg-sunken",
-                  )}
-                >
-                  {editing ? "Done" : "Edit"}
-                </button>
-                <button
-                  onClick={closeSheet}
-                  className="grid h-9 w-9 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
-                  aria-label="Close"
-                >
-                  <X size={18} />
-                </button>
+            <div
+              ref={sheetRef}
+              tabIndex={-1}
+              role="dialog"
+              aria-modal="true"
+              aria-label="All apps"
+              className="absolute inset-x-0 bottom-0 max-h-[82vh] overflow-y-auto rounded-t-xl bg-surface p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-lg focus:outline-none"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-sm font-semibold text-ink">Apps</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditing((v) => !v)}
+                    className={cn(
+                      "focus-ring min-h-11 rounded-md px-3 py-1.5 text-sm font-medium",
+                      editing ? "bg-accent text-accent-ink" : "text-accent hover:bg-sunken",
+                    )}
+                  >
+                    {editing ? "Done" : "Edit"}
+                  </button>
+                  <button
+                    ref={closeBtnRef}
+                    type="button"
+                    onClick={closeSheet}
+                    className="focus-ring grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
-            </div>
 
             {editing ? (
               <>
@@ -189,10 +216,11 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
                   {unpinned.map(({ href, label, icon: Icon }) => (
                     <button
                       key={href}
+                      type="button"
                       onClick={() => pin(href)}
                       disabled={atCap}
                       className={cn(
-                        "relative flex flex-col items-center gap-1.5 rounded-xl py-3 text-[11px] text-ink-secondary",
+                        "focus-ring relative flex flex-col items-center gap-1.5 rounded-xl py-3 text-[11px] text-ink-secondary",
                         atCap ? "opacity-40" : "hover:bg-sunken",
                       )}
                     >
@@ -220,8 +248,9 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
                       key={href}
                       href={href}
                       onClick={closeSheet}
+                      aria-current={active ? "page" : undefined}
                       className={cn(
-                        "relative flex flex-col items-center gap-1.5 rounded-xl py-3 text-[11px]",
+                        "focus-ring relative flex flex-col items-center gap-1.5 rounded-xl py-3 text-[11px]",
                         active ? "bg-sunken text-accent" : "text-ink-secondary hover:bg-sunken",
                       )}
                     >
@@ -233,12 +262,13 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
                 })}
               </div>
             )}
+            </div>
           </div>
-        </div>
+        </Portal>
       )}
 
       {/* the bar */}
-      <nav data-shell-chrome aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-canvas/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
+      <nav data-shell-chrome aria-label="Primary" className="fixed inset-x-0 bottom-0 z-30 flex border-t border-border-subtle bg-canvas pb-[env(safe-area-inset-bottom)] lg:hidden">
         {barItems.map(({ href, label, icon: Icon }) => {
           const active = isActive(href);
           return (
@@ -247,7 +277,7 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
               href={href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px]",
+                "focus-ring-inset relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px]",
                 active ? "text-accent" : "text-ink-muted",
               )}
             >
@@ -258,9 +288,13 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
           );
         })}
         <button
+          ref={appsBtnRef}
+          type="button"
           onClick={() => setOpen(true)}
-          className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] text-ink-muted"
+          className="focus-ring-inset relative flex flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px] text-ink-muted"
           aria-label="All apps"
+          aria-haspopup="dialog"
+          aria-expanded={open}
         >
           <NavBadge count={pendingTotal} className="absolute right-1/4 top-0.5" />
           <LayoutGrid size={22} />

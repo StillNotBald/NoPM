@@ -216,7 +216,10 @@ export function summariseDeliveryHealth(h: DeliveryHealth, nowMs: number): { ton
   if (h.retrying > 0) parts.push(`${h.retrying} retrying`);
   if (h.dead > 0) parts.push(`${h.dead} failed`);
   if (h.lastSentAt) parts.push(`last sent ${formatRelativeTime(h.lastSentAt, nowMs)}`);
-  const tone: HealthTone = h.dead > 0 ? "danger" : h.retrying > 0 ? "warning" : h.sent > 0 ? "success" : "neutral";
+  // The admin view reports counts of what is stuck plus the last send, not a lifetime
+  // "sent" total, so a recent send with nothing failing is healthy too.
+  const tone: HealthTone =
+    h.dead > 0 ? "danger" : h.retrying > 0 ? "warning" : h.sent > 0 || h.lastSentAt ? "success" : "neutral";
   return { tone, text: parts.length > 0 ? parts.join(" · ") : "No deliveries yet" };
 }
 
@@ -283,6 +286,11 @@ export function validateConnectForm(v: ConnectFormValues): FormErrors<ConnectFor
   const errors: FormErrors<ConnectFormValues> = { ...validateFeatures(v) };
   if (!v.name.trim()) errors.name = "Give the connection a name.";
   else if (v.name.trim().length > 80) errors.name = "Keep the name under 80 characters.";
+  // The API requires an Encrypt Key for a webhook connection and rejects the create without one;
+  // say so here, next to the field, instead of as a 422 after submit.
+  if (v.mode === "webhook" && !v.encryptKey.trim()) {
+    errors.encryptKey = "Paste the Encrypt Key from Events & Callbacks. A webhook connection needs it.";
+  }
   if (!v.appId.trim()) errors.appId = "Paste the App ID from your Lark app.";
   else if (!/^[A-Za-z0-9_-]+$/.test(v.appId.trim())) errors.appId = "App IDs use only letters, digits, - and _.";
   if (!v.appSecret.trim()) errors.appSecret = "Paste the App Secret from your Lark app.";

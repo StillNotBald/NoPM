@@ -1,6 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
-import { generateToken } from "@/lib/auth/tokens";
-import { sanitizeError } from "@/lib/integrations/secrets";
+import { deriveActionToken, sanitizeError } from "@/lib/integrations/secrets";
 import { appBaseUrl, getConnector, loadConnectorSecrets } from "@/lib/integrations/store";
 import type {
   ApprovalDecidedEvent,
@@ -30,14 +29,25 @@ import type {
  *    re-evaluates the WHERE after waiting on a concurrent writer, so two
  *    drains (an `after()` run racing the daily cron) can never both claim the
  *    same row. A drain killed mid-send simply lets its lease expire.
+ *  - The lease is computed from the clock AT CLAIM TIME, not from when the
+ *    drain started (a long drain would otherwise hand out already-expired
+ *    leases), and it is renewed, compare-and-set, immediately before each
+ *    platform call: a drain that finds it no longer owns the row does not send.
  *  - Failures retry on 1m, 5m, 30m, 2h, 12h, then the row goes `dead`. A
  *    non-retryable adapter result (bad credentials, invalid target) goes dead
  *    immediately. `last_error` is sanitised + truncated: never a secret,
  *    never a message body.
- *  - The raw action token a card carries is minted at SEND time and lives
- *    only in the card; the table stores its SHA-256. A retry mints a fresh
- *    token (a card that did reach the user keeps working until it is used,
- *    superseded by a decision, or expires after 7 days).
+ *  - ONE delivery = ONE card = ONE action token. The token is derived from the
+ *    delivery id (see `deriveActionToken`), so every retry carries the same
+ *    card and the same token, and the delivery id doubles as the platform's
+ *    idempotency key: a retry of a send that actually landed returns the
+ *    original message instead of creating a second card. Only the token's
+ *    SHA-256 is stored.
+ *  - A card is never sent for a request that is no longer pending (checked
+ *    just before the token is minted), and a request that is decided WHILE its
+ *    card is in flight is reconciled the moment the send settles: the stray
+ *    token is killed and the queued `decision_update` runs at once instead of
+ *    waiting for the next drain.
  */
 
 const MINUTE = 60_000;
@@ -51,7 +61,10 @@ export const MAX_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 export const LEASE_MS = 2 * MINUTE;
 export const ACTION_TOKEN_TTL_MS = 7 * 24 * HOUR;
 export const ACTION_TOKEN_PREFIX = "npa_";
+/** Rows an UNSCOPED drain takes per pass. A drain restricted to `ids` is never capped. */
 export const DEFAULT_DRAIN_LIMIT = 25;
+/** `ids` per query: a PostgREST `in.(...)` list rides in the URL, so a big fan-out is paged. */
+export const ID_BATCH = 50;
 
 export const DELIVERY_COLUMNS =
   "id, workspace_id, connector_id, kind, approval_kind, approval_id, recipient_profile_id, external_target, parent_delivery_id, payload, status, attempts, next_attempt_at, locked_until, external_message_id, last_error, created_at, sent_at" as const;
@@ -112,7 +125,17 @@ export type NewDelivery = {
   external_target?: string | null;
   parent_delivery_id?: string | null;
   payload: Record<string, unknown>;
+  /** ISO time until which no drain may take the row (a producer still completing it). */
+  locked_until?: string | null;
 };
+
+/** A unique index refused the row (23505): the slot is already taken. */
+export class DuplicateDeliveryError extends Error {
+  constructor(detail: string) {
+    super(`Failed to queue deliveries: ${detail}`);
+    this.name = "DuplicateDeliveryError";
+  }
+}
 
 /** Queue deliveries (status pending, due now). Returns the inserted rows. */
 export async function insertDeliveries(
@@ -135,10 +158,14 @@ export async function insertDeliveries(
         external_target: r.external_target ?? null,
         parent_delivery_id: r.parent_delivery_id ?? null,
         payload: r.payload,
+        ...(r.locked_until ? { locked_until: r.locked_until } : {}),
       })),
     )
     .select(DELIVERY_COLUMNS);
-  if (error) throw new Error(`Failed to queue deliveries: ${error.message}`);
+  if (error) {
+    if (error.code === "23505") throw new DuplicateDeliveryError(error.message);
+    throw new Error(`Failed to queue deliveries: ${error.message}`);
+  }
   return (data ?? []) as unknown as DeliveryRow[];
 }
 
@@ -160,7 +187,8 @@ export async function enqueueBotReply(
 /**
  * Queue a digest for the connector's configured group chat. `trigger` tags the
  * row: only "scheduled" rows occupy the once-per-ISO-week slot, so a manual
- * "send now" never suppresses the scheduled one.
+ * "send now" never suppresses the scheduled one. (Scheduled digests are queued
+ * by cron.ts through the atomic slot claim, not through this function.)
  */
 export async function enqueueDigest(
   connector: Pick<ConnectorRow, "id" | "workspace_id">,
@@ -174,18 +202,33 @@ export async function enqueueDigest(
   return row ?? null;
 }
 
+/**
+ * A scheduled digest whose producer has claimed the week's slot but not yet
+ * audited and filled it. Drains skip it: it has no data to render, and it must
+ * not leave the building before its audit row exists.
+ */
+export function isHeldDelivery(row: Pick<DeliveryRow, "payload">): boolean {
+  return row.payload?.held === true;
+}
+
 // ── action tokens ──────────────────────────────────────────────────────────
 
 /**
- * Mint the single-use token a card carries. Bound to ONE recipient and ONE
- * approval; only its SHA-256 is stored. Returns the raw value, which must go
- * straight into the card and nowhere else (never logged, never persisted).
+ * Register the single-use token a card carries. Bound to ONE recipient, ONE
+ * approval and the content VERSION the card was rendered from; only its SHA-256
+ * is stored. Returns the raw value, which must go straight into the card and
+ * nowhere else (never logged, never persisted).
+ *
+ * The raw value is derived from the delivery id, so calling this again for a
+ * retry yields the same token and the insert collides on `token_hash`
+ * (unique): the existing row is the token, and nothing new is minted. Its
+ * version stays the one it was first bound to.
  */
-async function mintActionToken(row: DeliveryRow): Promise<string> {
+async function mintActionToken(row: DeliveryRow, version: string | null): Promise<string> {
   if (!row.recipient_profile_id || !row.approval_kind || !row.approval_id) {
     throw new Error("Approval card delivery is missing its recipient or approval reference");
   }
-  const { raw, hash } = generateToken(ACTION_TOKEN_PREFIX);
+  const { raw, hash } = deriveActionToken(row.id, ACTION_TOKEN_PREFIX);
   const db = createAdminClient();
   const { error } = await db.from("action_tokens").insert({
     workspace_id: row.workspace_id,
@@ -193,11 +236,83 @@ async function mintActionToken(row: DeliveryRow): Promise<string> {
     recipient_profile_id: row.recipient_profile_id,
     approval_kind: row.approval_kind,
     approval_id: row.approval_id,
+    approval_version: version,
     token_hash: hash,
     expires_at: new Date(Date.now() + ACTION_TOKEN_TTL_MS).toISOString(),
   });
-  if (error) throw new Error(`Failed to mint action token: ${error.message}`);
+  if (error && error.code !== "23505") throw new Error(`Failed to mint action token: ${error.message}`);
   return raw;
+}
+
+// ── request state (the pre-send check) ─────────────────────────────────────
+
+/**
+ * Where each approval kind lives, which statuses still await a decision, and
+ * whether its rows carry a content version. Change requests and timesheet
+ * submissions have an `updated_at` their table's trigger bumps on every write;
+ * deletion requests are immutable once raised, so there is nothing to bind to.
+ */
+const REQUEST_SOURCES: Record<ApprovalKind, { table: string; pending: readonly string[]; versioned: boolean }> = {
+  task_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
+  project_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
+  change_request: { table: "change_requests", pending: ["raised", "under_review"], versioned: true },
+  timesheet: { table: "timesheet_submissions", pending: ["submitted"], versioned: true },
+};
+
+export type RequestState = "pending" | "decided" | "missing";
+
+/** Does this kind have a content version at all? */
+export function isVersionedKind(kind: ApprovalKind): boolean {
+  return REQUEST_SOURCES[kind]?.versioned === true;
+}
+
+/**
+ * Two content versions are the same when both are absent, or both parse to the
+ * same instant (a value that took a trip through JSON loses microseconds, so
+ * millisecond equality counts). One absent and one present is a difference.
+ */
+export function sameVersion(a: string | null | undefined, b: string | null | undefined): boolean {
+  const x = a ?? null;
+  const y = b ?? null;
+  if (x === null || y === null) return x === y;
+  if (x === y) return true;
+  const mx = Date.parse(x);
+  const my = Date.parse(y);
+  return !Number.isNaN(mx) && mx === my;
+}
+
+/**
+ * The governed request behind a card: is it still waiting for a decision, and
+ * which content version is it at? One workspace-filtered primary-key read.
+ * Throws on a database error: the caller must treat "could not tell" as a
+ * retryable failure, never as "pending".
+ */
+export async function readRequest(
+  row: Pick<DeliveryRow, "workspace_id" | "approval_kind" | "approval_id">,
+): Promise<{ state: RequestState; version: string | null }> {
+  if (!row.approval_kind || !row.approval_id) return { state: "missing", version: null };
+  const source = REQUEST_SOURCES[row.approval_kind];
+  if (!source) return { state: "missing", version: null };
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from(source.table)
+    .select(source.versioned ? "status, updated_at" : "status")
+    .eq("id", row.approval_id)
+    .eq("workspace_id", row.workspace_id)
+    .maybeSingle();
+  if (error) throw new Error(`Failed to read request state: ${error.message}`);
+  if (!data) return { state: "missing", version: null };
+  const found = data as unknown as { status: string; updated_at?: string | null };
+  return {
+    state: source.pending.includes(found.status) ? "pending" : "decided",
+    version: source.versioned ? (found.updated_at ?? null) : null,
+  };
+}
+
+export async function requestState(
+  row: Pick<DeliveryRow, "workspace_id" | "approval_kind" | "approval_id">,
+): Promise<RequestState> {
+  return (await readRequest(row)).state;
 }
 
 // ── drain ──────────────────────────────────────────────────────────────────
@@ -209,10 +324,17 @@ export type DrainOptions = {
   /** Required: every drain is scoped to one workspace. */
   workspaceId: string;
   connectorId?: string;
-  /** Restrict to these delivery ids (the rows an emit just queued). */
+  /** Restrict to these delivery ids (the rows an emit just queued). Not capped. */
   ids?: string[];
+  /** Cap for an UNSCOPED drain (default DEFAULT_DRAIN_LIMIT). Ignored when `ids` is given. */
   limit?: number;
+  /**
+   * The drain's notion of "now". The clock still advances from it as real time
+   * passes, so a long drain never works from a stale instant.
+   */
   now?: Date;
+  /** Epoch ms after which no NEW row is started (a row already in flight finishes). */
+  deadline?: number;
 };
 
 export type DrainSummary = {
@@ -223,22 +345,70 @@ export type DrainSummary = {
   superseded: number;
   /** Released unsent (connector paused). */
   deferred: number;
+  /** Candidates left untouched because the deadline passed. */
+  deadlineSkipped: number;
 };
+
+export const EMPTY_DRAIN: Readonly<DrainSummary> = {
+  claimed: 0,
+  sent: 0,
+  retried: 0,
+  dead: 0,
+  superseded: 0,
+  deferred: 0,
+  deadlineSkipped: 0,
+};
+
+export function mergeDrain(into: DrainSummary, from: DrainSummary): void {
+  for (const k of Object.keys(EMPTY_DRAIN) as (keyof DrainSummary)[]) into[k] += from[k];
+}
 
 type Attempt =
   | { kind: "sent"; externalMessageId: string | null }
-  | { kind: "failed"; retryable: boolean; error: string }
+  | { kind: "failed"; retryable: boolean; error: string; waitingOnParent?: boolean }
   | { kind: "superseded"; reason: string }
-  | { kind: "deferred" };
+  | { kind: "deferred" }
+  /** This drain no longer owns the row's lease: someone else may be sending it. Touch nothing. */
+  | { kind: "lost" };
+
+type Clock = () => Date;
+
+/** A lease this drain holds; `value` follows every renewal. */
+type Lease = { value: string };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Q = any;
 
+/** `base` plus the real time elapsed since this call: deterministic under fake timers, never stale. */
+function makeClock(base?: Date): Clock {
+  if (!base) return () => new Date();
+  const origin = Date.now();
+  return () => new Date(base.getTime() + (Date.now() - origin));
+}
+
 export async function drainDeliveries(opts: DrainOptions): Promise<DrainSummary> {
-  const now = opts.now ?? new Date();
-  const nowIso = now.toISOString();
-  const summary: DrainSummary = { claimed: 0, sent: 0, retried: 0, dead: 0, superseded: 0, deferred: 0 };
+  if (opts.ids && opts.ids.length > ID_BATCH) {
+    const total: DrainSummary = { ...EMPTY_DRAIN };
+    for (let i = 0; i < opts.ids.length; i += ID_BATCH) {
+      mergeDrain(total, await drainOnce({ ...opts, ids: opts.ids.slice(i, i + ID_BATCH) }, true));
+    }
+    return total;
+  }
+  return drainOnce(opts, true);
+}
+
+/**
+ * One pass over the due rows. `inline` allows the two same-pass follow-ups (a
+ * decision patch that was waiting on its card; a decided-during-send card), and
+ * is switched off for the passes those follow-ups themselves run, so they can
+ * never recurse.
+ */
+async function drainOnce(opts: DrainOptions, inline: boolean): Promise<DrainSummary> {
+  const clock = makeClock(opts.now);
+  const summary: DrainSummary = { ...EMPTY_DRAIN };
+  if (opts.ids && opts.ids.length === 0) return summary;
   const db = createAdminClient();
+  const nowIso = clock().toISOString();
 
   let query: Q = db
     .from("integration_deliveries")
@@ -247,10 +417,10 @@ export async function drainDeliveries(opts: DrainOptions): Promise<DrainSummary>
     .in("status", ["pending", "retry"])
     .lte("next_attempt_at", nowIso)
     .or(`locked_until.is.null,locked_until.lte.${nowIso}`)
-    .order("next_attempt_at", { ascending: true })
-    .limit(opts.limit ?? DEFAULT_DRAIN_LIMIT);
+    .order("next_attempt_at", { ascending: true });
   if (opts.connectorId) query = query.eq("connector_id", opts.connectorId);
-  if (opts.ids) query = query.in("id", opts.ids);
+  if (opts.ids) query = query.in("id", opts.ids).limit(opts.ids.length);
+  else query = query.limit(opts.limit ?? DEFAULT_DRAIN_LIMIT);
 
   const { data: candidates, error } = await query;
   if (error) {
@@ -266,9 +436,15 @@ export async function drainDeliveries(opts: DrainOptions): Promise<DrainSummary>
     return connectors.get(row.connector_id) ?? null;
   };
 
-  for (const candidate of (candidates ?? []) as unknown as DeliveryRow[]) {
-    const row = await claim(candidate, now);
-    if (!row) continue; // another drain owns it
+  const queue = ((candidates ?? []) as unknown as DeliveryRow[]).filter((c) => !isHeldDelivery(c));
+  for (let i = 0; i < queue.length; i++) {
+    if (opts.deadline !== undefined && Date.now() >= opts.deadline) {
+      summary.deadlineSkipped += queue.length - i;
+      break;
+    }
+    const claimed = await claim(queue[i], clock);
+    if (!claimed) continue; // another drain owns it
+    const { row, lease } = claimed;
     summary.claimed += 1;
 
     let secrets: LarkSecrets | null = null;
@@ -286,7 +462,7 @@ export async function drainDeliveries(opts: DrainOptions): Promise<DrainSummary>
           secrets = null;
         }
         attempt = secrets
-          ? await attemptDelivery(row, connector, secrets)
+          ? await attemptDelivery(row, connector, secrets, { clock, lease })
           : { kind: "failed", retryable: true, error: "Connector secrets are unreadable (check the encryption key)" };
       }
     } catch (err) {
@@ -297,7 +473,18 @@ export async function drainDeliveries(opts: DrainOptions): Promise<DrainSummary>
       };
     }
 
-    await settle(row, attempt, now, summary);
+    await settle(row, attempt, clock, summary);
+
+    if (!inline) continue;
+    try {
+      if (attempt.kind === "sent" && row.kind === "approval_card") {
+        await reconcileDecidedDuringSend(row, clock, summary);
+      } else if (attempt.kind === "failed" && attempt.waitingOnParent) {
+        await retryUpdateIfCardSettled(row, clock, summary);
+      }
+    } catch (err) {
+      console.error("[integrations] post-send reconcile failed:", sanitizeError(err));
+    }
   }
   return summary;
 }
@@ -314,37 +501,91 @@ export async function drainDueRetries(workspaceId: string, now: Date = new Date(
   return drainDeliveries({ workspaceId, limit: OPPORTUNISTIC_RETRY_BATCH, now });
 }
 
-/** Claim one row with a lease. Null when someone else holds it or it is no longer due. */
-async function claim(row: DeliveryRow, now: Date): Promise<DeliveryRow | null> {
+/**
+ * Claim one row with a lease. Null when someone else holds it or it is no
+ * longer due. Both the "is the lease free" test and the new lease are measured
+ * from the clock NOW, not from when the drain began.
+ */
+async function claim(row: DeliveryRow, clock: Clock): Promise<{ row: DeliveryRow; lease: Lease } | null> {
   const db = createAdminClient();
+  const now = clock();
   const nowIso = now.toISOString();
+  const leaseUntil = new Date(now.getTime() + LEASE_MS).toISOString();
   const { data, error } = await db
     .from("integration_deliveries")
-    .update({ locked_until: new Date(now.getTime() + LEASE_MS).toISOString() })
+    .update({ locked_until: leaseUntil })
     .eq("id", row.id)
     .eq("workspace_id", row.workspace_id)
     .in("status", ["pending", "retry"])
     .or(`locked_until.is.null,locked_until.lte.${nowIso}`)
     .select(DELIVERY_COLUMNS);
   if (error || !data || data.length === 0) return null;
-  return data[0] as unknown as DeliveryRow;
+  return { row: data[0] as unknown as DeliveryRow, lease: { value: leaseUntil } };
 }
 
-async function attemptDelivery(row: DeliveryRow, connector: ConnectorRow, secrets: LarkSecrets): Promise<Attempt> {
+/**
+ * Extend the lease just before a platform call, compare-and-set on the value
+ * this drain wrote. If the swap misses, the lease expired and another drain
+ * took the row (or it was superseded): the caller must not send.
+ */
+async function renewLease(row: DeliveryRow, lease: Lease, clock: Clock): Promise<boolean> {
+  const db = createAdminClient();
+  const next = new Date(clock().getTime() + LEASE_MS).toISOString();
+  const { data, error } = await db
+    .from("integration_deliveries")
+    .update({ locked_until: next })
+    .eq("id", row.id)
+    .eq("workspace_id", row.workspace_id)
+    .in("status", ["pending", "retry"])
+    .eq("locked_until", lease.value)
+    .select("id");
+  if (error || !data || data.length === 0) return false;
+  lease.value = next;
+  return true;
+}
+
+async function attemptDelivery(
+  row: DeliveryRow,
+  connector: ConnectorRow,
+  secrets: LarkSecrets,
+  ctx: { clock: Clock; lease: Lease },
+): Promise<Attempt> {
   const adapter = await getAdapter(connector.kind);
   if (!adapter) return { kind: "failed", retryable: true, error: "Platform adapter is unavailable" };
   const secretList = [secrets.appSecret, secrets.verificationToken, secrets.encryptKey];
   const fail = (retryable: boolean, error: string): Attempt => ({ kind: "failed", retryable, error });
+  /** Last gate before the wire: we still own the row. */
+  const owns = () => renewLease(row, ctx.lease, ctx.clock);
 
   try {
     switch (row.kind) {
       case "approval_card": {
         const ev = row.payload.event as ApprovalEvent | undefined;
         if (!ev || !row.external_target) return fail(false, "Malformed approval card delivery");
-        const actionToken = await mintActionToken(row);
+        // Before a token exists and before anything leaves: a request that was
+        // decided (or removed) since this card was queued gets no card at all,
+        // and neither does one that was EDITED since the card's content was
+        // captured (the replacement card carries the new content).
+        const now = await readRequest(row);
+        if (now.state !== "pending") {
+          return { kind: "superseded", reason: now.state === "missing" ? "request no longer exists" : "request already decided" };
+        }
+        if (ev.version && now.version && !sameVersion(ev.version, now.version)) {
+          return { kind: "superseded", reason: "request changed before delivery" };
+        }
+        // The token is bound to the version this card's CONTENT came from. An
+        // event that does not know its version (older emitters) is bound to the
+        // version current right now.
+        const actionToken = await mintActionToken(row, ev.version ?? now.version);
         const body = adapter.renderApprovalCard(ev, { actionToken, appUrl: appBaseUrl() });
+        if (!(await owns())) return { kind: "lost" };
         return toAttempt(
-          await adapter.send(connector, secrets, { receiveIdType: "open_id", receiveId: row.external_target, body }),
+          await adapter.send(connector, secrets, {
+            receiveIdType: "open_id",
+            receiveId: row.external_target,
+            body,
+            idempotencyKey: row.id,
+          }),
           secretList,
         );
       }
@@ -356,9 +597,15 @@ async function attemptDelivery(row: DeliveryRow, connector: ConnectorRow, secret
           return { kind: "superseded", reason: "card was never delivered" };
         }
         if (parent.status !== "sent" || !parent.external_message_id) {
-          return fail(true, "Card not delivered yet");
+          return { kind: "failed", retryable: true, error: "Card not delivered yet", waitingOnParent: true };
         }
-        const body = adapter.renderDecisionUpdate(ev, { appUrl: appBaseUrl() });
+        // Same patch machinery, two bodies: the request was decided, or it was
+        // edited and a new card replaces this one.
+        const body =
+          row.payload.variant === "changed"
+            ? adapter.renderChangedUpdate(ev, { appUrl: appBaseUrl() })
+            : adapter.renderDecisionUpdate(ev, { appUrl: appBaseUrl() });
+        if (!(await owns())) return { kind: "lost" };
         const res = toAttempt(await adapter.update(connector, secrets, parent.external_message_id, body), secretList);
         return res.kind === "sent" ? { kind: "sent", externalMessageId: parent.external_message_id } : res;
       }
@@ -366,8 +613,14 @@ async function attemptDelivery(row: DeliveryRow, connector: ConnectorRow, secret
         const data = row.payload.data as DigestData | undefined;
         if (!data || !row.external_target) return fail(false, "Malformed digest delivery");
         const body = adapter.renderDigest(data);
+        if (!(await owns())) return { kind: "lost" };
         return toAttempt(
-          await adapter.send(connector, secrets, { receiveIdType: "chat_id", receiveId: row.external_target, body }),
+          await adapter.send(connector, secrets, {
+            receiveIdType: "chat_id",
+            receiveId: row.external_target,
+            body,
+            idempotencyKey: row.id,
+          }),
           secretList,
         );
       }
@@ -375,8 +628,14 @@ async function attemptDelivery(row: DeliveryRow, connector: ConnectorRow, secret
         const body = row.payload.body as Record<string, unknown> | undefined;
         const receiveIdType = row.payload.receiveIdType === "chat_id" ? "chat_id" : "open_id";
         if (!body || !row.external_target) return fail(false, "Malformed bot reply delivery");
+        if (!(await owns())) return { kind: "lost" };
         return toAttempt(
-          await adapter.send(connector, secrets, { receiveIdType, receiveId: row.external_target, body }),
+          await adapter.send(connector, secrets, {
+            receiveIdType,
+            receiveId: row.external_target,
+            body,
+            idempotencyKey: row.id,
+          }),
           secretList,
         );
       }
@@ -408,8 +667,10 @@ async function loadParent(row: DeliveryRow): Promise<DeliveryRow | null> {
 }
 
 /** Persist the outcome of one attempt and release the lease. */
-async function settle(row: DeliveryRow, attempt: Attempt, now: Date, summary: DrainSummary): Promise<void> {
+async function settle(row: DeliveryRow, attempt: Attempt, clock: Clock, summary: DrainSummary): Promise<void> {
+  if (attempt.kind === "lost") return;
   const db = createAdminClient();
+  const now = clock();
   const attemptsDone = row.attempts + 1;
   let patch: Record<string, unknown>;
 
@@ -458,4 +719,118 @@ async function settle(row: DeliveryRow, attempt: Attempt, now: Date, summary: Dr
     .eq("id", row.id)
     .eq("workspace_id", row.workspace_id);
   if (error) console.error("[integrations] failed to record delivery result:", sanitizeError(error));
+}
+
+// ── same-pass follow-ups ───────────────────────────────────────────────────
+
+/**
+ * Called when a platform hook should issue a fresh card for an approval whose
+ * old card was just retired because the request was edited (see
+ * `setChangedFollowUp`). Registered by emit.ts; deliveries cannot import it
+ * (emit imports deliveries).
+ */
+export type ChangedFollowUp = (ev: ApprovalEvent) => Promise<void>;
+let changedFollowUp: ChangedFollowUp | null = null;
+
+export function setChangedFollowUp(fn: ChangedFollowUp | null): void {
+  changedFollowUp = fn;
+}
+
+/**
+ * The request was decided OR EDITED while this card's send was in flight, so
+ * the fan-out for that event found a card with no message id yet and queued a
+ * patch that could only wait. The send has now settled: kill any token that was
+ * minted after that fan-out's kill pass (an edit's tokens are retired as
+ * 'changed', so a late tap says so), then run the waiting patch immediately
+ * instead of leaving live Approve/Reject buttons on the card until the next
+ * drain (up to a day away). After an EDIT patch, the approver whose card was in
+ * flight has no replacement yet (the unique queue index kept the new card out
+ * while the old row was leased), so the follow-up issues it now.
+ *
+ * "Edited" = the token this card carries is bound to a version the request is
+ * no longer at. If the fan-out has not queued the patch yet, there is nothing to
+ * run: it will find this card already `sent` and patch it itself.
+ */
+async function reconcileDecidedDuringSend(card: DeliveryRow, clock: Clock, summary: DrainSummary): Promise<void> {
+  const db = createAdminClient();
+  const now = await readRequest(card);
+
+  let edited = false;
+  if (now.state === "pending" && now.version) {
+    const { data: tokens, error: versionError } = await db
+      .from("action_tokens")
+      .select("approval_version")
+      .eq("workspace_id", card.workspace_id)
+      .eq("delivery_id", card.id);
+    if (versionError) throw versionError;
+    edited = ((tokens ?? []) as { approval_version: string | null }[]).some(
+      (t) => t.approval_version !== null && !sameVersion(t.approval_version, now.version),
+    );
+  }
+  if (now.state === "pending" && !edited) return;
+
+  const nowIso = clock().toISOString();
+  const { error: tokenError } = await db
+    .from("action_tokens")
+    .update({ used_at: nowIso, ...(edited ? { superseded_reason: "changed" } : {}) })
+    .eq("workspace_id", card.workspace_id)
+    .eq("delivery_id", card.id)
+    .is("used_at", null);
+  if (tokenError) throw tokenError;
+
+  const { data, error } = await db
+    .from("integration_deliveries")
+    .select("id, payload")
+    .eq("workspace_id", card.workspace_id)
+    .eq("kind", "decision_update")
+    .eq("parent_delivery_id", card.id)
+    .in("status", ["pending", "retry"]);
+  if (error) throw error;
+  const waiting = (data ?? []) as { id: string; payload: Record<string, unknown> }[];
+  if (waiting.length === 0) return;
+
+  await runNow(card.workspace_id, card.connector_id, waiting.map((r) => r.id), clock, summary);
+
+  if (!changedFollowUp) return;
+  for (const patch of waiting) {
+    if (patch.payload?.variant !== "changed" || !patch.payload.event) continue;
+    try {
+      await changedFollowUp(patch.payload.event as ApprovalEvent);
+    } catch (err) {
+      console.error("[integrations] follow-up card after an edit failed:", sanitizeError(err));
+    }
+  }
+}
+
+/**
+ * A `decision_update` just failed with "Card not delivered yet". If its card
+ * settled in the meantime (the send finished after the update looked), run the
+ * update once more now. The mirror image of `reconcileDecidedDuringSend`: one
+ * of the two always sees the other's write, so a settled card never waits for
+ * a drain to learn it has been decided.
+ */
+async function retryUpdateIfCardSettled(update: DeliveryRow, clock: Clock, summary: DrainSummary): Promise<void> {
+  const parent = await loadParent(update);
+  if (parent && (parent.status === "pending" || parent.status === "retry")) return;
+  await runNow(update.workspace_id, update.connector_id, [update.id], clock, summary);
+}
+
+/** Make the given rows due now and drain exactly them, without any further follow-up. */
+async function runNow(
+  workspaceId: string,
+  connectorId: string,
+  ids: string[],
+  clock: Clock,
+  summary: DrainSummary,
+): Promise<void> {
+  const db = createAdminClient();
+  const now = clock();
+  const { error } = await db
+    .from("integration_deliveries")
+    .update({ next_attempt_at: now.toISOString() })
+    .eq("workspace_id", workspaceId)
+    .in("id", ids)
+    .in("status", ["pending", "retry"]);
+  if (error) throw error;
+  mergeDrain(summary, await drainOnce({ workspaceId, connectorId, ids, now }, false));
 }

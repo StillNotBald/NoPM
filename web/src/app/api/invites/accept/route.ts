@@ -2,6 +2,7 @@ import { route } from "@/lib/api/handler";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { RateLimitError } from "@/lib/api/errors";
+import { ipRateKey } from "@/lib/api/client-ip";
 import { hashToken } from "@/lib/auth/tokens";
 import { assertInviteAcceptable, throwInviteNotAcceptable } from "@/lib/governance/invite-guard";
 import { performInviteAccept } from "@/lib/governance/invite-accept";
@@ -12,15 +13,6 @@ export const runtime = "nodejs";
 
 const RATE_MAX = 10;
 const RATE_WINDOW_SECONDS = 60;
-
-function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for");
-  if (fwd) {
-    const first = fwd.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return request.headers.get("x-real-ip") ?? "unknown";
-}
 
 /**
  * POST /api/invites/accept — public (auth:false, D6/D13). This is the ONE
@@ -44,7 +36,10 @@ export const POST = route(
     // Explicit IP-keyed rate limit (10/min) — this endpoint mints new
     // Supabase auth users, so it cannot be left unguarded just because it
     // has no actor to key route()'s baseline limiter on.
-    const ip = clientIp(request);
+    // The address comes from @/lib/api/client-ip, never from the caller's own
+    // X-Forwarded-For (rotating it gave every request a fresh bucket). When no
+    // address can be trusted, every caller shares ONE conservative bucket.
+    const ip = ipRateKey(request.headers) ?? "unknown";
     const { data: rateData, error: rateError } = await db.rpc("nopm_rate_check", {
       p_key: `invite-accept:${ip}`,
       p_max: RATE_MAX,

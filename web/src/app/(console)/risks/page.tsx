@@ -84,11 +84,11 @@ export default async function RisksPage({
   const rows = risks ?? [];
 
   return (
-    <PageContainer className="space-y-6">
+    <PageContainer width="wide" className="space-y-6">
       <PageHeader
         title="Risk Register"
         exports={<ExportCsvButton href={riskExportHref(params)} />}
-        action={<NewRiskButton projects={projects ?? []} />}
+        action={<NewRiskButton projects={projects ?? []} defaultProjectId={params.project_id} />}
       />
 
       {/* Deep-link auto-opener: opens inspector for ?risk=<id> */}
@@ -125,7 +125,7 @@ export default async function RisksPage({
             ownerMap={ownerRecord}
             dateDisplayPref={dateDisplayPref}
             canWrite={canWrite}
-            emptyAction={<NewRiskButton projects={projects ?? []} />}
+            emptyAction={<NewRiskButton projects={projects ?? []} defaultProjectId={params.project_id} />}
           />
         </Suspense>
       </section>

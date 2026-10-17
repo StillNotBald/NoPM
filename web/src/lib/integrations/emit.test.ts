@@ -10,16 +10,26 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 
 import { clearAdapters, registerAdapter, drainDeliveries } from "./deliveries";
-import { emitApprovalDecided, emitApprovalRequested, runApprovalDecided, runApprovalRequested } from "./emit";
+import {
+  CARD_BUDGET_PER_HOUR,
+  emitApprovalChanged,
+  emitApprovalDecided,
+  emitApprovalRequested,
+  runApprovalChanged,
+  runApprovalDecided,
+  runApprovalRequested,
+} from "./emit";
 import {
   CONNECTOR_ID,
   FakeDb,
   OTHER_WS,
+  REQUEST_VERSION,
   TEST_ENCRYPTION_KEY,
   WS,
   createFakeAdapter,
   ids,
   linkIdentity,
+  seedPendingRequests,
   seedWorkspace,
 } from "./test-support";
 import type { ApprovalDecidedEvent, ApprovalEvent } from "./types";
@@ -465,5 +475,329 @@ describe("reopened requests (e.g. a reopened timesheet)", () => {
     }
     expect(fake.calls.sends).toHaveLength(0);
     expect(deliveries("approval_card")).toHaveLength(1);
+  });
+});
+
+describe("a request that is decided around the time its card goes out", () => {
+  const requestRow = () => db.rows("deletion_requests")[0];
+
+  it("decided before the card was sent: no card, no token, nothing live (the Decided-before-Requested order)", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    requestRow().status = "committed"; // the decision landed first
+    await runApprovalDecided(decided); // ...and its fan-out found nothing to close
+
+    await runApprovalRequested(event);
+
+    expect(deliveries("approval_card")).toHaveLength(1);
+    expect(deliveries("approval_card")[0]).toMatchObject({ status: "superseded", last_error: "request already decided" });
+    expect(fake.calls.sends).toHaveLength(0);
+    expect(db.rows("action_tokens")).toHaveLength(0);
+  });
+
+  it("decided WHILE the card is in flight: the stray token dies and the patch runs at once, not on the next drain", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    fake.state.sendResult = async () => {
+      requestRow().status = "committed";
+      await runApprovalDecided(decided); // the decision's fan-out runs while the send is still out
+      return { ok: true, externalMessageId: "om_inflight" };
+    };
+
+    await runApprovalRequested(event);
+
+    expect(deliveries("approval_card")[0]).toMatchObject({ status: "sent", external_message_id: "om_inflight" });
+    // the card is already showing its decided state, with no wait for a later drain
+    expect(fake.calls.updates).toEqual([{ externalMessageId: "om_inflight", body: { card: "decided", status: "committed" } }]);
+    expect(deliveries("decision_update")).toHaveLength(1);
+    expect(deliveries("decision_update")[0].status).toBe("sent");
+    // and no token is left to act on
+    expect(db.rows("action_tokens").every((t) => t.used_at !== null)).toBe(true);
+  });
+
+  it("a token minted after the decision's kill pass is killed once the send settles", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    // the decision commits after the card's own check but its token-kill ran before the token existed
+    fake.state.sendResult = async () => {
+      requestRow().status = "committed";
+      return { ok: true, externalMessageId: "om_x" };
+    };
+
+    await runApprovalRequested(event);
+
+    expect(db.rows("action_tokens")).toHaveLength(1);
+    expect(db.rows("action_tokens")[0].used_at).not.toBeNull();
+  });
+
+  it("a request that is still pending after the send leaves its live token alone", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    await runApprovalRequested(event);
+    expect(db.rows("action_tokens")).toHaveLength(1);
+    expect(db.rows("action_tokens")[0].used_at).toBeNull();
+    expect(fake.calls.updates).toHaveLength(0);
+  });
+});
+
+describe("fan-out size and raced inserts", () => {
+  it("sends every card to a request with more approvers than one drain page", async () => {
+    const extra = Array.from({ length: 40 }, (_, i) => `a1000000-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    db.seed(
+      "profiles",
+      extra.map((id, i) => ({ id, workspace_id: WS, role: "manager", display_name: `Approver ${i}`, email: `a${i}@example.test` })),
+    );
+    extra.forEach((id, i) => linkIdentity(db, id, `ou_bulk_${i}`));
+
+    await runApprovalRequested(event);
+
+    expect(deliveries("approval_card")).toHaveLength(40);
+    expect(deliveries("approval_card").every((d) => d.status === "sent")).toBe(true);
+    expect(fake.calls.sends).toHaveLength(40);
+    expect(new Set(fake.calls.sends.map((s) => s.idempotencyKey)).size).toBe(40);
+  });
+
+  it("a raced duplicate insert costs only the duplicate, not every other approver's card", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    linkIdentity(db, ids.manager2, "ou_mia");
+    db.failNext({
+      table: "integration_deliveries",
+      op: "insert",
+      error: { code: "23505", message: 'duplicate key value violates unique constraint "uniq_queued_approval_card"' },
+    });
+
+    await runApprovalRequested(event);
+
+    expect(recipients()).toEqual([ids.manager, ids.manager2].sort());
+    expect(fake.calls.sends.map((s) => s.receiveId).sort()).toEqual(["ou_max", "ou_mia"]);
+  });
+});
+
+describe("emitApprovalChanged — a pending request is edited after its cards went out", () => {
+  const V1 = REQUEST_VERSION;
+  const V2 = "2026-10-16T10:15:00.000Z";
+  const crEvent: ApprovalEvent = { ...event, kind: "change_request", title: "Change request CR-7: rename a label", version: V1 };
+  const edited: ApprovalEvent = { ...crEvent, title: "Change request CR-7: delete production", version: V2 };
+  const crRow = () => db.rows("change_requests")[0];
+  const tokens = () => db.rows("action_tokens") as Record<string, any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  async function raised() {
+    linkIdentity(db, ids.manager, "ou_max");
+    linkIdentity(db, ids.manager2, "ou_mia");
+    await runApprovalRequested(crEvent);
+  }
+  const edit = () => {
+    crRow().updated_at = V2;
+  };
+
+  it("exports the entry point and schedules it like the other emitters", () => {
+    expect(emitApprovalChanged(edited)).toBeUndefined();
+    expect(afterMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retires every old token, patches the old cards to 'updated', and sends fresh cards bound to the new version", async () => {
+    await raised();
+    expect(tokens().map((t) => t.approval_version)).toEqual([V1, V1]);
+    const oldCards = deliveries("approval_card").map((d) => d.id);
+
+    edit();
+    await runApprovalChanged(edited);
+
+    // old tokens: spent, marked as retired-by-edit (a late tap says "changed", not "already decided")
+    const old = tokens().filter((t) => t.approval_version === V1);
+    expect(old).toHaveLength(2);
+    expect(old.every((t) => t.used_at !== null && t.superseded_reason === "changed")).toBe(true);
+    // old cards: patched once each, with the 'changed' body
+    expect(fake.calls.updates.map((u) => u.externalMessageId).sort()).toEqual(["om_1", "om_2"]);
+    expect(fake.calls.updates.every((u) => (u.body as { card: string }).card === "changed")).toBe(true);
+    expect(deliveries("decision_update").filter((d) => d.payload.variant === "changed")).toHaveLength(2);
+    expect(deliveries("decision_update").every((d) => d.status === "sent")).toBe(true);
+    // fresh cards: one per approver, current content, tokens bound to V2 and live
+    const fresh = deliveries("approval_card").filter((d) => !oldCards.includes(d.id));
+    expect(fresh.map((d) => d.recipient_profile_id).sort()).toEqual([ids.manager, ids.manager2].sort());
+    expect(fresh.every((d) => d.status === "sent" && d.payload.event.title === edited.title)).toBe(true);
+    const live = tokens().filter((t) => t.used_at === null);
+    expect(live).toHaveLength(2);
+    expect(live.every((t) => t.approval_version === V2)).toBe(true);
+    expect(fake.calls.sends).toHaveLength(4);
+    expect(fake.calls.cards.slice(2).every((c) => c.ev.title === edited.title)).toBe(true);
+  });
+
+  it("reads the request's current version itself when the event does not carry one", async () => {
+    await raised();
+    edit();
+    await runApprovalChanged({ ...edited, version: undefined });
+    expect(tokens().filter((t) => t.used_at === null).every((t) => t.approval_version === V2)).toBe(true);
+  });
+
+  it("is idempotent: repeating the same change event issues nothing twice", async () => {
+    await raised();
+    edit();
+    await runApprovalChanged(edited);
+    const sends = fake.calls.sends.length;
+    const cards = deliveries("approval_card").length;
+    await runApprovalChanged(edited);
+    expect(fake.calls.sends).toHaveLength(sends);
+    expect(deliveries("approval_card")).toHaveLength(cards);
+    expect(tokens().filter((t) => t.used_at === null)).toHaveLength(2);
+  });
+
+  it("supersedes a card still waiting to be sent instead of patching it, then sends the new one", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    fake.state.sendResult = async () => ({ ok: false, retryable: true, error: "503" });
+    await runApprovalRequested(crEvent);
+    const waiting = deliveries("approval_card")[0];
+    expect(waiting.status).toBe("retry");
+
+    edit();
+    fake.state.sendResult = async () => ({ ok: true, externalMessageId: "om_new" });
+    await runApprovalChanged(edited);
+
+    expect(db.rows("integration_deliveries").find((d) => d.id === waiting.id)).toMatchObject({
+      status: "superseded",
+      last_error: "request changed before delivery",
+    });
+    expect(deliveries("decision_update")).toHaveLength(0); // never reached anyone: nothing to patch
+    const fresh = deliveries("approval_card").filter((d) => d.id !== waiting.id);
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].status).toBe("sent");
+  });
+
+  it("retires the tokens even when the connector is paused (security does not depend on the kill switch)", async () => {
+    await raised();
+    db.rows("integration_connectors")[0].status = "paused";
+    edit();
+    await runApprovalChanged(edited);
+    expect(tokens().every((t) => t.used_at !== null)).toBe(true);
+    expect(fake.calls.sends).toHaveLength(2); // nothing new went out
+  });
+
+  it("does not touch another request's cards or tokens", async () => {
+    await raised();
+    db.seed("action_tokens", [
+      {
+        id: "other",
+        workspace_id: WS,
+        delivery_id: "d",
+        recipient_profile_id: ids.manager,
+        approval_kind: "change_request",
+        approval_id: "b0000000-0000-4000-8000-0000000000ff",
+        approval_version: V1,
+        token_hash: "h-other",
+        expires_at: "2026-12-01T00:00:00.000Z",
+        used_at: null,
+      },
+    ]);
+    edit();
+    await runApprovalChanged(edited);
+    expect(tokens().find((t) => t.id === "other")?.used_at).toBeNull();
+  });
+
+  it("a card whose send was IN FLIGHT when the edit landed gets its replacement as soon as that send settles", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    let first = true;
+    fake.state.sendResult = async () => {
+      if (first) {
+        first = false;
+        edit(); // the requester edits while the first card is out...
+        await runApprovalChanged(edited); // ...and the edit's fan-out runs right then
+      }
+      return { ok: true, externalMessageId: `om_${fake.calls.sends.length}` };
+    };
+
+    await runApprovalRequested(crEvent);
+
+    const cards = deliveries("approval_card");
+    expect(cards).toHaveLength(2); // the in-flight old card, and its replacement
+    expect(cards.every((d) => d.status === "sent")).toBe(true);
+    // the old card ends patched to 'updated', the new one is the live card
+    expect(fake.calls.updates).toHaveLength(1);
+    expect((fake.calls.updates[0].body as { card: string }).card).toBe("changed");
+    const live = tokens().filter((t) => t.used_at === null);
+    expect(live).toHaveLength(1);
+    expect(live[0].approval_version).toBe(V2);
+    expect(fake.calls.cards.at(-1)?.ev.title).toBe(edited.title);
+  });
+});
+
+describe("per-approver hourly card budget", () => {
+  const OLD_CARD = (i: number, recipient: string, over: Record<string, unknown> = {}) => ({
+    id: `budget-${recipient.slice(-1)}-${i}`,
+    workspace_id: WS,
+    connector_id: CONNECTOR_ID,
+    kind: "approval_card",
+    approval_kind: "task_deletion",
+    approval_id: `c0000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    recipient_profile_id: recipient,
+    external_target: "ou_x",
+    status: "sent",
+    attempts: 1,
+    payload: {},
+    created_at: new Date(Date.now() - 10 * 60_000).toISOString(),
+    ...over,
+  });
+  const seedCards = (recipient: string, n: number, over: Record<string, unknown> = {}) =>
+    db.seed("integration_deliveries", Array.from({ length: n }, (_, i) => OLD_CARD(i, recipient, over)));
+  const notices = () => deliveries("bot_reply").filter((d) => d.payload.notice === "backlog");
+
+  it("sends cards up to the budget, then ONE roll-up message instead of more cards", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    linkIdentity(db, ids.manager2, "ou_mia");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR);
+
+    await runApprovalRequested(event);
+
+    // the over-budget approver got no card, the other approver did
+    expect(deliveries("approval_card").filter((d) => d.approval_id === event.id && d.recipient_profile_id === ids.manager)).toHaveLength(0);
+    expect(deliveries("approval_card").filter((d) => d.approval_id === event.id && d.recipient_profile_id === ids.manager2)).toHaveLength(1);
+    expect(fake.calls.sends.filter((s) => s.receiveId === "ou_mia")).toHaveLength(1);
+    expect(fake.calls.cards.map((c) => c.ev.id)).toEqual([event.id]); // one real card rendered: Mia's
+    // ...and Max got the roll-up
+    expect(notices()).toHaveLength(1);
+    expect(notices()[0]).toMatchObject({ recipient_profile_id: ids.manager, status: "sent", external_target: "ou_max" });
+    expect(fake.calls.sends.find((s) => s.receiveId === "ou_max")?.body).toMatchObject({ card: "backlog", limit: CARD_BUDGET_PER_HOUR });
+    expect(db.rows("action_tokens")).toHaveLength(1); // a roll-up carries no token
+  });
+
+  it("queues the roll-up once per hour however many requests follow", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR);
+    for (const n of [1, 2, 3]) {
+      await runApprovalRequested({ ...event, id: `d0000000-0000-4000-8000-00000000000${n}` });
+    }
+    expect(notices()).toHaveLength(1);
+    expect(fake.calls.sends).toHaveLength(1);
+  });
+
+  it("counts only the last hour, and not cards that never went out", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR, { created_at: new Date(Date.now() - 2 * 3600_000).toISOString() }); // too old
+    await runApprovalRequested(event);
+    expect(notices()).toHaveLength(0);
+    expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("does not count superseded cards against the budget", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR, { status: "superseded" });
+    await runApprovalRequested(event);
+    expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("starts a fresh budget the next hour", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    seedCards(ids.manager, CARD_BUDGET_PER_HOUR);
+    await runApprovalRequested(event);
+    expect(fake.calls.cards).toHaveLength(0);
+
+    vi.setSystemTime(new Date(Date.now() + 61 * 60_000));
+    seedPendingRequests(db, "d0000000-0000-4000-8000-0000000000aa");
+    await runApprovalRequested({ ...event, id: "d0000000-0000-4000-8000-0000000000aa" });
+    expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("is per approver: one person over budget does not hold back the others", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    linkIdentity(db, ids.manager2, "ou_mia");
+    seedCards(ids.manager2, CARD_BUDGET_PER_HOUR);
+    await runApprovalRequested(event);
+    expect(fake.calls.sends.map((s) => s.receiveId).sort()).toEqual(["ou_max", "ou_mia"]); // Max: card, Mia: roll-up
+    expect(fake.calls.cards).toHaveLength(1);
   });
 });

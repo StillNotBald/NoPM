@@ -41,6 +41,21 @@ export function Skeleton({
   );
 }
 
+/**
+ * Programmatic counterpart of a skeleton screen. Every skeleton block is
+ * `aria-hidden`, so a loading route is silent to assistive tech unless it also
+ * renders ONE of these (a visible shimmer is not an announcement):
+ *
+ *   <LoadingStatus label="risks" />   // reads "Loading risks…"
+ */
+export function LoadingStatus({ label = "page" }: { label?: string }) {
+  return (
+    <div role="status" className="sr-only">
+      Loading {label}…
+    </div>
+  );
+}
+
 // ── Compound skeletons ────────────────────────────────────────────────────────
 
 /**

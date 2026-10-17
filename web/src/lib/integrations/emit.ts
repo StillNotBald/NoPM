@@ -1,10 +1,21 @@
 import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveWorkspaceApprovers } from "@/lib/notify/publish";
-import { drainDeliveries, drainDueRetries, insertDeliveries } from "@/lib/integrations/deliveries";
+import { getPendingCounts } from "@/lib/governance/pending-counts";
+import {
+  DuplicateDeliveryError,
+  drainDeliveries,
+  drainDueRetries,
+  getAdapter,
+  insertDeliveries,
+  readRequest,
+  sameVersion,
+  setChangedFollowUp,
+  type NewDelivery,
+} from "@/lib/integrations/deliveries";
 import { sanitizeError } from "@/lib/integrations/secrets";
-import { getActiveConnector } from "@/lib/integrations/store";
-import type { ApprovalDecidedEvent, ApprovalEvent, DeliveryRow } from "@/lib/integrations/types";
+import { appBaseUrl, getActiveConnector } from "@/lib/integrations/store";
+import type { ApprovalDecidedEvent, ApprovalEvent, ConnectorRow, DeliveryRow } from "@/lib/integrations/types";
 
 /**
  * Integration Hub entry points called by the governed request/decision code
@@ -32,6 +43,19 @@ export function emitApprovalRequested(ev: ApprovalEvent): void {
  */
 const REOPEN_STATUSES: ReadonlySet<string> = new Set(["reopened"]);
 
+/**
+ * A PENDING request's content changed after its approval cards went out (a
+ * change request edited by its requester). The old cards describe content that
+ * no longer exists and must stop being actionable: their tokens are retired,
+ * the cards are patched to "Updated, see the new card", and every approver gets
+ * a fresh card carrying the current content and a token bound to the new
+ * version. `ev.version` is the request's `updated_at` after the edit (read
+ * from the request when absent).
+ */
+export function emitApprovalChanged(ev: ApprovalEvent): void {
+  schedule("approval changed", ev.workspaceId, () => runApprovalChanged(ev));
+}
+
 export function emitApprovalDecided(ev: ApprovalDecidedEvent): void {
   schedule("approval decided", ev.workspaceId, async () => {
     await runApprovalDecided(ev);
@@ -51,7 +75,7 @@ export function emitApprovalDecided(ev: ApprovalDecidedEvent): void {
  * traffic. It runs AFTER the primary work so a backlog of failing retries can
  * never delay the card this event is about.
  */
-function schedule(label: string, workspaceId: string, task: () => Promise<unknown>): void {
+export function schedule(label: string, workspaceId: string, task: () => Promise<unknown>): void {
   const run = async () => {
     try {
       await task();
@@ -112,27 +136,137 @@ export async function runApprovalRequested(ev: ApprovalEvent): Promise<void> {
     connector.id,
     linked.map((l) => l.profile_id),
   );
-  const fresh = linked.filter((l) => !alreadyOpen.has(l.profile_id));
-  if (fresh.length === 0) return;
+  const wanting = linked.filter((l) => !alreadyOpen.has(l.profile_id));
+  if (wanting.length === 0) return;
 
-  const queued = await insertDeliveries(
-    ev.workspaceId,
-    connector.id,
-    fresh.map((l) => ({
-      kind: "approval_card" as const,
-      approval_kind: ev.kind,
-      approval_id: ev.id,
-      recipient_profile_id: l.profile_id,
-      external_target: l.external_user_id,
-      payload: { event: ev },
-    })),
-  );
+  // One person cannot be buried: past the hourly budget an approver gets a
+  // single roll-up message instead of more cards.
+  const { fresh, over } = await splitByCardBudget(ev, connector.id, wanting);
+  const notices = await queueBacklogNotices(ev, connector, over);
 
+  const cards: NewDelivery[] = fresh.map((l) => ({
+    kind: "approval_card" as const,
+    approval_kind: ev.kind,
+    approval_id: ev.id,
+    recipient_profile_id: l.profile_id,
+    external_target: l.external_user_id,
+    payload: { event: ev },
+  }));
+  const queued = await insertBatch(ev.workspaceId, connector.id, cards);
+
+  // Not capped: a request with more approvers than one drain page still sends
+  // every card (the drain pages the ids itself).
   await drainDeliveries({
     workspaceId: ev.workspaceId,
     connectorId: connector.id,
-    ids: queued.map((d) => d.id),
+    ids: [...queued.map((d) => d.id), ...notices.map((d) => d.id)],
   });
+}
+
+/** Approval cards one approver may be sent per hour before the roll-up takes over. */
+export const CARD_BUDGET_PER_HOUR = 20;
+const HOUR_MS = 60 * 60 * 1000;
+
+type Recipient = { profile_id: string; external_user_id: string };
+
+async function splitByCardBudget(
+  ev: ApprovalEvent,
+  connectorId: string,
+  recipients: Recipient[],
+): Promise<{ fresh: Recipient[]; over: Recipient[] }> {
+  const db = createAdminClient();
+  const since = new Date(Date.now() - HOUR_MS).toISOString();
+  const { data, error } = await db
+    .from("integration_deliveries")
+    .select("recipient_profile_id")
+    .eq("workspace_id", ev.workspaceId)
+    .eq("connector_id", connectorId)
+    .eq("kind", "approval_card")
+    .in("recipient_profile_id", recipients.map((r) => r.profile_id))
+    .gte("created_at", since)
+    .neq("status", "superseded");
+  if (error) throw error;
+  const sent = new Map<string, number>();
+  for (const r of (data ?? []) as { recipient_profile_id: string }[]) {
+    sent.set(r.recipient_profile_id, (sent.get(r.recipient_profile_id) ?? 0) + 1);
+  }
+  const fresh: Recipient[] = [];
+  const over: Recipient[] = [];
+  for (const r of recipients) {
+    if ((sent.get(r.profile_id) ?? 0) >= CARD_BUDGET_PER_HOUR) over.push(r);
+    else fresh.push(r);
+  }
+  return { fresh, over };
+}
+
+/**
+ * One "N approvals are waiting" message per over-budget approver per hour (the
+ * unique index on the hour bucket makes concurrent emits queue it once). The
+ * count is what is really waiting on that person, read at send time, not a
+ * tally of withheld cards. Fail-soft per person: a missing roll-up never blocks
+ * the cards for everyone else.
+ */
+async function queueBacklogNotices(
+  ev: ApprovalEvent,
+  connector: ConnectorRow,
+  over: Recipient[],
+): Promise<DeliveryRow[]> {
+  if (over.length === 0) return [];
+  const adapter = await getAdapter(connector.kind);
+  if (!adapter) return [];
+  const db = createAdminClient();
+  const hour = new Date().toISOString().slice(0, 13);
+  const queued: DeliveryRow[] = [];
+  for (const r of over) {
+    try {
+      let waiting = 0;
+      try {
+        const counts = await getPendingCounts(db, { userId: r.profile_id, workspaceId: ev.workspaceId });
+        waiting = counts.approvals + counts.changeControl;
+      } catch {
+        waiting = 0;
+      }
+      const body = adapter.renderBacklogNotice({ waiting, limit: CARD_BUDGET_PER_HOUR, appUrl: appBaseUrl() });
+      queued.push(
+        ...(await insertDeliveries(ev.workspaceId, connector.id, [
+          {
+            kind: "bot_reply",
+            recipient_profile_id: r.profile_id,
+            external_target: r.external_user_id,
+            payload: { receiveIdType: "open_id", body, notice: "backlog", notice_hour: hour },
+          },
+        ])),
+      );
+    } catch (err) {
+      if (!(err instanceof DuplicateDeliveryError)) {
+        console.error("[integrations] backlog notice failed:", sanitizeError(err));
+      }
+    }
+  }
+  return queued;
+}
+
+/**
+ * Queue deliveries in one statement. If a concurrent duplicate emit already
+ * queued one of them (a unique backstop refuses the whole batch), fall back
+ * to one row at a time and skip only the duplicates, so a single raced
+ * row cannot cost the other recipients theirs.
+ */
+async function insertBatch(workspaceId: string, connectorId: string, rows: NewDelivery[]) {
+  try {
+    return await insertDeliveries(workspaceId, connectorId, rows);
+  } catch (err) {
+    if (!(err instanceof DuplicateDeliveryError)) throw err;
+  }
+  const queued = [];
+  for (const row of rows) {
+    try {
+      queued.push(...(await insertDeliveries(workspaceId, connectorId, [row])));
+    } catch (err) {
+      if (!(err instanceof DuplicateDeliveryError)) throw err;
+    }
+  }
+  return queued;
 }
 
 async function recipientsWithOpenCard(
@@ -143,7 +277,7 @@ async function recipientsWithOpenCard(
   const db = createAdminClient();
   const { data, error } = await db
     .from("integration_deliveries")
-    .select("id, recipient_profile_id, status")
+    .select("id, recipient_profile_id, status, payload")
     .eq("workspace_id", ev.workspaceId)
     .eq("connector_id", connectorId)
     .eq("kind", "approval_card")
@@ -152,7 +286,7 @@ async function recipientsWithOpenCard(
     .in("status", ["pending", "retry", "sent"])
     .in("recipient_profile_id", profileIds);
   if (error) throw error;
-  const rows = (data ?? []) as { id: string; recipient_profile_id: string; status: string }[];
+  const rows = (data ?? []) as { id: string; recipient_profile_id: string; status: string; payload: Record<string, unknown> | null }[];
 
   const sentIds = rows.filter((r) => r.status === "sent").map((r) => r.id);
   let openSent = new Set<string>();
@@ -170,10 +304,114 @@ async function recipientsWithOpenCard(
     if (tokenError) throw tokenError;
     openSent = new Set(((tokens ?? []) as { delivery_id: string }[]).map((t) => t.delivery_id));
   }
+  // A card still waiting in the queue is "open" only for the content version it
+  // was queued with: one queued for an older version is stale and must not
+  // suppress the card for the current one.
+  const queuedVersion = (r: { payload: Record<string, unknown> | null }) =>
+    ((r.payload?.event as ApprovalEvent | undefined)?.version ?? null);
   return new Set(
-    rows.filter((r) => r.status !== "sent" || openSent.has(r.id)).map((r) => r.recipient_profile_id),
+    rows
+      .filter((r) => (r.status === "sent" ? openSent.has(r.id) : sameVersion(queuedVersion(r), ev.version ?? null)))
+      .map((r) => r.recipient_profile_id),
   );
 }
+
+/**
+ * A pending request was EDITED after its cards went out. Order matters:
+ *  1. Retire every open token bound to another version, whatever the
+ *     connector's state (security-critical, like the decision path): a tap on
+ *     an old card can no longer approve the new content.
+ *  2. Cards of another version still waiting to be sent are superseded; cards
+ *     already sent, or in flight, are patched in place to "Updated, see the new
+ *     card" (once per card, like the decision patch).
+ *  3. Approvers get a fresh card with the current content (the normal fan-out;
+ *     a recipient whose old card was mid-send gets theirs when that send
+ *     settles, via the follow-up registered below).
+ */
+export async function runApprovalChanged(input: ApprovalEvent): Promise<void> {
+  const db = createAdminClient();
+  const version =
+    input.version ?? (await readRequest({ workspace_id: input.workspaceId, approval_kind: input.kind, approval_id: input.id })).version;
+  const ev: ApprovalEvent = { ...input, version };
+  const nowIso = new Date().toISOString();
+
+  let retire = db
+    .from("action_tokens")
+    .update({ used_at: nowIso, superseded_reason: "changed" })
+    .eq("workspace_id", ev.workspaceId)
+    .eq("approval_kind", ev.kind)
+    .eq("approval_id", ev.id)
+    .is("used_at", null);
+  if (version) retire = retire.or(`approval_version.is.null,approval_version.neq.${version}`);
+  const { error: tokenError } = await retire;
+  if (tokenError) throw tokenError;
+
+  const { data: cards, error: cardError } = await db
+    .from("integration_deliveries")
+    .select("id, connector_id, recipient_profile_id, external_target, status, payload")
+    .eq("workspace_id", ev.workspaceId)
+    .eq("kind", "approval_card")
+    .eq("approval_kind", ev.kind)
+    .eq("approval_id", ev.id)
+    .in("status", ["pending", "retry", "sent"]);
+  if (cardError) throw cardError;
+  const stale = ((cards ?? []) as (Pick<DeliveryRow, "id" | "connector_id" | "recipient_profile_id" | "external_target" | "status"> & {
+    payload: Record<string, unknown> | null;
+  })[]).filter((c) => !sameVersion(((c.payload?.event as ApprovalEvent | undefined)?.version ?? null), version));
+
+  const unsent = stale.filter((c) => c.status !== "sent");
+  const superseded = new Set<string>();
+  if (unsent.length > 0) {
+    const { data: done, error: supersedeError } = await db
+      .from("integration_deliveries")
+      .update({ status: "superseded", last_error: "request changed before delivery" })
+      .eq("workspace_id", ev.workspaceId)
+      .in("id", unsent.map((c) => c.id))
+      .in("status", ["pending", "retry"])
+      .or(`locked_until.is.null,locked_until.lte.${nowIso}`)
+      .select("id");
+    if (supersedeError) throw supersedeError;
+    for (const r of (done ?? []) as { id: string }[]) superseded.add(r.id);
+  }
+  const candidates = stale.filter((c) => !superseded.has(c.id));
+
+  if (candidates.length > 0) {
+    const { data: existing, error: childError } = await db
+      .from("integration_deliveries")
+      .select("parent_delivery_id")
+      .eq("workspace_id", ev.workspaceId)
+      .eq("kind", "decision_update")
+      .in("parent_delivery_id", candidates.map((c) => c.id));
+    if (childError) throw childError;
+    const patched = new Set(((existing ?? []) as { parent_delivery_id: string }[]).map((r) => r.parent_delivery_id));
+    const targets = candidates.filter((c) => !patched.has(c.id));
+
+    const byConnector = new Map<string, typeof targets>();
+    for (const t of targets) byConnector.set(t.connector_id, [...(byConnector.get(t.connector_id) ?? []), t]);
+    for (const [connectorId, group] of byConnector) {
+      const queued = await insertBatch(
+        ev.workspaceId,
+        connectorId,
+        group.map((c) => ({
+          kind: "decision_update" as const,
+          approval_kind: ev.kind,
+          approval_id: ev.id,
+          recipient_profile_id: c.recipient_profile_id,
+          external_target: c.external_target,
+          parent_delivery_id: c.id,
+          payload: { event: ev, variant: "changed" },
+        })),
+      );
+      await drainDeliveries({ workspaceId: ev.workspaceId, connectorId, ids: queued.map((d) => d.id) });
+    }
+  }
+
+  await runApprovalRequested(ev);
+}
+
+// A card whose send was still in flight when its request was edited is patched
+// when that send settles; that is also the moment its replacement can be issued.
+setChangedFollowUp(runApprovalRequested);
 
 /**
  * A request was decided from ANY channel (console, CLI, MCP, Lark):
@@ -248,7 +486,7 @@ export async function runApprovalDecided(ev: ApprovalDecidedEvent): Promise<void
   for (const t of targets) byConnector.set(t.connector_id, [...(byConnector.get(t.connector_id) ?? []), t]);
 
   for (const [connectorId, group] of byConnector) {
-    const queued = await insertDeliveries(
+    const queued = await insertBatch(
       ev.workspaceId,
       connectorId,
       group.map((c) => ({

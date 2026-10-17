@@ -5,6 +5,7 @@ import { Sparkles, X, ArrowUp, ExternalLink, Maximize2, Minimize2, Plus, Chevron
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
+import { useEscapeClose } from "@/lib/hooks/use-sheet";
 import { apiGet, apiDelete, apiPost } from "@/lib/api-client";
 import { AssistantSetup, type CredentialStatus } from "./setup";
 
@@ -369,19 +370,12 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  // Escape closes
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-        requestAnimationFrame(() => triggerRef?.current?.focus());
-      }
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open, onClose, triggerRef]);
+  // Escape closes — through the shared stack so it only fires when this panel
+  // is the top-most overlay (a palette or modal opened over it closes first).
+  useEscapeClose(open, () => {
+    onClose();
+    requestAnimationFrame(() => triggerRef?.current?.focus());
+  });
 
   // ── Auto-scroll to bottom ────────────────────────────────────────────────
 
@@ -673,23 +667,31 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       {/* Mobile backdrop */}
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
           onClick={onClose}
           aria-hidden="true"
         />
       )}
 
+      {/* Closed = `inert` + `invisible`: its provider buttons were reachable by
+          Tab from the end of every page, and its shadow smeared down the right
+          edge. `aria-hidden` stays as the e2e open/closed signal. */}
       <div
         data-shell-chrome
         role="dialog"
         aria-modal={false}
         aria-label="AI Assistant"
         aria-hidden={!open}
+        inert={!open}
         className={cn(
           "fixed inset-y-0 right-0 z-50 flex flex-col",
-          "border-l border-border-subtle bg-canvas shadow-2xl",
-          "transition-all duration-300",
-          open ? "translate-x-0" : "translate-x-full pointer-events-none",
+          "border-l border-border-subtle bg-canvas shadow-lg",
+          // `translate` slides; visibility flips at once on open (so Close can take
+          // focus) and after the slide on close.
+          "[transition-property:translate,visibility] [transition-duration:300ms,0s] ease-out",
+          open
+            ? "visible translate-x-0 [transition-delay:0s,0s]"
+            : "invisible translate-x-full pointer-events-none [transition-delay:0s,300ms]",
           sizeClasses,
         )}
       >

@@ -21,6 +21,7 @@ import {
   normalizeProjects,
   normalizeTestResult,
   pickConnector,
+  readDeliveryHealth,
   readOnlySummary,
   summariseDeliveryHealth,
   validateConnectForm,
@@ -309,6 +310,16 @@ describe("summariseDeliveryHealth", () => {
     expect(s).toEqual({ tone: "success", text: "8 sent · last sent 3h ago" });
   });
 
+  it("reads the admin view's counts (pending / retry / dead / last send): a recent send with nothing stuck is healthy", () => {
+    const h = readDeliveryHealth({ pending: 0, retry: 0, dead: 0, last_sent_at: "2026-10-16T09:00:00Z", last_error: null });
+    expect(h).not.toBeNull();
+    expect(summariseDeliveryHealth(h!, NOW)).toEqual({ tone: "success", text: "last sent 3h ago" });
+    const stuck = readDeliveryHealth({ pending: 2, retry: 1, dead: 0, last_sent_at: null });
+    expect(summariseDeliveryHealth(stuck!, NOW)).toEqual({ tone: "warning", text: "2 queued · 1 retrying" });
+    const dead = readDeliveryHealth({ pending: 0, retry: 0, dead: 3, last_sent_at: "2026-10-16T09:00:00Z" });
+    expect(summariseDeliveryHealth(dead!, NOW).tone).toBe("danger");
+  });
+
   it("escalates retrying to warning and dead to danger", () => {
     expect(summariseDeliveryHealth({ ...base, sent: 3, retrying: 2 }, NOW).tone).toBe("warning");
     const failing = summariseDeliveryHealth({ ...base, sent: 3, retrying: 2, dead: 1 }, NOW);
@@ -325,18 +336,31 @@ describe("connect form", () => {
     verificationToken: "token",
   };
 
-  it("needs only the three credentials for a first connection", () => {
-    expect(validateConnectForm(valid)).toEqual({});
+  // A webhook connection (the default) also needs the Encrypt Key; a long connection does not.
+  const validWebhook: ConnectFormValues = { ...valid, encryptKey: "encrypt-key" };
+  const validLong: ConnectFormValues = { ...valid, mode: "long_connection" };
+
+  it("needs the three credentials for a long connection", () => {
+    expect(validateConnectForm(validLong)).toEqual({});
+  });
+
+  it("also needs the Encrypt Key for a webhook connection (the API refuses it otherwise)", () => {
+    expect(validateConnectForm(valid).encryptKey).toMatch(/Encrypt Key/);
+    expect(validateConnectForm({ ...valid, encryptKey: "   " }).encryptKey).toBeTruthy();
+    expect(validateConnectForm(validWebhook)).toEqual({});
+    expect(validateConnectForm(validLong).encryptKey).toBeUndefined();
   });
 
   it("rejects an App ID with characters the API would refuse", () => {
-    expect(validateConnectForm({ ...valid, appId: "cli abc" }).appId).toMatch(/letters, digits/);
-    expect(validateConnectForm({ ...valid, appId: "cli_abc-1" })).toEqual({});
+    expect(validateConnectForm({ ...validWebhook, appId: "cli abc" }).appId).toMatch(/letters, digits/);
+    expect(validateConnectForm({ ...validWebhook, appId: "cli_abc-1" })).toEqual({});
   });
 
   it("flags each missing credential and an empty name", () => {
     const errors = validateConnectForm({ ...DEFAULT_CONNECT_VALUES, name: " " });
-    expect(Object.keys(errors).sort()).toEqual(["appId", "appSecret", "name", "verificationToken"]);
+    expect(Object.keys(errors).sort()).toEqual(["appId", "appSecret", "encryptKey", "name", "verificationToken"]);
+    const long = validateConnectForm({ ...DEFAULT_CONNECT_VALUES, mode: "long_connection", name: " " });
+    expect(Object.keys(long).sort()).toEqual(["appId", "appSecret", "name", "verificationToken"]);
   });
 
   it("requires a valid chat id only when the digest is on", () => {

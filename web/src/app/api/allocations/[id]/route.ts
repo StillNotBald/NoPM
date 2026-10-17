@@ -6,6 +6,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocation } from "@/lib/clash/detect";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -58,6 +59,13 @@ export const PATCH = route(async ({ actor, params, request }) => {
       parsed.error.issues.map((e) => ({ field: e.path.join("."), message: e.message })),
     );
   }
+
+  // Cross-tenant guard (see POST /api/allocations).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: parsed.data.member_id, field: "member_id" },
+    { table: "projects", id: parsed.data.project_id, field: "project_id" },
+    { table: "tasks", id: parsed.data.task_id, field: "task_id" },
+  ]);
 
   const { data: updated, error: updateError } = await db
     .from("allocations")

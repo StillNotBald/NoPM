@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash, randomBytes } from "node:crypto";
 import { NextRequest } from "next/server";
 import {
@@ -7,6 +7,7 @@ import {
   queriesOn,
   type FakeAdmin,
 } from "@/lib/calendar/test-support";
+import { FEED_MAX_EVENTS, FEED_RATE_PER_FEED, FEED_RATE_PER_IP, feedEtag } from "@/lib/calendar/feeds";
 
 // Route tests: the handler runs for real. The database and the `after()`
 // scheduler are stubbed; `after` is captured so each test can run the
@@ -285,5 +286,280 @@ describe("GET /api/calendar/[token]", () => {
     const text = await res.text();
 
     expect(text.match(/BEGIN:VEVENT/g)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reliability: window + paging, validators, throttling
+// ---------------------------------------------------------------------------
+
+function requestWith(segment: string, headers: Record<string, string> = {}): NextRequest {
+  return new NextRequest(`http://localhost:3000/api/calendar/${segment}`, { headers });
+}
+
+function manyMilestones(n: number, offset = 0, over: Record<string, unknown> = {}) {
+  return Array.from({ length: n }, (_, i) =>
+    milestoneRow({ id: `m-${String(offset + i).padStart(5, "0")}`, target_date: "2026-11-01", ...over }),
+  );
+}
+
+const events = (ics: string) => ics.match(/BEGIN:VEVENT/g)?.length ?? 0;
+
+async function fetchFeed(admin: FakeAdmin, headers: Record<string, string> = {}) {
+  state.admin = admin;
+  const raw = rawToken();
+  return GET(requestWith(`${raw}.ics`, headers), paramsFor(`${raw}.ics`));
+}
+
+describe("the window and paging (a long-lived workspace keeps its future)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("asks only for milestones from 90 days back, in date order, a page at a time", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-17T10:00:00.000Z"));
+    const admin = createFakeAdmin({ calendar_feeds: [{ data: feedRow() }], milestones: [{ data: [] }] });
+
+    await fetchFeed(admin);
+
+    const [query] = queriesOn(admin, "milestones");
+    expect(query.steps).toContainEqual({ method: "gte", args: ["target_date", "2026-07-19"] });
+    const order = query.steps.filter((s) => s.method === "order").map((s) => s.args);
+    expect(order).toEqual([
+      ["target_date", { ascending: true }],
+      ["id", { ascending: true }],
+    ]);
+    expect(query.steps).toContainEqual({ method: "range", args: [0, 499] });
+    expect(eqFilters(query)).toEqual({ workspace_id: WS });
+  });
+
+  it("pages past the database's silent 1,000-row ceiling until the window is exhausted", async () => {
+    const admin = createFakeAdmin({
+      calendar_feeds: [{ data: feedRow() }],
+      milestones: [
+        { data: manyMilestones(500, 0), count: 1200 },
+        { data: manyMilestones(500, 500) },
+        { data: manyMilestones(200, 1000) },
+      ],
+    });
+
+    const res = await fetchFeed(admin);
+
+    expect(events(await res.text())).toBe(1200);
+    const ranges = queriesOn(admin, "milestones").map((q) => q.steps.find((s) => s.method === "range")?.args);
+    expect(ranges).toEqual([
+      [0, 499],
+      [500, 999],
+      [1000, 1499],
+    ]);
+    expect(res.headers.get("X-NoPM-Feed-Truncated")).toBeNull();
+  });
+
+  it("stops at the event cap and SAYS so, with the near-term events (earliest first) kept", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const admin = createFakeAdmin({
+      calendar_feeds: [{ data: feedRow() }],
+      milestones: [
+        { data: manyMilestones(500, 0), count: 5000 },
+        { data: manyMilestones(500, 500) },
+        { data: manyMilestones(500, 1000) },
+        { data: manyMilestones(500, 1500) },
+        { data: manyMilestones(500, 2000) }, // must never be asked for
+      ],
+    });
+
+    const res = await fetchFeed(admin);
+
+    expect(events(await res.text())).toBe(FEED_MAX_EVENTS);
+    expect(res.headers.get("X-NoPM-Feed-Truncated")).toBe("1");
+    const ranges = queriesOn(admin, "milestones").map((q) => q.steps.find((s) => s.method === "range")?.args);
+    expect(ranges.at(-1)).toEqual([1500, 1999]);
+    expect(ranges).toHaveLength(4);
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it("emits a milestone once even if a concurrent write shifts it across a page boundary", async () => {
+    const admin = createFakeAdmin({
+      calendar_feeds: [{ data: feedRow() }],
+      milestones: [
+        { data: manyMilestones(500, 0), count: 510 },
+        { data: [...manyMilestones(5, 495), ...manyMilestones(10, 500)] }, // 495-499 repeat
+      ],
+    });
+    const res = await fetchFeed(admin);
+    expect(events(await res.text())).toBe(510);
+  });
+
+  it("surfaces a database error instead of serving a short calendar", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const admin = createFakeAdmin({
+      calendar_feeds: [{ data: feedRow() }],
+      milestones: [{ error: { message: "statement timeout" } }],
+    });
+    const res = await fetchFeed(admin);
+    expect(res.status).toBe(500);
+  });
+
+  it("bumps an event's SEQUENCE when its PROJECT is renamed (the milestone row did not change)", async () => {
+    const build = async (projectUpdatedAt: string) => {
+      const admin = createFakeAdmin({
+        calendar_feeds: [{ data: feedRow() }],
+        milestones: [{ data: [milestoneRow({ projects: { name: "Launch", updated_at: projectUpdatedAt } })] }],
+      });
+      return (await (await fetchFeed(admin)).text()) as string;
+    };
+    const before = await build("2026-10-01T00:00:00.000Z");
+    const after = await build("2026-10-17T12:00:00.000Z");
+    const sequence = (ics: string) => Number(/SEQUENCE:(\d+)/.exec(ics)?.[1]);
+    expect(sequence(after)).toBeGreaterThan(sequence(before));
+    expect(after).toContain("DTSTAMP:20261017T120000Z");
+    expect(before).toContain("DTSTAMP:20261016T083005Z"); // the milestone's own, later, write
+  });
+});
+
+describe("revalidation (ETag / If-None-Match)", () => {
+  const queued = () => ({ calendar_feeds: [{ data: feedRow() }], milestones: [{ data: [milestoneRow()] }] });
+
+  it("sends a strong ETag, and the same bytes always get the same tag", async () => {
+    const a = await fetchFeed(createFakeAdmin(queued()));
+    const b = await fetchFeed(createFakeAdmin(queued()));
+    expect(a.headers.get("ETag")).toMatch(/^"[0-9a-f]{32}"$/);
+    expect(a.headers.get("ETag")).toBe(b.headers.get("ETag"));
+    expect(a.headers.get("ETag")).toBe(feedEtag(await a.text()));
+  });
+
+  it("changes the tag when anything in the feed changes", async () => {
+    const a = await fetchFeed(createFakeAdmin(queued()));
+    const b = await fetchFeed(
+      createFakeAdmin({ calendar_feeds: [{ data: feedRow() }], milestones: [{ data: [milestoneRow({ name: "Beta release (moved)" })] }] }),
+    );
+    expect(a.headers.get("ETag")).not.toBe(b.headers.get("ETag"));
+  });
+
+  it("answers a matching If-None-Match with a body-less 304 that still carries the validators", async () => {
+    const tag = (await fetchFeed(createFakeAdmin(queued()))).headers.get("ETag") as string;
+
+    const res = await fetchFeed(createFakeAdmin(queued()), { "if-none-match": tag });
+
+    expect(res.status).toBe(304);
+    expect(await res.text()).toBe("");
+    expect(res.headers.get("ETag")).toBe(tag);
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=900");
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(res.headers.get("Content-Type")).toBeNull();
+  });
+
+  it.each([
+    ["a weak form of the tag", (t: string) => `W/${t}`],
+    ["a list that contains it", (t: string) => `"nope", ${t}`],
+    ["the wildcard", () => "*"],
+  ])("treats %s as a match", async (_label, header) => {
+    const tag = (await fetchFeed(createFakeAdmin(queued()))).headers.get("ETag") as string;
+    expect((await fetchFeed(createFakeAdmin(queued()), { "if-none-match": header(tag) })).status).toBe(304);
+  });
+
+  it("serves the full calendar to a stale tag", async () => {
+    const res = await fetchFeed(createFakeAdmin(queued()), { "if-none-match": '"0123456789abcdef0123456789abcdef"' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("BEGIN:VCALENDAR");
+  });
+
+  it("still records last_fetched_at for a 304 (the subscription is alive)", async () => {
+    const admin = createFakeAdmin(queued());
+    const tag = (await fetchFeed(createFakeAdmin(queued()))).headers.get("ETag") as string;
+    afterTasks.length = 0;
+    await fetchFeed(admin, { "if-none-match": tag });
+    expect(afterTasks).toHaveLength(1);
+  });
+
+  it("an unknown token never gets a 304, whatever it sends", async () => {
+    const res = await fetchFeed(createFakeAdmin({ calendar_feeds: [{ data: null }] }), { "if-none-match": "*" });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("throttling (the route is public, so it limits itself)", () => {
+  type Call = { key: string; max: number };
+  function withRate(admin: FakeAdmin, decide: (call: Call) => { allowed: boolean; retry?: number } | "error") {
+    const calls: Call[] = [];
+    (admin.client as { rpc: unknown }).rpc = async (_fn: string, args?: Record<string, unknown>) => {
+      const call = { key: String(args?.p_key), max: Number(args?.p_max) };
+      calls.push(call);
+      const verdict = decide(call);
+      if (verdict === "error") return { data: null, error: { message: "rpc unavailable" } };
+      return { data: { allowed: verdict.allowed, remaining: 0, retry_after_seconds: verdict.retry ?? 0 }, error: null };
+    };
+    return calls;
+  }
+  const queued = () => ({ calendar_feeds: [{ data: feedRow() }], milestones: [{ data: [milestoneRow()] }] });
+
+  it("counts the client address before the feed is even looked up, then the feed", async () => {
+    const admin = createFakeAdmin(queued());
+    const calls = withRate(admin, () => ({ allowed: true }));
+
+    const res = await fetchFeed(admin, { "x-forwarded-for": "203.0.113.7, 10.0.0.1" });
+
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([
+      { key: "cal-ip:203.0.113.7", max: FEED_RATE_PER_IP },
+      { key: "cal:cf_1", max: FEED_RATE_PER_FEED },
+    ]);
+  });
+
+  it("answers 429 with Retry-After and does no feed lookup when the address is over its limit", async () => {
+    const admin = createFakeAdmin(queued());
+    withRate(admin, (c) => (c.key.startsWith("cal-ip:") ? { allowed: false, retry: 23 } : { allowed: true }));
+
+    const res = await fetchFeed(admin);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("23");
+    expect(await res.json()).toEqual({ error: "Too many requests" });
+    expect(queriesOn(admin, "calendar_feeds")).toHaveLength(0);
+  });
+
+  it("answers 429 and reads no milestones when one feed is polled too often", async () => {
+    const admin = createFakeAdmin(queued());
+    withRate(admin, (c) => (c.key === "cal:cf_1" ? { allowed: false, retry: 41 } : { allowed: true }));
+
+    const res = await fetchFeed(admin);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("41");
+    expect(queriesOn(admin, "milestones")).toHaveLength(0);
+  });
+
+  it("an unknown token only spends the address budget, and still gets the plain 404", async () => {
+    const admin = createFakeAdmin({ calendar_feeds: [{ data: null }] });
+    const calls = withRate(admin, () => ({ allowed: true }));
+    const res = await fetchFeed(admin);
+    expect(res.status).toBe(404);
+    expect(calls.map((c) => c.key)).toEqual(["cal-ip:unknown"]);
+  });
+
+  it("never puts the secret token in a rate-limit key", async () => {
+    const admin = createFakeAdmin(queued());
+    const calls = withRate(admin, () => ({ allowed: true }));
+    const raw = rawToken();
+    state.admin = admin;
+    await GET(requestWith(`${raw}.ics`), paramsFor(`${raw}.ics`));
+    expect(JSON.stringify(calls)).not.toContain(raw);
+  });
+
+  it("fails open when the counter is unavailable (an abuse guard, not an auth control)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const admin = createFakeAdmin(queued());
+    withRate(admin, () => "error");
+    expect((await fetchFeed(admin)).status).toBe(200);
+  });
+
+  it("does not throttle or touch the counter for a malformed token (no database work at all)", async () => {
+    const admin = createFakeAdmin();
+    const calls = withRate(admin, () => ({ allowed: false }));
+    state.admin = admin;
+    const res = await GET(requestWith("npc_short.ics"), paramsFor("npc_short.ics"));
+    expect(res.status).toBe(404);
+    expect(calls).toHaveLength(0);
   });
 });

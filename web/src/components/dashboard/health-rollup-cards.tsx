@@ -67,7 +67,9 @@ type HealthRollupProps = {
   amberCount: number;
   redCount: number;
   completeCount: number;
+  /** OPEN risks only (open + mitigating), see lib/insight/open-status.ts */
   riskCount: number;
+  /** OPEN issues only (open + in progress) */
   issueCount: number;
   clashCount: number;
   overdueCount: number;
@@ -126,7 +128,7 @@ export function HealthRollupCards({
       <MetricCard
         label="Open risks"
         value={riskCount}
-        sub={`${issueCount} issue${issueCount !== 1 ? "s" : ""} · ${clashCount} clash${clashCount !== 1 ? "es" : ""}`}
+        sub={`${issueCount} open issue${issueCount !== 1 ? "s" : ""} · ${clashCount} clash${clashCount !== 1 ? "es" : ""}`}
         tone={riskCount > 0 ? "warning" : "neutral"}
       />
       <MetricCard

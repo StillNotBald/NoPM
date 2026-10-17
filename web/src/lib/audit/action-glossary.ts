@@ -38,6 +38,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "project.unlock", description: "Project schedule baseline unlocked" },
   { action: "project.delete_requested", description: "Project deletion requested (awaits a second approver)" },
   { action: "project.delete_request.blocked", description: "Project deletion request refused (project is locked)" },
+  { action: "project.update.blocked", description: "Project date or baseline change refused (project is locked)" },
   { action: "project.delete", description: "Project hard-deleted after approval" },
   { action: "program.create", description: "A program was created" },
   { action: "program.update", description: "A program was updated" },

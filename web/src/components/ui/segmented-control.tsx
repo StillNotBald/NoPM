@@ -13,8 +13,8 @@
  * Semantics: role="radiogroup" with role="radio" segments, roving tabindex
  * (only the selected segment is in the tab order), Arrow keys + Home/End
  * move and select. `attention` on an option tints its count only when
- * something needs action. Controlled; no internal state.
- * Not yet adopted by pages.
+ * something needs action. Controlled; no internal state. Segments are 44px
+ * tall below sm (touch rule) and the compact 28/32px from sm up.
  */
 import { useRef, type KeyboardEvent } from "react";
 import { cn } from "@/lib/cn";
@@ -88,7 +88,7 @@ export function SegmentedControl<T extends string = string>({
             onKeyDown={(e) => onKeyDown(e, i)}
             className={cn(
               "focus-ring inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[5px] font-medium transition-colors",
-              size === "sm" ? "h-7 px-2.5 text-xs" : "h-8 px-3 text-sm",
+              size === "sm" ? "h-11 px-2.5 text-xs sm:h-7" : "h-11 px-3 text-sm sm:h-8",
               selected ? "bg-surface text-ink shadow-sm" : "text-ink-secondary hover:text-ink",
               "disabled:pointer-events-none disabled:opacity-50",
             )}

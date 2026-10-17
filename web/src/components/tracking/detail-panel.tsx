@@ -16,6 +16,8 @@ import { cn } from "@/lib/cn";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
 import type { Milestone, Task } from "@/components/tracking/activity-table";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,29 +66,23 @@ function taskStatusBadge(statusType: Task["status_type"]): {
 
 // ─── Date formatting ──────────────────────────────────────────────────────────
 
-function fmtDate(d: string | null): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function fmtDate(d: string | null, pref: DateDisplayPref): string {
+  return d ? formatByPref(d, pref).absolute : "—";
 }
 
 // ─── Member name resolution ─────────────────────────────────────────────────────
 
 /**
  * Resolve a person UUID (assignee_id / owner_id) to a display name using the
- * optional members map. Falls back to a short id when no name is known.
+ * optional members map. An id fragment is not a person, so an unknown id reads
+ * "Unknown member".
  */
 function resolveMemberName(
   id: string | null,
   members?: Record<string, string>,
 ): string | null {
   if (!id) return null;
-  const name = members?.[id];
-  if (name) return name;
-  return id.length > 8 ? id.slice(0, 8) : id;
+  return members?.[id] ?? "Unknown member";
 }
 
 // ─── Shared UI pieces ─────────────────────────────────────────────────────────
@@ -148,6 +144,7 @@ export function TaskDetailPanel({
   const modal = useModal();
   const router = useRouter();
   const toast = useToast();
+  const pref = useDateDisplayPref();
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -342,8 +339,8 @@ export function TaskDetailPanel({
             <span className="text-ink-muted">None</span>
           )}
         </DetailRow>
-        <DetailRow label="Start date">{fmtDate(task.start_date)}</DetailRow>
-        <DetailRow label="Due date">{fmtDate(task.due_date)}</DetailRow>
+        <DetailRow label="Start date">{fmtDate(task.start_date, pref)}</DetailRow>
+        <DetailRow label="Due date">{fmtDate(task.due_date, pref)}</DetailRow>
         <DetailRow label="Assignee">
           {task.assignee_id ? (
             resolveMemberName(task.assignee_id, members)
@@ -456,6 +453,7 @@ export function MilestoneDetailPanel({
   const inspector = useInspector();
   const modal = useModal();
   const router = useRouter();
+  const pref = useDateDisplayPref();
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -530,7 +528,7 @@ export function MilestoneDetailPanel({
 
       {/* Grouped details */}
       <div className="rounded-lg border border-border-subtle bg-surface px-3">
-        <DetailRow label="Target date">{fmtDate(milestone.target_date)}</DetailRow>
+        <DetailRow label="Target date">{fmtDate(milestone.target_date, pref)}</DetailRow>
         <DetailRow label="Owner">
           {milestone.owner_id ? (
             resolveMemberName(milestone.owner_id, members)

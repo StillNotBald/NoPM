@@ -44,7 +44,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  if (request.nextUrl.pathname.startsWith("/api")) {
+  // Metadata files (robots, sitemap, OG/Twitter images) are public, cacheable
+  // and session-free: they keep the CSP but skip the getUser() refresh below,
+  // same as API routes.
+  const path = request.nextUrl.pathname;
+  const isMetadataFile =
+    path === "/robots.txt" ||
+    path === "/sitemap.xml" ||
+    /(^|\/)(opengraph|twitter)-image(\/|$|\.)/.test(path);
+  if (path.startsWith("/api") || isMetadataFile) {
     const response = nextWithNonce();
     response.headers.set("Content-Security-Policy", csp);
     return response;

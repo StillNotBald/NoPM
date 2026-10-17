@@ -5,6 +5,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { patchResourceSchema } from "../_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
       parsed.error.issues.map((e) => ({ field: e.path.join("."), message: e.message })),
     );
   }
+
+  // Cross-tenant guard: the linked login (profile) must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: parsed.data.profile_id, field: "profile_id" },
+  ]);
 
   const { data: updated, error: updateError } = await db
     .from("resource_members")

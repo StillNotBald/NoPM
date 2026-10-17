@@ -15,6 +15,7 @@ import {
   NotFoundError,
   RuleError,
   RateLimitError,
+  FieldsError,
   toErrorResponse,
 } from "./errors";
 
@@ -114,6 +115,20 @@ describe("toErrorResponse — ApiError mapping", () => {
   it("includes the code key when the bare ApiError carries one", async () => {
     const body = await toErrorResponse(new ApiError(423, "Locked", "project_locked")).json();
     expect(body).toEqual({ error: "Locked", code: "project_locked" });
+  });
+
+  it("FieldsError -> 422 with { error, code, fields } (the validationError shape plus a code)", async () => {
+    const fields = [{ field: "owner_id", message: "owner_id was not found in this workspace" }];
+    const e = new FieldsError("Referenced record not found in this workspace", fields, "invalid_reference");
+    expect(e).toBeInstanceOf(ApiError);
+    const res = toErrorResponse(e);
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: "Referenced record not found in this workspace",
+      code: "invalid_reference",
+      fields,
+    });
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it("never logs a handled ApiError to the server console", () => {

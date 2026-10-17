@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClashSchema } from "./_schema";
 import { nextRefId } from "@/lib/ref-id";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -50,6 +51,16 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
+
+  // Cross-tenant guard: both projects, the resource member and the owner
+  // (a profile) must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "projects", id: parsed.data.project_a_id, field: "project_a_id" },
+    { table: "projects", id: parsed.data.project_b_id, field: "project_b_id" },
+    { table: "resource_members", id: parsed.data.resource_member_id, field: "resource_member_id" },
+    { table: "profiles", id: parsed.data.owner_id, field: "owner_id" },
+  ]);
+
   const refId = await nextRefId(db, actor.workspaceId, "clashes", "CL");
 
   const { data: row, error } = await db

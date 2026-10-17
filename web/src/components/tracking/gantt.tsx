@@ -13,6 +13,7 @@ import {
   barLayout as calcBarLayout,
   computeBounds,
   describeBar,
+  fitDayWidth,
   fmtDate,
   fmtRange,
   fmtSlip,
@@ -24,6 +25,8 @@ import {
 } from "@/lib/timeline";
 import { TimelineBar, type TimelineBarPattern } from "@/components/timeline/timeline-bar";
 import { TimelineTable } from "@/components/timeline/timeline-table";
+import { TimelineControls } from "@/components/timeline/timeline-controls";
+import { useElementWidth, useOpenOnToday } from "@/components/timeline/use-timeline-viewport";
 import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ── Data shapes ───────────────────────────────────────────────────────────────
@@ -161,10 +164,11 @@ export function GanttChart({
   dependencies = [],
 }: GanttChartProps) {
   const [view, setView] = useState<"week" | "month">("month");
+  const [fit, setFit] = useState(false);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const windowPx = useElementWidth(scrollRef);
 
-  const dayW = DAY_W[view];
   const pref = useDateDisplayPref();
 
   // ── CPM: critical path + dep arrows ───────────────────────────────────────
@@ -180,6 +184,16 @@ export function GanttChart({
     const results = calculateCriticalPath(tasks, cpmDeps);
     return toCpmMap(results);
   }, [tasks, dependencies]);
+
+  /**
+   * Critical path only matters for work still to do. A finished task sitting
+   * on the longest chain used to keep its red outline (every bar of a mostly
+   * finished project read as critical), so completed / canceled work is never
+   * flagged.
+   */
+  const liveCritical = (t: Task | undefined): boolean =>
+    !!t && t.status_type !== "completed" && t.status_type !== "canceled" && (cpmMap.get(t.id)?.isCritical ?? false);
+  const taskById = useMemo(() => new Map(tasks.map((t) => [t.id, t])), [tasks]);
 
   /**
    * Build an ordered flat list of visible task rows (milestone tasks first,
@@ -217,6 +231,37 @@ export function GanttChart({
     return index;
   }, [milestones, tasks]);
 
+  /**
+   * Vertical centre of every row (same order as taskRowIndex) and the total
+   * height, computed ONCE. The arrow pass used to re-sort and re-filter the
+   * whole task list for each dependency endpoint, which grows with
+   * dependencies x milestones x tasks.
+   */
+  const rowGeometry = useMemo(() => {
+    const centers: number[] = [];
+    let y = 0;
+    const sorted = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
+    const taskCountByMilestone = new Map<string, number>();
+    let standalone = 0;
+    for (const t of tasks) {
+      if (t.milestone_id) taskCountByMilestone.set(t.milestone_id, (taskCountByMilestone.get(t.milestone_id) ?? 0) + 1);
+      else standalone++;
+    }
+    for (const ms of sorted) {
+      centers.push(y + ROW_H_MS / 2);
+      y += ROW_H_MS;
+      for (let i = 0; i < (taskCountByMilestone.get(ms.id) ?? 0); i++) {
+        centers.push(y + ROW_H_TASK / 2);
+        y += ROW_H_TASK;
+      }
+    }
+    for (let i = 0; i < standalone; i++) {
+      centers.push(y + ROW_H_TASK / 2);
+      y += ROW_H_TASK;
+    }
+    return { centers, totalHeight: y };
+  }, [milestones, tasks]);
+
   // ── Compute date bounds ────────────────────────────────────────────────────
 
   const today = new Date();
@@ -231,6 +276,13 @@ export function GanttChart({
     return computeBounds(allDates, todayDay);
   }, [milestones, tasks, todayDay]);
 
+  // Fit squeezes the whole range into the window (always the month-style
+  // header: per-day labels would overprint at a few px per day).
+  const shownView: "week" | "month" = fit ? "month" : view;
+  const dayW = fit
+    ? fitDayWidth(windowPx, totalDays, { min: 0.5, max: 40, fallback: DAY_W.month })
+    : DAY_W[view];
+
   // ── Header ticks ──────────────────────────────────────────────────────────
 
   const monthHeaderTicks = useMemo(() => monthTicks(minDay, totalDays), [minDay, totalDays]);
@@ -243,14 +295,20 @@ export function GanttChart({
   const subLabels = useMemo(() => {
     const result: { label: string; col: number }[] = [];
     const days = iterDays(minDay, totalDays);
-    if (view === "month") {
-      // Show week-start dates as sub labels
+    if (shownView === "month") {
+      // Show week-start dates as sub labels, thinned so they never overprint
+      // when the range is squeezed ("Fit")
+      const every = Math.max(1, Math.ceil(44 / (7 * dayW)));
+      let weekNo = 0;
       days.forEach((d, i) => {
         if (d.getDay() === 1 || i === 0) {
-          result.push({
-            label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
-            col: i,
-          });
+          if (weekNo % every === 0) {
+            result.push({
+              label: d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+              col: i,
+            });
+          }
+          weekNo++;
         }
       });
     } else {
@@ -263,11 +321,20 @@ export function GanttChart({
       });
     }
     return result;
-  }, [minDay, totalDays, view]);
+  }, [minDay, totalDays, shownView, dayW]);
 
   const totalPx = totalDays * dayW;
   const todayOffset = (todayDay - minDay) * dayW;
   const todayVisible = todayDay >= minDay && todayDay <= maxDay;
+
+  // Open on today instead of on the first task, and offer a jump back to it.
+  const { scrollToToday } = useOpenOnToday({
+    scrollRef,
+    todayX: todayVisible ? todayOffset : null,
+    contentPx: totalPx,
+    dayW,
+    resetKey: `${view}:${fit}`,
+  });
 
   /**
    * Pre-compute per-task bar pixel layout so arrow rendering can look it up
@@ -309,9 +376,10 @@ export function GanttChart({
 
   if (milestones.length === 0 && tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-border-subtle bg-surface py-20 text-center">
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-border-subtle bg-surface py-20 text-center">
         <Calendar size={32} className="text-ink-muted opacity-30" />
         <p className="text-sm text-ink-secondary">No milestones or tasks yet.</p>
+        <p className="text-xs text-ink-muted">Add a milestone or task on the Activity tab and it will be scheduled here.</p>
       </div>
     );
   }
@@ -340,7 +408,7 @@ export function GanttChart({
       fmtRange(t.start_date, t.due_date, pref),
       STATUS_TEXT[t.status_type],
       `${t.completion_pct}%`,
-      cpmMap.get(t.id)?.isCritical ? "yes" : "no",
+      liveCritical(t) ? "yes" : "no",
       fmtSlip(slipDays(t.due_date, t.baseline_due_date)) ?? "none",
     ];
   }
@@ -350,7 +418,7 @@ export function GanttChart({
     const bpBaseline = barLayout(t.baseline_start_date, t.baseline_due_date);
     const cls = taskBarClasses(t.status_type);
     const showPct = (bp?.width ?? 0) >= 32;
-    const isCritical = cpmMap.get(t.id)?.isCritical ?? false;
+    const isCritical = liveCritical(t);
     const slip = slipDays(t.due_date, t.baseline_due_date);
     const taskSlip = fmtSlip(slip);
 
@@ -454,28 +522,40 @@ export function GanttChart({
             </Badge>
           )}
         </div>
-        {/* View toggle */}
-        <div className="flex items-center rounded-lg border border-border-subtle bg-sunken p-0.5 gap-0.5 shrink-0">
-          {(["week", "month"] as const).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              aria-pressed={view === v}
-              className={cn(
-                "focus-ring rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[44px] sm:min-h-[36px]",
-                view === v
-                  ? "bg-surface text-ink shadow-sm"
-                  : "text-ink-secondary hover:text-ink"
-              )}
-            >
-              {v === "week" ? "Week" : "Month"}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <TimelineControls
+            onToday={scrollToToday}
+            todayAvailable={todayVisible}
+            fit={fit}
+            onFitChange={setFit}
+          />
+          {/* View toggle (choosing a scale leaves Fit) */}
+          <div className="flex items-center rounded-lg border border-border-subtle bg-sunken p-0.5 gap-0.5 shrink-0">
+            {(["week", "month"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  setFit(false);
+                  setView(v);
+                }}
+                aria-pressed={!fit && view === v}
+                className={cn(
+                  "focus-ring rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-200 min-h-[44px] sm:min-h-[36px]",
+                  !fit && view === v
+                    ? "bg-surface text-ink shadow-sm"
+                    : "text-ink-secondary hover:text-ink"
+                )}
+              >
+                {v === "week" ? "Week" : "Month"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Gantt card — outer overflow-x-auto so entire chart scrolls on mobile */}
-      <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface shadow-sm">
+      <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface">
         <div className="flex" style={{ minWidth: 480 }}>
 
           {/* ── Left sticky label column ─────────────────────────────────── */}
@@ -498,7 +578,7 @@ export function GanttChart({
               <button
                 onClick={() => setLeftCollapsed((c) => !c)}
                 className="focus-ring relative ml-auto rounded-md p-1 text-ink-muted hover:text-ink hover:bg-sunken transition-colors duration-150 before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
-                aria-label={leftCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+                aria-label={leftCollapsed ? "Expand task names" : "Collapse task names"}
                 aria-expanded={!leftCollapsed}
               >
                 {leftCollapsed
@@ -578,27 +658,36 @@ export function GanttChart({
 
               {/* ── Two-row sticky header ──────────────────────────────────── */}
               <div
-                className="sticky top-0 z-10 bg-sunken/80 backdrop-blur-sm border-b border-border-subtle"
+                className="sticky top-0 z-10 bg-sunken border-b border-border-subtle"
                 style={{ height: HEADER_H, width: totalPx }}
               >
                 {/* Row 1: month labels */}
                 <div className="relative" style={{ height: HEADER_H / 2 }}>
-                  {monthHeaderTicks.map((t) => (
-                    <div
-                      key={t.label + t.col}
-                      className="absolute top-0 bottom-0 flex items-center px-2 pointer-events-none"
-                      style={{ left: t.col * dayW }}
-                    >
-                      {/* Strong month gridline */}
+                  {monthHeaderTicks.map((t, ti) => {
+                    // A short partial month would print its label over the next
+                    // one ("August 2026September 2026"): drop it, as the
+                    // portfolio roadmap does.
+                    const next = monthHeaderTicks[ti + 1];
+                    const showLabel = !next || (next.col - t.col) * dayW >= 96;
+                    return (
                       <div
-                        className="absolute left-0 top-0 bottom-0 w-px bg-border-subtle"
-                        style={{ opacity: 0.6 }}
-                      />
-                      <span className="text-xs font-semibold text-ink-secondary whitespace-nowrap select-none">
-                        {t.label}
-                      </span>
-                    </div>
-                  ))}
+                        key={t.label + t.col}
+                        className="absolute top-0 bottom-0 flex items-center px-2 pointer-events-none"
+                        style={{ left: t.col * dayW }}
+                      >
+                        {/* Strong month gridline */}
+                        <div
+                          className="absolute left-0 top-0 bottom-0 w-px bg-border-subtle"
+                          style={{ opacity: 0.6 }}
+                        />
+                        {showLabel && (
+                          <span className="text-xs font-semibold text-ink-secondary whitespace-nowrap select-none">
+                            {t.label}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Row 2: sub-labels (week starts in month view / day initials in week view) */}
@@ -612,9 +701,9 @@ export function GanttChart({
                       className="absolute top-0 bottom-0 flex items-center pointer-events-none"
                       style={{
                         left: sl.col * dayW,
-                        width: view === "week" ? dayW : undefined,
-                        justifyContent: view === "week" ? "center" : "flex-start",
-                        paddingLeft: view === "month" ? 4 : 0,
+                        width: shownView === "week" ? dayW : undefined,
+                        justifyContent: shownView === "week" ? "center" : "flex-start",
+                        paddingLeft: shownView === "month" ? 4 : 0,
                       }}
                     >
                       <span className="text-xs text-ink-muted whitespace-nowrap select-none">
@@ -764,16 +853,7 @@ export function GanttChart({
 
                 {/* ── Dependency arrows SVG overlay ─────────────────────────── */}
                 {dependencies.length > 0 && (() => {
-                  // Compute total height of the row area to size the SVG
-                  const sortedMsCopy2 = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
-                  let totalRowH = 0;
-                  for (const ms of sortedMsCopy2) {
-                    totalRowH += ROW_H_MS;
-                    const msTasks = tasks.filter((t) => t.milestone_id === ms.id);
-                    totalRowH += msTasks.length * ROW_H_TASK;
-                  }
-                  const standaloneCnt = tasks.filter((t) => !t.milestone_id).length;
-                  totalRowH += standaloneCnt * ROW_H_TASK;
+                  const totalRowH = rowGeometry.totalHeight;
 
                   const arrows = dependencies.flatMap((dep) => {
                     const predRowIdx = taskRowIndex.get(dep.predecessor_id);
@@ -784,45 +864,14 @@ export function GanttChart({
                     const succBar = taskBarPixels.get(dep.successor_id);
                     if (!predBar || !succBar) return [];
 
-                    // For each row index, accumulate its Y position
-                    // Row index 0 is a milestone row (ROW_H_MS), subsequent task rows are ROW_H_TASK.
-                    // We walk the same structure used in taskRowIndex to compute Y offsets.
-                    const getRowY = (rowIdx: number): number => {
-                      const sortedMsLocal = [...milestones].sort((a, b) => a.sort_order - b.sort_order);
-                      let y = 0;
-                      let idx = 0;
-                      for (const ms of sortedMsLocal) {
-                        if (idx === rowIdx) return y + ROW_H_MS / 2;
-                        y += ROW_H_MS;
-                        idx++;
-                        const msTasks = tasks
-                          .filter((t) => t.milestone_id === ms.id)
-                          .sort((a, b) => a.sort_order - b.sort_order);
-                        for (let i = 0; i < msTasks.length; i++) {
-                          if (idx === rowIdx) return y + ROW_H_TASK / 2;
-                          y += ROW_H_TASK;
-                          idx++;
-                        }
-                      }
-                      const standalone = tasks
-                        .filter((t) => !t.milestone_id)
-                        .sort((a, b) => a.sort_order - b.sort_order);
-                      for (let i = 0; i < standalone.length; i++) {
-                        if (idx === rowIdx) return y + ROW_H_TASK / 2;
-                        y += ROW_H_TASK;
-                        idx++;
-                      }
-                      return y;
-                    };
-
                     const x1 = predBar.left + predBar.width; // right edge of predecessor bar
-                    const y1 = getRowY(predRowIdx);
+                    const y1 = rowGeometry.centers[predRowIdx] ?? 0;
                     const x2 = succBar.left;                 // left edge of successor bar
-                    const y2 = getRowY(succRowIdx);
+                    const y2 = rowGeometry.centers[succRowIdx] ?? 0;
 
                     const isCrit =
-                      (cpmMap.get(dep.predecessor_id)?.isCritical ?? false) &&
-                      (cpmMap.get(dep.successor_id)?.isCritical ?? false);
+                      liveCritical(taskById.get(dep.predecessor_id)) &&
+                      liveCritical(taskById.get(dep.successor_id));
 
                     const color = isCrit ? "var(--color-danger)" : "var(--color-border-strong)";
                     const opacity = isCrit ? 0.85 : 0.5;

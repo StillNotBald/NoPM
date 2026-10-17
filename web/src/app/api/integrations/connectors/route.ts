@@ -3,6 +3,7 @@ import { ApiError, RuleError, ScopeError } from "@/lib/api/errors";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { getConnectorHealth } from "@/lib/integrations/health";
 import { encryptSecrets, generateRelaySecret } from "@/lib/integrations/secrets";
 import {
   CONNECTOR_COLUMNS,
@@ -12,6 +13,7 @@ import {
   isIntegrationAdmin,
   listConnectors,
   normalizeConfig,
+  toAuditConnector,
   toPublicConnector,
   toRedactedConnector,
 } from "@/lib/integrations/store";
@@ -24,8 +26,11 @@ export const runtime = "nodejs";
  * GET /api/integrations/connectors — the workspace's connectors, in one of two
  * shapes by role (signed-in sessions only):
  *  - admin: the full public view (presence flags + non-secret config, the
- *    revoked history, and the `callback_urls` for the Lark console setup) —
- *    never ciphertext, the relay hash or any secret value;
+ *    revoked history, the `callback_urls` for the Lark console setup, and a
+ *    `health` block: queue counts, dead letters, last send, last failure text
+ *    and the last scheduler run; null for a revoked connector or when the
+ *    lookup failed, so "unknown" never reads as "0 dead") — never ciphertext,
+ *    the relay hash or any secret value;
  *  - any other member, viewers included: a REDACTED view of the live
  *    (non-revoked) connectors — id, name, kind, status, region, mode,
  *    approvals.enabled, digest.enabled — so the page can say "Lark is connected;
@@ -37,10 +42,13 @@ export const GET = route(async ({ actor, request }) => {
 
   const rows = await listConnectors(actor.workspaceId);
   const items = isIntegrationAdmin(actor)
-    ? rows.map((row) => ({
-        ...toPublicConnector(row),
-        callback_urls: callbackUrls(appBaseUrl(new URL(request.url).origin), row.id),
-      }))
+    ? await Promise.all(
+        rows.map(async (row) => ({
+          ...toPublicConnector(row),
+          callback_urls: callbackUrls(appBaseUrl(new URL(request.url).origin), row.id),
+          health: row.status === "revoked" ? null : await getConnectorHealth(actor.workspaceId, row.id),
+        })),
+      )
     : rows.filter((row) => row.status !== "revoked").map(toRedactedConnector);
   return okList(items, { total: items.length, page: 1, limit: Math.max(items.length, 1) });
 });
@@ -125,7 +133,8 @@ export const POST = route(async ({ actor, request }) => {
   const connector: ConnectorRow = { ...(row as unknown as ConnectorRow), config: normalizeConfig(row.config) };
   const view = toPublicConnector(connector);
 
-  // The audit row carries the public view only — never a secret or a hash.
+  // The audit row carries the public view only — never a secret or a hash — with
+  // the app id and group chat id masked (the audit stream is member-readable).
   await writeAudit({
     workspaceId: actor.workspaceId,
     actor,
@@ -133,7 +142,7 @@ export const POST = route(async ({ actor, request }) => {
     targetType: "integration_connector",
     targetId: connector.id,
     before: null,
-    after: view,
+    after: toAuditConnector(view),
   });
 
   const base = appBaseUrl(new URL(request.url).origin);

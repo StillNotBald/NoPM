@@ -27,6 +27,8 @@ import {
   MilestoneDetailPanel,
 } from "@/components/tracking/detail-panel";
 import { taskVariance, projectVarianceRollup, OVERRUN_THRESHOLD_PCT } from "@/lib/insight/variance";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ─── Data shapes ────────────────────────────────────────────────────────────
 
@@ -83,6 +85,8 @@ interface ActivityTableProps {
   isLocked: boolean;
   /** Optional id→display-name map (resource members / profiles) for resolving owner/assignee UUIDs. */
   members?: Record<string, string>;
+  /** False until the members lookup answers; keeps raw ids off screen meanwhile. */
+  membersReady?: boolean;
   /** L-33 — Σ time_entries.hours per task id, batched server-side (projects/[id]/page.tsx). */
   actualHoursByTask?: Record<string, number>;
 }
@@ -91,16 +95,16 @@ interface ActivityTableProps {
 
 /**
  * Resolve a person UUID (assignee_id / owner_id) to a display name using the
- * optional members map. Falls back to a short id when no name is known.
+ * optional members map; null when no name is known (callers say "Unknown
+ * member" once the lookup has finished, and print nothing before that — an
+ * eight-character id fragment is not a person).
  */
 function resolveMemberName(
   id: string | null,
   members?: Record<string, string>,
 ): string | null {
   if (!id) return null;
-  const name = members?.[id];
-  if (name) return name;
-  return id.length > 8 ? id.slice(0, 8) : id;
+  return members?.[id] ?? null;
 }
 
 // ─── Density ─────────────────────────────────────────────────────────────────
@@ -158,20 +162,15 @@ function ProgressBar({ pct }: { pct: number }) {
 
 // ─── Date formatting ──────────────────────────────────────────────────────────
 
-function fmtDate(d: string | null): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+function fmtDate(d: string | null, pref: DateDisplayPref): string {
+  return d ? formatByPref(d, pref).absolute : "—";
 }
 
-function fmtDateRange(start: string | null, end: string | null): string {
+function fmtDateRange(start: string | null, end: string | null, pref: DateDisplayPref): string {
   if (!start && !end) return "—";
-  if (!start) return `Until ${fmtDate(end)}`;
-  if (!end) return `From ${fmtDate(start)}`;
-  return `${fmtDate(start)} – ${fmtDate(end)}`;
+  if (!start) return `Until ${fmtDate(end, pref)}`;
+  if (!end) return `From ${fmtDate(start, pref)}`;
+  return `${fmtDate(start, pref)} – ${fmtDate(end, pref)}`;
 }
 
 // ─── Variance cell (L-33) ──────────────────────────────────────────────────
@@ -181,6 +180,11 @@ function VarianceCell({ estimateHours, actualHours }: { estimateHours: number | 
   const v = taskVariance({ id: "", estimateHours, actualHours });
   if (v.varianceHours === null) {
     return <span className="text-xs text-ink-muted">No estimate</span>;
+  }
+  // With an estimate but no hours logged, "-8h (-100%)" in green reads as a
+  // saving. It is the absence of data.
+  if (actualHours === 0) {
+    return <span className="text-xs text-ink-muted">No hours logged</span>;
   }
   const tone = v.isOverrun ? "text-danger-ink" : v.varianceHours > 0 ? "text-warning-ink" : "text-success-ink";
   const sign = v.varianceHours > 0 ? "+" : "";
@@ -244,7 +248,7 @@ function QuickAddRow({
         <td colSpan={colSpan}>
           <button
             className={cn(
-              "flex w-full items-center gap-1.5 px-4 text-xs text-ink-muted",
+              "focus-ring flex w-full items-center gap-1.5 px-4 text-xs text-ink-muted",
               "hover:text-ink-secondary transition-colors duration-150",
               rowPy,
             )}
@@ -266,6 +270,7 @@ function QuickAddRow({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder={label}
+          aria-label={label.replace(/^\+\s*/, "")}
           disabled={saving}
           className="h-7 border-border-subtle bg-canvas text-sm focus-visible:ring-1"
           onKeyDown={(e) => {
@@ -280,6 +285,27 @@ function QuickAddRow({
     </tr>
   );
 }
+
+// ─── Shared row controls ───────────────────────────────────────────────────────
+
+/** The row title is a real button (keyboard / screen-reader way into the inspector). */
+const NAME_BTN =
+  "focus-ring min-w-0 truncate rounded-sm text-left text-sm font-medium text-ink hover:underline";
+
+/** Expand / collapse chevron; a 44px hit area comes from the pseudo-element. */
+const EXPAND_BTN =
+  "focus-ring relative shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']";
+
+/**
+ * Edit / delete cluster. Quiet at rest on a pointer device, but revealed by
+ * hover, by keyboard focus ANYWHERE in the row (group-focus-within, so a
+ * focused button is never invisible) and permanently where there is no hover.
+ */
+const ROW_ACTIONS =
+  "flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100";
+
+const ICON_BTN =
+  "focus-ring grid h-8 w-8 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink";
 
 // ─── Milestone row ─────────────────────────────────────────────────────────────
 
@@ -308,6 +334,7 @@ function MilestoneRow({
   onRowClick: (milestone: Milestone) => void;
 }) {
   const inspector = useInspector();
+  const pref = useDateDisplayPref();
   const statusInfo = milestoneStatusBadge(milestone.status);
   const rowPy = density === "compact" ? "py-1.5" : "py-2.5";
 
@@ -326,42 +353,61 @@ function MilestoneRow({
       <td className={cn("pr-3 min-w-0", rowPy)} colSpan={2}>
         <div className="flex items-center gap-1.5 min-w-0">
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onToggle(); }}
-            className="shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink"
-            aria-label={isExpanded ? "Collapse" : "Expand"}
+            className={EXPAND_BTN}
+            aria-label={`${isExpanded ? "Collapse" : "Expand"} ${milestone.name}`}
+            aria-expanded={isExpanded}
           >
             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
           <Diamond size={13} className="shrink-0 text-accent" />
-          <span className="font-medium text-sm text-ink truncate">{milestone.name}</span>
+          {/* A real button: the row's own onClick is a mouse convenience, this is
+              the way in for keyboard and screen-reader users */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRowClick(milestone); }}
+            className={NAME_BTN}
+          >
+            {milestone.name}
+          </button>
+        </div>
+        {/* Below @xl the status / progress / date columns are hidden: show them here */}
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 pl-6 @xl:hidden">
+          <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
+          <ProgressBar pct={milestone.completion_pct} />
+          {milestone.target_date && (
+            <span className="text-xs tabular-nums text-ink-muted @2xl:hidden">{fmtDate(milestone.target_date, pref)}</span>
+          )}
         </div>
       </td>
 
       {/* Dates */}
-      <td className={cn("hidden md:table-cell pr-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap", rowPy)}>
-        {fmtDate(milestone.target_date)}
+      <td className={cn("hidden @2xl:table-cell pr-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap", rowPy)}>
+        {fmtDate(milestone.target_date, pref)}
       </td>
 
       {/* Priority — not applicable for milestones */}
-      <td className={cn("hidden md:table-cell pr-4", rowPy)} />
+      <td className={cn("hidden @3xl:table-cell pr-4", rowPy)} />
 
       {/* Variance — not applicable for milestones */}
-      <td className={cn("hidden md:table-cell pr-4", rowPy)} />
+      <td className={cn("hidden @4xl:table-cell pr-4", rowPy)} />
 
       {/* Status */}
-      <td className={cn("pr-4", rowPy)}>
+      <td className={cn("hidden @xl:table-cell pr-4", rowPy)}>
         <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
       </td>
 
       {/* Progress */}
-      <td className={cn("pr-4 whitespace-nowrap", rowPy)}>
+      <td className={cn("hidden @xl:table-cell pr-4 whitespace-nowrap", rowPy)}>
         <ProgressBar pct={milestone.completion_pct} />
       </td>
 
-      {/* Row actions */}
-      <td className={cn("w-28 pr-4", rowPy)}>
+      {/* Row actions — shown on hover, on keyboard focus anywhere in the row,
+          and always on touch (no hover there) */}
+      <td className={cn("hidden @xl:table-cell w-28 pr-4", rowPy)}>
         <div
-          className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          className={ROW_ACTIONS}
           onClick={(e) => e.stopPropagation()}
         >
           <Button
@@ -378,27 +424,30 @@ function MilestoneRow({
                 "New Task",
               )
             }
-            className="h-7 gap-1 px-2 text-xs"
+            className="h-8 gap-1 px-2 text-xs"
+            aria-label={`Add task to ${milestone.name}`}
           >
             <Plus size={12} />
             Task
           </Button>
           <button
+            type="button"
             onClick={() =>
               inspector.open(
                 <MilestoneForm projectId={projectId} milestone={milestone} />,
                 "Edit Milestone",
               )
             }
-            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink"
-            aria-label="Edit milestone"
+            className={ICON_BTN}
+            aria-label={`Edit milestone ${milestone.name}`}
           >
             <Pencil size={13} />
           </button>
           <button
+            type="button"
             onClick={() => onDelete(milestone.id, milestone.name)}
-            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-danger-ink"
-            aria-label="Delete milestone"
+            className={cn(ICON_BTN, "hover:text-danger-ink")}
+            aria-label={`Delete milestone ${milestone.name}`}
           >
             <Trash2 size={13} />
           </button>
@@ -421,6 +470,7 @@ function TaskRow({
   density,
   onRowClick,
   members,
+  membersReady,
   actualHours,
 }: {
   task: Task;
@@ -434,11 +484,14 @@ function TaskRow({
   density: Density;
   onRowClick: (task: Task) => void;
   members?: Record<string, string>;
+  membersReady: boolean;
   /** L-33 — Σ time_entries.hours for this task (0 when none logged). */
   actualHours: number;
 }) {
   const inspector = useInspector();
+  const pref = useDateDisplayPref();
   const statusInfo = taskStatusBadge(task.status_type);
+  const assigneeName = resolveMemberName(task.assignee_id, members);
   const rowPy = density === "compact" ? "py-1.5" : "py-2";
 
   return (
@@ -467,7 +520,15 @@ function TaskRow({
       <td className={cn("pr-3 min-w-0", rowPy)}>
         <div className="flex flex-col gap-0.5 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-sm text-ink truncate">{task.name}</span>
+            {/* A real button: the row's own onClick is a mouse convenience, this
+                is the way in for keyboard and screen-reader users */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRowClick(task); }}
+              className={cn(NAME_BTN, "font-normal")}
+            >
+              {task.name}
+            </button>
             {task.checklist && task.checklist.length > 0 && (
               <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full border border-border-subtle bg-sunken px-1.5 py-0.5 text-2xs font-medium tabular-nums text-ink-muted">
                 {task.checklist.filter((i) => i.done).length}/{task.checklist.length}
@@ -475,45 +536,58 @@ function TaskRow({
             )}
           </div>
           {task.assignee_id && (
-            <span className="text-xs text-ink-muted truncate">
-              {resolveMemberName(task.assignee_id, members)}
+            // the line is always reserved so names arriving later don't shift rows
+            <span className="min-h-4 text-xs text-ink-muted truncate">
+              {assigneeName ?? (membersReady ? "Unknown member" : "\u00A0")}
             </span>
           )}
+          {/* Below @xl the status / progress / date columns are hidden: show them here */}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 @xl:hidden">
+            <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
+            <ProgressBar pct={task.completion_pct} />
+            {(task.start_date || task.due_date) && (
+              <span className="text-xs tabular-nums text-ink-muted @2xl:hidden">
+                {fmtDateRange(task.start_date, task.due_date, pref)}
+              </span>
+            )}
+          </div>
         </div>
       </td>
 
       {/* Date range */}
-      <td className={cn("hidden md:table-cell pr-4 text-xs text-ink-secondary whitespace-nowrap", rowPy)}>
-        {fmtDateRange(task.start_date, task.due_date)}
+      <td className={cn("hidden @2xl:table-cell pr-4 text-xs text-ink-secondary whitespace-nowrap", rowPy)}>
+        {fmtDateRange(task.start_date, task.due_date, pref)}
       </td>
 
       {/* Priority */}
-      <td className={cn("hidden md:table-cell pr-4", rowPy)}>
+      <td className={cn("hidden @3xl:table-cell pr-4", rowPy)}>
         <Severity level={task.priority} />
       </td>
 
       {/* Variance (L-33) — actual - estimate hours + % */}
-      <td className={cn("hidden md:table-cell pr-4 whitespace-nowrap", rowPy)}>
+      <td className={cn("hidden @4xl:table-cell pr-4 whitespace-nowrap", rowPy)}>
         <VarianceCell estimateHours={task.estimate_hours} actualHours={actualHours} />
       </td>
 
       {/* Status */}
-      <td className={cn("pr-4", rowPy)}>
+      <td className={cn("hidden @xl:table-cell pr-4", rowPy)}>
         <Badge size="sm" tone={statusInfo.tone}>{statusInfo.label}</Badge>
       </td>
 
       {/* Progress */}
-      <td className={cn("pr-4 whitespace-nowrap", rowPy)}>
+      <td className={cn("hidden @xl:table-cell pr-4 whitespace-nowrap", rowPy)}>
         <ProgressBar pct={task.completion_pct} />
       </td>
 
-      {/* Row actions */}
-      <td className={cn("w-28 pr-4", rowPy)}>
+      {/* Row actions — shown on hover, on keyboard focus anywhere in the row,
+          and always on touch (no hover there) */}
+      <td className={cn("hidden @xl:table-cell w-28 pr-4", rowPy)}>
         <div
-          className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          className={ROW_ACTIONS}
           onClick={(e) => e.stopPropagation()}
         >
           <button
+            type="button"
             onClick={() =>
               inspector.open(
                 <TaskForm
@@ -525,15 +599,16 @@ function TaskRow({
                 "Edit Task",
               )
             }
-            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-ink"
-            aria-label="Edit task"
+            className={ICON_BTN}
+            aria-label={`Edit task ${task.name}`}
           >
             <Pencil size={13} />
           </button>
           <button
+            type="button"
             onClick={() => onDelete(task.id, task.name)}
-            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-danger-ink"
-            aria-label="Delete task"
+            className={cn(ICON_BTN, "hover:text-danger-ink")}
+            aria-label={`Delete task ${task.name}`}
           >
             <Trash2 size={13} />
           </button>
@@ -551,6 +626,7 @@ export function ActivityTable({
   tasks,
   isLocked,
   members,
+  membersReady = true,
   actualHoursByTask = {},
 }: ActivityTableProps) {
   const inspector = useInspector();
@@ -566,6 +642,11 @@ export function ActivityTable({
       actualHours: actualHoursByTask[t.id] ?? 0,
     })),
   );
+  // Estimates exist but nobody has logged time: the rollup would read
+  // "-516h (-100%)" in green. That is no data, not a saving.
+  const noActualsLogged =
+    varianceRollup.variancePct !== null &&
+    tasks.every((t) => (actualHoursByTask[t.id] ?? 0) === 0);
 
   // Inline delete-error banner (shown when a delete API call fails)
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -752,6 +833,7 @@ export function ActivityTable({
             density={density}
             onRowClick={openTaskInspector}
             members={members}
+            membersReady={membersReady}
             actualHours={actualHoursByTask[task.id] ?? 0}
           />
         );
@@ -793,9 +875,11 @@ export function ActivityTable({
         <td className={cn("pr-3", rowPy)} colSpan={2}>
           <div className="flex items-center gap-1.5">
             <button
+              type="button"
               onClick={() => toggleExpand("__standalone__")}
-              className="shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink"
-              aria-label={isExpanded ? "Collapse" : "Expand"}
+              className={EXPAND_BTN}
+              aria-label={`${isExpanded ? "Collapse" : "Expand"} standalone tasks`}
+              aria-expanded={isExpanded}
             >
               {isExpanded ? (
                 <ChevronDown size={14} />
@@ -828,6 +912,7 @@ export function ActivityTable({
             density={density}
             onRowClick={openTaskInspector}
             members={members}
+            membersReady={membersReady}
             actualHours={actualHoursByTask[task.id] ?? 0}
           />
         );
@@ -852,7 +937,7 @@ export function ActivityTable({
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <section className="space-y-4">
+    <section className="@container space-y-4">
       {/* Inline delete-error banner */}
       {deleteError && (
         <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink flex items-center justify-between gap-2">
@@ -880,10 +965,12 @@ export function ActivityTable({
         {/* Density toggle */}
         <div className="flex items-center rounded-md border border-border-subtle bg-surface p-0.5 gap-0.5">
           <button
+            type="button"
             aria-label="Comfortable density"
+            aria-pressed={density === "comfortable"}
             title="Comfortable"
             className={cn(
-              "grid h-9 w-9 place-items-center rounded text-xs transition-colors duration-[200ms]",
+              "focus-ring grid h-9 w-9 place-items-center rounded text-xs transition-colors duration-[200ms]",
               density === "comfortable"
                 ? "bg-accent/10 text-accent"
                 : "text-ink-muted hover:text-ink hover:bg-sunken"
@@ -893,10 +980,12 @@ export function ActivityTable({
             <AlignJustify size={13} />
           </button>
           <button
+            type="button"
             aria-label="Compact density"
+            aria-pressed={density === "compact"}
             title="Compact"
             className={cn(
-              "grid h-9 w-9 place-items-center rounded text-xs transition-colors duration-[200ms]",
+              "focus-ring grid h-9 w-9 place-items-center rounded text-xs transition-colors duration-[200ms]",
               density === "compact"
                 ? "bg-accent/10 text-accent"
                 : "text-ink-muted hover:text-ink hover:bg-sunken"
@@ -943,7 +1032,7 @@ export function ActivityTable({
         <div
           className={cn(
             "flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-2 text-xs",
-            varianceRollup.variancePct === null
+            varianceRollup.variancePct === null || noActualsLogged
               ? "border-border-subtle bg-sunken text-ink-muted"
               : varianceRollup.isOverrun
               ? "border-danger/30 bg-danger/10 text-danger-ink"
@@ -955,6 +1044,11 @@ export function ActivityTable({
           <span className="font-medium">
             {varianceRollup.variancePct === null ? (
               "Variance: no estimated tasks yet"
+            ) : noActualsLogged ? (
+              <>
+                Variance: no hours logged yet across {varianceRollup.includedCount} estimated{" "}
+                {varianceRollup.includedCount === 1 ? "task" : "tasks"}
+              </>
             ) : (
               <>
                 Variance: {varianceRollup.varianceHours > 0 ? "+" : ""}
@@ -993,8 +1087,8 @@ export function ActivityTable({
         </div>
       ) : (
         /* Table */
-        <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface">
-          <table className="w-full border-collapse text-left" role="table">
+        <div className="overflow-x-auto rounded-lg border border-border-subtle bg-surface">
+          <table className="w-full border-collapse text-left">
             <thead>
               <tr className="border-b border-border-subtle bg-sunken/60">
                 <th className="py-2.5 pl-4 pr-2 text-xs font-medium uppercase tracking-wide text-ink-muted">
@@ -1006,22 +1100,24 @@ export function ActivityTable({
                 >
                   Name
                 </th>
-                <th className="hidden md:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden @2xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Date
                 </th>
-                <th className="hidden md:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden @3xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Priority
                 </th>
-                <th className="hidden md:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden @4xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Variance
                 </th>
-                <th className="py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden @xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Status
                 </th>
-                <th className="py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                <th className="hidden @xl:table-cell py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
                   Progress
                 </th>
-                <th className="w-28 py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted" />
+                <th className="hidden @xl:table-cell w-28 py-2.5 pr-4 text-xs font-medium uppercase tracking-wide text-ink-muted">
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>

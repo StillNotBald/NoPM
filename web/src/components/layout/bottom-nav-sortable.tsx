@@ -36,11 +36,12 @@ function SortableShortcut({ item, onRemove }: { item: Item; onRemove: () => void
         isDragging && "z-10 cursor-grabbing opacity-80 shadow-md",
       )}
     >
+      {/* 16px glyph with a 44px hit area (pseudo-element) so the tile does not grow */}
       <button
         type="button"
         onPointerDown={(e) => e.stopPropagation()}
         onClick={onRemove}
-        className="absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-ink/60 text-canvas"
+        className="focus-ring absolute right-1 top-1 grid h-4 w-4 place-items-center rounded-full bg-ink/60 text-canvas before:absolute before:-inset-3.5 before:content-['']"
         aria-label={`Remove ${item.label}`}
       >
         <X size={11} strokeWidth={3} />

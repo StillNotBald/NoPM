@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { CheckCircle2, X } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
-import { usePreferences } from "@/lib/prefs/use-preferences";
+import { useSeededPreferences } from "@/components/onboarding/use-seeded-preferences";
+import type { PrefsSeed } from "@/lib/onboarding/seed";
 import {
   tourItems,
   shouldShowTour,
@@ -27,10 +29,21 @@ import {
  *
  * No new API routes — this reads/writes only the existing
  * GET/PUT /api/me/preferences pair via the new whitelisted `tour` config key.
+ *
+ * First render: `seed` is the viewer's tour state as the SERVER read it, so the
+ * card is in the server HTML (or correctly absent) instead of appearing after
+ * the preferences GET and shoving the page down. Without a seed (server could
+ * not resolve one) it still waits for the client store, as before.
  */
 
-export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string }) {
-  const prefs = usePreferences();
+export function GovernanceTour({
+  firstProjectHref,
+  seed,
+}: {
+  firstProjectHref?: string;
+  seed?: PrefsSeed | null;
+}) {
+  const prefs = useSeededPreferences(seed);
 
   // Derived from the shared prefs store (R-78) — see first-run-wizard.tsx's
   // matching comment. A failed GET yields an empty config (tour undefined),
@@ -44,7 +57,7 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
     // Demo identity never persists preferences; the store already no-ops
     // the PUT for it (see the component doc comment above — mirrors D7's
     // wizard carve-out) and keeps the merge local for the rest of this visit.
-    void prefs.update({ tour: next });
+    prefs.update({ tour: next });
   }
 
   function handleVisit(itemId: string) {
@@ -69,7 +82,7 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss governance tour"
-          className="relative rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
+          className="focus-ring relative rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
         >
           <X size={14} />
         </button>
@@ -80,10 +93,10 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
             const visited = isVisited(tour, item.id);
             return (
               <li key={item.id}>
-                <a
+                <Link
                   href={item.href}
                   onClick={() => handleVisit(item.id)}
-                  className="flex items-center gap-3 px-5 py-3 text-sm hover:bg-sunken"
+                  className="focus-ring flex min-h-11 items-center gap-3 px-5 py-3 text-sm hover:bg-sunken"
                 >
                   <span
                     className="flex h-5 w-5 shrink-0 items-center justify-center"
@@ -92,14 +105,18 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
                     {visited ? (
                       <CheckCircle2 size={16} className="text-success-ink" />
                     ) : (
-                      <span className="h-2 w-2 rounded-full border border-border-subtle" />
+                      <span className="h-2 w-2 rounded-full border border-border-strong" />
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block font-medium text-ink">{item.title}</span>
+                    <span className="block font-medium text-ink">
+                      {item.title}
+                      {/* the tick is aria-hidden; say it in text too */}
+                      {visited && <span className="sr-only"> (visited)</span>}
+                    </span>
                     <span className="block truncate text-xs text-ink-muted">{item.caption}</span>
                   </span>
-                </a>
+                </Link>
               </li>
             );
           })}

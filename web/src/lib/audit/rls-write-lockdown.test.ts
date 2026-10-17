@@ -68,7 +68,7 @@ const DENY_ALL = [
   "assistant_messages", "assistant_demo_usage", "user_preferences", "invites",
   "nopm_rate_counters", "calendar_feeds",
   "integration_connectors", "external_identities", "identity_link_codes",
-  "integration_deliveries", "action_tokens", "inbound_actions",
+  "integration_deliveries", "action_tokens", "inbound_actions", "integration_cron_state",
 ] as const;
 
 type Cmd = "select" | "insert" | "update" | "delete" | "all";

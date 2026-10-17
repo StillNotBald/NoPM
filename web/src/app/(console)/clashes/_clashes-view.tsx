@@ -8,7 +8,8 @@ import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { EntityLink } from "@/components/ui/entity-link";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { type FilterFieldConfig } from "@/components/registers/use-list-controls";
 import { useRegisterToolbar, RegisterToolbar } from "@/components/registers/register-toolbar";
@@ -38,7 +39,12 @@ const ALL_COLUMNS: readonly ColumnDef[] = [
   { key: "status", label: "Status" },
   { key: "details", label: "Details" },
 ];
-const DEFAULT_COLUMNS = ALL_COLUMNS.map((c) => c.key);
+// Type is a Columns-chooser extra: when it's off, the Title cell carries a Type
+// badge instead, so nothing is lost and the Status / Details columns stay in view.
+const DEFAULT_COLUMNS = ["reference_id", "title", "severity", "projects", "status", "details"];
+
+// Columns whose content may wrap; every other cell stays on one line.
+const WRAPPING_COLUMNS = new Set(["projects", "details"]);
 
 const GROUP_BY_OPTIONS: readonly GroupByOption[] = [
   { value: "project", label: "Project" },
@@ -93,6 +99,8 @@ export function ClashesView({
     columns: ALL_COLUMNS,
     defaultColumns: DEFAULT_COLUMNS,
     groupByOptions: GROUP_BY_OPTIONS,
+    // The phone card list below groups, so Group by stays useful there.
+    phoneGroupBy: true,
     pageSize: 1000,
   });
   const { visibleColumns, groupBy, activeFilterCount, clearFilters } = controls;
@@ -154,17 +162,30 @@ export function ClashesView({
         ) : (
           <span className="text-ink-muted">—</span>
         );
-      case "title":
+      case "title": {
+        const typeColumnHidden = !visibleColumns.some((v) => v.key === "type");
         return (
-          <div className="min-w-0 max-w-[220px]">
-            <span className="block truncate font-medium text-ink">{c.title}</span>
-            {c.type === "resource" && (
-              <Badge tone="neutral" size="sm" className="mt-0.5">
-                auto
-              </Badge>
+          <div className="min-w-0 max-w-[13rem]">
+            <span className="block truncate font-medium text-ink" title={c.title}>
+              {c.title}
+            </span>
+            {(typeColumnHidden || c.type === "resource") && (
+              <span className="mt-0.5 flex flex-wrap items-center gap-1">
+                {typeColumnHidden && (
+                  <Badge size="sm" tone={typeTone(c.type)}>
+                    {cap(c.type)}
+                  </Badge>
+                )}
+                {c.type === "resource" && (
+                  <Badge tone="neutral" size="sm">
+                    auto
+                  </Badge>
+                )}
+              </span>
             )}
           </div>
         );
+      }
       case "type":
         return (
           <Badge size="sm" tone={typeTone(c.type)}>
@@ -174,7 +195,7 @@ export function ClashesView({
       case "severity":
         return <Severity level={c.severity as ClashSeverity} />;
       case "projects":
-        return <div className="min-w-0 max-w-[220px]">{projectsCell(c)}</div>;
+        return <div className="min-w-0 max-w-[12rem]">{projectsCell(c)}</div>;
       case "status":
         return (
           <Badge size="sm" tone={statusTone(c.status)}>
@@ -183,7 +204,7 @@ export function ClashesView({
         );
       case "details":
         return (
-          <div className="max-w-xs">
+          <div className="max-w-[17rem]">
             {c.over_allocation_pct != null && (
               <span className="mb-1 inline-flex items-center gap-1 whitespace-nowrap rounded border border-warning/25 bg-warning/10 px-1.5 py-0.5 text-xs font-medium tabular-nums text-warning-ink">
                 +{Number(c.over_allocation_pct).toFixed(0)}% over
@@ -294,8 +315,8 @@ export function ClashesView({
             </div>
 
             {/* ≥md: table */}
-            <div className="hidden overflow-x-auto md:block">
-              <Table bare className="min-w-[700px]">
+            <div className="hidden md:block">
+              <ScrollTable bare label="Clash register">
                 <THead>
                   <TR>
                     {visibleColumns.map((col) => (
@@ -319,7 +340,10 @@ export function ClashesView({
                       {g.rows.map((c) => (
                         <TR key={c.id} id={`clash-${c.id}`} className="transition-colors hover:bg-sunken">
                           {visibleColumns.map((col) => (
-                            <TD key={col.key} className="align-top">
+                            <TD
+                              key={col.key}
+                              className={WRAPPING_COLUMNS.has(col.key) ? "align-top" : "whitespace-nowrap align-top"}
+                            >
                               {cell(col.key, c)}
                             </TD>
                           ))}
@@ -328,7 +352,7 @@ export function ClashesView({
                     </Fragment>
                   ))}
                 </tbody>
-              </Table>
+              </ScrollTable>
             </div>
           </>
         )}

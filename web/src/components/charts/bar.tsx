@@ -12,7 +12,14 @@
  *   gap        Gap between bars in px (default 10)
  *   showValues Show a value label at bar end (default true)
  *   valueWidth Px reserved for the value label column (default 36; widen for longer displayValue strings)
+ *
+ * The viewBox is sized to the chart's real width (not a fixed 400 that CSS then
+ * scales), so the 11px labels stay 11px: scaled down they were ~9px on a phone
+ * and ~6px with the inspector open.
  */
+
+import { useRef } from "react";
+import { useElementWidth } from "@/components/timeline/use-timeline-viewport";
 
 type BarItem = {
   label: string;
@@ -42,6 +49,9 @@ export function HorizontalBarChart({
   showValues = true,
   valueWidth: valueWidthProp,
 }: HorizontalBarProps) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const measured = useElementWidth(wrapRef);
+
   if (items.length === 0) {
     return (
       <p className="py-4 text-center text-xs text-ink-muted">No data</p>
@@ -51,11 +61,12 @@ export function HorizontalBarChart({
   const max = maxValue ?? Math.max(...items.map((i) => i.value), 1);
   const labelWidth = 120; // px reserved for label text
   const valueWidth = showValues ? (valueWidthProp ?? 36) : 0;
-  const svgWidth = 400; // viewBox width; scales with CSS
-  const trackWidth = svgWidth - labelWidth - valueWidth - 8;
+  const svgWidth = measured > 0 ? measured : 400; // 400 until measured (first paint)
+  const trackWidth = Math.max(svgWidth - labelWidth - valueWidth - 8, 40);
   const totalHeight = items.length * (barHeight + gap) - gap;
 
   return (
+    <div ref={wrapRef} className="w-full">
     <svg
       viewBox={`0 0 ${svgWidth} ${totalHeight}`}
       width="100%"
@@ -118,5 +129,6 @@ export function HorizontalBarChart({
         );
       })}
     </svg>
+    </div>
   );
 }

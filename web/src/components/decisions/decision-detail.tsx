@@ -86,7 +86,7 @@ export function DecisionDetail({
       <div className="flex items-start justify-between gap-3 pb-3 border-b border-border-subtle mb-1">
         <div className="flex-1 min-w-0">
           {decision.reference_id && (
-            <span className="font-mono text-[11px] bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted mb-1 inline-block">
+            <span className="font-mono text-2xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted mb-1 inline-block">
               {decision.reference_id}
             </span>
           )}

@@ -36,6 +36,13 @@ export type CalendarMilestone = {
   project_name?: string | null;
   /** When this revision was written (ISO 8601). Source of DTSTAMP and SEQUENCE. */
   updated_at: string;
+  /**
+   * When the project row was last written. The SUMMARY carries the project
+   * name, so renaming a project changes every one of its events without
+   * touching the milestone rows: the later of the two timestamps is the
+   * revision, or subscribed clients would keep showing the old name.
+   */
+  project_updated_at?: string | null;
 };
 
 export type MilestoneCalendarInput = {
@@ -148,6 +155,13 @@ function sequenceOf(iso: string): number {
   return Math.min(Math.floor(Date.parse(iso) / 1000), MAX_SEQUENCE);
 }
 
+/** The later of the milestone's and its project's write time (an unparseable project time is ignored). */
+function revisionOf(milestone: CalendarMilestone): string {
+  const project = milestone.project_updated_at;
+  if (project && Date.parse(project) > Date.parse(milestone.updated_at)) return project;
+  return milestone.updated_at;
+}
+
 function eventDescription(milestone: CalendarMilestone): string {
   const notes = milestone.description?.trim();
   return [
@@ -172,8 +186,8 @@ function eventLines(
   return [
     "BEGIN:VEVENT",
     `UID:${escapeText(`milestone-${milestone.id}@${host}`)}`,
-    `DTSTAMP:${utcStamp(milestone.updated_at)}`,
-    `SEQUENCE:${sequenceOf(milestone.updated_at)}`,
+    `DTSTAMP:${utcStamp(revisionOf(milestone))}`,
+    `SEQUENCE:${sequenceOf(revisionOf(milestone))}`,
     `DTSTART;VALUE=DATE:${bounds.start}`,
     `DTEND;VALUE=DATE:${bounds.end}`,
     `SUMMARY:${escapeText(summary)}`,

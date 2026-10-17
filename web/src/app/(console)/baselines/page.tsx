@@ -5,6 +5,8 @@ import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appear
 import { formatByPref } from "@/lib/format/dates";
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { FourEyesNote } from "@/components/governance/four-eyes-note";
 import {
   LockedBaselinesList,
   RebaselinesList,
@@ -100,7 +102,7 @@ export default async function BaselinesPage() {
     profileMap.set(p.id, p.display_name ?? p.email ?? p.id.slice(0, 8) + "…");
   }
   function labelFor(id: string | null) {
-    if (!id) return "—";
+    if (!id) return "Not recorded";
     return profileMap.get(id) ?? id.slice(0, 8) + "…";
   }
 
@@ -122,8 +124,9 @@ export default async function BaselinesPage() {
     return {
       id: p.id,
       name: p.name,
-      lockedAtText: lockedAt.text,
-      lockedAtTitle: lockedAt.title,
+      // A lock with no timestamp (seed data, older rows) says so instead of a bare dash.
+      lockedAtText: p.locked_at ? lockedAt.text : "Not recorded",
+      lockedAtTitle: p.locked_at ? lockedAt.title : "No lock time was recorded",
       lockedByLabel: labelFor(p.locked_by),
       lockReason: p.lock_reason,
     };
@@ -141,18 +144,19 @@ export default async function BaselinesPage() {
       statusTone: statusTone(r.status as RebaselineStatus),
       requestedText: requested.text,
       requestedTitle: requested.title,
-      signoffLabel: counts ? `${counts.cast} / ${counts.total}` : "—",
+      signoffLabel: counts ? `${counts.cast} of ${counts.total} cast` : "None yet",
     };
   });
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <div>
+    <PageContainer className="space-y-6">
+        <div className="space-y-1">
           <PageHeader title="Baselines" />
-          <p className="-mt-3 mb-1 text-sm text-ink-muted">
+          <p className="-mt-3 text-sm text-ink-muted">
             Locked timelines and the rebaselines that reopen them. Every step is audited.
           </p>
+          {/* The sign-off rule stays visible once there are rows; it used to show only when empty. */}
+          <FourEyesNote variant="quiet" />
         </div>
 
         {/* Locked baselines */}
@@ -174,7 +178,6 @@ export default async function BaselinesPage() {
           </div>
           <RebaselinesList rows={rebaselineRows} purpose={FLOW_EXPLAINER} />
         </Card>
-      </div>
-    </div>
+    </PageContainer>
   );
 }
