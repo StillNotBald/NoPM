@@ -42,7 +42,15 @@ export async function isDemoActor(actor: Actor): Promise<boolean> {
     .eq("id", actor.id)
     .maybeSingle();
 
-  if (error || !data) return false;
+  // R-13: fail CLOSED on a read error. Returning false here let the shared demo
+  // account pass the demo guards (mint PATs / invites / upload) during a DB
+  // hiccup. Throwing makes the guarded route fail (500) instead; this only
+  // runs when DEMO_EMAIL is configured and only for session actors, and the
+  // same database is needed for the request to do anything useful anyway.
+  // A missing profile row (no error) is not the demo account: a session
+  // without a profile is already refused by requireAuth.
+  if (error) throw error;
+  if (!data) return false;
 
   return data.email === demoEmail;
 }

@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { route } from "@/lib/api/handler";
-import { AuthError, NotFoundError, RuleError } from "@/lib/api/errors";
+import { AuthError, NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
@@ -17,6 +18,9 @@ export const POST = route(async ({ actor, request }) => {
   if (actor.type !== "user") {
     throw new AuthError("MFA requires a user session");
   }
+
+  // R-5: the shared demo login can never enable two-step.
+  if (await isDemoActor(actor)) throw new ScopeError(DEMO_RESTRICTED_MESSAGE, "demo_restricted");
 
   const body = await safeJson(request);
   const parsed = verifyMfaSchema.safeParse(body);

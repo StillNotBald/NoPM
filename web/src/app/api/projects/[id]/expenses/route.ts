@@ -5,7 +5,7 @@ import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
+import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
 export const runtime = "nodejs";
 
@@ -83,7 +83,8 @@ export const POST = route(async ({ actor, params, request }) => {
       workspaceId: actor.workspaceId,
       actorId: actor.id,
       key: readIdempotencyKey(request),
-      route: "POST /api/projects/:id/expenses",
+      route: `POST /api/projects/${projectId}/expenses`,
+      bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
   const { data: row, error } = await db

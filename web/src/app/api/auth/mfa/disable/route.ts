@@ -1,12 +1,13 @@
 import { cookies } from "next/headers";
 import { route } from "@/lib/api/handler";
-import { AuthError, NotFoundError, RuleError } from "@/lib/api/errors";
+import { AuthError, NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { MFA_COOKIE_NAME } from "@/lib/auth/mfa";
-import { consumeTotp, matchesBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
+import { MFA_COOKIE_NAME, computeEnrollmentBinding, isRecentMfaChallenge } from "@/lib/auth/mfa";
+import { consumeTotp, isMissingTotpStepColumn, matchesBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
 import { disableMfaSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -20,18 +21,29 @@ export const runtime = "nodejs";
  * missing or wrong code is 422 and is audited (`auth.mfa.disable_failed`).
  * A not-yet-confirmed enrollment (enabled = false) can be cancelled without a
  * code, since nothing is protected yet.
+ *
+ * R-4 (no self-lockout): a session that passed the two-step challenge within the
+ * last 10 minutes (the signed `nopm_mfa` cookie carries its issue time) may
+ * turn two-step off WITHOUT a further code. Someone who spent their last backup
+ * code to get in can then switch it off (and re-enrol on a new phone) instead of
+ * needing the operator. The body `code` is still accepted and still required
+ * when the challenge is older than that.
+ *
+ * R-5: closed to the shared demo login (403 demo_restricted).
  */
 export const POST = route(async ({ actor, request }) => {
   if (actor.type !== "user") {
     throw new AuthError("MFA requires a user session");
   }
 
+  if (await isDemoActor(actor)) throw new ScopeError(DEMO_RESTRICTED_MESSAGE, "demo_restricted");
+
   const db = createAdminClient();
 
   // Fetch current state for audit before snapshot
   const { data: mfa, error: fetchError } = await db
     .from("user_mfa")
-    .select("enabled, totp_secret, backup_codes")
+    .select("enabled, totp_secret, backup_codes, enrolled_at")
     .eq("user_id", actor.id)
     .maybeSingle();
 
@@ -40,7 +52,13 @@ export const POST = route(async ({ actor, request }) => {
     throw new NotFoundError("No MFA record found for this user.");
   }
 
-  if (mfa.enabled) {
+  const store = await cookies();
+  const recentChallenge =
+    !!mfa.enabled &&
+    !!mfa.enrolled_at &&
+    isRecentMfaChallenge(store.get(MFA_COOKIE_NAME)?.value, actor.id, computeEnrollmentBinding(mfa.enrolled_at));
+
+  if (mfa.enabled && !recentChallenge) {
     await spendMfaAttempt(db, actor.id);
 
     const parsed = disableMfaSchema.safeParse(await safeJson(request));
@@ -67,9 +85,7 @@ export const POST = route(async ({ actor, request }) => {
     }
   }
 
-  const { error: updateError } = await db
-    .from("user_mfa")
-    .update({
+  const cleared = {
       enabled: false,
       // `totp_secret` is NOT NULL (supabase/migrations/20260608000002_identity.sql)
       // — writing null here would fail the DB constraint and 500 this whole
@@ -78,9 +94,15 @@ export const POST = route(async ({ actor, request }) => {
       // factor material without violating the column's NOT NULL constraint.
       totp_secret: "",
       backup_codes: null,
-      last_totp_step: null,
-    })
+  };
+  let { error: updateError } = await db
+    .from("user_mfa")
+    .update({ ...cleared, last_totp_step: null })
     .eq("user_id", actor.id);
+  // R-8: migration 0060 not applied yet - retry without the new column.
+  if (updateError && isMissingTotpStepColumn(updateError)) {
+    ({ error: updateError } = await db.from("user_mfa").update(cleared).eq("user_id", actor.id));
+  }
 
   if (updateError) throw updateError;
 
@@ -91,7 +113,7 @@ export const POST = route(async ({ actor, request }) => {
     targetType: "user_mfa",
     targetId: actor.id,
     before: { enabled: mfa.enabled },
-    after: { enabled: false },
+    after: { enabled: false, via: recentChallenge ? "recent_challenge" : mfa.enabled ? "code" : "cancel_enrollment" },
   });
 
   // R-91 — a previously issued nopm_mfa cookie is signature-bound to this
@@ -99,7 +121,6 @@ export const POST = route(async ({ actor, request }) => {
   // on the *next* enroll). Clear it here too so the same browser can never
   // carry a stale satisfied-challenge cookie forward, independent of the
   // enrollment-binding check (verified-adversarial finding, defense in depth).
-  const store = await cookies();
   store.delete({ name: MFA_COOKIE_NAME, path: "/" });
 
   return ok({ enabled: false });

@@ -36,6 +36,12 @@
 
 **Docs.** ADR 0014 (approver roles); ADR 0003 refreshed (target type `clash`, DELETE and member change also cascade, resolve audited); R-113 to R-119; UC-08, UC-10, UC-11, UC-12, UC-17, UC-19, UC-23 and the doc contradictions of D-ACC-22 (UC-18, UC-24, UC-25, the Lark guide); user manual (approvals, schedule and lock, admin); the leaver procedure in `docs/runbooks/user-provisioning.md` rewritten (D-ACC-1: do not delete the profile; revoke tokens, ban the login, set the role to viewer; feeds keep working by decision 9); `CUTOVER/08-JOURNEY-AUDIT-FIXES.md`; the ROADMAP backlog line for the owner questions.
 
+## Review fix pass
+
+R-1 to R-17 were fixed; R-18 is left for the owner as Q-REV-18. Behaviour added: Idempotency-Key errors (400 invalid_idempotency_key, 409 idempotency_in_progress, 422 idempotency_key_reused; keys scoped per workspace, actor and route, 24 h); 409 rebaseline_version_conflict on racing proposals; MFA enroll/verify/disable 403 demo_restricted for the shared demo login, disable by code or a challenge passed in the last 10 minutes; a PAT whose creator is now a viewer is read-only (403 forbidden_scope); failed bearer auth gets 429 with Retry-After once an address spends its budget (a valid token is never throttled); timesheet approve/reject database backstop (P0018 -> 403 role_not_permitted); audit rows written by database functions carry principal_id. Migrations are now 0059-0067, 0069, 0071-0074.
+
+Local-stack proof: all migrations applied to a fresh local Supabase; probe-migrations 9/9, probe-four-eyes 28/28, probe-rls-direct-write 23/23.
+
 ## R-IDs touched
 - R-113 → DONE (new): approver role rule
 - R-114 → DONE (new): time-entry ownership

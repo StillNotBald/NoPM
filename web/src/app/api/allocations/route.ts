@@ -6,7 +6,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocationSafe } from "@/lib/clash/detect";
-import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
+import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 import { NextResponse } from "next/server";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
@@ -82,6 +82,7 @@ export const POST = route(async ({ actor, request }) => {
       actorId: actor.id,
       key: readIdempotencyKey(request),
       route: "POST /api/allocations",
+      bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
       const { data: row, error } = await db

@@ -623,7 +623,7 @@ describe("D-16 — a member or viewer (or their token) cannot approve anything",
   const viewerPat = (): Actor => ({ ...bobPat(), principalRole: "viewer" }) as Actor;
 
   it("403 role_not_permitted on every approve / decide verb, nothing recorded", async () => {
-    for (const actor of [memberPat(), viewerPat()]) {
+    for (const actor of [memberPat()]) {
       await expectForbidden(await call(approveDeletion, actor, "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
       await expectForbidden(await call(rejectDeletion, actor, "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
       await expectForbidden(
@@ -636,6 +636,10 @@ describe("D-16 — a member or viewer (or their token) cannot approve anything",
       await expectForbidden(await call(applyRebaseline, actor, "rb-approved", {}), "role_not_permitted", "Only managers and admins can approve");
     }
     await expectForbidden(await call(approveDeletion, memberSession(), "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
+    // A token whose creator is now a viewer is read-only (R-6), so it is refused one step earlier.
+    for (const call_ of [() => call(approveDeletion, viewerPat(), "del-1", {}), () => call(decideTimesheet, viewerPat(), "ts-1", { decision: "approved" })]) {
+      await expectForbidden(await call_(), "forbidden_scope", "read-only");
+    }
     expect(db.rows("audit_log")).toHaveLength(0);
     expect(db.rpcCallsTo("nopm_commit_task_deletion")).toHaveLength(0);
   });

@@ -131,8 +131,15 @@ export const POST = route(async ({ actor, params, request }) => {
   if (insertError) {
     // D4: uniq_pending_rebaseline allows ONE rebaseline waiting for sign-off per
     // project; a second proposal is a conflict, not a server fault.
+    // R-15: only that index maps to the "already waiting" message; a version
+    // (project, version) collision from two racing proposals is a different
+    // conflict and must not be reported as a pending sign-off.
     if (insertError.code === "23505") {
-      throw new ConflictError(PENDING_REBASELINE_EXISTS_MESSAGE, "pending_rebaseline_exists");
+      const detail = `${insertError.message ?? ""} ${(insertError as { details?: string }).details ?? ""}`;
+      if (detail.includes("uniq_pending_rebaseline")) {
+        throw new ConflictError(PENDING_REBASELINE_EXISTS_MESSAGE, "pending_rebaseline_exists");
+      }
+      throw new ConflictError("Another rebaseline proposal was created at the same moment. Reload and try again.", "rebaseline_version_conflict");
     }
     throw insertError;
   }

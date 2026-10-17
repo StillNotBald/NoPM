@@ -1,6 +1,10 @@
+import { cookies } from "next/headers";
 import { authenticator } from "otplib";
 import { route } from "@/lib/api/handler";
-import { AuthError, ConflictError } from "@/lib/api/errors";
+import { AuthError, ConflictError, ScopeError } from "@/lib/api/errors";
+import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
+import { getMfaEnrollmentStatus, isRecentMfaChallenge, MFA_COOKIE_NAME } from "@/lib/auth/mfa";
+import { isMissingTotpStepColumn } from "@/lib/auth/mfa-factor";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { encrypt } from "@/lib/crypto";
@@ -14,6 +18,10 @@ export const POST = route(async ({ actor }) => {
     throw new AuthError("MFA requires a user session");
   }
 
+  // R-5: the shared demo login must never turn two-step on (every other
+  // visitor would then be asked for a code nobody has).
+  if (await isDemoActor(actor)) throw new ScopeError(DEMO_RESTRICTED_MESSAGE, "demo_restricted");
+
   const db = createAdminClient();
 
   // D-ACC-4: re-enrolling while two-step is ON silently replaced the live
@@ -26,26 +34,34 @@ export const POST = route(async ({ actor }) => {
     .maybeSingle();
   if (existingError) throw existingError;
   if (existing?.enabled) {
-    throw new ConflictError("Two-step is already on. Turn it off first.", "mfa_already_enabled");
+    // R-4: a challenge passed in the last 10 minutes counts as proof of the
+    // factor, so someone who just spent their last backup code can re-enrol on
+    // a new phone instead of being locked out. Without it: turn it off first.
+    const { enr } = await getMfaEnrollmentStatus(actor.id);
+    const store = await cookies();
+    if (enr === null || !isRecentMfaChallenge(store.get(MFA_COOKIE_NAME)?.value, actor.id, enr)) {
+      throw new ConflictError("Two-step is already on. Turn it off first.", "mfa_already_enabled");
+    }
   }
 
   const secret = authenticator.generateSecret();
   const otpauth = authenticator.keyuri(actor.label, "NoPM", secret);
 
-  const { error } = await db.from("user_mfa").upsert(
-    {
-      user_id: actor.id,
-      // Encrypted at rest (AES-256-GCM) — never store the live TOTP seed plaintext.
-      totp_secret: encrypt(secret),
-      enabled: false,
-      // clear any stale backup codes and confirmed_at from a previous enrollment
-      backup_codes: null,
-      confirmed_at: null,
-      last_totp_step: null,
-      enrolled_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" },
-  );
+  const row = {
+    user_id: actor.id,
+    // Encrypted at rest (AES-256-GCM) — never store the live TOTP seed plaintext.
+    totp_secret: encrypt(secret),
+    enabled: false,
+    // clear any stale backup codes and confirmed_at from a previous enrollment
+    backup_codes: null,
+    confirmed_at: null,
+    enrolled_at: new Date().toISOString(),
+  };
+  let { error } = await db.from("user_mfa").upsert({ ...row, last_totp_step: null }, { onConflict: "user_id" });
+  // R-8: migration 0060 not applied yet - retry without the new column.
+  if (error && isMissingTotpStepColumn(error)) {
+    ({ error } = await db.from("user_mfa").upsert(row, { onConflict: "user_id" }));
+  }
 
   if (error) throw error;
 

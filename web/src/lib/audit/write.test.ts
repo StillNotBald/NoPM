@@ -53,4 +53,10 @@ describe("systemActor (A3-10)", () => {
     expect(isSystemActor(user)).toBe(false);
     expect(auditPrincipalId(a)).toBeNull();
   });
+  it("R-12: a token merely NAMED system:* is not the system actor", () => {
+    expect(isSystemActor({ id: "t-1", type: "token", label: "system:cron" })).toBe(false);
+    expect(isSystemActor({ id: SYSTEM_ACTOR_ID, type: "user", label: "system:x" })).toBe(false);
+    expect(isSystemActor({ id: SYSTEM_ACTOR_ID, type: "token", label: "someone" })).toBe(false);
+    expect(isSystemActor({ id: SYSTEM_ACTOR_ID, type: "token", label: "system:cron" })).toBe(true);
+  });
 });

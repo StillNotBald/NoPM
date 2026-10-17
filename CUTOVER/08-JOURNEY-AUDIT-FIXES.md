@@ -1,4 +1,4 @@
-# 08 · Journey-audit fixes rollout (migrations 0059–0067, 0069, 0071)
+# 08 · Journey-audit fixes rollout (migrations 0059–0067, 0069, 0071–0074)
 
 **Status: READY, NOT YET RUN** — fill in the run record at the end when it is executed. Rehearse `--dry-run` first.
 
@@ -8,7 +8,9 @@ Release runbook for the build that follows the journey map and the 2026-10-17 au
 
 Unlike the Lark wave, this release is **backward-compatible**: every migration is additive and the older RPCs are kept, so the build that is live today keeps working between the migration commit and the promote (one exception, noted under 0061). There is no multi-minute window to protect.
 
-## Migration files in this release (11)
+## Migration files in this release (14)
+
+Order: backup -> dry run -> apply --atomic -> verify ledger -> deploy build -> smoke. Apply the migrations BEFORE the build. The build tolerates 0060 missing (TOTP replay guard off, one error line logged) but do not rely on it.
 
 | File | What it adds |
 |---|---|
@@ -23,13 +25,16 @@ Unlike the Lark wave, this release is **backward-compatible**: every migration i
 | 0067 `idempotency_keys` | server-only table for `Idempotency-Key` replays |
 | 0069 `connector_revoke_atomic` | `nopm_revoke_connector` (one transaction) |
 | 0071 `audit_principal` | nullable `audit_log.principal_id` |
+| 0072 `audit_principal_in_rpcs` | the database functions from 0062-0069 (and the project-deletion commit) also write `principal_id`; helper `nopm_audit_principal()` |
+| 0073 `timesheet_approver_role_backstop` | trigger on `timesheet_submissions`: a non-admin, non-manager decider is refused (P0018) |
+| 0074 `idempotency_pending` | `idempotency_keys.status` (pending / done) + `request_hash`; `nopm_purge_idempotency_keys()` for the 24 h purge |
 
 Numbers 0068 and 0070 do not exist; the runner applies by filename, so the gap is harmless. The live ledger should hold 0001–0058 (58 rows) before the run.
 
 ## 1. Before you start
 
 - [ ] Tell the team: no approvals for ten minutes around the apply (they would still work; this only keeps the smoke clean).
-- [ ] You are on the commit you will deploy, clean tree. `ls web/supabase/migrations | tail -12` shows the eleven files above.
+- [ ] You are on the commit you will deploy, clean tree. `ls web/supabase/migrations | tail -14` shows the fourteen files above.
 - [ ] The live direct connection string (port 5432) is in `web/.env.local` or exported as `DB_URL`. Never print it.
 - [ ] No new environment variables in this release. Verify these are still present and unchanged: `NOPM_ENCRYPTION_KEY`, `CRON_SECRET`, `NEXT_PUBLIC_APP_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NOPM_DEMO_LLM_*`. Optional: `NOPM_RATE_READ_PER_MIN`, `NOPM_RATE_WRITE_PER_MIN`.
 
@@ -43,11 +48,11 @@ supabase db dump --db-url "$DB_URL" -f ../backup-pre-0059-<yyyymmdd-hhmm>.sql   
 Restore rules are in [03-ROLLBACK.md](03-ROLLBACK.md) and [04-BACKUP-RESTORE.md](04-BACKUP-RESTORE.md). Then run these read-only checks as `postgres` in the SQL editor and paste the result into the cutover ticket:
 
 ```sql
--- A. the ledger is where this runbook assumes (expect 58, and none of the eleven names present)
+-- A. the ledger is where this runbook assumes (expect 58, and none of the fourteen names present)
 select count(*) from _nopm_migrations;
 -- B. nothing from this wave exists yet (expect 0 rows)
 select proname from pg_proc where proname in (
-  'nopm_rate_peek','nopm_auth_user_for_invite','nopm_apply_rebaseline','nopm_unlock_project_audited',
+  'nopm_rate_peek','nopm_auth_user_for_invite','nopm_audit_principal','nopm_purge_idempotency_keys','nopm_apply_rebaseline','nopm_unlock_project_audited',
   'nopm_signoff_rebaseline','nopm_decide_change_request','nopm_lock_project','nopm_next_ref','nopm_revoke_connector');
 select to_regclass('public.idempotency_keys'), to_regclass('public.nopm_ref_counters');
 -- C. data the new rules will meet (note them, none blocks the run)
@@ -66,12 +71,12 @@ Gates: B returns no rows and both regclass values are null; the duplicate-refere
 ## 3. The window
 
 1. **Build, do not alias:** `cd web && vercel deploy --prod --skip-domain`. Note `<NEW_URL>`; `curl <NEW_URL>/api/health` answers ok. Do not exercise governed screens on it yet, it is on the old schema.
-2. **Dry run:** `node scripts/migrate.mjs --atomic --dry-run`. Expect 11 files applied, then `ROLLED BACK. Nothing changed.` Read every notice. File the output as a dry-run record ([06-DRY-RUN-RECORDS.md](06-DRY-RUN-RECORDS.md)).
-3. **Apply:** `node scripts/migrate.mjs --atomic`. Expect `Committed 11 file(s) in one transaction` and `PostgREST schema cache reload requested`. On `FAILED` nothing was applied; fix the cause and re-run.
+2. **Dry run:** `node scripts/migrate.mjs --atomic --dry-run`. Expect 14 files applied, then `ROLLED BACK. Nothing changed.` Read every notice. File the output as a dry-run record ([06-DRY-RUN-RECORDS.md](06-DRY-RUN-RECORDS.md)).
+3. **Apply:** `node scripts/migrate.mjs --atomic`. Expect `Committed 14 file(s) in one transaction` and `PostgREST schema cache reload requested`. On `FAILED` nothing was applied; fix the cause and re-run.
 4. **Post-check (read-only):**
    ```sql
    select proname from pg_proc where proname in (
-     'nopm_rate_peek','nopm_auth_user_for_invite','nopm_apply_rebaseline','nopm_unlock_project_audited',
+     'nopm_rate_peek','nopm_auth_user_for_invite','nopm_audit_principal','nopm_purge_idempotency_keys','nopm_apply_rebaseline','nopm_unlock_project_audited',
      'nopm_signoff_rebaseline','nopm_decide_change_request','nopm_lock_project','nopm_next_ref','nopm_revoke_connector'); -- 9 rows
    select to_regclass('public.idempotency_keys'), to_regclass('public.nopm_ref_counters');                              -- both set
    select column_name from information_schema.columns where table_name = 'audit_log' and column_name = 'principal_id';  -- 1 row
@@ -115,7 +120,9 @@ Database restore (dump or PITR) is the last resort and loses every write since t
 
 ## New build against the old schema (why the order matters)
 
-Missing objects make these fail until the apply: rebaseline sign-off and apply, project lock and unlock, change-request decisions (the new routes call the new RPCs), every idempotent create (no `idempotency_keys`), every audit write that sets `principal_id` (unknown column), the MFA code check (`last_totp_step`), the per-IP bearer throttle (`nopm_rate_peek`), invite accept retries, connector revoke, and reference-number allocation. Do not deploy before the post-check passes.
+Missing objects make these fail until the apply: rebaseline sign-off and apply, project lock and unlock, change-request decisions (the new routes call the new RPCs), every idempotent create (no `idempotency_keys`), every audit write that sets `principal_id` (unknown column), invite accept retries, connector revoke, and reference-number allocation. Do not deploy before the post-check passes.
+
+**Migrations before build, always.** The order is: migrate, verify the ledger shows the new files, then deploy. Two sign-in paths now tolerate a missing migration so a wrong order cannot lock people out: the MFA code check carries on without the replay guard when `user_mfa.last_totp_step` (0060) is missing (one error line is logged, `TOTP replay guard is OFF`), and the bearer throttle no longer uses `nopm_rate_peek` at all (a valid token is never refused by it). Everything else in this list still fails until the apply, so do not rely on the tolerance.
 
 ## Previous build against the new schema
 

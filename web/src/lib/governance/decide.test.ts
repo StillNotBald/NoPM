@@ -1030,7 +1030,7 @@ describe("decideApproval", () => {
 
   it("D-16: a member or viewer (session or token principal) is 403 role_not_permitted on every kind and verb", async () => {
     for (const actor of [larkActor(BOB), bobPat()]) {
-      const demoted = { ...actor, ...(actor.type === "user" ? { role: "member" } : { principalRole: "viewer" }) } as Actor;
+      const demoted = { ...actor, ...(actor.type === "user" ? { role: "member" } : { principalRole: "member" }) } as Actor;
       for (const [kind, id] of [["task_deletion", "del-1"], ["change_request", "cr-1"], ["timesheet", "ts-1"]] as const) {
         for (const action of ["approve", "reject"] as const) {
           const err = await caught(decideApproval(demoted, { kind, id }, action, "because"));

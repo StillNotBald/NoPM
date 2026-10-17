@@ -14,6 +14,7 @@ function fakeClient(overrides: {
   deleteUser?: InviteAcceptAdminClient["auth"]["admin"]["deleteUser"];
   rpc?: InviteAcceptAdminClient["rpc"];
   updateUserById?: InviteAcceptAdminClient["auth"]["admin"]["updateUserById"];
+  getUserById?: InviteAcceptAdminClient["auth"]["admin"]["getUserById"];
 } = {}): InviteAcceptAdminClient {
   return {
     auth: {
@@ -23,6 +24,12 @@ function fakeClient(overrides: {
           vi.fn(async () => ({ data: { user: { id: "auth-user-1" } }, error: null })),
         deleteUser: overrides.deleteUser ?? vi.fn(async () => ({ error: null })),
         updateUserById: overrides.updateUserById ?? vi.fn(async () => ({ error: null })),
+        getUserById:
+          overrides.getUserById ??
+          vi.fn(async (id: string) => ({
+            data: { user: { id, created_at: new Date(Date.now() - 5 * 60_000).toISOString(), user_metadata: {} } },
+            error: null,
+          })),
       },
     },
     rpc: overrides.rpc ?? vi.fn(async () => ({ data: { profile_id: "auth-user-1", member_id: "m1", workspace_id: "ws1" }, error: null })),
@@ -193,7 +200,10 @@ describe("performInviteAccept — FAILURE INJECTION: rpc fails after createUser 
 describe("performInviteAccept — retry after a stranded auth user (D-ACC-3)", () => {
   const existsError = { message: "User already registered", code: "email_exists" };
 
-  function retryClient(acceptError: { code: string; message: string } | null = null) {
+  function retryClient(
+    acceptError: { code: string; message: string } | null = null,
+    getUserById?: InviteAcceptAdminClient["auth"]["admin"]["getUserById"],
+  ) {
     const createUser = vi.fn(async () => ({ data: { user: null }, error: existsError }));
     const rpc = vi.fn(async (fn: string) => {
       if (fn === "nopm_auth_user_for_invite") return { data: [{ user_id: "stranded-1", has_profile: false }], error: null };
@@ -201,7 +211,7 @@ describe("performInviteAccept — retry after a stranded auth user (D-ACC-3)", (
         ? { data: null, error: acceptError }
         : { data: { profile_id: "stranded-1", member_id: "m1", workspace_id: "ws1" }, error: null };
     });
-    return { db: fakeClient({ createUser, rpc }), rpc };
+    return { db: fakeClient({ createUser, rpc, getUserById }), rpc };
   }
 
   it("reuses the stranded user: sets the chosen password, then completes the accept RPC with that id", async () => {
@@ -213,6 +223,41 @@ describe("performInviteAccept — retry after a stranded auth user (D-ACC-3)", (
       email_confirm: true,
     });
     expect(rpc).toHaveBeenCalledWith("nopm_accept_invite", expect.objectContaining({ p_auth_user_id: "stranded-1" }));
+  });
+
+  const userAged = (ageMs: number, meta: Record<string, unknown> = {}) =>
+    vi.fn(async (id: string) => ({
+      data: { user: { id, created_at: new Date(Date.now() - ageMs).toISOString(), user_metadata: meta } },
+      error: null,
+    }));
+
+  it("R-16: stamps the invite id on the auth user it creates", async () => {
+    const createUser = vi.fn(async () => ({ data: { user: { id: "u1" } }, error: null }));
+    await performInviteAccept(fakeClient({ createUser }), { ...INPUT, inviteId: "inv-1" });
+    expect(createUser).toHaveBeenCalledWith(expect.objectContaining({ user_metadata: { invite_id: "inv-1" } }));
+  });
+
+  it("R-16: a profile-less user older than an hour is NOT adopted (409 email_exists)", async () => {
+    const { db } = retryClient(null, userAged(2 * 60 * 60 * 1000));
+    await expect(performInviteAccept(db, INPUT)).rejects.toMatchObject({ code: "email_exists" });
+    expect(db.auth.admin.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("R-16: a recent user stamped with a DIFFERENT invite is NOT adopted", async () => {
+    const { db } = retryClient(null, userAged(60_000, { invite_id: "other" }));
+    await expect(performInviteAccept(db, { ...INPUT, inviteId: "inv-1" })).rejects.toMatchObject({ code: "email_exists" });
+    expect(db.auth.admin.updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("R-16: a recent user stamped with THIS invite is adopted", async () => {
+    const { db } = retryClient(null, userAged(60_000, { invite_id: "inv-1" }));
+    await performInviteAccept(db, { ...INPUT, inviteId: "inv-1" });
+    expect(db.auth.admin.updateUserById).toHaveBeenCalled();
+  });
+
+  it("R-16: if the user's age cannot be read it is not adopted", async () => {
+    const { db } = retryClient(null, vi.fn(async () => ({ data: null, error: { message: "boom" } })));
+    await expect(performInviteAccept(db, INPUT)).rejects.toMatchObject({ code: "email_exists" });
   });
 
   it("does NOT delete a reused identity when the RPC fails again (the next retry can pick it up)", async () => {

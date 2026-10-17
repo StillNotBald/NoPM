@@ -17,10 +17,12 @@ import type { ApprovalEvent } from "@/lib/integrations/types";
  * that request. A second resume, or a resume while some cards are still open,
  * therefore never produces a duplicate.
  *
- * Bounded per kind (oldest first) and fail-soft per request: one broken row
+ * Bounded per kind (oldest first, 25) and in total (60) and fail-soft per request: one broken row
  * never costs the others their card.
  */
-export const CATCH_UP_LIMIT_PER_KIND = 100;
+export const CATCH_UP_LIMIT_PER_KIND = 25;
+/** Hard cap on cards queued per resume, so the background task stays inside the function time limit. */
+export const CATCH_UP_TOTAL_CAP = 60;
 
 type Row = Record<string, unknown>;
 
@@ -87,6 +89,8 @@ export async function catchUpPendingApprovals(workspaceId: string): Promise<{ co
       .select("*")
       .eq("workspace_id", workspaceId)
       .eq("status", "submitted")
+      // A reopened sheet waits for the member to amend it, not for a decision.
+      .is("reopened_at", null)
       .order("created_at", { ascending: true })
       .limit(CATCH_UP_LIMIT_PER_KIND);
     if (error) throw error;
@@ -95,12 +99,12 @@ export async function catchUpPendingApprovals(workspaceId: string): Promise<{ co
     return out;
   });
 
-  for (const ev of events) {
+  for (const ev of events.slice(0, CATCH_UP_TOTAL_CAP)) {
     try {
       await runApprovalRequested(ev);
     } catch (err) {
       console.error("[integrations] resume catch-up card failed:", sanitizeError(err));
     }
   }
-  return { considered: events.length };
+  return { considered: Math.min(events.length, CATCH_UP_TOTAL_CAP) };
 }

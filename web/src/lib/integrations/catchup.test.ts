@@ -26,7 +26,7 @@ vi.mock("@/lib/governance/decide", () => ({
   }),
 }));
 
-import { catchUpPendingApprovals } from "./catchup";
+import { catchUpPendingApprovals, CATCH_UP_LIMIT_PER_KIND, CATCH_UP_TOTAL_CAP } from "./catchup";
 import { FakeDb, OTHER_WS, WS } from "./test-support";
 
 let db: FakeDb;
@@ -137,5 +137,26 @@ describe("catchUpPendingApprovals (D-ACC-7)", () => {
     state.db = new FakeDb();
     expect((await catchUpPendingApprovals(WS)).considered).toBe(0);
     expect(runApprovalRequestedMock).not.toHaveBeenCalled();
+  });
+
+  it("skips reopened timesheets (they wait for the member, not for a decision)", async () => {
+    db.seed("timesheet_submissions", [
+      { id: "ts-reopened", workspace_id: WS, status: "submitted", reopened_at: "2026-10-05T00:00:00Z", updated_at: "v9", created_at: "2026-10-05T00:00:00Z" },
+    ]);
+    await catchUpPendingApprovals(WS);
+    expect(emitted().map((e) => e.id)).not.toContain("ts-reopened");
+    expect(emitted().map((e) => e.id)).toContain("ts-1");
+  });
+
+  it("is bounded per kind and in total", async () => {
+    expect(CATCH_UP_LIMIT_PER_KIND).toBeLessThanOrEqual(25);
+    const many = Array.from({ length: 80 }, (_, i) => ({
+      id: "m" + i, workspace_id: WS, status: "submitted", updated_at: "v", created_at: "2026-10-06T00:00:" + String(i % 60).padStart(2, "0") + "Z",
+    }));
+    db.seed("timesheet_submissions", many);
+    db.seed("change_requests", many.map((r) => ({ ...r, id: "c" + r.id, status: "raised" })));
+    const res = await catchUpPendingApprovals(WS);
+    expect(res.considered).toBeLessThanOrEqual(CATCH_UP_TOTAL_CAP);
+    expect(runApprovalRequestedMock.mock.calls.length).toBeLessThanOrEqual(CATCH_UP_TOTAL_CAP);
   });
 });

@@ -91,10 +91,15 @@ const spec = {
       "managers may do it for others (403, code not_your_hours, 'You can only log your own hours'). " +
       "Retries: POST /time-entries, POST /projects/{id}/expenses, POST /projects/{id}/tasks and POST /allocations " +
       "accept an Idempotency-Key header (1-200 chars of [A-Za-z0-9_.:-], remembered 24 h per workspace + actor + " +
-      "route); a retry with the same key returns the first result instead of creating a second record, and a " +
-      "malformed key is ignored. Every 429 carries a Retry-After header (seconds). Rate buckets are per actor id " +
+      "route; the expenses and tasks routes include the project id); a retry with the same key returns the first result instead of creating a second record. " +
+      "A malformed or empty Idempotency-Key header is 400 invalid_idempotency_key. The same key while the first request is still running is 409 idempotency_in_progress " +
+      "('A request with this Idempotency-Key is still in progress'). The same key with a different body is 422 idempotency_key_reused " +
+      "('Idempotency-Key reused with a different request'). Every 429 carries a Retry-After header (seconds). Rate buckets are per actor id " +
       "with a workspace ceiling of 5x; failed bearer authentication is throttled at 20/min per client IP before " +
-      "any token lookup. A personal access token stops authenticating (401) when its creator's profile is gone or " +
+      "any token lookup: once an address spends its failed-attempt budget it gets 429 with Retry-After, and a VALID token is never throttled by this. " +
+      "A personal access token whose creator is now a viewer is read-only (403 forbidden_scope, 'This token's creator now has read-only access; the token is read-only'); approvals still need an admin or manager creator. " +
+      "Timesheet approve and reject also have a database backstop for the approver role (P0018, surfaced as 403 role_not_permitted). " +
+      "A personal access token stops authenticating (401) when its creator's profile is gone or " +
       "belongs to another workspace; calendar feeds are unaffected (owner decision 9). Audit rows expose " +
       "principal_id (the person behind the actor, nullable) and the channel is derived from the credential " +
       "(a session is ui; a token is never ui). " +
@@ -104,7 +109,7 @@ const spec = {
       "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, target_gone, " +
       "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
       "duplicate_deletion_request, has_timesheet_records, role_not_permitted, not_your_hours, " +
-      "pending_rebaseline_exists, project_not_locked, mfa_already_enabled, account_exists, already_revoked, " +
+      "pending_rebaseline_exists, rebaseline_version_conflict, invalid_idempotency_key, idempotency_in_progress, idempotency_key_reused, forbidden_scope, project_not_locked, mfa_already_enabled, account_exists, already_revoked, " +
       "demo_restricted, demo_readonly, connector_paused, demo_quota_unavailable, misconfigured) — branch on it, not on the message. " +
       "A browser-session (cookie) POST/PUT/PATCH/DELETE whose Origin header is another site is refused " +
       "(403, code bad_origin); Bearer-token requests are never origin-checked. A malformed id (not a UUID) in " +
@@ -396,7 +401,8 @@ const spec = {
         description:
           "Optional retry key (1-200 chars of A-Z a-z 0-9 _ . : -). A repeat of the same POST with the same key by the same " +
           "actor in the same workspace within 24 h returns the first result instead of creating a second record. " +
-          "A malformed key is ignored.",
+          "A malformed or empty key is 400 invalid_idempotency_key. Keys are scoped per workspace, actor and route (expenses and tasks include the project id). " +
+          "Same key while the first request still runs: 409 idempotency_in_progress. Same key with a different body: 422 idempotency_key_reused.",
       },
     },
     responses: {
@@ -1946,7 +1952,7 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Begin TOTP enrollment — returns secret and otpauth URI",
-        description: "scope: user session only. Refused while two-step is already on (409, code mfa_already_enabled, 'Two-step is already on. Turn it off first.').",
+        description: "scope: user session only. Refused while two-step is already on (409, code mfa_already_enabled, 'Two-step is already on. Turn it off first.'), unless a two-step challenge was passed in the last 10 minutes (re-enrol over a live factor). The shared demo login gets 403 demo_restricted.",
         operationId: "enrollMfa",
         responses: {
           "200": { description: "Enrollment started (secret + otpauth)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -1958,7 +1964,7 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Confirm TOTP code, enable MFA, receive backup codes",
-        description: "scope: user session only",
+        description: "scope: user session only. The shared demo login gets 403 demo_restricted.",
         operationId: "verifyMfa",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", description: "6-digit TOTP code" } } } } } },
         responses: {
@@ -1971,7 +1977,7 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Disable MFA and clear TOTP secret",
-        description: "scope: user session only. While two-step is on, the body must carry { code }: a current TOTP code or an unused backup code. A wrong or missing code is 422 and audited as auth.mfa.disable_failed. A TOTP code can be used only once (replays are refused). Verify, challenge and disable share one budget of 10 attempts / 5 min per account (429 with Retry-After).",
+        description: "scope: user session only. While two-step is on, the body must carry { code }: a current TOTP code or an unused backup code. Instead of { code } the body may rely on a two-step challenge passed in the last 10 minutes. The shared demo login gets 403 demo_restricted. A wrong or missing code is 422 and audited as auth.mfa.disable_failed. A TOTP code can be used only once (replays are refused). Verify, challenge and disable share one budget of 10 attempts / 5 min per account (429 with Retry-After).",
         operationId: "disableMfa",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", minLength: 6, maxLength: 64, description: "Current 6-digit TOTP code, or an unused backup code" } } } } } },
         responses: {
@@ -2534,7 +2540,8 @@ const spec = {
           "proposal. Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected; " +
           "applied and rejected are terminal. A pending_approval or approved rebaseline becomes cancelled (also terminal) when its project is unlocked. " +
           "A project can have only ONE rebaseline waiting for sign-off: a second proposal is 409, code pending_rebaseline_exists, " +
-          "'This project already has a rebaseline waiting for sign-off'.",
+          "'This project already has a rebaseline waiting for sign-off'. Two proposals created at the same moment: the loser gets 409, code rebaseline_version_conflict, " +
+          "'Another rebaseline proposal was created at the same moment. Reload and try again.' (distinct from pending_rebaseline_exists).",
         operationId: "createRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string" }, before: { type: "object" }, after: { type: "object" } } } } } },

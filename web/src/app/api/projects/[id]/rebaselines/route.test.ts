@@ -79,7 +79,7 @@ describe("D4 — one rebaseline waiting for sign-off per project", () => {
     expect(db.rows("rebaselines")[0]).toMatchObject({ status: "pending_approval" });
   });
 
-  it("the unique-index violation (23505) is 409 pending_rebaseline_exists, nothing audited", async () => {
+  async function collide(constraint: string) {
     const realFrom = db.client.from;
     db.client.from = (table: string) => {
       const b = realFrom(table) as unknown as { insert: (r: unknown) => unknown };
@@ -87,7 +87,7 @@ describe("D4 — one rebaseline waiting for sign-off per project", () => {
         b.insert = () => {
           const result = {
             data: null,
-            error: { code: "23505", message: 'duplicate key value violates unique constraint "uniq_pending_rebaseline"' },
+            error: { code: "23505", message: `duplicate key value violates unique constraint "${constraint}"` },
           };
           const chain: unknown = new Proxy(
             {},
@@ -104,13 +104,25 @@ describe("D4 — one rebaseline waiting for sign-off per project", () => {
       }
       return b as never;
     };
-    const res = await call({ reason: "again" });
+    return call({ reason: "again" });
+  }
+
+  it("the pending index violation (23505) is 409 pending_rebaseline_exists, nothing audited", async () => {
+    const res = await collide("uniq_pending_rebaseline");
     expect(res.status).toBe(409);
-    const json = await res.json();
-    expect(json).toMatchObject({
+    expect(await res.json()).toMatchObject({
       error: "This project already has a rebaseline waiting for sign-off",
       code: "pending_rebaseline_exists",
     });
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+
+  it("R-15: a (project, version) collision is 409 rebaseline_version_conflict, not 'already waiting'", async () => {
+    const res = await collide("rebaselines_project_id_version_key");
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.code).toBe("rebaseline_version_conflict");
+    expect(json.error).not.toContain("already has a rebaseline waiting");
     expect(db.rows("audit_log")).toHaveLength(0);
   });
 });

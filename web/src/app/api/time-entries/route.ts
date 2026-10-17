@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { assertWeekUnlocked, weekLockRuleError } from "@/lib/governance/period-lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
-import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
+import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 import { assertMayActForMemberHours } from "./_own";
 import { createTimeEntrySchema } from "./_schema";
 import { parseTimeEntryFilters, resolveBillable } from "./_query";
@@ -126,6 +126,7 @@ export const POST = route(async ({ actor, request }) => {
       actorId: actor.id,
       key: readIdempotencyKey(request),
       route: "POST /api/time-entries",
+      bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
   const { data: row, error } = await db

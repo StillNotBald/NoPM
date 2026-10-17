@@ -63,8 +63,16 @@ export function systemActor(
   };
 }
 
-export function isSystemActor(actor: { id: string; label?: string | null }): boolean {
-  return actor.id === SYSTEM_ACTOR_ID || (actor.label ?? "").startsWith("system:");
+/**
+ * R-12: the system actor is identified by its fixed id (the nil uuid) AND
+ * actor_type 'token'. The "system:" label is only a secondary hint on top of
+ * that: a token an admin merely NAMES "system:cron" (any other id) is not a
+ * system actor.
+ */
+export function isSystemActor(actor: { id: string; type?: string | null; label?: string | null }): boolean {
+  if (actor.id !== SYSTEM_ACTOR_ID) return false;
+  if (actor.type != null && actor.type !== "token") return false;
+  return actor.label == null || actor.label.startsWith("system:");
 }
 
 /**

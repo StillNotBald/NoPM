@@ -201,6 +201,15 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
         this.db.fireHooks(this.table);
         break;
       case "insert": {
+        // Unique indexes the code under test relies on (a real insert fails with 23505).
+        const unique = UNIQUE_INDEXES[this.table];
+        if (unique) {
+          for (const p of this.payload) {
+            if (rows.some((r) => unique.every((c) => r[c] === p[c]))) {
+              return { data: null, error: { code: "23505", message: `duplicate key value violates unique constraint on ${this.table}` } as { message: string } };
+            }
+          }
+        }
         for (const p of this.payload) {
           const row: Row = { id: this.db.nextId(this.table), ...p };
           rows.push(row);
@@ -244,6 +253,11 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
       : { data: null, error: { message: "JSON object requested, multiple (or no) rows returned" } };
   }
 }
+
+const UNIQUE_INDEXES: Record<string, string[]> = {
+  // migration 0067
+  idempotency_keys: ["workspace_id", "actor_id", "route", "key"],
+};
 
 // ── project child counts, as migrations 0049 + 0054 define them ───────────
 

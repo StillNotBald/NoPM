@@ -7,7 +7,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
-import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
+import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
 export const runtime = "nodejs";
 
@@ -118,7 +118,8 @@ export const POST = route(async ({ actor, params, request }) => {
       workspaceId: actor.workspaceId,
       actorId: actor.id,
       key: readIdempotencyKey(request),
-      route: "POST /api/projects/:id/tasks",
+      route: `POST /api/projects/${projectId}/tasks`,
+      bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
   const { data: row, error } = await db

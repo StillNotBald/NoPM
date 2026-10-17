@@ -20,11 +20,17 @@ export type InviteAcceptAdminClient = {
         email: string;
         password: string;
         email_confirm: boolean;
+        user_metadata?: Record<string, unknown>;
       }) => Promise<{
         data: { user: { id: string } | null } | null;
         error: { message?: string; code?: string } | null;
       }>;
       deleteUser: (userId: string) => Promise<{ error: { message?: string } | null }>;
+      /** R-16: read created_at / user_metadata of a stranded user before adopting it. */
+      getUserById?: (userId: string) => Promise<{
+        data: { user: { id: string; created_at?: string; user_metadata?: Record<string, unknown> | null } | null } | null;
+        error: { message?: string } | null;
+      }>;
       updateUserById: (
         userId: string,
         attrs: { password: string; email_confirm: boolean },
@@ -53,7 +59,12 @@ export type AcceptInviteInput = {
    *  resolveClientMeta(request.headers, 'user'). */
   channel?: string | null;
   requestId?: string | null;
+  /** The invite being accepted (invites.id). Stamped on the auth user it creates so a retry can tell its own half-made identity from anyone else's (R-16). */
+  inviteId?: string | null;
 };
+
+/** R-16: a profile-less auth user is only adopted by a retry when it is this fresh. */
+export const STRANDED_USER_MAX_AGE_MS = 60 * 60 * 1000;
 
 export type AcceptInviteResult = {
   profile_id: string;
@@ -77,12 +88,31 @@ function isEmailExistsError(error: { message?: string; code?: string } | null): 
  * is a real account and is never touched. The lookup is the service-role-only
  * nopm_auth_user_for_invite function (auth.users is not reachable via PostgREST).
  */
-async function findStrandedAuthUser(db: InviteAcceptAdminClient, email: string): Promise<string | null> {
+async function findStrandedAuthUser(
+  db: InviteAcceptAdminClient,
+  email: string,
+  inviteId: string | null | undefined,
+): Promise<string | null> {
   try {
     const { data, error } = await db.rpc("nopm_auth_user_for_invite", { p_email: email });
     if (error || !Array.isArray(data) || data.length === 0) return null;
     const row = data[0] as { user_id?: string; has_profile?: boolean };
-    return row.user_id && row.has_profile === false ? row.user_id : null;
+    if (!row.user_id || row.has_profile !== false) return null;
+
+    // R-16: do not adopt just ANY profile-less sign-in for this address (e.g. one
+    // whose profile an operator removed by hand, or one belonging to another app
+    // on a shared auth project). Only a recent one, and - when it carries the
+    // invite that created it - only this invite's. If its age cannot be read, do
+    // not adopt it.
+    if (!db.auth.admin.getUserById) return null;
+    const { data: got, error: getError } = await db.auth.admin.getUserById(row.user_id);
+    const user = got?.user;
+    if (getError || !user?.created_at) return null;
+    const age = Date.now() - Date.parse(user.created_at);
+    if (!Number.isFinite(age) || age < -60_000 || age > STRANDED_USER_MAX_AGE_MS) return null;
+    const stamped = user.user_metadata?.invite_id;
+    if (typeof stamped === "string" && inviteId && stamped !== inviteId) return null;
+    return row.user_id;
   } catch {
     return null; // lookup unavailable: fall back to the plain "already exists" answer
   }
@@ -103,6 +133,7 @@ export async function performInviteAccept(
     email: input.email,
     password: input.password,
     email_confirm: true,
+    ...(input.inviteId ? { user_metadata: { invite_id: input.inviteId } } : {}),
   });
 
   // The auth user this attempt created, or reused (see findStrandedAuthUser).
@@ -111,7 +142,7 @@ export async function performInviteAccept(
 
   if (createError || !createData?.user) {
     if (isEmailExistsError(createError)) {
-      const stranded = await findStrandedAuthUser(db, input.email);
+      const stranded = await findStrandedAuthUser(db, input.email, input.inviteId);
       if (!stranded) {
         throw new RuleError("An account with this email already exists", "email_exists");
       }

@@ -112,59 +112,60 @@ const LAST_USED_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
 /**
  * Failed bearer auth (unknown / revoked / expired token) budget per client
- * network (A1-8 / D-ACC-20). Checked BEFORE the token lookup so a guessing run
- * stops costing a database lookup per attempt; each failure is then counted.
- * Needs a trustworthy client address (see @/lib/api/client-ip) — with none, the
- * cap is skipped rather than keyed on spoofable header text.
+ * network (A1-8 / D-ACC-20). R-1: the lookup runs FIRST and only a FAILED
+ * lookup is counted against the budget, so a valid token is never refused by
+ * it. That matters because the remote MCP route and the assistant call this
+ * API from the server's own outbound address, shared by every tenant: a flood
+ * of garbage bearers through /api/mcp used to fill that one bucket and lock
+ * every valid caller out. Now it only turns the garbage callers' 401s into 429s.
+ * Needs a trustworthy client address (see @/lib/api/client-ip) - with none, the
+ * cap is skipped rather than keyed on spoofable header text. Internal hops do
+ * not forward the original client address in a signed way, so they are keyed on
+ * the shared server address like any other caller; because valid tokens always
+ * pass, that is harmless.
  */
 const BEARER_FAIL_MAX = Number(process.env.NOPM_BEARER_FAIL_PER_MIN ?? 20);
 const BEARER_FAIL_WINDOW_SECONDS = 60;
 
-type PeekResult = { allowed: boolean; retry_after_seconds: number };
+type RateResult = { allowed: boolean; retry_after_seconds: number };
 
-async function assertBearerFailureBudget(
+/**
+ * Count one failed bearer attempt for `key` and build the error to throw:
+ * AuthError (401) normally, RateLimitError (429) once the budget is spent.
+ * Fail-open on an RPC error (abuse guard, not the auth control itself - the
+ * 192-bit token is).
+ */
+async function bearerFailure(
   admin: ReturnType<typeof createAdminClient>,
   key: string | null,
-): Promise<void> {
-  if (!key) return;
-  let peek: PeekResult | null = null;
-  try {
-    const { data, error } = await admin.rpc("nopm_rate_peek", {
-      p_key: key,
-      p_max: BEARER_FAIL_MAX,
-      p_window_seconds: BEARER_FAIL_WINDOW_SECONDS,
-    });
-    if (!error) peek = data as PeekResult;
-  } catch {
-    // Fail-open (abuse guard, not the auth control itself — the 192-bit token is).
+  message: string,
+): Promise<AuthError | RateLimitError> {
+  if (key) {
+    try {
+      const { data, error } = await admin.rpc("nopm_rate_check", {
+        p_key: key,
+        p_max: BEARER_FAIL_MAX,
+        p_window_seconds: BEARER_FAIL_WINDOW_SECONDS,
+      });
+      const r = error ? null : (data as RateResult | null);
+      if (r && r.allowed === false) {
+        return new RateLimitError(
+          `Too many failed API token attempts. Retry in ${r.retry_after_seconds}s.`,
+          "rate_limited",
+          r.retry_after_seconds,
+        );
+      }
+    } catch {
+      // Best-effort counter.
+    }
   }
-  if (peek && !peek.allowed) {
-    throw new RateLimitError(
-      `Too many failed API token attempts. Retry in ${peek.retry_after_seconds}s.`,
-      "rate_limited",
-      peek.retry_after_seconds,
-    );
-  }
-}
-
-async function countBearerFailure(admin: ReturnType<typeof createAdminClient>, key: string | null): Promise<void> {
-  if (!key) return;
-  try {
-    await admin.rpc("nopm_rate_check", {
-      p_key: key,
-      p_max: BEARER_FAIL_MAX,
-      p_window_seconds: BEARER_FAIL_WINDOW_SECONDS,
-    });
-  } catch {
-    // Best-effort counter.
-  }
+  return new AuthError(message);
 }
 
 async function verifyBearer(raw: string, headers: Headers = new Headers()): Promise<Actor> {
   const admin = createAdminClient();
   const ip = ipRateKey(headers);
   const failKey = ip ? `bearer-fail:${ip}` : null;
-  await assertBearerFailureBudget(admin, failKey);
 
   const { data, error } = await admin
     .from("api_tokens")
@@ -172,23 +173,17 @@ async function verifyBearer(raw: string, headers: Headers = new Headers()): Prom
     .eq("token_hash", hashToken(raw))
     .maybeSingle();
 
-  if (error || !data) {
-    await countBearerFailure(admin, failKey);
-    throw new AuthError("Invalid API token");
-  }
-  if (data.revoked) {
-    await countBearerFailure(admin, failKey);
-    throw new AuthError("API token has been revoked");
-  }
+  if (error || !data) throw await bearerFailure(admin, failKey, "Invalid API token");
+  if (data.revoked) throw await bearerFailure(admin, failKey, "API token has been revoked");
   if (data.expires_at && new Date(data.expires_at) < new Date()) {
-    await countBearerFailure(admin, failKey);
-    throw new AuthError("API token has expired");
+    throw await bearerFailure(admin, failKey, "API token has expired");
   }
 
   // A token is its creator's delegate: when that person's profile no longer
   // exists in this workspace the token stops working (D-ACC-2 / A1-4 / A2-6).
   // Legacy tokens with no recorded creator (created_by null) keep working but
-  // can never approve. This lookup also yields the creator's CURRENT role
+  // can never approve or log/delete hours (R-10: fail-closed by design; re-mint
+  // such a token to give it a principal). This lookup also yields the creator's CURRENT role
   // (principalRole). Calendar feeds are deliberately NOT checked (decision 9).
   let principalRole: string | null = null;
   if (data.created_by) {
@@ -270,13 +265,20 @@ async function verifySession(): Promise<Actor> {
  * (viewers are read-only). Throws ScopeError (→ 403) otherwise.
  */
 export function requireScope(actor: Actor, scope: string): void {
+  const action = scope.split(":")[1];
   if (actor.type === "token") {
     if (!hasScope(actor.scopes ?? [], scope)) {
       throw new ScopeError(`API token is missing required scope: ${scope}`);
     }
+    // R-6: a token follows its creator's CURRENT role. A creator who has been
+    // demoted to viewer leaves every PAT they minted read-only, the same rule
+    // as a viewer session below. (Approve verbs are governed separately by
+    // requireApprover on principalRole.)
+    if (actor.principalRole === "viewer" && action && action !== "read") {
+      throw new ScopeError("This token's creator now has read-only access; the token is read-only");
+    }
     return;
   }
-  const action = scope.split(":")[1];
   if (actor.role === "viewer" && action && action !== "read") {
     throw new ScopeError("Viewers have read-only access");
   }

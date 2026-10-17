@@ -28,10 +28,15 @@ and the token's creator must currently be an admin or manager for it to take eff
 
 Retries and limits: POST /time-entries, POST /projects/{id}/expenses, POST /projects/{id}/tasks and
 POST /allocations accept an Idempotency-Key header (1-200 chars of A-Za-z0-9_.:-; remembered 24 hours per
-workspace + actor + route). Repeat the request with the same key after a timeout and you get the FIRST result back
-instead of a duplicate record; a malformed key is ignored. Every 429 carries a Retry-After header (seconds): wait
+workspace + actor + route; expenses/tasks routes include the project id). Repeat the request with the same key after a timeout and you get the FIRST result back
+instead of a duplicate record. A malformed or empty key is 400 invalid_idempotency_key; the same key while the first
+request is still running is 409 idempotency_in_progress ("A request with this Idempotency-Key is still in progress");
+the same key with a different body is 422 idempotency_key_reused ("Idempotency-Key reused with a different request"). Every 429 carries a Retry-After header (seconds): wait
 that long. Rate buckets are per actor id (workspace ceiling 5x); failed bearer authentication is throttled at 20
-per minute per client IP. A PAT stops working (401) when its creator's profile is removed. Audit rows now carry
+per minute per client IP: once an address spends its budget it gets 429 with Retry-After (a VALID token is never throttled
+by this). A PAT whose creator is now a viewer is read-only (403 forbidden_scope, "This token's creator now has read-only
+access; the token is read-only"); approvals still need an admin/manager creator. Timesheet approve/reject has a database
+backstop for the approver role (P0018 -> 403 role_not_permitted). A PAT stops working (401) when its creator's profile is removed. Audit rows now carry
 principal_id (the person behind the actor).
 
 Public routes (no Bearer token): /health, /api/openapi.json, /llms.txt, POST /auth/demo-login,
@@ -208,7 +213,7 @@ GET    /auth/mfa                           — user session — get MFA status: 
 POST   /auth/mfa/challenge                 — user session — verify TOTP or backup code after sign-in; sets the nopm_mfa cookie (10 attempts / 5 min per account, shared with verify and disable; 429 + Retry-After)
 POST   /auth/mfa/enroll                    — user session — begin TOTP enrollment (returns secret + otpauth URI); 409 mfa_already_enabled "Two-step is already on. Turn it off first." when already on
 POST   /auth/mfa/verify                    — user session — confirm TOTP code, enable MFA, receive backup codes (shown once)
-POST   /auth/mfa/disable                   — user session — disable MFA; body { "code": "<current TOTP or unused backup code>" } is REQUIRED while on (422 when wrong or missing, audited auth.mfa.disable_failed); a TOTP code works once only
+POST   /auth/mfa/disable                   — user session — disable MFA; body { "code": "<current TOTP or unused backup code>" } is REQUIRED while on (422 when wrong or missing, audited auth.mfa.disable_failed); a TOTP code works once only; instead of { code } a two-step challenge passed in the last 10 minutes is accepted. Enroll, verify and disable answer 403 demo_restricted for the shared demo login; re-enrol over a live factor is also allowed within 10 minutes of a challenge
 
 GET    /tokens                             — admin/manager session — list API tokens (token_hash never returned). Hides only the in-app assistant's per-turn ephemeral tokens, by their kind — never by name
 POST   /tokens                             — admin/manager session — mint a new token (raw value returned once)
@@ -335,7 +340,7 @@ DELETE /change-requests/{id}               — scope:change:write — delete a c
 POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (admins and managers only — 403 role_not_permitted; approve | reject | defer + rationale, audited); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
 
 GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
-POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required); 403 no_principal for a token with no recorded owner; 409 pending_rebaseline_exists ("This project already has a rebaseline waiting for sign-off") when one is already awaiting sign-off. Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected, or pending_approval / approved -> cancelled when the project is unlocked (applied, rejected and cancelled are terminal)
+POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required); 403 no_principal for a token with no recorded owner; 409 pending_rebaseline_exists ("This project already has a rebaseline waiting for sign-off") when one is already awaiting sign-off; 409 rebaseline_version_conflict ("Another rebaseline proposal was created at the same moment. Reload and try again.") when two proposals race (distinct from pending_rebaseline_exists). Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected, or pending_approval / approved -> cancelled when the project is unlocked (applied, rejected and cancelled are terminal)
 POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign off a rebaseline (admins and managers only — 403 role_not_permitted; four-eyes by PERSON: vote { "go" | "no_go", comment? }; a token votes as the user who minted it; 403 self_approval / no_principal). Only while pending_approval — otherwise 422 rebaseline_not_pending (a rejected one cannot be revived, an applied one cannot regress)
 POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply an approved rebaseline (admins and managers only — 403 role_not_permitted; 422 project_not_locked "Rebaseline cannot be applied: its project is no longer locked. Lock the project and propose a new rebaseline." when the project was unlocked meanwhile): milestone, task AND project baseline dates become the current plan, and the rebaseline.apply audit row carries after.project_baseline { before, after } so History and the Trust Center show the project baseline moving (the requester cannot apply their own — 403 self_approval; 422 already_applied if it was applied already, 422 rule_violation if it is not approved)
 

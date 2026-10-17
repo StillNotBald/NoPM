@@ -10,6 +10,7 @@ import {
   issueMfaCookie,
   verifyMfaCookie,
   computeEnrollmentBinding,
+  isRecentMfaChallenge,
   MFA_COOKIE_MAX_AGE_SECONDS,
 } from "./mfa";
 
@@ -195,5 +196,33 @@ describe("verifyMfaCookie — garbage input", () => {
     ).toString("base64url");
     const sig = issueMfaCookie("usr_1", ENR).value.split(".")[1]; // wrong sig on purpose — still expect false
     expect(verifyMfaCookie(`${badPayload}.${sig}`, "usr_1", ENR)).toBe(false);
+  });
+});
+
+describe("isRecentMfaChallenge (R-4)", () => {
+  it("is true for a just-issued cookie and false after the window", () => {
+    const { value } = issueMfaCookie("u-1", ENR);
+    expect(isRecentMfaChallenge(value, "u-1", ENR)).toBe(true);
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 11 * 60 * 1000);
+    expect(isRecentMfaChallenge(value, "u-1", ENR)).toBe(false);
+  });
+
+  it("is false for another user, another enrolment, or no cookie", () => {
+    const { value } = issueMfaCookie("u-1", ENR);
+    expect(isRecentMfaChallenge(value, "u-2", ENR)).toBe(false);
+    expect(isRecentMfaChallenge(value, "u-1", OTHER_ENR)).toBe(false);
+    expect(isRecentMfaChallenge(undefined, "u-1", ENR)).toBe(false);
+  });
+
+  it("is false for a legacy cookie without iat", () => {
+    const { value } = issueMfaCookie("u-1", ENR);
+    const [payloadB64] = value.split(".");
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
+    expect(typeof payload.iat).toBe("number");
+    // A tampered (iat-less) payload fails the signature, so it can never be "recent" either.
+    delete payload.iat;
+    const forged = Buffer.from(JSON.stringify(payload)).toString("base64url") + "." + value.split(".")[1];
+    expect(isRecentMfaChallenge(forged, "u-1", ENR)).toBe(false);
   });
 });

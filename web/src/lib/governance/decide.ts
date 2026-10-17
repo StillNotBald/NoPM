@@ -979,6 +979,10 @@ export async function decideTimesheet(
     if (failure.includes("TIMESHEET_CHANGED") || failure.includes("P0013")) {
       throw new RuleError(TIMESHEET_CHANGED_MESSAGE, "timesheet_changed");
     }
+    // DB backstop for the approver role (migration 0073, errcode P0018).
+    if (failure.includes("ROLE_NOT_PERMITTED") || failure.includes("P0018")) {
+      throw new ScopeError(APPROVER_ROLE_MESSAGE, "role_not_permitted");
+    }
     throw new Error(updateError.message);
   }
   if (!updated) throw new RuleError("Timesheet submission already decided", "already_decided");

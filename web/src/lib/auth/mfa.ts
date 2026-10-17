@@ -42,7 +42,17 @@ export const MFA_COOKIE_MAX_AGE_SECONDS = 12 * 60 * 60; // 12h
 
 const SIGNING_KEY_LABEL = "nopm.mfa.cookie.v1";
 
-type MfaCookiePayload = { uid: string; exp: number; enr: string };
+/** `iat` (issued-at, unix seconds) is optional: cookies issued before R-4 do not carry it. */
+type MfaCookiePayload = { uid: string; exp: number; enr: string; iat?: number };
+
+/**
+ * How recent a passed challenge must be to count as step-up proof for turning
+ * two-step off or re-enrolling it (R-4). Someone who just spent a backup code
+ * at /mfa/challenge would otherwise be stuck: disabling needed ANOTHER code,
+ * re-enrolling was refused while two-step was on, and only the operator could
+ * help once the cookie expired.
+ */
+export const MFA_RECENT_CHALLENGE_SECONDS = 10 * 60;
 
 /**
  * Derive the `enr` (enrollment) binding value from `user_mfa.enrolled_at`.
@@ -108,7 +118,7 @@ export function issueMfaCookie(
   const exp =
     sessionExpiresAt && sessionExpiresAt > now ? Math.min(sessionExpiresAt, ceiling) : ceiling;
 
-  const payload: MfaCookiePayload = { uid, exp, enr };
+  const payload: MfaCookiePayload = { uid, exp, enr, iat: now };
   const payloadB64 = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
   const value = `${payloadB64}.${sign(payloadB64)}`;
 
@@ -122,13 +132,34 @@ export function issueMfaCookie(
  * garbage input all verify false.
  */
 export function verifyMfaCookie(value: string | undefined | null, uid: string, enr: string): boolean {
-  if (!value) return false;
+  return readMfaCookie(value, uid, enr) !== null;
+}
+
+/**
+ * True when the cookie verifies (see verifyMfaCookie) AND records an issue time
+ * within the last `windowSeconds`. A cookie without `iat` (issued before R-4)
+ * is never "recent", so it can only be replaced by a fresh challenge.
+ */
+export function isRecentMfaChallenge(
+  value: string | undefined | null,
+  uid: string,
+  enr: string,
+  windowSeconds: number = MFA_RECENT_CHALLENGE_SECONDS,
+): boolean {
+  const payload = readMfaCookie(value, uid, enr);
+  if (!payload || typeof payload.iat !== "number") return false;
+  const now = Math.floor(Date.now() / 1000);
+  return payload.iat <= now + 5 && now - payload.iat <= windowSeconds;
+}
+
+function readMfaCookie(value: string | undefined | null, uid: string, enr: string): MfaCookiePayload | null {
+  if (!value) return null;
 
   const dot = value.indexOf(".");
-  if (dot === -1) return false;
+  if (dot === -1) return null;
   const payloadB64 = value.slice(0, dot);
   const providedSigB64 = value.slice(dot + 1);
-  if (!payloadB64 || !providedSigB64) return false;
+  if (!payloadB64 || !providedSigB64) return null;
 
   let expectedSig: Buffer;
   let providedSig: Buffer;
@@ -136,16 +167,16 @@ export function verifyMfaCookie(value: string | undefined | null, uid: string, e
     expectedSig = Buffer.from(sign(payloadB64), "base64url");
     providedSig = Buffer.from(providedSigB64, "base64url");
   } catch {
-    return false;
+    return null;
   }
-  if (expectedSig.length === 0 || expectedSig.length !== providedSig.length) return false;
-  if (!timingSafeEqual(expectedSig, providedSig)) return false;
+  if (expectedSig.length === 0 || expectedSig.length !== providedSig.length) return null;
+  if (!timingSafeEqual(expectedSig, providedSig)) return null;
 
   let payload: MfaCookiePayload;
   try {
     payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));
   } catch {
-    return false;
+    return null;
   }
   if (
     !payload ||
@@ -153,13 +184,13 @@ export function verifyMfaCookie(value: string | undefined | null, uid: string, e
     typeof payload.exp !== "number" ||
     typeof payload.enr !== "string"
   ) {
-    return false;
+    return null;
   }
-  if (payload.uid !== uid) return false;
-  if (payload.enr !== enr) return false;
-  if (payload.exp <= Math.floor(Date.now() / 1000)) return false;
+  if (payload.uid !== uid) return null;
+  if (payload.enr !== enr) return null;
+  if (payload.exp <= Math.floor(Date.now() / 1000)) return null;
 
-  return true;
+  return payload;
 }
 
 export type MfaEnrollmentStatus = { enabled: boolean; enr: string | null };

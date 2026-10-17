@@ -72,8 +72,37 @@ export async function consumeTotp(db: Db, userId: string, secret: string, code: 
     .eq("user_id", userId)
     .or(`last_totp_step.is.null,last_totp_step.lt.${step}`)
     .select("user_id");
-  if (error) throw error;
+  if (error) {
+    // R-8: build deployed before migration 0060 (user_mfa.last_totp_step). The
+    // code itself is valid, so accept it without the replay guard rather than
+    // 500 every sign-in of every two-step user. Logged once per process.
+    if (isMissingTotpStepColumn(error)) {
+      warnMissingTotpStepOnce();
+      return "ok";
+    }
+    throw error;
+  }
   return data && data.length > 0 ? "ok" : "replay";
+}
+
+/** True when a PostgREST/Postgres error says user_mfa.last_totp_step does not exist (migration 0060 not applied). */
+export function isMissingTotpStepColumn(error: { message?: string; code?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return /last_totp_step/i.test(error.message ?? "") && (/column|schema cache/i.test(error.message ?? "") || error.code === "42703" || error.code === "PGRST204");
+}
+
+let warnedMissingTotpStep = false;
+function warnMissingTotpStepOnce(): void {
+  if (warnedMissingTotpStep) return;
+  warnedMissingTotpStep = true;
+  console.error(
+    "[nopm][mfa] user_mfa.last_totp_step is missing (migration 20261017000060 not applied): TOTP replay guard is OFF. Apply migrations BEFORE deploying the build.",
+  );
+}
+
+/** Test seam. */
+export function resetMissingTotpStepWarning(): void {
+  warnedMissingTotpStep = false;
 }
 
 export function hashBackupCode(code: string): string {

@@ -287,23 +287,43 @@ describe("requireAuth — failed bearer auth is rate limited per client IP befor
   });
   afterEach(() => vi.unstubAllEnvs());
 
-  it("429s with the retry-after seconds when the IP is already over budget, without touching api_tokens", async () => {
-    const fromSpy = vi.fn();
+  it("R-1: 429s with the retry-after seconds when an UNKNOWN token arrives and the IP is over budget", async () => {
     createAdminClientMock.mockReturnValue({
       rpc: async () => ({ data: { allowed: false, retry_after_seconds: 41 }, error: null }),
-      from: fromSpy,
+      from: () => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }),
     });
     const err = await requireAuth(bearerFromIp()).catch((e) => e);
     expect(err.status).toBe(429);
     expect(err.retryAfterSeconds).toBe(41);
-    expect(fromSpy).not.toHaveBeenCalled();
+  });
+
+  it("R-1: a VALID token is never refused by the failure budget, even when the IP is over it", async () => {
+    const rpcSpy = vi.fn(async () => ({ data: { allowed: false, retry_after_seconds: 41 }, error: null }));
+    createAdminClientMock.mockReturnValue({
+      rpc: rpcSpy,
+      from: (table: string) =>
+        table === "api_tokens"
+          ? {
+              select: () => ({
+                eq: () => ({
+                  maybeSingle: async () => ({
+                    data: { id: "t1", workspace_id: "ws-1", name: "n", scopes: ["task:read"], revoked: false, expires_at: null, created_by: null, last_used_at: new Date().toISOString() },
+                    error: null,
+                  }),
+                }),
+              }),
+            }
+          : {},
+    });
+    const actor = await requireAuth(bearerFromIp());
+    expect(actor.type).toBe("token");
+    expect(rpcSpy).not.toHaveBeenCalled();
   });
 
   it("counts an unknown token against the IP", async () => {
     mockUnknownToken();
     rpc.mockResolvedValue({ data: { allowed: true, retry_after_seconds: 0 }, error: null });
     await expect(requireAuth(bearerFromIp())).rejects.toMatchObject({ status: 401 });
-    expect(rpc).toHaveBeenCalledWith("nopm_rate_peek", expect.objectContaining({ p_key: "bearer-fail:203.0.113.9" }));
     expect(rpc).toHaveBeenCalledWith("nopm_rate_check", expect.objectContaining({ p_key: "bearer-fail:203.0.113.9" }));
   });
 

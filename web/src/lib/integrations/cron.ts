@@ -222,6 +222,14 @@ export async function runCron(
     } catch (err) {
       console.error("[integrations] cron prune failed:", sanitizeError(err));
     }
+    // Idempotency-Key reservations older than their 24 h window (migration 0074). Server
+    // bookkeeping, not a governed record, so it carries no audit row.
+    try {
+      const { error } = await db.rpc("nopm_purge_idempotency_keys");
+      if (error) throw error;
+    } catch (err) {
+      console.error("[integrations] idempotency purge failed:", sanitizeError(err));
+    }
   }
 
   // Bookkeeping, bounded: a connector not recorded before the grace window ends keeps its older

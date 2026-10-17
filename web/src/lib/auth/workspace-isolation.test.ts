@@ -131,10 +131,6 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
   "app/invite/[token]/page.tsx": {
     "from:profiles": "inviter named on the invite itself, shown to the token holder by design",
   },
-  "lib/api/idempotency.ts": {
-    "from:idempotency_keys":
-      "indirect: deletes an expired row by id that was just read through a workspace_id + actor filter (new in the 2026-10-17 wave; ideally add .eq workspace_id there)",
-  },
   "lib/audit/write.ts": {
     "from:audit_log": "insert payload object is built just above with workspace_id: input.workspaceId (variable, so the chain text lacks the token)",
   },
@@ -149,7 +145,6 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
   "lib/auth/demo.ts": { "from:profiles": "per-user lookup (actor.id)" },
   "lib/auth/guard.ts": {
     "rpc:nopm_rate_check": RATE,
-    "rpc:nopm_rate_peek": RATE,
     "from:api_tokens": "update by the token id just resolved from the sha-256 hash lookup (last_used_at)",
   },
   "lib/auth/mfa.ts": { "from:user_mfa": PER_USER },
@@ -158,6 +153,7 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
     "from:integration_connectors": "global by design: cron iterates every active connector, then works under connector.workspace_id",
     "from:integration_cron_state": "global by design: cron state per connector",
     "from:integration_deliveries": "indirect: connector ids come from the cron page",
+    "rpc:nopm_purge_idempotency_keys": "global by design: deletes only expired Idempotency-Key bookkeeping rows (migration 0074), reads nothing back",
   },
   "lib/integrations/identity.ts": { "rpc:nopm_rate_check": RATE },
   "lib/integrations/lark/wiring.ts": {

@@ -69,7 +69,8 @@ export function TimesheetSubmitPanel({
           // recorded (POST /timesheet-submissions/{id}/decision, "reopened").
           <span className="text-xs text-ink-muted">— week locked</span>
         )}
-        {(status === "approved" || (status === "submitted" && !reopened)) && submissionId && (
+        {/* R-7: the API only reopens an APPROVED sheet (assertReopenable). */}
+        {status === "approved" && submissionId && (
           canReopen ? (
             <Button
               type="button"
