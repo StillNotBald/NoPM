@@ -238,12 +238,12 @@ describe("relay route — transport authentication", () => {
     expect((await call(req)).status).toBe(401);
   });
 
-  it("401s a stale timestamp with a clock hint", async () => {
+  it("401s a stale timestamp with the SAME generic answer as a wrong signature (no oracle)", async () => {
     const res = await call(relayRequest({ type: "ping" }, { nowMs: Date.now() - 10 * 60 * 1000 }));
     expect(res.status).toBe(401);
     const body = await res.json();
-    expect(body.code).toBe("stale_relay_timestamp");
-    expect(body.error).toMatch(/clock/);
+    expect(body.code).toBe("invalid_relay_signature");
+    expect(body.error).toBe("Invalid relay signature");
   });
 
   it("accepts a timestamp inside the window (4 minutes old)", async () => {
@@ -264,7 +264,23 @@ describe("relay route — transport authentication", () => {
     state.row = connectorRow({ relay_secret_hash: null, config: { region: "lark", appId: "cli_x", mode: "webhook" } });
     const res = await call(relayRequest({ type: "ping" }));
     expect(res.status).toBe(401);
-    expect((await res.json()).code).toBe("no_relay_secret");
+    expect((await res.json()).code).toBe("invalid_relay_signature");
+  });
+
+  it("every pre-auth failure answers with one identical body (unknown id, wrong secret, stale, no secret, no headers)", async () => {
+    const bodies: string[] = [];
+    const collect = async (res: Response) => {
+      expect(res.status).toBe(401);
+      bodies.push(await res.text());
+    };
+    await collect(await call(relayRequest({ type: "ping" }, { secret: "not-the-secret" })));
+    await collect(await call(relayRequest({ type: "ping" }, { nowMs: Date.now() - 10 * 60 * 1000 })));
+    await collect(await call(relayRequest({ type: "ping" }, { headers: { [RELAY_SIGNATURE_HEADER]: null } })));
+    state.row = connectorRow({ relay_secret_hash: null, config: { region: "lark", appId: "cli_x", mode: "webhook" } });
+    await collect(await call(relayRequest({ type: "ping" })));
+    state.row = null;
+    await collect(await call(relayRequest({ type: "ping" })));
+    expect(new Set(bodies).size).toBe(1);
   });
 
   it("fails closed on a malformed stored hash", async () => {

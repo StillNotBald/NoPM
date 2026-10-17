@@ -150,7 +150,11 @@ export async function handleLarkPayload(
   }
 
   const header = isRecord(envelope.header) ? envelope.header : {};
-  if (str(header.app_id) && str(header.app_id) !== ctx.connector.config.appId) {
+  // A card click or a message must name the app it was sent to: a missing app id is a mismatch, not a pass.
+  // (Real Lark events always carry it. Other event types keep the older tolerance.)
+  const mustCarryAppId = header.event_type === "card.action.trigger" || header.event_type === "im.message.receive_v1";
+  const appId = str(header.app_id);
+  if (mustCarryAppId ? appId !== ctx.connector.config.appId : appId && appId !== ctx.connector.config.appId) {
     deps.log("warn", "lark event for a different app ignored", { connectorId: ctx.connector.id });
     return { status: 200, body: {} };
   }
