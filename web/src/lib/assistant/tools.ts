@@ -13,6 +13,7 @@
 
 import type { ToolDefinition } from "./providers/openai";
 import { TOOL_REGISTRY } from "../../../mcp/tools.mjs";
+import { filterTools } from "@/lib/modules";
 
 /** Tool registry entry — schema + the HTTP call the executor makes. */
 export type ToolSpec = {
@@ -25,7 +26,8 @@ export type ToolSpec = {
   };
 };
 
-export const TOOLS: ToolSpec[] = TOOL_REGISTRY.map((t) => ({
+// Tools of modules switched off with NOPM_MODULES (ADR 0015) are not offered to the model.
+export const TOOLS: ToolSpec[] = filterTools(TOOL_REGISTRY).map((t) => ({
   definition: {
     name: t.name,
     description: t.description,

@@ -3,6 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { buildCsp } from "@/lib/security/headers";
 import { evaluateMfaRequirement, isMfaGatedPath, MFA_ENROL_REDIRECT } from "@/lib/auth/mfa-policy";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isPathDisabled } from "@/lib/modules";
 
 /**
  * Refreshes the Supabase auth session on navigation (keeps cookies fresh)
@@ -50,6 +51,17 @@ export async function proxy(request: NextRequest) {
   // and session-free: they keep the CSP but skip the getUser() refresh below,
   // same as API routes.
   const path = request.nextUrl.pathname;
+
+  // Module registry (ADR 0015): a module switched off with NOPM_MODULES is
+  // unreachable. API paths answer the standard 404 envelope; console pages are
+  // rewritten to a route that calls notFound() so they render the console 404.
+  if (isPathDisabled(path)) {
+    const blocked = path.startsWith("/api")
+      ? NextResponse.json({ error: "Not found", code: "not_found" }, { status: 404 })
+      : NextResponse.rewrite(new URL("/module-disabled", request.url), { status: 404 });
+    blocked.headers.set("Content-Security-Policy", csp);
+    return blocked;
+  }
   const isMetadataFile =
     path === "/robots.txt" ||
     path === "/sitemap.xml" ||

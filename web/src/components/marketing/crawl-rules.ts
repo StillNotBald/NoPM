@@ -23,6 +23,7 @@ export const CONSOLE_ROUTES = [
   "/integrations",
   "/issues",
   "/mainline",
+  "/module-disabled",
   "/my-tasks",
   "/my-work",
   "/people",

@@ -8,6 +8,7 @@ import { requiresMfaChallengeFailClosed } from "@/lib/auth/mfa";
 import { createClient } from "@/lib/supabase/server";
 import { getPendingCounts, type PendingCounts } from "@/lib/governance/pending-counts";
 import { readOnboardingSeed } from "@/lib/onboarding/seed-server";
+import { disabledModuleIds } from "@/lib/modules";
 
 /**
  * Governance badge counts for the nav, scoped to the signed-in actor's own
@@ -72,7 +73,12 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   return (
     <ModalProvider>
       {/* ToastProvider is mounted inside AppShell (wraps the inspector + all console content). */}
-      <AppShell initialNavMode={initialNavMode} pendingCounts={pendingCounts} onboardingSeed={onboardingSeed}>
+      <AppShell
+        initialNavMode={initialNavMode}
+        pendingCounts={pendingCounts}
+        onboardingSeed={onboardingSeed}
+        disabledModules={disabledModuleIds()}
+      >
         {children}
       </AppShell>
     </ModalProvider>
