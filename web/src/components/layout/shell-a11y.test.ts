@@ -375,3 +375,29 @@ describe("modal host (source)", () => {
     expect(modal).toMatch(/rounded-t-xl/);
   });
 });
+
+// ── console boundary, invite page, page-hint seed ───────────────────────────
+
+describe("console error boundary and layout wiring (source)", () => {
+  it("Try again calls retry() (re-fetches the segment), with reset() only as the older-runtime fallback", () => {
+    const err = read("app", "(console)", "error.tsx");
+    expect(err).toMatch(/retry\?: \(\) => void;/);
+    expect(err).toMatch(/const tryAgain = retry \?\? reset;/);
+    expect(err).toMatch(/onClick=\{\(\) => tryAgain\?\.\(\)\}/);
+    expect(err).not.toMatch(/onClick=\{reset\}/);
+  });
+
+  it("the invite page uses the shared Wordmark", () => {
+    const invite = read("app", "invite", "[token]", "page.tsx");
+    expect(invite).toMatch(/import \{ Wordmark \} from "@\/components\/marketing\/wordmark"/);
+    expect(invite).toMatch(/<Wordmark size="lg" \/>/);
+    expect(invite).not.toMatch(/No<span/);
+  });
+
+  it("the console layout seeds the page hint from the server so it is in the first paint", () => {
+    const layout = read("app", "(console)", "layout.tsx");
+    expect(layout).toMatch(/const onboardingSeed = await readOnboardingSeed\(\);/);
+    expect(layout).toMatch(/onboardingSeed=\{onboardingSeed\}/);
+    expect(read("components", "layout", "app-shell.tsx")).toMatch(/<PageHint seed=\{onboardingSeed\} \/>/);
+  });
+});

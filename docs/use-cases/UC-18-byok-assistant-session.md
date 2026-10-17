@@ -12,7 +12,7 @@
 
 1. Store a provider key: `PUT /api/assistant/credentials` (user session only) — AES-256-GCM encrypted at rest, never returned or logged. `GET /api/assistant/credentials` checks status without ever returning the key. `DELETE /api/assistant/credentials` removes it.
 2. Open the assistant panel from the top bar (a slide-over panel, not a separate route) and send a message: `POST /api/assistant/chat` (user session only, SSE or JSON response).
-3. At the start of the turn, NoPM mints a fresh **ephemeral** `api_tokens` row scoped to the assistant's tool set (`mintEphemeralToken`, 1-hour TTL, named `"AI Assistant · <actor label>"` so it's filtered out of the human Tokens list). Scopes are derived from the signed-in user's own role: a **viewer** gets read-only tool scopes only (`TOOL_SCOPES.filter(read)`); anyone else gets the full assistant tool-scope set — the assistant can never grant a viewer session write access it wouldn't otherwise have.
+3. At the start of the turn, NoPM mints a fresh **ephemeral** `api_tokens` row scoped to the assistant's tool set (`mintEphemeralToken`, 1-hour TTL, labelled `"AI Assistant · <actor label>"` and marked `kind = 'assistant'` — the column, never the name, is what filters it out of the human Tokens list). Scopes are derived from the signed-in user's own role: a **viewer** gets read-only tool scopes only (`TOOL_SCOPES.filter(read)`); anyone else gets the full assistant tool-scope set — the assistant can never grant a viewer session write access it wouldn't otherwise have.
 4. The assistant drives NoPM through this ephemeral token, calling the **same governed REST API** every other surface uses — same scopes, same audit, same maker-checker. The token is revoked at the end of the turn (caller must call `revokeEphemeralToken` in a `finally` block).
 5. Streaming: SSE streams the final reply; the underlying JSON response path is byte-for-byte preserved for non-streaming callers (R-26).
 6. Saved conversations: `GET /api/assistant/conversations`, `GET /api/assistant/conversations/{id}` (user session only, deny-all RLS, API-owned). The shared demo login gets a fresh chat every visit — no conversation is ever created, loaded, or persisted for that identity, so no visitor's chat is reachable by the next.
@@ -31,7 +31,7 @@
 
 ## Reporting and evidence
 
-- Trust Center rows from an assistant turn are visible exactly like any human or CLI write, distinguished by `channel: assistant` and the `"AI Assistant · …"` token name pattern.
+- Trust Center rows from an assistant turn are visible exactly like any human or CLI write, distinguished by `channel: assistant` and the `"AI Assistant · …"` token label. (The label is cosmetic: whether a token is the assistant's is recorded in `api_tokens.kind`, which is what hides it from the Tokens list.)
 - `web/src/lib/assistant/scopes.test.ts` and the shared MCP/assistant tool registry (R-64) are the direct evidence that the assistant's ceiling matches the CLI/MCP surfaces' least-privilege posture.
 
 ## Traceability

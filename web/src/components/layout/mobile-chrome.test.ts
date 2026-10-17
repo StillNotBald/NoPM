@@ -301,6 +301,10 @@ describe("data-list.tsx — DataList", () => {
     expect(DATA_LIST).toMatch(/divide-y divide-border-subtle md:hidden/);
   });
 
+  it("card titles clamp to two lines rather than truncating to one", () => {
+    expect(DATA_LIST).toMatch(/line-clamp-2 break-words text-sm font-medium text-ink/);
+  });
+
   it("shows a chevron on cards only when the row is clickable (onRowClick or href)", () => {
     expect(DATA_LIST).toMatch(/const clickable = Boolean\(onRowClick \|\| href\)/);
     expect(DATA_LIST).toMatch(/ChevronRight/);

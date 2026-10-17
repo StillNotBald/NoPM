@@ -13,6 +13,8 @@ Two quick terms:
 |---|---|
 | **Approval cards** | When someone raises a deletion request, a change request or a timesheet submission, each eligible approver who has linked their account gets a Lark direct message with the request details and **Approve** and **Reject** buttons. Reject asks for a reason. |
 | **One decision, everywhere** | When the request is decided from any place (the NoPM console, the API, the CLI, an agent, or another card), every card already sent updates in place to show who decided, through which channel, and when. The buttons disappear. |
+| **A card never goes stale silently** | A card shows the request as it was when it was sent. If a pending change request is edited afterwards, the old card is retired (it says the request changed and points to the new card) and approvers get a fresh card with the current content. Tapping the old card decides nothing. |
+| **No card flood** | An approver is sent at most 20 approval cards an hour. Past that, instead of more cards they get one "N approvals are waiting" message with a link to the Approvals page, so a burst of requests cannot bury anyone in chat. |
 | **Weekly digest** | Once a week NoPM posts a status summary (project health, milestones due soon, open high risks, pending approvals) to a group chat you choose. There is also a **Send now** button. |
 | **Bot commands** | Message the bot directly: `help`, `link NPL-XXXX-XXXX` (connects your account) and `approvals` (lists what is waiting for you). |
 
@@ -27,9 +29,11 @@ The integration is built so that adding a chat channel cannot weaken the rules i
 3. **Buttons cannot be passed around.** Each card carries a single-use, expiring (7 days) token that is bound to one recipient and one request. Forward the card to a colleague and their click is refused. Click twice and the second click does nothing.
 4. **Every decision is audited once, with its channel.** The audit row records `channel = lark`, which connector, the Lark event id and which Lark user clicked. Filter the Trust Center by channel `lark` to review them. Replays of the same click (a double tap, a Lark retry) return the stored result and write nothing new.
 5. **The usual rules still apply at click time.** Role, scopes and project locks are checked when the button is pressed, not when the card was sent. If someone's role changed in between, the click is refused.
-6. **Secrets stay secret.** The app secret and keys are encrypted at rest, never returned by any API, and never logged. The relay secret (self-host only) is stored only as a one-way hash. Single-use button tokens are stored hashed.
-7. **The bot listens narrowly.** It reads only one-to-one direct messages sent to it, to recognise three commands. Group chat traffic and messages from other bots are ignored, and the text of a message is not stored.
-8. **Chat is best-effort, the record is not.** If Lark is down or a card fails to send, the request and its audit row still exist and the Approvals page in NoPM works as always. A delivery that fails is retried, then marked dead, without ever blocking or rolling back the governed change.
+6. **You approve what you were shown.** Each card is tied to the version of the request it displayed. If the request was edited after the card was sent (a bigger cost, a different scope), a tap on that card is refused with a "this request changed" message and nothing is decided; the decision itself is also pinned to that version, so an edit that lands a split second after the tap cannot slip through either. A fresh card with the current content follows.
+7. **Secrets stay secret.** The app secret and keys are encrypted at rest, never returned by any API, and never logged. The relay secret (self-host only) is stored only as a one-way hash. Single-use button tokens are stored hashed. In the audit trail, which every workspace member can read, the Lark app id, the group chat id and your Lark user and tenant ids appear abbreviated.
+8. **The bot listens narrowly.** It reads only one-to-one direct messages sent to it, to recognise three commands. Group chat traffic and messages from other bots are ignored, and the text of a message is not stored.
+9. **Chat is best-effort, the record is not.** If Lark is down or a card fails to send, the request and its audit row still exist and the Approvals page in NoPM works as always. A delivery that fails is retried (after 1 minute, 5 minutes, 30 minutes, 2 hours and 12 hours), then marked dead, without ever blocking or rolling back the governed change.
+10. **The public addresses are signed and quiet.** In webhook mode every event is signed and encrypted with your Encrypt Key (required, see Step 1). A request that fails verification, and a request for a connector that does not exist, is paused or was revoked, all get the same bare "401 Invalid request", so nobody can use the addresses to find out which connectors exist. Repeated failures are rate-limited.
 
 ## Before you start
 
@@ -71,7 +75,7 @@ Both modes run the same approval code. The long-connection worker does not decid
 1. Open the developer console for your platform (table above) and choose **Create custom app** (Feishu: create an enterprise self-built app).
 2. Give it a name people will recognise in a chat, for example "NoPM approvals", and a short description and icon.
 3. Open **Credentials and basic info** and keep the **App ID** (it starts with `cli_`) and **App Secret** to hand. You will paste both into NoPM. Treat the secret like a password.
-4. Open **Events and callbacks**, then **Encryption strategy**. Keep the **Verification Token** to hand. For webhook mode, also set an **Encrypt Key** and keep it. You will paste these into NoPM too.
+4. Open **Events and callbacks**, then **Encryption strategy**. Keep the **Verification Token** to hand. For webhook mode you **must** also have an **Encrypt Key**: generate or copy one on that page and keep it. NoPM will not save a webhook connector without it (see Step 4). You will paste both into NoPM.
 
 ## Step 2: Turn on the bot
 
@@ -97,8 +101,10 @@ NoPM does not need access to your contacts, documents, calendars or group histor
    - **Region**: Lark (international) or Feishu (China), to match where you made the app.
    - **How Lark reaches NoPM**: Webhook or Long connection (see above).
    - **App ID** and **App Secret** from Step 1.
-   - **Verification Token** and, optionally, **Encrypt Key**, from Step 1. In webhook mode, use an Encrypt Key: with one, NoPM verifies a signature on every call and decrypts the body, and without it a verification token alone is the only proof a call came from Lark. In long-connection mode they are not used for delivery.
+   - **Verification Token** and **Encrypt Key**, from Step 1. **In webhook mode the Encrypt Key is required**: NoPM refuses to save the connector without it (the form marks the field required for a webhook connection). Webhook mode puts your addresses on the public internet, and the verification token alone is only a shared string that sits in clear text in every event and is visible to everyone who collaborates on the Lark app. With the key, NoPM verifies a signature on every call and decrypts the body, so a stranger who learns the token still cannot fake a message. In long-connection mode no public address exists and events arrive over the worker's own outbound connection, so the key is optional and not used for delivery.
 3. Save, then choose **Test connection**. NoPM asks Lark for the bot's details with your App ID and secret, so a wrong secret or the wrong region shows up here.
+
+The same rule holds when you edit the connector later: switching a connector to webhook mode, or replacing its credentials while it is in webhook mode, needs an Encrypt Key to be present afterwards, and you cannot clear the key from a webhook connector. Pausing, renaming or changing the digest never asks for it. A connector created before this rule, without a key, keeps working until you next change its mode or credentials.
 4. Keep the page open. Depending on the mode it now shows what to do next:
    - **Webhook**: two web addresses (events and card callbacks) to paste into the Lark console in Step 5.
    - **Long connection**: a **relay secret**, **shown only once**. Copy it now. It is stored only as a hash, so if you lose it you create a new connector.
@@ -127,7 +133,7 @@ Open **Events and callbacks** in the Lark developer console.
 
 4. Add the callback **Card interaction** (`card.action.trigger`). This is what makes the Approve and Reject buttons work.
 
-The connector id is shown in NoPM on the Integrations page after Step 4. Both addresses use it, which is why you create the connector in NoPM first. If Lark's verification request fails, check that the Verification Token (and Encrypt Key) in NoPM match the console exactly, then save again in the console.
+The connector id is shown in NoPM on the Integrations page after Step 4. Both addresses use it, which is why you create the connector in NoPM first. If Lark's verification request fails, check that the Verification Token and Encrypt Key in NoPM match the console exactly, then save again in the console. A connector that is paused or revoked answers Lark exactly like a wrong signature (a bare 401), so a paused connector shows up here as a failed verification: resume it first.
 
 ### Long-connection mode
 
@@ -158,6 +164,16 @@ The worker is one Node script. It needs Node 20 or newer, outbound internet acce
 | `NOPM_LARK_ALLOW_MULTI` | no | `1` skips the same-machine duplicate check. Leave unset |
 
 Put the secrets in a file that only the service user can read, never on a command line (command lines show up in process lists).
+
+### One setting on the NoPM side: `NOPM_TRUSTED_PROXY_HOPS`
+
+The relay endpoint rate-limits unauthenticated callers by their network address before it checks the signature. A self-hosted NoPM cannot see the socket address, and the `X-Forwarded-For` header is written by whoever sends the request, so **by default NoPM trusts no address at all** and skips that per-address cap (the signature check and the per-connector cap still protect the endpoint). If you run NoPM behind your own reverse proxy (nginx, Caddy, a load balancer), set this on the NoPM app (not the worker) to the number of proxies in front of it, for example:
+
+```
+NOPM_TRUSTED_PROXY_HOPS=1
+```
+
+NoPM then reads the client address from the right-hand end of `X-Forwarded-For`, which only your own proxies write, and uses it for the relay's per-address cap, the invite-accept limiter and the failed-verification cap on the public webhook addresses. Set it to the real number: too high and a caller can pick its own address, too low and every request looks like it comes from your proxy. Leave it unset if NoPM is exposed directly, or if the worker and NoPM talk over a private network with no proxy. On Vercel nothing needs setting: the platform supplies the address. If the worker and NoPM sit on the same machine, point `NOPM_APP_URL` at `http://localhost:3000` and ignore this.
 
 ### Run it by hand first
 
@@ -284,13 +300,19 @@ Why a code and not an email match: an email address says nothing about who contr
 
 You can unlink at any time from the same page. An admin can see and remove every link in the workspace. Linking grants nothing by itself: what a person may approve still follows their NoPM role and scopes. Revoking the connector also revokes every link on it.
 
+Three safeguards you may notice:
+
+- **A new link replaces the old one, and both sides are told.** Each person has one active Lark link per connector. If a code links a different Lark account to you, the earlier link is removed, you get an in-app notification ("Your Lark account link was changed"), and the Lark account that just lost the link receives a direct message saying it was unlinked. A leaked or phished code therefore cannot quietly re-point your approvals. If the notice was not about something you did, unlink the new account under Integrations and tell an admin.
+- **Which Lark organization is trusted is decided by an admin or manager.** The first link made by a workspace **admin or manager** pins the connector to that Lark tenant; after that, codes from any other tenant are refused. A link by anyone else (a member or viewer) never pins the connector, so someone with no approval rights cannot lock your real organization out by linking from a different one. A link from a different tenant than the pinned one is refused for everybody. To move the connector to another tenant, an admin clears the tenant pin on the connector, and the next admin or manager link pins the new one.
+- **Guessing is throttled.** A link code is short-lived and single use, and `link` attempts are limited to 8 per Lark account and 120 per connector in any 10 minutes. Past that the bot asks the person to wait a few minutes and send the newest code.
+
 ## Using it
 
 ### Approving from a card
 
 A card shows the request title, the project, who raised it, a short summary, a link to open it in NoPM, and the two buttons. **Approve** decides at once. **Reject** opens a small form that requires a reason, which is recorded on the request.
 
-After you tap, the card shows the result straight away with a confirmation message, and every other copy of that card is updated.
+After you tap, the card shows the result straight away with a confirmation message, and every other copy of that card is updated. Cards for an edited request carry the version they displayed (see "You approve what you were shown" above), so an old card can never approve new content.
 
 What you can see when a tap does not go through:
 
@@ -300,6 +322,7 @@ What you can see when a tap does not go through:
 | Expired | The card is more than 7 days old | Open the request in NoPM |
 | Not the recipient | The card was forwarded, or belongs to another person | Ask for your own card, or use NoPM |
 | Already decided | Someone decided it elsewhere first | Nothing: the card shows the outcome |
+| This request changed | The request was edited after the card was sent (for example a change request's cost). Nothing was decided | Open the new card that follows, or open the request in NoPM and review it as it stands now |
 | You raised this request | Four-eyes: the requester cannot approve | Ask another admin or manager |
 | Not allowed | Your role or scopes no longer permit the decision, or the project is locked | Check with a workspace admin |
 
@@ -319,13 +342,21 @@ The digest and the retry of failed deliveries are driven by a once-a-day schedul
 7 1 * * *  curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://nopm.example.com/api/integrations/cron
 ```
 
-Without this scheduled call, approval cards still go out immediately, but the weekly digest never sends on its own and a delivery that failed once is not retried. **Send now** still works.
+A failed delivery is retried on a ladder: after 1 minute, 5 minutes, 30 minutes, 2 hours and 12 hours, and then it is marked dead. The retries advance **whenever your workspace has approval activity** (each new request or decision also drains up to ten of the retries that are due), and the daily scheduled call is the floor underneath. On a busy workspace the retries therefore follow the ladder; on a quiet one nothing triggers them between daily calls, so each attempt may wait for the next call (about a day). The scheduled call is built to finish inside the host's 60-second limit: it queues every digest first, drains connectors a few at a time, stops starting new work at 40 seconds, and leaves anything unfinished queued for the next call. It also deletes old bookkeeping rows (delivery rows 60 days after they finish, spent button tokens two weeks after expiry, and old click records after 90 days). The audit trail is never pruned.
+
+Without this scheduled call, approval cards still go out immediately and retries still advance whenever there is activity, but the weekly digest never sends on its own, nothing is pruned, and on a quiet workspace a delivery that failed once may wait for the next approval request before it is retried. **Send now** still works.
+
+An admin can see how this is going without opening a database. The connector card on the Integrations page shows a health line (Healthy, Retrying, Failing or Idle) with the number of deliveries queued, retrying and failed, when the last message went out, and the last failure's reason. "Failed" is the number to watch: a dead delivery is a card that never reached anyone. The same figures, plus when the scheduler last ran and what it did (`last_cron_at`, `last_cron`), are in the `health` block of the connector in `GET /api/integrations/connectors` (admin only). If the last scheduler run is old or empty, the daily call is not reaching `/api/integrations/cron` (check `CRON_SECRET`).
 
 ## If something does not arrive
 
 | What you see | Likely cause | What to do |
 |---|---|---|
-| Console says "request URL verification failed" (webhook) | The address is not reachable over HTTPS from the internet, the connector id in the URL is wrong, or the Verification Token differs | Open the events address in a browser from outside your network (a 405 or 401 is fine, a timeout is not). Re-copy the token into NoPM |
+| Console says "request URL verification failed" (webhook) | The address is not reachable over HTTPS from the internet, the connector id in the URL is wrong, the connector is paused or revoked, or the Verification Token or Encrypt Key differs | Open the events address in a browser from outside your network (a 405 or 401 is fine, a timeout is not). Check the connector is active, then re-copy the token and key into NoPM. A paused, revoked or unknown connector all answer with the same bare 401 on purpose |
+| NoPM will not save a webhook connector and mentions `encrypt_key` | Webhook mode requires an Encrypt Key | Copy the Encrypt Key from the Lark app's Events and callbacks page into NoPM, or choose Long connection if NoPM has no public address |
+| A card says "This request changed" or the tap answers "this request changed after the card was sent" | The request was edited after that card went out. Nothing was decided | Use the new card that follows, or open the request in NoPM |
+| An approver stopped getting cards and instead gets "N approvals are waiting" | They reached the limit of 20 approval cards an hour | Decide them in NoPM; the cards resume the next hour |
+| Self-hosted: the relay answers 429 to everything, or the per-address limit never seems to apply | `NOPM_TRUSTED_PROXY_HOPS` is wrong for your proxy layout | See "One setting on the NoPM side" in Step 6. Unset means no per-address cap at all |
 | The bot does not answer `help` | App not released, you are outside the availability scope, `im.message.receive_v1` not subscribed, the read-DM scope missing, or (long connection) the worker is not running | Check each in that order. After any permission or event change, publish a new version |
 | A button shows a Lark error code instead of a result | The `card.action.trigger` callback is not configured, or NoPM did not answer within 3 seconds | Add the callback and publish. In long-connection mode, check the worker log for a slow or failed relay |
 | Tapping Approve says "account not linked" | You skipped Step 8, or the link was removed | Link again |
@@ -366,7 +397,8 @@ X-NoPM-Relay-Signature: v1=<hex(HMAC-SHA256(key, timestamp + "." + rawBody))>
 - `key` is the lowercase hex SHA-256 of the raw relay secret, which is exactly what NoPM stores as the connector's relay secret hash. The worker derives it from the secret it was given; NoPM never needs the raw secret again.
 - The timestamp must be within five minutes of NoPM's clock. The signature covers the exact bytes of the body.
 - A `card` response is passed back to Lark unchanged as the callback response (a toast and a replacement card). A `ping` verifies URL, connector id, secret and mode without changing anything.
-- Errors use NoPM's usual `{ "error", "code" }` shape: 401 (`invalid_relay_signature`, `stale_relay_timestamp`, `no_relay_secret`), 403 (`connector_inactive`, `wrong_mode`), 404 (`connector_not_found`), 413, 422, 429.
+- Errors use NoPM's usual `{ "error", "code" }` shape: 401 (`invalid_relay_signature`, `stale_relay_timestamp`, `no_relay_secret`), 403 (`connector_inactive`, `wrong_mode`; only ever shown to a caller whose signature was valid), 404 (`connector_not_found`; a malformed connector id only), 413, 422, 429, 503 (`connector_unavailable`; the connector's stored secrets cannot be decrypted, an operator fault). A connector id that does not exist gets the same `401 invalid_relay_signature` as a wrong signature, after the same work, so the endpoint does not reveal which connectors exist.
+- Before the signature is checked, callers are rate-limited per network address (120 a minute) using the address your own proxy appended to `X-Forwarded-For`, never the caller's own first entry. Set `NOPM_TRUSTED_PROXY_HOPS` for that (Step 6); with it unset the per-address cap is skipped and the signature plus the per-connector cap (600 a minute) are the guards. A rate-limited card click is answered with a normal 200 toast, not an error.
 - A replayed request is harmless: decisions are idempotent on the Lark event id, and button tokens and link codes are single use.
 
 The signing code is in `web/src/lib/integrations/lark/relay.ts` (server) and `web/scripts/lark-worker.mjs` (worker), kept byte-identical by a test.

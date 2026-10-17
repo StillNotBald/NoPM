@@ -20,7 +20,29 @@ This is the one file that answers "what is live and where does it live" as a sna
 | Public posture | Demo login (`POST /api/auth/demo-login`) into a single shared, writable demo workspace — no signup | [`README.md`](../../README.md) "Three agent surfaces" intro, `requirements/REQUIREMENTS.md` R-53 |
 | Email | Demo-previews only — rendered, never sent. Resend stays demo-mode | `CLAUDE.md` Sanctioned section (R-27), `SECURITY.md` |
 | Crons (scheduled workflows) | `e2e-smoke.yml` — **weekly**, Mondays 21:00 UTC (also the demo keep-alive against Supabase free-tier pause). `reseed.yml` exists but is **manual-only** (`workflow_dispatch` / `gh workflow run`) by owner decision 2026-07-12 — no schedule trigger is currently wired | `.github/workflows/e2e-smoke.yml`, `.github/workflows/reseed.yml` (see that file's own header for the re-enable-nightly instructions) |
+| Integration scheduler (Vercel Cron) | **Daily**, 01:07 UTC, `GET /api/integrations/cron`, authenticated by `Authorization: Bearer $CRON_SECRET` (set `CRON_SECRET` in the Vercel project env; Vercel attaches it). It retries due Lark deliveries (the floor under traffic-driven retries), sends each connector's weekly digest, and prunes old bookkeeping rows. With `CRON_SECRET` unset the endpoint refuses every call: approval cards still send, but the digest never sends on its own and nothing is pruned | `web/vercel.json` (`crons`), `web/src/app/api/integrations/cron/route.ts`, `web/.env.example` (`CRON_SECRET`) |
+| Client-address trust (self-host) | **Nothing is trusted by default.** On Vercel the platform supplies the client address; anywhere else set `NOPM_TRUSTED_PROXY_HOPS` to the number of reverse proxies you run in front of the app, or the per-address caps (Lark relay, invite accept, failed webhook verifications) are skipped or share one bucket | `web/src/lib/api/client-ip.ts`, `web/.env.example` |
+| Integration throttles (env-overridable) | Calendar feed: **60/min per feed** (`NOPM_RATE_CAL_PER_MIN`) and **120/min per client address** (`NOPM_RATE_CAL_IP_PER_MIN`). Lark webhook, authenticated: **300/min per connector** (`NOPM_RATE_LARK_PER_MIN`). Same DB-backed counter as the baseline limiter | `web/src/lib/calendar/feeds.ts`, `web/src/lib/integrations/lark/http.ts`, `web/.env.example` |
+| Test-only switches | `NOPM_LARK_API_BASE_OVERRIDE` (points the Lark client at a local fake) and `NOPM_ALLOW_LARK_OVERRIDE` (lets that override work when `NODE_ENV=production`). **TEST ONLY — must be unset in production.** Without `NOPM_ALLOW_LARK_OVERRIDE=1` a production build ignores the override entirely | `web/src/lib/integrations/lark/client.ts`, `web/.env.example` |
 | Demoted doors | None | — no prior production platform/URL/DB has been retired; this is the only production door that has ever existed for NoPM |
+
+## Before you deploy a build that contains the Lark / principal four-eyes work
+
+**Apply migrations 0045 to 0053 to the target database FIRST, in order, then deploy the code.** They are:
+
+| # | File (in `web/supabase/migrations/`) | What the code depends on |
+|---|---|---|
+| 0045 | `20261016000045_principal_four_eyes.sql` | the human behind each requester and decider (principal columns and checks), principal-aware deletion-commit RPCs (the old overloads are dropped) |
+| 0046 | `20261016000046_integration_hub.sql` | connectors, identities, link codes, deliveries, action tokens; `audit_log.channel = lark` and the connector provenance columns |
+| 0047 | `20261016000047_calendar_feeds.sql` | revocable calendar feeds |
+| 0048 | `20261016000048_rls_api_only_writes.sql` | the API is the only writer of governed data (direct-write RLS policies removed) |
+| 0049 | `20261017000049_lifecycle_guards.sql` | database backstops: locked-project dates, timesheet week lock and content digest, rebaseline lifecycle, project-deletion child counts |
+| 0050 | `20261017000050_truncate_guard.sql` | `audit_log` immutability now covers TRUNCATE (also fixes `nopm_rate_check`) |
+| 0051 | `20261017000051_hub_reliability.sql` | one scheduled digest per connector per week, retention and health indexes, `integration_cron_state` |
+| 0052 | `20261017000052_api_tokens_kind.sql` | `api_tokens.kind` (the assistant's ephemeral tokens are hidden by kind, not by name) |
+| 0053 | `20261017000053_hub_card_integrity.sql` | action tokens bound to the request's content version (a card can only approve what it showed) |
+
+The code reads and writes columns, tables and triggers these create, so a build deployed ahead of them fails governed writes (deletion approvals first). The reverse also bites: 0045 drops the old commit-RPC overloads, so the PREVIOUS build's deletion approvals fail once it has been applied. Treat "apply 0045-0053, then deploy" as one change window, not two separate days. Migrations are forward-only (`_nopm_migrations` ledger); there is no down path, so take a restore point first and read [`CUTOVER/03-ROLLBACK.md`](../../CUTOVER/03-ROLLBACK.md) before you start. The new environment variables are in `web/.env.example` (see the rows above).
 
 ## Notes on rows that need a second look
 

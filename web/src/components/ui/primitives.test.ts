@@ -13,6 +13,7 @@ import { ButtonLink } from "./button-link";
 import { CardTitle } from "./card";
 import { ConfirmDialog, describeError } from "./confirm-dialog";
 import { CopyButton, CopyValue } from "./copy-button";
+import { DataListStatic } from "./data-list-static";
 import { TD } from "./data-table";
 import { Field } from "./field";
 import { IconButton } from "./icon-button";
@@ -322,5 +323,37 @@ describe("CardTitle / TD / LoadingStatus", () => {
     expect(markup).toContain('role="status"');
     expect(markup).toContain("sr-only");
     expect(markup).toContain("Loading risks");
+  });
+});
+
+describe("DataListStatic (server-component DataList)", () => {
+  type Row = { id: string; title: string; status: string; owner: string };
+  const rows: Row[] = [{ id: "r1", title: "A very long risk title that should wrap onto a second line rather than being cut off", status: "open", owner: "Sam" }];
+  const columns = [
+    { key: "title", header: "Title", cell: (r: Row) => r.title, primary: true },
+    { key: "status", header: "Status", cell: (r: Row) => h(Badge, { tone: "info" }, r.status), badge: true },
+    { key: "owner", header: "Owner", cell: (r: Row) => r.owner },
+  ];
+  const markup = html(h(DataListStatic, { columns, rows, rowKey: (r: Row) => r.id, href: (r: Row) => `/risks/${r.id}` }));
+
+  it("renders without hooks or handlers (a server page can pass it function props)", () => {
+    expect(markup).toContain("<table");
+    expect(markup).toContain("Title");
+    expect(markup).not.toContain("role=\"button\"");
+  });
+
+  it("rows are real links: a stretched link in the primary cell at md+, the whole card below md", () => {
+    expect([...markup.matchAll(/<a [^>]*href="\/risks\/r1"/g)]).toHaveLength(2);
+    expect(markup).toContain("after:absolute after:inset-0");
+  });
+
+  it("card titles wrap to two lines instead of truncating", () => {
+    expect(markup).toContain("line-clamp-2");
+    expect(markup).not.toMatch(/truncate[^"]*text-sm font-medium text-ink/);
+  });
+
+  it("renders the empty slot when there are no rows, and plain cards when no href is given", () => {
+    expect(html(h(DataListStatic, { columns, rows: [], rowKey: (r: Row) => r.id, empty: h("p", null, "Nothing here") }))).toBe("<p>Nothing here</p>");
+    expect(html(h(DataListStatic, { columns, rows, rowKey: (r: Row) => r.id }))).not.toContain("<a ");
   });
 });

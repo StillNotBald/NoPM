@@ -23,6 +23,17 @@ const chatId = z
 
 const secretValue = z.string().min(1, "must not be empty").max(512);
 
+/**
+ * Webhook mode makes the Lark-facing URLs public. Without an Encrypt Key the
+ * only proof an event came from Lark is the verification token, which sits in
+ * clear text in every event body and is visible to every collaborator on the
+ * Lark app: anyone holding it could fake bot messages. With the key every
+ * event is signed and encrypted. Long-connection mode never exposes a public
+ * URL (events arrive over the worker's outbound connection), so it may omit it.
+ */
+export const ENCRYPT_KEY_REQUIRED_MESSAGE =
+  "encrypt_key is required in webhook mode: it signs and encrypts the events Lark sends to your public URL. Copy the Encrypt Key from the Lark app's Events & Callbacks page. Long-connection mode does not need one.";
+
 const weekday = z.number().int().min(0, "weekday is 0 (Sunday) to 6 (Saturday)").max(6, "weekday is 0 (Sunday) to 6 (Saturday)");
 
 export const createConnectorSchema = z
@@ -47,6 +58,10 @@ export const createConnectorSchema = z
   .refine((v) => !v.digest.enabled || !!v.digest.chat_id, {
     message: "digest.chat_id is required when the digest is enabled",
     path: ["digest", "chat_id"],
+  })
+  .refine((v) => v.mode !== "webhook" || !!v.encrypt_key, {
+    message: ENCRYPT_KEY_REQUIRED_MESSAGE,
+    path: ["encrypt_key"],
   });
 
 export const updateConnectorSchema = z

@@ -39,7 +39,11 @@ const alignClass: Record<NonNullable<DataListColumn<unknown>["align"]>, string> 
 };
 
 /**
- * Generic responsive register table (F5). Pages keep their own column
+ * Generic responsive register table (F5). This is the CLIENT version (row
+ * click handlers, router navigation). A server component cannot pass it
+ * function props (`cell`, `rowKey`, `href`): use `DataListStatic`
+ * (data-list-static.tsx), the same layout with link rows and no handlers.
+ * Pages keep their own column
  * definitions and pass them here instead of hand-rolling a `<table>`:
  * ≥md renders a plain `<table>` (the exact class signature already used by
  * register tables, e.g. change-table.tsx); <md renders a card list, each
@@ -148,7 +152,7 @@ export function DataList<T>({
             <div className="flex min-h-[44px] items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1 space-y-1.5">
                 {primaryCol && (
-                  <div className="truncate text-sm font-medium text-ink">{primaryCol.cell(row)}</div>
+                  <div className="line-clamp-2 break-words text-sm font-medium text-ink">{primaryCol.cell(row)}</div>
                 )}
                 {badgeCols.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1.5">

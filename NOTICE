@@ -60,11 +60,38 @@ registry) and are not reproduced in this NOTICE.
 Fonts
 ------------------------------------------------------------------------------
 
-Inter and JetBrains Mono are loaded via next/font/google (SIL Open Font
-License 1.1) and self-hosted at build time; no font files are committed to
-this repository. "SF Pro Text" / "SF Pro Display" / "SF Mono" appear only as
-CSS font-family fallback names for macOS-native rendering — no Apple font
-files are bundled or redistributed.
+Two open-source font families are used, both under the SIL Open Font License,
+Version 1.1:
+
+- Inter — Copyright (c) 2016 The Inter Project Authors
+  (https://github.com/rsms/inter).
+- JetBrains Mono — Copyright 2020 The JetBrains Mono Project Authors
+  (https://github.com/JetBrains/JetBrainsMono).
+
+In the running application both are loaded via next/font/google and
+self-hosted by Next.js at build time; no font files are committed for that
+use. Separately, three small font files ARE committed to this repository,
+because the generated social-preview images (Open Graph cards) are rendered
+by a renderer that cannot use next/font. They live in
+web/src/components/marketing/og-fonts/ and are glyph-subset (ASCII-only)
+derivatives of the upstream fonts, which the OFL permits:
+
+- InterDisplay-Regular-subset.ttf  (Inter)
+- Inter-SemiBold-subset.ttf        (Inter)
+- JetBrainsMono-Regular-subset.ttf (JetBrains Mono)
+
+The full licence text for each family, including its copyright line, is kept
+next to the font files and is the licence that governs them:
+
+- web/src/components/marketing/og-fonts/OFL-Inter.txt
+- web/src/components/marketing/og-fonts/OFL-JetBrainsMono.txt
+
+Neither licence declares a Reserved Font Name. The subset files are used only
+to render those images and are not offered for sale on their own. The OFL
+applies to the fonts only; it does not change the Apache License 2.0 that
+covers NoPM's own source code. "SF Pro Text" / "SF Pro Display" / "SF Mono"
+appear only as CSS font-family fallback names for macOS-native rendering — no
+Apple font files are bundled or redistributed.
 
 ------------------------------------------------------------------------------
 Icons
