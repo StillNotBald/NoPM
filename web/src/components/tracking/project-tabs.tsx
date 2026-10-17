@@ -218,10 +218,10 @@ function MiniChip({
   const bg: Record<BadgeTone, string> = {
     neutral: "bg-sunken text-ink-secondary",
     accent:  "bg-accent/10 text-accent",
-    info:    "bg-info/10 text-info",
-    success: "bg-success/10 text-success",
-    warning: "bg-warning/10 text-warning",
-    danger:  "bg-danger/10 text-danger",
+    info:    "bg-info/10 text-info-ink",
+    success: "bg-success/10 text-success-ink",
+    warning: "bg-warning/10 text-warning-ink",
+    danger:  "bg-danger/10 text-danger-ink",
   };
   return (
     <span
@@ -443,19 +443,19 @@ function OverviewTab({
           </p>
           {openRisksAll.length === 0 && openIssues === 0 ? (
             <div className="flex items-center gap-2 mt-0.5">
-              <CheckCircle2 size={14} className="text-success" />
-              <span className="text-xs text-success font-medium">No open risks or issues</span>
+              <CheckCircle2 size={14} className="text-success-ink" />
+              <span className="text-xs text-success-ink font-medium">No open risks or issues</span>
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5 mt-0.5">
               {riskBySeverity.critical > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger-ink">
                   <span className="font-mono tabular-nums font-semibold">{riskBySeverity.critical}</span>
-                  <span className="text-danger/80 font-normal">critical</span>
+                  <span className="text-danger-ink/80 font-normal">critical</span>
                 </span>
               )}
               {riskBySeverity.high > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-sev-high/30 bg-sev-high/10 px-2.5 py-1 text-xs font-medium text-sev-high">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-sev-high/30 bg-sev-high/10 px-2.5 py-1 text-xs font-medium text-sev-high-ink">
                   <span className="font-mono tabular-nums font-semibold">{riskBySeverity.high}</span>
                   <span className="opacity-80 font-normal">high</span>
                 </span>
@@ -502,16 +502,16 @@ function OverviewTab({
                 </div>
                 {overdueTasks > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <Clock size={12} className="text-danger shrink-0" />
-                    <span className="text-xs text-danger font-medium tabular-nums">
+                    <Clock size={12} className="text-danger-ink shrink-0" />
+                    <span className="text-xs text-danger-ink font-medium tabular-nums">
                       {overdueTasks} overdue {overdueTasks === 1 ? "task" : "tasks"}
                     </span>
                   </div>
                 )}
                 {overdueTasks === 0 && (
                   <div className="flex items-center gap-1.5">
-                    <CheckCircle2 size={12} className="text-success shrink-0" />
-                    <span className="text-xs text-success font-medium">
+                    <CheckCircle2 size={12} className="text-success-ink shrink-0" />
+                    <span className="text-xs text-success-ink font-medium">
                       No overdue tasks
                     </span>
                   </div>

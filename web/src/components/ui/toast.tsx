@@ -60,7 +60,7 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden
-      className="shrink-0 text-success"
+      className="shrink-0 text-success-ink"
     >
       <path
         d="M13.5 4.5L6.5 11.5L2.5 7.5"
@@ -78,7 +78,7 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden
-      className="shrink-0 text-danger"
+      className="shrink-0 text-danger-ink"
     >
       <path
         d="M12 4L4 12M4 4l8 8"
@@ -95,7 +95,7 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden
-      className="shrink-0 text-info"
+      className="shrink-0 text-info-ink"
     >
       <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.75" />
       <path
@@ -154,7 +154,7 @@ function ToastTile({
       <button
         onClick={dismiss}
         aria-label="Dismiss notification"
-        className="ml-auto shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        className="ml-auto shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <X size={13} />
       </button>

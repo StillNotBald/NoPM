@@ -61,14 +61,14 @@ export function FieldLabel({
   return (
     <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
       {children}
-      {required && <span className="ml-0.5 text-danger">*</span>}
+      {required && <span className="ml-0.5 text-danger-ink">*</span>}
     </label>
   );
 }
 
 export function FieldError({ message }: { message?: string }) {
   if (!message) return null;
-  return <p className="mt-0.5 text-[11px] text-danger">{message}</p>;
+  return <p className="mt-0.5 text-[11px] text-danger-ink">{message}</p>;
 }
 
 export function SelectInput({
@@ -79,7 +79,7 @@ export function SelectInput({
     <select
       className={cn(
         "h-11 sm:h-10 w-full rounded-md border border-border-subtle bg-canvas px-2.5 text-base sm:text-sm text-ink",
-        "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+        "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:opacity-50",
         className,
       )}
@@ -97,7 +97,7 @@ export function TextareaInput({
       className={cn(
         "min-h-[72px] w-full rounded-md border border-border-subtle bg-canvas px-3 py-2 text-base sm:text-sm text-ink",
         "placeholder:text-ink-muted focus:outline-none",
-        "focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+        "focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent",
         "disabled:opacity-50",
         className,
       )}
@@ -252,7 +252,7 @@ export function ProjectForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
           {topError}
         </div>
       )}

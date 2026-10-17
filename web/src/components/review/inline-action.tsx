@@ -138,7 +138,7 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
           <DetailRow label="Pending for">
             <span className={cn(
               "font-mono tabular-nums",
-              item.ageDays >= 14 ? "text-danger" : item.ageDays >= 7 ? "text-warning" : "text-ink-muted",
+              item.ageDays >= 14 ? "text-danger-ink" : item.ageDays >= 7 ? "text-warning-ink" : "text-ink-muted",
             )}>
               {item.ageDays === 0 ? "today" : item.ageDays === 1 ? "1 day" : `${item.ageDays} days`}
             </span>
@@ -148,20 +148,20 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
 
       {/* Four-eyes banner */}
       <div className="flex gap-2.5 rounded-md border border-warning/30 bg-warning/10 px-3 py-2.5 mb-4">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 mt-0.5 text-warning">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 mt-0.5 text-warning-ink">
           <path
             d="M8 1.5a6.5 6.5 0 1 0 0 13A6.5 6.5 0 0 0 8 1.5ZM7.25 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 6.5a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z"
             fill="currentColor"
           />
         </svg>
-        <p className="text-xs text-warning leading-snug">
+        <p className="text-xs text-warning-ink leading-snug">
           <span className="font-semibold">Four-eyes:</span> you must be a different person from the requester. Self-approval is blocked at the API layer.
         </p>
       </div>
 
       {/* Error banner */}
       {error && (
-        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger border border-danger/20">
+        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger-ink border border-danger/20">
           {error}
         </div>
       )}
@@ -200,8 +200,8 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
           <div className={cn(
             "rounded-md border px-3 py-2.5 text-sm font-medium text-center",
             confirming === "approve"
-              ? "border-success/30 bg-success/10 text-success"
-              : "border-danger/30 bg-danger/10 text-danger",
+              ? "border-success/30 bg-success/10 text-success-ink"
+              : "border-danger/30 bg-danger/10 text-danger-ink",
           )}>
             {confirming === "approve" ? "Confirm: Approve this deletion?" : "Confirm: Reject this deletion request?"}
           </div>
@@ -223,7 +223,7 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
           {confirming === "reject" && (
             <div>
               <FieldLabel>
-                Reason <span className="text-danger ml-0.5">*</span>
+                Reason <span className="text-danger-ink ml-0.5">*</span>
               </FieldLabel>
               <TextareaInput
                 value={rejectReason}
@@ -297,7 +297,7 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
       {/* CR metadata */}
       <div className="mb-3">
         <div className="flex flex-wrap gap-2 mb-2">
-          <Badge tone="neutral" className="text-change bg-change/10">change request</Badge>
+          <Badge tone="neutral" className="text-change-ink bg-change/10">change request</Badge>
           {item.project && (
             <span className="rounded bg-sunken border border-border-subtle px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
               {item.project}
@@ -314,7 +314,7 @@ export function ChangeInlineAction({ item }: ChangeInlineActionProps) {
           <DetailRow label="Pending for">
             <span className={cn(
               "font-mono tabular-nums",
-              item.ageDays >= 14 ? "text-danger" : item.ageDays >= 7 ? "text-warning" : "text-ink-muted",
+              item.ageDays >= 14 ? "text-danger-ink" : item.ageDays >= 7 ? "text-warning-ink" : "text-ink-muted",
             )}>
               {item.ageDays === 0 ? "today" : item.ageDays === 1 ? "1 day" : `${item.ageDays} days`}
             </span>
@@ -419,7 +419,7 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
           <DetailRow label="Pending for">
             <span className={cn(
               "font-mono tabular-nums",
-              item.ageDays >= 14 ? "text-danger" : item.ageDays >= 7 ? "text-warning" : "text-ink-muted",
+              item.ageDays >= 14 ? "text-danger-ink" : item.ageDays >= 7 ? "text-warning-ink" : "text-ink-muted",
             )}>
               {item.ageDays === 0 ? "today" : item.ageDays === 1 ? "1 day" : `${item.ageDays} days`}
             </span>
@@ -429,20 +429,20 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
 
       {/* Four-eyes banner */}
       <div className="flex gap-2.5 rounded-md border border-warning/30 bg-warning/10 px-3 py-2.5 mb-4">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 mt-0.5 text-warning">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden className="shrink-0 mt-0.5 text-warning-ink">
           <path
             d="M8 1.5a6.5 6.5 0 1 0 0 13A6.5 6.5 0 0 0 8 1.5ZM7.25 4.75a.75.75 0 0 1 1.5 0v3.5a.75.75 0 0 1-1.5 0v-3.5Zm.75 6.5a.875.875 0 1 1 0-1.75.875.875 0 0 1 0 1.75Z"
             fill="currentColor"
           />
         </svg>
-        <p className="text-xs text-warning leading-snug">
+        <p className="text-xs text-warning-ink leading-snug">
           <span className="font-semibold">Four-eyes:</span> you must be a different person from the submitter. Self-approval is blocked at the API layer.
         </p>
       </div>
 
       {/* Error banner */}
       {error && (
-        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger border border-danger/20">
+        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger-ink border border-danger/20">
           {error}
         </div>
       )}
@@ -478,8 +478,8 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
           <div className={cn(
             "rounded-md border px-3 py-2.5 text-sm font-medium text-center",
             confirming === "approved"
-              ? "border-success/30 bg-success/10 text-success"
-              : "border-danger/30 bg-danger/10 text-danger",
+              ? "border-success/30 bg-success/10 text-success-ink"
+              : "border-danger/30 bg-danger/10 text-danger-ink",
           )}>
             {confirming === "approved" ? "Confirm: Approve this timesheet?" : "Confirm: Reject this timesheet?"}
           </div>
@@ -501,7 +501,7 @@ export function TimesheetInlineAction({ item }: TimesheetInlineActionProps) {
           {confirming === "rejected" && (
             <div>
               <FieldLabel>
-                Rationale <span className="text-danger ml-0.5">*</span>
+                Rationale <span className="text-danger-ink ml-0.5">*</span>
               </FieldLabel>
               <TextareaInput
                 value={rationale}

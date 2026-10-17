@@ -94,9 +94,9 @@ function ragDotClass(rag: RagStatus | string): string {
 function milestoneColor(status: PortfolioMilestone["status"]): string {
   switch (status) {
     case "completed":  return "text-accent";
-    case "on_track":   return "text-success";
-    case "at_risk":    return "text-warning";
-    case "delayed":    return "text-danger";
+    case "on_track":   return "text-success-ink";
+    case "at_risk":    return "text-warning-ink";
+    case "delayed":    return "text-danger-ink";
     default:           return "text-ink-muted";
   }
 }
@@ -432,7 +432,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
                                 className={cn("w-3.5 h-3.5", milestoneColor(ms.status))}
                               />
                               {hasSlip && slipLabel && (
-                                <span className="ml-0.5 font-mono text-xs font-semibold text-warning select-none whitespace-nowrap pointer-events-none">
+                                <span className="ml-0.5 font-mono text-xs font-semibold text-warning-ink select-none whitespace-nowrap pointer-events-none">
                                   {slipLabel}
                                 </span>
                               )}
@@ -504,7 +504,7 @@ export function PortfolioRoadmap({ projects, milestones }: RoadmapProps) {
               <span className="text-xs text-ink-muted">Baseline</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="font-mono text-xs font-semibold text-warning">+Nd</span>
+              <span className="font-mono text-xs font-semibold text-warning-ink">+Nd</span>
               <span className="text-xs text-ink-muted">Slip vs baseline</span>
             </div>
           </>

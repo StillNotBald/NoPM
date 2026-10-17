@@ -90,7 +90,7 @@ export function GovernanceTour({ firstProjectHref }: { firstProjectHref?: string
                     aria-hidden="true"
                   >
                     {visited ? (
-                      <CheckCircle2 size={16} className="text-success" />
+                      <CheckCircle2 size={16} className="text-success-ink" />
                     ) : (
                       <span className="h-2 w-2 rounded-full border border-border-subtle" />
                     )}

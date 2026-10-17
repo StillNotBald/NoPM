@@ -116,8 +116,8 @@ export function AccountMenu() {
           aria-expanded={open}
           className={cn(
             "grid h-10 w-10 place-items-center rounded-full",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
-            open && "ring-2 ring-accent/40",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+            open && "ring-2 ring-accent",
           )}
         >
           <Avatar name={displayName} size="sm" />
@@ -228,12 +228,12 @@ function MenuItem({
           "flex w-full items-center gap-2.5 px-4 py-2 text-sm transition-colors",
           "focus:outline-none focus-visible:bg-sunken",
           danger
-            ? "text-danger hover:bg-danger/10"
+            ? "text-danger-ink hover:bg-danger/10"
             : "text-ink hover:bg-sunken",
           "disabled:opacity-50 disabled:pointer-events-none",
         )}
       >
-        <span className={cn("shrink-0", danger ? "text-danger" : "text-ink-muted")}>{icon}</span>
+        <span className={cn("shrink-0", danger ? "text-danger-ink" : "text-ink-muted")}>{icon}</span>
         {label}
       </button>
     </li>

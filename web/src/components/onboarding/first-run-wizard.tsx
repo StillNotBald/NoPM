@@ -178,7 +178,7 @@ export function FirstRunWizard() {
 
       <div className="space-y-4 px-4 py-5">
         {topError && (
-          <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{topError}</div>
+          <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-ink">{topError}</div>
         )}
 
         {step === 1 && (

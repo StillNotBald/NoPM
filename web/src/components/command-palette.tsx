@@ -463,7 +463,7 @@ export function CmdKTriggerMobile({ onClick }: { onClick: () => void }) {
       className={cn(
         "grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-secondary",
         "transition-colors duration-150 hover:bg-sunken",
-        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+        "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
         "sm:hidden",
       )}
     >

@@ -190,7 +190,7 @@ export function DocumentForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
           {topError}
         </div>
       )}

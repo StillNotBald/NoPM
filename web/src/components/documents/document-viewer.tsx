@@ -332,10 +332,10 @@ function FileSection({
               type="button"
               onClick={handleRemove}
               disabled={removing}
-              className="inline-flex items-center gap-1 text-xs text-danger hover:opacity-80 transition-opacity duration-150 disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-xs text-danger-ink hover:opacity-80 transition-opacity duration-150 disabled:opacity-50"
             >
               {removing ? (
-                <Spinner size="sm" className="text-danger" />
+                <Spinner size="sm" className="text-danger-ink" />
               ) : (
                 <svg
                   width="12"
@@ -365,7 +365,7 @@ function FileSection({
           </div>
 
           {removeError && (
-            <p className="text-xs text-danger">{removeError}</p>
+            <p className="text-xs text-danger-ink">{removeError}</p>
           )}
         </div>
       ) : (

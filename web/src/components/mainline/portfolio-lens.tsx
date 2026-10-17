@@ -125,7 +125,7 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
                 return (
                   <div key={d} className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: x }}>
                     <div className="absolute top-0 bottom-0 w-px bg-warning/40" />
-                    <span className="ml-1 whitespace-nowrap text-xs font-medium text-warning">SteerCo</span>
+                    <span className="ml-1 whitespace-nowrap text-xs font-medium text-warning-ink">SteerCo</span>
                   </div>
                 );
               })}

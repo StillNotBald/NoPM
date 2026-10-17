@@ -252,7 +252,7 @@ export function TaskForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
           {topError}
         </div>
       )}
@@ -513,7 +513,7 @@ export function TaskForm({
                   <button
                     type="button"
                     onClick={() => removeChecklistItem(item.id)}
-                    className="shrink-0 text-ink-muted hover:text-danger text-xs px-1"
+                    className="shrink-0 text-ink-muted hover:text-danger-ink text-xs px-1"
                     aria-label="Remove checklist item"
                   >
                     ×

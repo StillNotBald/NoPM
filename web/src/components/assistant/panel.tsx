@@ -131,14 +131,14 @@ function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => voi
           stays in the transcript above; retry re-sends it in place. */}
       {msg.error && (
         <div className="flex max-w-[85%] flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
-          <span className="font-mono text-xs text-danger">
+          <span className="font-mono text-xs text-danger-ink">
             Something went wrong. Your message wasn&apos;t lost.
           </span>
           {onRetry && (
             <button
               type="button"
               onClick={onRetry}
-              className="ml-auto flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-danger/40 px-3 font-mono text-xs font-semibold text-danger transition-colors hover:bg-danger/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/40"
+              className="ml-auto flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-danger/40 px-3 font-mono text-xs font-semibold text-danger-ink transition-colors hover:bg-danger/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-danger/40"
             >
               Retry
             </button>
@@ -198,7 +198,7 @@ function ConversationList({
         <button
           type="button"
           onClick={onNewChat}
-          className="flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs text-ink-secondary hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="flex items-center gap-1 rounded-md px-2 py-1 font-mono text-xs text-ink-secondary hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           aria-label="New chat"
         >
           <Plus className="h-3 w-3" />
@@ -218,7 +218,7 @@ function ConversationList({
             <button
               type="button"
               onClick={onNewChat}
-              className="mt-1 rounded-md bg-accent px-3 py-1.5 font-mono text-xs text-accent-ink hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="mt-1 rounded-md bg-accent px-3 py-1.5 font-mono text-xs text-accent-ink hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               Start a chat
             </button>
@@ -230,7 +230,7 @@ function ConversationList({
                 <button
                   type="button"
                   onClick={() => onSelect(conv.id)}
-                  className="w-full rounded-lg px-3 py-2.5 text-left hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                  className="w-full rounded-lg px-3 py-2.5 text-left hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   <p className="truncate font-mono text-xs font-medium text-ink">
                     {conv.title ?? "Untitled chat"}
@@ -828,7 +828,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
               {/* Error */}
               {sendError && (
                 <div className="shrink-0 border-t border-border-subtle bg-danger/5 px-4 py-2">
-                  <p className="font-mono text-xs text-danger">{sendError}</p>
+                  <p className="font-mono text-xs text-danger-ink">{sendError}</p>
                 </div>
               )}
 
@@ -862,7 +862,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                     aria-label="Send message"
                     className={cn(
                       "grid h-7 w-7 shrink-0 place-items-center rounded-lg transition-colors",
-                      "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                      "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                       input.trim() && !sending
                         ? "bg-accent text-accent-ink hover:opacity-90"
                         : "bg-border-subtle text-ink-muted",
@@ -913,7 +913,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
               <button
                 onClick={disconnect}
                 disabled={disconnecting}
-                className="ml-2 shrink-0 font-mono text-xs text-ink-muted hover:text-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                className="ml-2 shrink-0 font-mono text-xs text-ink-muted hover:text-danger-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               >
                 {disconnecting ? "…" : "disconnect"}
               </button>

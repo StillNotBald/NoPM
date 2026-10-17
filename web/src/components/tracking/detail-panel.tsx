@@ -26,10 +26,10 @@ type BadgeTone = "neutral" | "accent" | "info" | "success" | "warning" | "danger
 const statusToneText: Record<BadgeTone, string> = {
   neutral: "text-ink-secondary",
   accent: "text-accent",
-  info: "text-info",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-danger",
+  info: "text-info-ink",
+  success: "text-success-ink",
+  warning: "text-warning-ink",
+  danger: "text-danger-ink",
 };
 
 // ─── Badge helpers (mirrored from activity-table for self-containment) ────────
@@ -230,11 +230,11 @@ export function TaskDetailPanel({
     <div className="flex flex-col gap-5">
       {/* Inline delete-error banner */}
       {deleteError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger flex items-center justify-between gap-2">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink flex items-center justify-between gap-2">
           <span>{deleteError}</span>
           <button
             onClick={() => setDeleteError(null)}
-            className="shrink-0 text-danger/70 hover:text-danger text-xs"
+            className="shrink-0 text-danger-ink/70 hover:text-danger-ink text-xs"
             aria-label="Dismiss error"
           >
             ×
@@ -433,7 +433,7 @@ export function TaskDetailPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="h-11 sm:h-9 text-danger hover:bg-danger/10 sm:flex-none"
+          className="h-11 sm:h-9 text-danger-ink hover:bg-danger/10 sm:flex-none"
           onClick={handleDelete}
         >
           <Trash2 size={13} className="mr-1.5" />
@@ -503,11 +503,11 @@ export function MilestoneDetailPanel({
     <div className="flex flex-col gap-5">
       {/* Inline delete-error banner */}
       {deleteError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger flex items-center justify-between gap-2">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink flex items-center justify-between gap-2">
           <span>{deleteError}</span>
           <button
             onClick={() => setDeleteError(null)}
-            className="shrink-0 text-danger/70 hover:text-danger text-xs"
+            className="shrink-0 text-danger-ink/70 hover:text-danger-ink text-xs"
             aria-label="Dismiss error"
           >
             ×
@@ -562,7 +562,7 @@ export function MilestoneDetailPanel({
         <Button
           variant="ghost"
           size="sm"
-          className="h-11 sm:h-9 text-danger hover:bg-danger/10 sm:flex-none"
+          className="h-11 sm:h-9 text-danger-ink hover:bg-danger/10 sm:flex-none"
           onClick={handleDelete}
         >
           <Trash2 size={13} className="mr-1.5" />

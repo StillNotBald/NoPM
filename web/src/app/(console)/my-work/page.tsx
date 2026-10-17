@@ -237,7 +237,7 @@ export default async function MyWorkPage() {
         action={
           <Link
             href="/email-previews"
-            className="inline-flex items-center gap-1.5 rounded text-xs text-ink-muted transition-colors hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
+            className="inline-flex items-center gap-1.5 rounded text-xs text-ink-muted transition-colors hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <Mail size={14} />
             Email previews
@@ -250,7 +250,7 @@ export default async function MyWorkPage() {
         <CardHeader>
           <CardTitle>Hot now</CardTitle>
           {hotItems.length > 0 && (
-            <span className="rounded-full bg-danger/10 px-2 py-0.5 font-mono text-xs font-medium text-danger">
+            <span className="rounded-full bg-danger/10 px-2 py-0.5 font-mono text-xs font-medium text-danger-ink">
               {hotItems.length}
             </span>
           )}

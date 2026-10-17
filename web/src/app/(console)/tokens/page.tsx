@@ -293,7 +293,7 @@ export default function TokensPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-danger hover:bg-danger/10"
+            className="text-danger-ink hover:bg-danger/10"
             disabled={revoking === t.id}
             onClick={() => handleRevoke(t.id)}
           >
@@ -434,7 +434,7 @@ export default function TokensPage() {
                 </Button>
               </div>
               {mintError && (
-                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{mintError}</p>
+                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{mintError}</p>
               )}
               <p className="text-xs text-ink-muted">
                 Shown once — copy it into your agent&apos;s environment right away.
@@ -504,7 +504,7 @@ export default function TokensPage() {
               <Spinner />
             </div>
           ) : listError ? (
-            <p className="px-5 py-6 text-sm text-danger">{listError}</p>
+            <p className="px-5 py-6 text-sm text-danger-ink">{listError}</p>
           ) : (
             <DataList<ApiToken>
               columns={tokenColumns}
@@ -539,7 +539,7 @@ export default function TokensPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-11 w-full text-danger hover:bg-danger/10"
+                          className="h-11 w-full text-danger-ink hover:bg-danger/10"
                           disabled={revoking === tok.id}
                           onClick={() => handleRevoke(tok.id)}
                         >
@@ -650,7 +650,7 @@ export default function TokensPage() {
           </div>
 
           {mintError && (
-            <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{mintError}</p>
+            <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{mintError}</p>
           )}
 
           <Button

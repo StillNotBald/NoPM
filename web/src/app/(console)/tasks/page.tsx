@@ -235,7 +235,7 @@ export default function TasksPage() {
         <RegisterToolbar controls={controls} />
 
         {error && (
-          <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger">
+          <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger-ink">
             Failed to load tasks: {error}
           </div>
         )}
@@ -277,7 +277,7 @@ export default function TasksPage() {
                           onClick={() => toggleSort(col.key)}
                           className={cn(
                             "inline-flex min-h-[44px] items-center gap-1 sm:min-h-0",
-                            "hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 rounded",
+                            "hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded",
                             sort?.field === col.key && "text-ink",
                           )}
                           aria-label={`Sort by ${col.label}`}

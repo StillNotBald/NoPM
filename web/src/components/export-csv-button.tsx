@@ -26,7 +26,7 @@ export function ExportCsvButton({
       className={cn(
         "inline-flex h-11 items-center justify-center gap-1.5 rounded-md border border-border-subtle",
         "bg-surface px-3 text-sm font-medium text-ink transition-colors duration-150",
-        "hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+        "hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
         "sm:h-9",
         className,
       )}

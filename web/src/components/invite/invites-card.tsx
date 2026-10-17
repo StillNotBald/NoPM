@@ -212,7 +212,7 @@ export function InvitesCard() {
             aria-label="Invite role"
             className={cn(
               "h-11 sm:h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-base sm:text-sm text-ink",
-              "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+              "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent",
             )}
           >
             {availableRoles.map((r) => (
@@ -232,7 +232,7 @@ export function InvitesCard() {
         />
 
         {mintError && (
-          <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{mintError}</p>
+          <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{mintError}</p>
         )}
 
         <Button variant="primary" size="md" onClick={handleInvite} disabled={minting || !email.trim()}>
@@ -251,7 +251,7 @@ export function InvitesCard() {
               <Spinner size="sm" />
             </div>
           ) : listError ? (
-            <p className="text-sm text-danger">{listError}</p>
+            <p className="text-sm text-danger-ink">{listError}</p>
           ) : invites.length === 0 ? (
             <p className="text-sm text-ink-muted">No invites yet.</p>
           ) : (
@@ -287,7 +287,7 @@ export function InvitesCard() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-danger hover:bg-danger/10"
+                            className="text-danger-ink hover:bg-danger/10"
                             disabled={revoking === inv.id}
                             onClick={() => handleRevoke(inv.id)}
                           >

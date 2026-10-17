@@ -123,14 +123,14 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
           <Field label="Target">
             <span className="tabular-nums">{fmt(detail?.target_date ?? project.target_date)}</span>
             {slip && (
-              <span className="ml-1 text-[11px] text-danger">(baseline {fmt(detail?.baseline_target_date)})</span>
+              <span className="ml-1 text-[11px] text-danger-ink">(baseline {fmt(detail?.baseline_target_date)})</span>
             )}
           </Field>
           <Field label="Open risks">
-            <span className={openR > 0 ? "font-medium text-danger tabular-nums" : "text-ink-muted"}>{openR}</span>
+            <span className={openR > 0 ? "font-medium text-danger-ink tabular-nums" : "text-ink-muted"}>{openR}</span>
           </Field>
           <Field label="Open issues">
-            <span className={openI > 0 ? "font-medium text-warning tabular-nums" : "text-ink-muted"}>{openI}</span>
+            <span className={openI > 0 ? "font-medium text-warning-ink tabular-nums" : "text-ink-muted"}>{openI}</span>
           </Field>
         </div>
       </Module>
@@ -206,7 +206,7 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
       <div className="flex items-center justify-between border-t border-border-subtle pt-3">
         <a
           href={`/projects/${project.id}`}
-          className="text-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="text-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           Open full project →
         </a>

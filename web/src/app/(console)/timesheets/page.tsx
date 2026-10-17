@@ -106,7 +106,7 @@ export default async function TimesheetsPage({
   if (membersError) {
     return (
       <div className="px-4 py-5 sm:px-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load resource members.</p>
+        <p className="text-sm text-danger-ink">Failed to load resource members.</p>
       </div>
     );
   }

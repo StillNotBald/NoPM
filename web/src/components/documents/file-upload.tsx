@@ -192,7 +192,7 @@ export function FileUpload({ documentId, onSuccess }: FileUploadProps) {
 
       {/* Error */}
       {error && (
-        <p className="text-xs text-danger">{error}</p>
+        <p className="text-xs text-danger-ink">{error}</p>
       )}
 
       <p className="text-[11px] text-ink-muted">Max 25 MB. PDF, images, or any file type.</p>

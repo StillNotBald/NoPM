@@ -15,10 +15,10 @@ type MetricCardProps = {
 
 const toneCls: Record<NonNullable<MetricCardProps["tone"]>, string> = {
   neutral: "text-ink",
-  success: "text-success",
-  warning: "text-warning",
-  danger:  "text-danger",
-  info:    "text-info",
+  success: "text-success-ink",
+  warning: "text-warning-ink",
+  danger:  "text-danger-ink",
+  info:    "text-info-ink",
   accent:  "text-accent",
 };
 

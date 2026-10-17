@@ -33,6 +33,8 @@
   --success-ink: #166534; /* ~6.5:1 */
   --warning-ink: #92400e; /* ~6.2:1 */
   --danger-ink: #b42318; /* ~5.7:1 */
+  --sev-high-ink: #9a3412; /* ~7.3:1 on white (orange #ea580c is 3.6:1) */
+  --change-ink: #5b21b6; /* ~8.6:1 */
   --danger-hover: #c93b40; /* danger button hover (white text >=4.6:1) */
   --danger-solid: #d13438; /* danger button fill, white text ~4.9:1 */
   /* Terminal window (ui/terminal-card.tsx): always dark, so these are set once
@@ -77,6 +79,8 @@
   --success-ink: #56d364;
   --warning-ink: #f0b84a;
   --danger-ink: #ff7b72;
+  --sev-high-ink: #ffa657;
+  --change-ink: #d2a8ff;
   --danger-hover: #ff6a62;
   --danger-solid: #da3633; /* white text ~4.9:1 */
   color-scheme: dark;
@@ -114,6 +118,8 @@
     --success-ink: #56d364;
     --warning-ink: #f0b84a;
     --danger-ink: #ff7b72;
+    --sev-high-ink: #ffa657;
+    --change-ink: #d2a8ff;
     --danger-hover: #ff6a62;
     --danger-solid: #da3633; /* white text ~4.9:1 */
     color-scheme: dark;
@@ -143,6 +149,8 @@
   --color-success-ink: var(--success-ink);
   --color-warning-ink: var(--warning-ink);
   --color-danger-ink: var(--danger-ink);
+  --color-sev-high-ink: var(--sev-high-ink);
+  --color-change-ink: var(--change-ink);
   --color-danger-hover: var(--danger-hover);
   --color-danger-solid: var(--danger-solid);
   --color-terminal-surface: var(--terminal-surface);
@@ -175,8 +183,12 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
 }
 
-* {
-  border-color: var(--border-subtle);
+/* Layered so every Tailwind border-colour utility can override it: an
+   unlayered rule beats ALL v4 utilities (the old sidebar-accent / grey-edge bug). */
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
 }
 
 body {

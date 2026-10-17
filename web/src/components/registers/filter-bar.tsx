@@ -58,7 +58,7 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 const selectClass = cn(
   "h-11 sm:h-9 min-w-[9rem] rounded-md border border-border-subtle bg-canvas px-2.5 text-base text-ink sm:text-sm",
-  "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+  "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent",
 );
 
 function FilterField({

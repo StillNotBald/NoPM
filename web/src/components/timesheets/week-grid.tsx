@@ -66,7 +66,7 @@ export function WeekGrid({
   locked?: boolean;
 }) {
   const lockedCaption = locked ? (
-    <p className="border-b border-border-subtle bg-warning-subtle px-5 py-2 text-xs font-medium text-warning">
+    <p className="border-b border-border-subtle bg-warning-subtle px-5 py-2 text-xs font-medium text-warning-ink">
       Week approved — locked. Time entries in this week can&apos;t be added or removed until the submission is reopened.
     </p>
   ) : null;
@@ -124,7 +124,7 @@ export function WeekGrid({
           <span
             className={cn(
               "font-mono tabular-nums",
-              capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning" : "text-ink",
+              capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning-ink" : "text-ink",
             )}
           >
             {fmtHours(weekTotal)}
@@ -192,7 +192,7 @@ export function WeekGrid({
             <td
               className={cn(
                 "px-5 py-3 text-right font-mono tabular-nums",
-                capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning" : "text-ink",
+                capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning-ink" : "text-ink",
               )}
             >
               {fmtHours(weekTotal)}

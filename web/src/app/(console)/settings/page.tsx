@@ -193,10 +193,10 @@ function ProfileSection() {
             </div>
 
             {saveError && (
-              <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{saveError}</p>
+              <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{saveError}</p>
             )}
             {saveSuccess && (
-              <p className="rounded-md bg-success/15 px-3 py-2 text-sm text-success">
+              <p className="rounded-md bg-success/15 px-3 py-2 text-sm text-success-ink">
                 Profile saved.
               </p>
             )}
@@ -716,7 +716,7 @@ export default function SettingsPage() {
                   <span className="text-sm text-ink-secondary">Checking 2FA status…</span>
                 </div>
               ) : loadError ? (
-                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{loadError}</p>
+                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{loadError}</p>
               ) : null}
 
               {/* ── IDLE: not enrolled ── */}
@@ -787,7 +787,7 @@ export default function SettingsPage() {
                   </div>
 
                   {codeError && (
-                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{codeError}</p>
+                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{codeError}</p>
                   )}
 
                   <div className="flex items-center gap-3">
@@ -826,7 +826,7 @@ export default function SettingsPage() {
               {step === "backup" && (
                 <div className="space-y-5">
                   <div className="flex items-start gap-3 rounded-lg bg-success/15 border border-border-subtle px-4 py-3">
-                    <span className="text-success text-base mt-0.5">✓</span>
+                    <span className="text-success-ink text-base mt-0.5">✓</span>
                     <p className="text-sm text-ink">
                       <span className="font-medium">2FA is now active.</span> Save these backup codes
                       somewhere secure — they are shown once and can each be used once if you lose
@@ -873,13 +873,13 @@ export default function SettingsPage() {
                   </p>
 
                   {codeError && (
-                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{codeError}</p>
+                    <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">{codeError}</p>
                   )}
 
                   <Button
                     variant="secondary"
                     size="md"
-                    className="text-danger border-danger/30 hover:bg-danger/10"
+                    className="text-danger-ink border-danger/30 hover:bg-danger/10"
                     onClick={handleDisable}
                   >
                     Disable 2FA
@@ -912,13 +912,13 @@ export default function SettingsPage() {
               <div className="flex items-center gap-4">
                 <a
                   href="/case-study"
-                  className="text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                  className="text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   Case study
                 </a>
                 <a
                   href="mailto:hello@stillnotbald.com"
-                  className="text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                  className="text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   Contact support
                 </a>

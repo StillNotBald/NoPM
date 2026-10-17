@@ -82,7 +82,7 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
     <div className="flex flex-col gap-2">
       {/* Error banner */}
       {error && (
-        <p className="text-xs text-danger bg-danger/15 rounded-md px-3 py-2 border border-danger/20">
+        <p className="text-xs text-danger-ink bg-danger/15 rounded-md px-3 py-2 border border-danger/20">
           {error}
         </p>
       )}
@@ -133,9 +133,9 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
             className={cn(
               "rounded-md border px-3 py-2 text-xs font-medium",
               confirming === "approve"
-                ? "border-success/30 bg-success/10 text-success"
+                ? "border-success/30 bg-success/10 text-success-ink"
                 : confirming === "reject"
-                  ? "border-danger/30 bg-danger/10 text-danger"
+                  ? "border-danger/30 bg-danger/10 text-danger-ink"
                   : "border-border-subtle bg-sunken text-ink-secondary",
             )}
           >
@@ -164,7 +164,7 @@ export function ApprovalActions({ requestId, isOwn = false }: ApprovalActionsPro
             <div>
               <FieldLabel>
                 Reason{" "}
-                <span className="text-danger ml-0.5" aria-hidden>
+                <span className="text-danger-ink ml-0.5" aria-hidden>
                   *
                 </span>
               </FieldLabel>

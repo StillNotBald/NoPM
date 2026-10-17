@@ -289,7 +289,7 @@ export function NotificationBell() {
         ref={buttonRef}
         onClick={() => setOpen((v) => !v)}
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
-        className="relative grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        className="relative grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
@@ -398,7 +398,7 @@ function PopoverContent({
         {hasUnread && (
           <button
             onClick={onMarkAllRead}
-            className="font-mono text-xs text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="font-mono text-xs text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             Mark all read
           </button>
@@ -439,7 +439,7 @@ function NotificationRow({
       <button
         onClick={onClick}
         className={cn(
-          "w-full border-b border-border-subtle px-4 py-3 text-left transition-colors hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40",
+          "w-full border-b border-border-subtle px-4 py-3 text-left transition-colors hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
           "last:border-b-0",
         )}
       >

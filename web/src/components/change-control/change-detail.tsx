@@ -134,7 +134,7 @@ export function DecisionPanel({ crId, onDecided }: DecisionPanelProps) {
       </h3>
 
       {error && (
-        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger">
+        <div className="mb-3 rounded-md bg-danger/10 px-3 py-2 text-sm text-danger-ink">
           {error}
         </div>
       )}
@@ -149,7 +149,7 @@ export function DecisionPanel({ crId, onDecided }: DecisionPanelProps) {
               onClick={() => setDecision("approve")}
               className={`flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
                 decision === "approve"
-                  ? "border-success bg-success/15 text-success"
+                  ? "border-success bg-success/15 text-success-ink"
                   : "border-border-subtle bg-canvas text-ink-secondary hover:bg-sunken"
               }`}
             >
@@ -160,7 +160,7 @@ export function DecisionPanel({ crId, onDecided }: DecisionPanelProps) {
               onClick={() => setDecision("reject")}
               className={`flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
                 decision === "reject"
-                  ? "border-danger bg-danger/15 text-danger"
+                  ? "border-danger bg-danger/15 text-danger-ink"
                   : "border-border-subtle bg-canvas text-ink-secondary hover:bg-sunken"
               }`}
             >
@@ -171,7 +171,7 @@ export function DecisionPanel({ crId, onDecided }: DecisionPanelProps) {
               onClick={() => setDecision("defer")}
               className={`flex-1 rounded-md border px-3 py-2 text-xs font-medium transition-colors ${
                 decision === "defer"
-                  ? "border-warning bg-warning/15 text-warning"
+                  ? "border-warning bg-warning/15 text-warning-ink"
                   : "border-border-subtle bg-canvas text-ink-secondary hover:bg-sunken"
               }`}
             >

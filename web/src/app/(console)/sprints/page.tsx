@@ -96,7 +96,7 @@ export default async function SprintsPage({
   if (sprintsError) {
     return (
       <div className="px-4 py-5 sm:px-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load sprints.</p>
+        <p className="text-sm text-danger-ink">Failed to load sprints.</p>
       </div>
     );
   }

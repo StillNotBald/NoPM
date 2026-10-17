@@ -25,7 +25,7 @@ export default function ConsoleError({
     <div className="flex min-h-[60vh] items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm rounded-lg border border-border-subtle bg-surface p-8 text-center shadow-md">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-danger/10">
-          <AlertTriangle size={22} className="text-danger" />
+          <AlertTriangle size={22} className="text-danger-ink" />
         </div>
 
         <h2 className="mb-1 text-base font-semibold text-ink">

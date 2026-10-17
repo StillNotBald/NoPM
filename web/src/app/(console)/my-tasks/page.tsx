@@ -37,7 +37,7 @@ export default async function MyTasksPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-4xl px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load tasks: {error.message}</p>
+        <p className="text-sm text-danger-ink">Failed to load tasks: {error.message}</p>
       </div>
     );
   }

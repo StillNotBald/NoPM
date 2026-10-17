@@ -43,7 +43,7 @@ function LockConfirmDialog({
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 rounded-full bg-warning/15 p-2">
-          <AlertTriangle size={18} className="text-warning" />
+          <AlertTriangle size={18} className="text-warning-ink" />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">Lock this project?</p>
@@ -106,7 +106,7 @@ function UnlockConfirmDialog({
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 rounded-full bg-warning/15 p-2">
-          <AlertTriangle size={18} className="text-warning" />
+          <AlertTriangle size={18} className="text-warning-ink" />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">Unlock this project?</p>
@@ -178,7 +178,7 @@ function RequestDeletionDialog({
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 rounded-full bg-danger/15 p-2">
-          <AlertTriangle size={18} className="text-danger" />
+          <AlertTriangle size={18} className="text-danger-ink" />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">Request deletion of this project?</p>
@@ -375,7 +375,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
       disabled={locking}
       className={cn(
         "min-h-[44px] w-full justify-start sm:w-auto sm:min-h-0 sm:justify-center",
-        project.is_locked ? "text-warning hover:text-warning/80" : "",
+        project.is_locked ? "text-warning-ink hover:text-warning-ink/80" : "",
       )}
     >
       {locking ? (
@@ -397,7 +397,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
         handleDeleteRequest();
       }}
       disabled={deleteRequesting}
-      className="min-h-[44px] w-full justify-start text-danger hover:bg-danger/10 sm:w-auto sm:min-h-0 sm:justify-center"
+      className="min-h-[44px] w-full justify-start text-danger-ink hover:bg-danger/10 sm:w-auto sm:min-h-0 sm:justify-center"
     >
       {deleteRequesting ? (
         <Spinner size="sm" className="mr-1.5" />
@@ -468,10 +468,10 @@ export function ProjectActions({ project }: ProjectActionsProps) {
 
       {/* Inline errors — shown beneath the button row, no browser alert */}
       {lockError && (
-        <p className="text-xs text-danger text-right max-w-xs">{lockError}</p>
+        <p className="text-xs text-danger-ink text-right max-w-xs">{lockError}</p>
       )}
       {deleteError && (
-        <p className="text-xs text-danger text-right max-w-xs">{deleteError}</p>
+        <p className="text-xs text-danger-ink text-right max-w-xs">{deleteError}</p>
       )}
     </div>
   );

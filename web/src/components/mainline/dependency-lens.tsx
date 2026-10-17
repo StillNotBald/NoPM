@@ -189,7 +189,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
               className={cn(
                 "focus-ring inline-flex min-h-[44px] sm:min-h-[28px] items-center rounded-full border px-2.5 text-xs transition-colors",
                 critical
-                  ? "border-danger/40 bg-danger/10 text-danger hover:bg-danger/15"
+                  ? "border-danger/40 bg-danger/10 text-danger-ink hover:bg-danger/15"
                   : "border-border-subtle bg-sunken text-ink-secondary hover:text-ink",
               )}
             >

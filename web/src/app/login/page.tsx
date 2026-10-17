@@ -195,7 +195,7 @@ function LoginForm() {
               </div>
 
               {error && (
-                <p className={cn("rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger")}>
+                <p className={cn("rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger-ink")}>
                   {error}
                 </p>
               )}
@@ -293,7 +293,7 @@ function MfaChallengeForm({ onSuccess }: { onSuccess: () => void }) {
               </div>
 
               {error && (
-                <p className={cn("rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger")}>
+                <p className={cn("rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger-ink")}>
                   {error}
                 </p>
               )}

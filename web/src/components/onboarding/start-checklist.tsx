@@ -87,7 +87,7 @@ export function StartChecklist(props: Props) {
                 aria-hidden="true"
               >
                 {step.done ? (
-                  <CheckCircle2 size={16} className="text-success" />
+                  <CheckCircle2 size={16} className="text-success-ink" />
                 ) : (
                   <span className="h-2 w-2 rounded-full border border-border-subtle" />
                 )}

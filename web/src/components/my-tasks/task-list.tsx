@@ -112,17 +112,17 @@ function TaskRow({ task, dateDisplayPref }: { task: ProjectTask; dateDisplayPref
             title={due.title}
             className={cn(
               "shrink-0 whitespace-nowrap font-mono text-xs tabular-nums",
-              overdue ? "font-medium text-danger" : soon ? "text-warning" : "text-ink-muted",
+              overdue ? "font-medium text-danger-ink" : soon ? "text-warning-ink" : "text-ink-muted",
             )}
           >
             {due.text}
             {overdue && (
-              <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-2xs text-danger">
+              <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-2xs text-danger-ink">
                 overdue
               </span>
             )}
             {soon && !overdue && (
-              <span className="ml-1.5 rounded-full bg-warning/10 px-1 py-0.5 text-2xs text-warning">
+              <span className="ml-1.5 rounded-full bg-warning/10 px-1 py-0.5 text-2xs text-warning-ink">
                 soon
               </span>
             )}
@@ -223,7 +223,7 @@ export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
   if (tasks.length === 0) {
     return (
       <EmptyState
-        icon={<CheckCircle2 size={36} className="text-success" strokeWidth={1.5} />}
+        icon={<CheckCircle2 size={36} className="text-success-ink" strokeWidth={1.5} />}
         purpose="No tasks assigned to you. Anything assigned to you across every project will show up here."
       />
     );

@@ -129,7 +129,7 @@ export function AppShell({
                 className={cn(
                   "relative grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken",
                   "lg:h-10 lg:w-10",
-                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                   assistantOpen && "bg-sunken text-accent",
                 )}
               >

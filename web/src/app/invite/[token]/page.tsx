@@ -96,7 +96,7 @@ export default async function InviteAcceptPage({
                 </p>
                 <Link
                   href="/login"
-                  className="inline-block text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                  className="inline-block text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   Go to sign in →
                 </Link>

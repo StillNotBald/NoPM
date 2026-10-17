@@ -64,7 +64,7 @@ function formatDate(iso: string) {
 export function HotStrip({ items }: { items: HotItem[] }) {
   if (items.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-md bg-success/8 px-3 py-2.5 text-sm text-success">
+      <div className="flex items-center gap-2 rounded-md bg-success/8 px-3 py-2.5 text-sm text-success-ink">
         <span aria-hidden className="text-2xs">●</span>
         <span>Nothing hot right now — all clear.</span>
       </div>
@@ -98,7 +98,7 @@ export function HotStrip({ items }: { items: HotItem[] }) {
 
           {/* Severity or overdue flag */}
           {item.kind === "task" && (
-            <span className={cn("shrink-0 whitespace-nowrap rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] font-medium text-danger")}>
+            <span className={cn("shrink-0 whitespace-nowrap rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] font-medium text-danger-ink")}>
               overdue · {formatDate(item.due_date)}
             </span>
           )}

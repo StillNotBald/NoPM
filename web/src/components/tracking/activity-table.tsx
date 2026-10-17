@@ -182,7 +182,7 @@ function VarianceCell({ estimateHours, actualHours }: { estimateHours: number | 
   if (v.varianceHours === null) {
     return <span className="text-xs text-ink-muted">No estimate</span>;
   }
-  const tone = v.isOverrun ? "text-danger" : v.varianceHours > 0 ? "text-warning" : "text-success";
+  const tone = v.isOverrun ? "text-danger-ink" : v.varianceHours > 0 ? "text-warning-ink" : "text-success-ink";
   const sign = v.varianceHours > 0 ? "+" : "";
   return (
     <span className={cn("font-mono text-xs tabular-nums font-medium", tone)}>
@@ -397,7 +397,7 @@ function MilestoneRow({
           </button>
           <button
             onClick={() => onDelete(milestone.id, milestone.name)}
-            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-danger"
+            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-danger-ink"
             aria-label="Delete milestone"
           >
             <Trash2 size={13} />
@@ -532,7 +532,7 @@ function TaskRow({
           </button>
           <button
             onClick={() => onDelete(task.id, task.name)}
-            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-danger"
+            className="grid h-7 w-7 place-items-center rounded text-ink-muted hover:bg-sunken hover:text-danger-ink"
             aria-label="Delete task"
           >
             <Trash2 size={13} />
@@ -855,11 +855,11 @@ export function ActivityTable({
     <section className="space-y-4">
       {/* Inline delete-error banner */}
       {deleteError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger flex items-center justify-between gap-2">
+        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink flex items-center justify-between gap-2">
           <span>{deleteError}</span>
           <button
             onClick={() => setDeleteError(null)}
-            className="shrink-0 text-danger/70 hover:text-danger text-xs"
+            className="shrink-0 text-danger-ink/70 hover:text-danger-ink text-xs"
             aria-label="Dismiss error"
           >
             ×
@@ -946,10 +946,10 @@ export function ActivityTable({
             varianceRollup.variancePct === null
               ? "border-border-subtle bg-sunken text-ink-muted"
               : varianceRollup.isOverrun
-              ? "border-danger/30 bg-danger/10 text-danger"
+              ? "border-danger/30 bg-danger/10 text-danger-ink"
               : varianceRollup.varianceHours > 0
-              ? "border-warning/30 bg-warning/10 text-warning"
-              : "border-success/30 bg-success/10 text-success",
+              ? "border-warning/30 bg-warning/10 text-warning-ink"
+              : "border-success/30 bg-success/10 text-success-ink",
           )}
         >
           <span className="font-medium">

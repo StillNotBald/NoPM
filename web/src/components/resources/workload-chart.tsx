@@ -73,7 +73,7 @@ export function WorkloadChart({ members }: { members: WorkloadMemberInput[] }) {
           <span className="mt-0.5 block text-xs text-ink-muted">
             Allocated vs capacity, {periodLabel}
             {overCount > 0 && (
-              <span className="text-danger font-medium">
+              <span className="text-danger-ink font-medium">
                 {" "}
                 · {overCount} over capacity
               </span>

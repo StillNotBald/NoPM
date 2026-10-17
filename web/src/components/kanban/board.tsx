@@ -149,7 +149,7 @@ function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardPr
           <span
             className={cn(
               "text-xs font-medium tabular-nums",
-              isStale ? "text-warning" : "text-ink-muted",
+              isStale ? "text-warning-ink" : "text-ink-muted",
             )}
             title={statusAgeSince === "created" ? "Never moved — age since created" : "Days in current status"}
           >
@@ -157,7 +157,7 @@ function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardPr
           </span>
         )}
         {movedNote && (
-          <span className="text-xs text-success font-medium">
+          <span className="text-xs text-success-ink font-medium">
             moved — audited ✓
           </span>
         )}
@@ -340,7 +340,7 @@ export function KanbanBoard({
     <div className="space-y-3">
       {/* Locked banner */}
       {isLocked && (
-        <div className="rounded-md border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+        <div className="rounded-md border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning-ink">
           Timeline locked — changes require a rebaseline.
         </div>
       )}

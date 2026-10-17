@@ -83,12 +83,12 @@ export function TaskRow({ task }: { task: MyTask }) {
           <span
             className={cn(
               "shrink-0 whitespace-nowrap font-mono text-xs tabular-nums",
-              task.isOverdue ? "font-medium text-danger" : "text-ink-muted",
+              task.isOverdue ? "font-medium text-danger-ink" : "text-ink-muted",
             )}
           >
             {formatDate(task.due_date)}
             {task.isOverdue && (
-              <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-2xs text-danger">
+              <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-2xs text-danger-ink">
                 overdue
               </span>
             )}

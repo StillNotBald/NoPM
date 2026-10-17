@@ -253,7 +253,7 @@ export default async function TrustPage({
               id="trust-channel"
               name="channel"
               defaultValue={filters.channel ?? ""}
-              className="field h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30 sm:w-auto"
+              className="field h-10 rounded-md border border-border-subtle bg-canvas px-2.5 text-sm text-ink focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent sm:w-auto"
             >
               <option value="">All</option>
               {CHANNEL_OPTIONS.map((c) => (

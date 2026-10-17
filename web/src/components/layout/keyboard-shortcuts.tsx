@@ -84,7 +84,7 @@ export function KeyboardShortcuts({ open, onClose }: KeyboardShortcutsProps) {
           <button
             onClick={onClose}
             aria-label="Close"
-            className="grid h-7 w-7 place-items-center rounded-md text-ink-muted hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="grid h-7 w-7 place-items-center rounded-md text-ink-muted hover:bg-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <X size={14} />
           </button>

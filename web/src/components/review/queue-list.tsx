@@ -18,38 +18,38 @@ const kindMeta: Record<
   approval: {
     label: "Pending Approvals",
     chipClass:
-      "rounded-full bg-danger/10 px-2 py-0.5 font-mono text-xs font-medium text-danger",
-    dotClass: "text-danger",
+      "rounded-full bg-danger/10 px-2 py-0.5 font-mono text-xs font-medium text-danger-ink",
+    dotClass: "text-danger-ink",
   },
   rebaseline: {
     label: "Rebaseline Sign-offs",
     chipClass:
-      "rounded-full bg-warning/10 px-2 py-0.5 font-mono text-xs font-medium text-warning",
-    dotClass: "text-warning",
+      "rounded-full bg-warning/10 px-2 py-0.5 font-mono text-xs font-medium text-warning-ink",
+    dotClass: "text-warning-ink",
   },
   change: {
     label: "Change Requests in Review",
     chipClass:
-      "rounded-full bg-change/10 px-2 py-0.5 font-mono text-xs font-medium text-change",
-    dotClass: "text-change",
+      "rounded-full bg-change/10 px-2 py-0.5 font-mono text-xs font-medium text-change-ink",
+    dotClass: "text-change-ink",
   },
   timesheet: {
     label: "Timesheets Pending Decision",
     chipClass:
-      "rounded-full bg-info/10 px-2 py-0.5 font-mono text-xs font-medium text-info",
-    dotClass: "text-info",
+      "rounded-full bg-info/10 px-2 py-0.5 font-mono text-xs font-medium text-info-ink",
+    dotClass: "text-info-ink",
   },
   risk: {
     label: "High / Critical Risks",
     chipClass:
-      "rounded-full bg-sev-high/10 px-2 py-0.5 font-mono text-xs font-medium text-sev-high",
-    dotClass: "text-sev-high",
+      "rounded-full bg-sev-high/10 px-2 py-0.5 font-mono text-xs font-medium text-sev-high-ink",
+    dotClass: "text-sev-high-ink",
   },
   clash: {
     label: "Unresolved Clashes",
     chipClass:
-      "rounded-full bg-info/10 px-2 py-0.5 font-mono text-xs font-medium text-info",
-    dotClass: "text-info",
+      "rounded-full bg-info/10 px-2 py-0.5 font-mono text-xs font-medium text-info-ink",
+    dotClass: "text-info-ink",
   },
   document: {
     label: "Documents in Review",
@@ -104,8 +104,8 @@ function AgeChip({ days }: { days: number }) {
     <span
       className={cn(
         "shrink-0 font-mono text-[11px] tabular-nums text-ink-muted",
-        days >= 7 && "text-warning",
-        days >= 14 && "text-danger",
+        days >= 7 && "text-warning-ink",
+        days >= 14 && "text-danger-ink",
       )}
     >
       {label}
@@ -358,7 +358,7 @@ export function QueueList({ items }: { items: ReviewItem[] }) {
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         <span
-          className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-success/15 text-success"
+          className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-success/15 text-success-ink"
           aria-hidden
         >
           {/* checkmark */}
