@@ -444,9 +444,13 @@ await report.check("LK-S6", "a signature made with a different connector's secre
   await assertVictimUntouched("wrong encrypt key");
 });
 
-await report.check("LK-S7", "unknown connector id -> 404 (no oracle for which ids exist)", async () => {
+// Since the Lark red-team hardening (R2 F7b) an unknown, paused or revoked
+// connector answers exactly like a failed signature check — the same 401 and
+// the same body — so a caller can't learn which connector ids exist.
+await report.check("LK-S7", "unknown connector id -> same 401 as a bad signature (no oracle for which ids exist)", async () => {
   const r = await click({ openId: OPEN_B, token: victimToken, eventId: newEventId("noconn"), path: CARD_PATH(randomUUID()) });
-  expectEqual(r.status, 404, `body ${r.text.slice(0, 160)}`);
+  expectEqual(r.status, 401, `body ${r.text.slice(0, 160)}`);
+  expectEqual(r.text.trim(), '{"error":"Invalid request"}', "body must match the bad-signature response");
 });
 
 // ── 6. identity + token guards (valid signature, so these reach the pipeline) ─
