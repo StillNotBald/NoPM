@@ -1,10 +1,10 @@
 # 07 · Lark wave rollout (migrations 0045–0054)
 
-**Status: DRAFT** — rehearsed end to end on a scratch database built to the live ledger state; not yet executed against the live project.
+**Status: ACTIVE** — rehearsed end to end on a scratch database built to the live ledger state; executed against the live project on 2026-10-17 (see "Run record — 2026-10-17" at the end).
 
 Release-specific runbook for the build that adds principal-aware four-eyes, the integration hub (Lark approval cards, weekly digest), calendar feeds, lifecycle guards and the delivery fixes, plus the project-deletion scope follow-up and privilege tightening of 0054. It extends [02-DEPLOY.md](02-DEPLOY.md) (which says "migrations first, then deploy") for the one release where that is not enough: **migration 0045 removes the deletion-commit functions the previous build calls**, so the order and the window shape matter. Read [03-ROLLBACK.md](03-ROLLBACK.md) first and keep it open.
 
-**State today.** The live ledger holds 0001–0044 plus **0048** (the direct-write lockdown, applied out of order as a hotfix on 2026-10-17, file `20261016000048_rls_api_only_writes.sql`). Pending: 0045, 0046, 0047, 0049, 0050, 0051, 0052, 0053, 0054 (nine files). The runner skips applied names, so 0048 is skipped and the rest apply in filename order.
+**State before the run (it was applied 2026-10-17, see the run record below; the live ledger now holds 0001–0054).** The live ledger held 0001–0044 plus **0048** (the direct-write lockdown, applied out of order as a hotfix on 2026-10-17, file `20261016000048_rls_api_only_writes.sql`). Pending: 0045, 0046, 0047, 0049, 0050, 0051, 0052, 0053, 0054 (nine files). The runner skips applied names, so 0048 is skipped and the rest apply in filename order.
 
 **Order, fixed:** backup → pre-check → environment variables → build without aliasing → apply all nine files in ONE transaction → post-check → promote → post-deploy. Never deploy the new build before the migrations: on the old schema it fails every governed decision, the Tokens list, the AI assistant, timesheet submit/reopen and the whole hub. The only break in the right order is the previous build's task/project deletion approvals between the migration commit and the promote (seconds).
 
@@ -158,3 +158,26 @@ New build against the unmigrated schema: deletion approval, sign-off, change-req
 |---|---|---|---|
 | Owner (rollout executed, post-check filed) | | | |
 | Client witness (optional) | | | |
+
+---
+
+## Run record — 2026-10-17
+
+Times are UTC. Code: PRs #7 and #9 merged; main is `ba1044c`.
+
+| Step | Result |
+|---|---|
+| Backup (section 2) | A schema dump and a data dump were taken before the apply and are stored outside the repo. |
+| Pre-check (section 2) | Read-only `precheck.sql` passed every hard gate. The F1–F4 history counts were 6, 1, 0 and 0 (F1 deletion requests, F2 change requests, F3 timesheets, F4 unknowable requester). |
+| Environment (section 3) | `CRON_SECRET` added to Vercel production. |
+| Dry run (section 4, step 2) | `--atomic --dry-run`: "Dry run complete in 623 ms: 9 pending file(s) applied cleanly, then ROLLED BACK. Nothing changed." |
+| Apply (section 4, step 3) | `apply-migrations.mjs --atomic`: 0045–0047 and 0049–0054 committed in one transaction at 06:04:26–06:04:27 UTC: "Committed 9 file(s) in one transaction (495 ms)." |
+| Promote (section 4, step 6) | New build promoted at 06:04:50 UTC. The previous build ran against the new schema for about 25 s. |
+| Post-check (section 4, step 4) | `postcheck.sql`: 26 rows, 25 `ok`, row 24 `info` (api_tokens by kind). No row failed. |
+| Backfill (section 5.1) | `post-window-backfill.sql` run; rows 21 and 22 read 0. |
+| Smoke (section 5.3) | Authenticated smoke test: 24 of 24. |
+| Cron (section 5.4) | `/api/integrations/cron` returns 401 without the secret and 200 with it. |
+
+The 0045 notice reported 6 deletion requests and 1 change request decided by the same human who raised them (kept as history; blocked from now on).
+
+Not in this record: the migration-0052 backfill statement (section 5.1) and the governed smoke test (section 5.5).

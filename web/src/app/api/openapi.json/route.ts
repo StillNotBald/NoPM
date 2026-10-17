@@ -2427,7 +2427,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Lock a project timeline",
-        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
+        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined, and captures the project's own baseline_start_date / baseline_target_date from its start_date / target_date where those are still null (an existing project baseline is never overwritten) — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. The project.lock audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }). Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
         operationId: "lockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
@@ -2512,7 +2512,7 @@ const spec = {
       post: {
         tags: ["rebaselines"],
         summary: "Apply an approved rebaseline (four-eyes)",
-        description: "scope: rebaseline:approve (a wildcard never grants it). Only approved rebaselines may be applied. The requester may not apply their own rebaseline — compared on the person, so a token the requester minted is refused too (403, code self_approval; the legacy same-user case is a 422 with the same code); a token with no recorded owner cannot apply (403, code no_principal). Overwrites baseline dates for all milestones and tasks in the project. The baseline snapshot runs first and the status flips to applied only after it succeeds, so a failed snapshot (500) leaves the rebaseline approved and the call can simply be repeated.",
+        description: "scope: rebaseline:approve (a wildcard never grants it). Only approved rebaselines may be applied. The requester may not apply their own rebaseline — compared on the person, so a token the requester minted is refused too (403, code self_approval; the legacy same-user case is a 422 with the same code); a token with no recorded owner cannot apply (403, code no_principal). Overwrites baseline dates for all milestones and tasks in the project, and moves the project's own baseline_start_date / baseline_target_date to its current start_date / target_date (a project with no dates keeps its baseline). The rebaseline.apply audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }) — it shows in the project's History tab and the Trust Center stream. The baseline snapshot runs first and the status flips to applied only after it succeeds, so a failed snapshot (500) leaves the rebaseline approved and the call can simply be repeated.",
         operationId: "applyRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {

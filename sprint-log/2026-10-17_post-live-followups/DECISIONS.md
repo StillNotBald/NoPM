@@ -1,0 +1,17 @@
+# Owner decisions — 2026-10-17 post-live follow-ups
+
+Decisions the owner made on 2026-10-17, after the Lark-wave go-live. Each one answers an open follow-up in [`../2026-10-16_lark-integration/SPRINT_SUMMARY.md`](../2026-10-16_lark-integration/SPRINT_SUMMARY.md) under "Follow-ups". Decisions 1–3 and 5 are not part of this record.
+
+| # | Decision | Owner choice | Consequence | Where recorded |
+|---|---|---|---|---|
+| 4 | Live Lark tenant test | Goes to the backlog. R-99 stays PARTIAL. | R-99 stays PARTIAL until the live-tenant test is done, including card callbacks over the long connection. | `docs/ROADMAP.md` (Backlog); `requirements/REQUIREMENTS.md` R-99; this sprint's SPRINT_SUMMARY |
+| 6 | Who may approve: session members, or admin/manager only | Goes to the backlog. | No change now. A session user who is not a viewer keeps the approve verbs implicitly. | `docs/ROADMAP.md` (Backlog); 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Who may approve") |
+| 7 | Unlock: single actor or four-eyes | Unlock stays single-actor. No second person; the reason and audit row are kept. | No four-eyes on unlock. This decision covers unlock only. Who may lock is not decided here. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Unlock and lock"); this sprint's SPRINT_SUMMARY |
+| 8 | Can a manager invite another manager? | Managers may invite managers. | Closes the 2026-10-16 question. A manager-invited manager is a second human identity for four-eyes, as that question noted. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Smaller"); this sprint's SPRINT_SUMMARY |
+| 9 | Calendar feed after its creator leaves | A calendar feed keeps working after its creator leaves. An admin revokes it manually if needed. | No automatic revoke when the creator's access ends. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Smaller"); this sprint's SPRINT_SUMMARY |
+| 10 | Does an approved rebaseline move the project baseline? | An approved rebaseline also moves the project baseline, with an audit trail. | Built: migration 0055, plus the lock and apply audit trail (R-103). | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Smaller"); this sprint's SPRINT_SUMMARY |
+| 11 | Who may edit or delete an open change request | Only the requester may edit or delete an open change request. Confirmed. | Already in the code from the round-3 fix (403 `not_requester`). | 2026-10-16 SPRINT_SUMMARY, Round 3 (governance) and Follow-ups ("Smaller"); this sprint's SPRINT_SUMMARY |
+| 12 | `tailwind-merge` dependency | Approved. | Pinned exactly at 3.7.0 in `web/package.json`. Listed in the CLAUDE.md "Approved libs" sentence. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Dependency sign-off"); `CLAUDE.md`; this sprint's SPRINT_SUMMARY |
+| 13 | Cross-tenant repair | Closed. The live integrity check found 0 cross-workspace references, so nothing was removed. | No repair was run. The composite `(workspace_id, id)` foreign-key question in the same follow-up is not covered by this decision. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Existing data", "Live integrity check"); this sprint's SPRINT_SUMMARY |
+| 14 | Landing copy | The landing copy stays as it is. | The public-copy items in the 2026-10-16 follow-up (UI audit A5) are not changed. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Public copy"); this sprint's SPRINT_SUMMARY |
+| 15 | CDN caching of public pages | Approved. | Started and parked for the next session; nothing shipped yet. | 2026-10-16 SPRINT_SUMMARY, Follow-ups ("Caching"); this sprint's SPRINT_SUMMARY |

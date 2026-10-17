@@ -98,6 +98,25 @@ export const POST = route(async ({ actor, params, request }) => {
         if (taskUpdateErr) throw taskUpdateErr;
       }
     }
+
+    // The project's own baseline (migration 0055 moves it on every rebaseline
+    // apply; this is the first capture). Same null-only rule, one column at a
+    // time so a baseline someone already set is never overwritten, and still
+    // before is_locked flips — the 0049 trigger freezes these columns after.
+    const projectBaseline: Array<[column: string, current: unknown]> = [
+      ["baseline_start_date", before.start_date],
+      ["baseline_target_date", before.target_date],
+    ];
+    for (const [column, current] of projectBaseline) {
+      if (current == null) continue; // nothing to snapshot
+      const { error: projUpdateErr } = await db
+        .from("projects")
+        .update({ [column]: current })
+        .eq("id", params.id)
+        .eq("workspace_id", actor.workspaceId)
+        .is(column, null);
+      if (projUpdateErr) throw projUpdateErr;
+    }
   }
 
   const now = new Date().toISOString();
@@ -117,6 +136,9 @@ export const POST = route(async ({ actor, params, request }) => {
 
   if (updateError) throw updateError;
 
+  // The trail for the project baseline: what it was when the lock was asked for
+  // and what the row holds now (read back from the locked row, so it is what was
+  // really written). Equal on an already-locked project and on a re-lock.
   await writeAudit({
     workspaceId: actor.workspaceId,
     actor,
@@ -124,7 +146,13 @@ export const POST = route(async ({ actor, params, request }) => {
     targetType: "project",
     targetId: params.id,
     before,
-    after,
+    after: {
+      ...after,
+      project_baseline: {
+        before: { start: before.baseline_start_date ?? null, target: before.baseline_target_date ?? null },
+        after: { start: after.baseline_start_date ?? null, target: after.baseline_target_date ?? null },
+      },
+    },
   });
 
   return ok(after);

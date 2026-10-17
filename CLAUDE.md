@@ -7,7 +7,7 @@ A **lite, API-first project-management tool that a user's own AI agent operates*
 
 ## Stack — do not deviate (ask the maintainer first)
 Next.js **16** (App Router) · TypeScript · **Tailwind v4** · shadcn-style primitives on **macOS-terminal-light tokens** (white/near-black canvas + ink text + Fluent-blue `#0078d4` accent, JetBrains Mono accents) · **Supabase** (Postgres + Auth + RLS) · **Vercel** host + **Cloudflare** DNS.
-Approved libs: `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `otplib`, `pptxgenjs`, `jspdf`, `html2canvas`, `dnd-kit`, `resend` (demo-mode), `pg` (migration runner). Nothing else without asking the maintainer.
+Approved libs: `@supabase/ssr`, `@supabase/supabase-js`, `zod`, `otplib`, `pptxgenjs`, `jspdf`, `html2canvas`, `dnd-kit`, `resend` (demo-mode), `pg` (migration runner), `@larksuiteoapi/node-sdk` (exact 1.74.0, approved 2026-10-16), `tailwind-merge` (exact 3.7.0, approved 2026-10-17). Nothing else without asking the maintainer.
 
 ## Scope (v1) — 8 modules + governance
 Workspace → Project → Milestone → Task (typed statuses) · **Risk** · **Issue** · **Clash** (schedule/resource/dependency, cross-project) · **Resource** (people, cost-rate, capacity, allocation, timesheets) · **Budget** (planned/committed/actual/variance/burn). Governance-wired **Kanban** (drag = audited) + read-mostly **Gantt** (lock → rebaseline). **Trust Center** (audit stream + provenance). Deck export PPTX/PDF/HTML. Landing + case study + seed.
