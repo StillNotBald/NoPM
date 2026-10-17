@@ -142,11 +142,13 @@ async function loadConnector(connectorId: string): Promise<ConnectorRow | null> 
 }
 
 const RATE_WINDOW_SECONDS = 60;
+const RATE_FAIL_CLOSED_RETRY_SECONDS = 30;
 
 /**
  * Same mechanism as src/lib/api/rate-limit.ts: the `nopm_rate_check` RPC, a
- * row-locked fixed window that holds across serverless instances. Fail-OPEN on
- * infrastructure errors (an abuse guard, not an auth control), loudly.
+ * row-locked fixed window that holds across serverless instances. Fail-CLOSED on
+ * infrastructure errors (A1-15): the endpoint is public, so a broken limiter must
+ * not become an unlimited one. The platform retries a refused delivery.
  */
 async function rateCheck(key: string, max: number): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
   const { data, error } = await createAdminClient().rpc("nopm_rate_check", {
@@ -155,8 +157,8 @@ async function rateCheck(key: string, max: number): Promise<{ allowed: boolean; 
     p_window_seconds: RATE_WINDOW_SECONDS,
   });
   if (error) {
-    console.error("[nopm][lark] nopm_rate_check RPC failed - FAILING OPEN (cap not enforced this call)", { key, error: error.message });
-    return { allowed: true, retryAfterSeconds: 0 };
+    console.error("[nopm][lark] nopm_rate_check RPC failed - FAILING CLOSED (request refused)", { key, error: error.message });
+    return { allowed: false, retryAfterSeconds: RATE_FAIL_CLOSED_RETRY_SECONDS };
   }
   const result = data as { allowed: boolean; retry_after_seconds: number };
   return { allowed: result.allowed, retryAfterSeconds: result.retry_after_seconds };

@@ -111,6 +111,7 @@ export const POST = route(
       displayName: parsed.data.display_name,
       channel,
       requestId,
+      inviteId: invite.id,
     });
 
     const { data: workspace } = await db

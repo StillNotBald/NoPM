@@ -27,6 +27,7 @@ import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
+import { ChildCountsNote } from "@/components/review/child-counts-note";
 import { TextareaInput } from "@/components/forms/project-form";
 import { DecisionPanel, ChangeFacts, statusLabel, type ChangeFactsData } from "@/components/change-control/change-detail";
 import type { ChangeRequest } from "@/components/change-control/change-form";
@@ -344,7 +345,8 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
         </div>
       </div>
 
-      <FourEyesNote block={decide.canDecide ? null : decide.block} className="mb-1" />
+      {item.childCounts && item.childCounts.length > 0 && <ChildCountsNote lines={item.childCounts} />}
+      <FourEyesNote block={decide.canDecide ? null : decide.block} className="mb-1 mt-2" />
       {!decide.canDecide && decide.canWithdraw && (
         <p className="mt-2 text-xs text-ink-secondary">
           You can withdraw it from{" "}

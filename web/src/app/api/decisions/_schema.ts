@@ -4,10 +4,10 @@ const decisionStatusEnum = z.enum(["proposed", "accepted", "superseded", "reject
 
 export const createDecisionSchema = z.object({
   title: z.string().min(1, "title is required").max(255),
-  context: z.string().optional().nullable(),
-  options: z.string().optional().nullable(),
-  decision: z.string().optional().nullable(),
-  rationale: z.string().optional().nullable(),
+  context: z.string().max(10_000).optional().nullable(),
+  options: z.string().max(10_000).optional().nullable(),
+  decision: z.string().max(10_000).optional().nullable(),
+  rationale: z.string().max(10_000).optional().nullable(),
   status: decisionStatusEnum.optional().default("accepted"),
   decided_at: z.string().datetime({ offset: true }).optional().nullable(),
   supersedes: z.string().uuid("supersedes must be a valid UUID").optional().nullable(),
@@ -25,10 +25,10 @@ export const createDecisionSchema = z.object({
 
 export const updateDecisionSchema = z.object({
   title: z.string().min(1).max(255).optional(),
-  context: z.string().optional().nullable(),
-  options: z.string().optional().nullable(),
-  decision: z.string().optional().nullable(),
-  rationale: z.string().optional().nullable(),
+  context: z.string().max(10_000).optional().nullable(),
+  options: z.string().max(10_000).optional().nullable(),
+  decision: z.string().max(10_000).optional().nullable(),
+  rationale: z.string().max(10_000).optional().nullable(),
   status: decisionStatusEnum.optional(),
   decided_at: z.string().datetime({ offset: true }).optional().nullable(),
   supersedes: z.string().uuid("supersedes must be a valid UUID").optional().nullable(),

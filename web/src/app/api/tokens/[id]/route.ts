@@ -1,5 +1,5 @@
 import { route } from "@/lib/api/handler";
-import { ScopeError, NotFoundError } from "@/lib/api/errors";
+import { ScopeError, NotFoundError, ConflictError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { ok } from "@/lib/api/response";
@@ -17,7 +17,10 @@ function requireTokenAdmin(actor: Actor): void {
   }
 }
 
-// DELETE /api/tokens/[id] — revoke a token (set revoked = true)
+// DELETE /api/tokens/[id] — revoke a PERSONAL token (set revoked = true).
+// Only kind = 'user' tokens are addressable here: the assistant's per-turn
+// ephemeral tokens (kind = 'assistant') are not in the inventory, so they are 404.
+// Revoking an already revoked token is 409 and writes no second audit row.
 export const DELETE = route(async ({ actor, params }) => {
   requireTokenAdmin(actor);
 
@@ -29,18 +32,25 @@ export const DELETE = route(async ({ actor, params }) => {
     .select("id, name, prefix, scopes, expires_at, revoked, last_used_at, created_at")
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
+    .eq("kind", "user")
     .maybeSingle();
 
   if (fetchError) throw fetchError;
   if (!before) throw new NotFoundError("API token not found");
+  if (before.revoked) throw new ConflictError("Token already revoked", "already_revoked");
 
-  const { error: updateError } = await db
+  const { data: updated, error: updateError } = await db
     .from("api_tokens")
     .update({ revoked: true })
     .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
+    .eq("workspace_id", actor.workspaceId)
+    .eq("kind", "user")
+    .eq("revoked", false)
+    .select("id");
 
   if (updateError) throw updateError;
+  // Lost a race with a concurrent revoke: same answer, still one audit row.
+  if (!updated || updated.length === 0) throw new ConflictError("Token already revoked", "already_revoked");
 
   await writeAudit({
     workspaceId: actor.workspaceId,

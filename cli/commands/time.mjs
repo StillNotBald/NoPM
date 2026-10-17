@@ -9,8 +9,10 @@ export const describe = "List, create, or delete time entries (timesheets)";
 
 export const usage = [
   "nopm time ls [--project <uuid>] [--member <uuid>]         list time entries",
-  "nopm time create --member <uuid> --project <uuid> --date <YYYY-MM-DD> --hours <h> [--task <uuid>] [--note <text>]",
+  "nopm time create --member <uuid> --project <uuid> --date <YYYY-MM-DD> --hours <h> [--task <uuid>] [--note <text>] [--idempotency-key <key>]",
   "nopm time rm <id>                                          delete a time entry",
+  "  a member can log and delete only their own hours (403 not_your_hours); admins and managers can do it for others",
+  "  --idempotency-key <key>: retry-safe create — the same key (24 h) returns the first entry, not a duplicate",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 

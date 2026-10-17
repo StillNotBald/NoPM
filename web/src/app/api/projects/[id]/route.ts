@@ -97,7 +97,20 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: fields.owner_id, field: "owner_id" },
+    { table: "programs", id: fields.program_id, field: "program_id" },
   ]);
+
+  // D-WRK-17: completion is calculated from the tasks (roll-up trigger), so a
+  // manual value would be overwritten on the next task change. An echo of the
+  // stored value is tolerated (forms send the whole record) and dropped.
+  if (fields.completion_pct !== undefined) {
+    if (Number(fields.completion_pct) !== Number(before.completion_pct)) {
+      return validationError("Project completion is calculated from its tasks", [
+        { field: "completion_pct", message: "Project completion is calculated from its tasks" },
+      ]);
+    }
+    delete fields.completion_pct;
+  }
 
   const now = new Date().toISOString();
   let query = db

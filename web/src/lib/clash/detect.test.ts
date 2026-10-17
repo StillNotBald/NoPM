@@ -23,7 +23,7 @@ const { writeAudit } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/audit/write", () => ({ writeAudit }));
 
-import { detectOverAllocation } from "./detect";
+import { detectOverAllocation, detectOverAllocationSafe } from "./detect";
 
 const WS = "ws-1";
 
@@ -39,13 +39,15 @@ type Alloc = {
 };
 
 type Call = { op: string; args: unknown[] };
-type Query = { table: string; calls: Call[] };
+type Query = { table: string; calls: Call[]; many: boolean };
 
 type DbConfig = {
   members?: Record<string, { id: string; name: string }>;
   allocations?: Record<string, Alloc[]>;
   allocationsError?: { message: string } | null;
   existingClash?: Record<string, unknown> | null;
+  /** Live (open/investigating) clashes returned by the resolve-path list read. */
+  liveClashes?: Record<string, unknown>[];
   insertError?: { message: string } | null;
   updateError?: { message: string } | null;
 };
@@ -70,13 +72,16 @@ class FakeQuery {
   insert(...a: unknown[]) { return this.push("insert", ...a); }
   update(...a: unknown[]) { return this.push("update", ...a); }
   eq(...a: unknown[]) { return this.push("eq", ...a); }
-  single() { return Promise.resolve(this.result()); }
-  maybeSingle() { return Promise.resolve(this.result()); }
+  in(...a: unknown[]) { return this.push("in", ...a); }
+  order(...a: unknown[]) { return this.push("order", ...a); }
+  limit(...a: unknown[]) { return this.push("limit", ...a); }
+  single() { return Promise.resolve(this.result(false)); }
+  maybeSingle() { return Promise.resolve(this.result(false)); }
   then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
-    return Promise.resolve(this.result()).then(res, rej);
+    return Promise.resolve(this.result(true)).then(res, rej);
   }
-  private result() {
-    return this.route({ table: this.table, calls: this.calls });
+  private result(many: boolean) {
+    return this.route({ table: this.table, calls: this.calls, many });
   }
 }
 
@@ -105,12 +110,15 @@ function makeDb(cfg: DbConfig) {
           : { data: { id: "clash_new", ...(q.calls[0].args[0] as object) }, error: null };
       }
       if (hasOp(q, "update")) {
-        // The bulk "resolve" update has no .select(); the single-row update does.
-        if (!hasOp(q, "select")) return { data: null, error: null };
+        if (hasOp(q, "in") && eqArg(q, "id")) {
+          // resolve path: per-clash update by id
+          return { data: { id: eqArg(q, "id"), status: "resolved" }, error: null };
+        }
         return cfg.updateError
           ? { data: null, error: cfg.updateError }
           : { data: { id: "clash_existing", ...(q.calls[0].args[0] as object) }, error: null };
       }
+      if (q.many) return { data: cfg.liveClashes ?? [], error: null };
       return { data: cfg.existingClash ?? null, error: null };
     }
     throw new Error(`FakeDb: unexpected table "${q.table}"`);
@@ -430,7 +438,7 @@ describe("detectOverAllocation — existing open clash", () => {
     });
   });
 
-  it("looks the existing clash up by workspace + member + type + open status", async () => {
+  it("looks the existing clash up by workspace + member + type + live (open/investigating) status", async () => {
     const db = makeDb(cfg);
     await detectOverAllocation(db.client, WS, "m1", actor());
     const lookup = db.on("clashes")[0];
@@ -438,8 +446,8 @@ describe("detectOverAllocation — existing open clash", () => {
       ["workspace_id", WS],
       ["resource_member_id", "m1"],
       ["type", "resource"],
-      ["status", "open"],
     ]);
+    expect(lookup.calls.find((c) => c.op === "in")?.args).toEqual(["status", ["open", "investigating"]]);
   });
 
   it("audits the update with the previous row as `before`", async () => {
@@ -465,33 +473,48 @@ describe("detectOverAllocation — existing open clash", () => {
 // Resolution path
 // ---------------------------------------------------------------------------
 describe("detectOverAllocation — resolution when allocation drops back under the limit", () => {
-  it("marks open resource clashes for the member resolved and returns false", async () => {
+  const UNDER = {
+    members: MEMBERS,
+    allocations: {
+      m1: [alloc("a1", 40, "2026-01-01", "2026-06-01"), alloc("a2", 30, "2026-01-01", "2026-06-01")],
+    },
+  };
+
+  it("resolves every live (open or investigating) clash for the member and returns false", async () => {
     const db = makeDb({
-      members: MEMBERS,
-      allocations: {
-        m1: [
-          alloc("a1", 40, "2026-01-01", "2026-06-01"),
-          alloc("a2", 30, "2026-01-01", "2026-06-01"),
-        ],
-      },
+      ...UNDER,
+      liveClashes: [
+        { id: "c1", status: "open" },
+        { id: "c2", status: "investigating" },
+      ],
     });
     await expect(detectOverAllocation(db.client, WS, "m1", actor())).resolves.toBe(false);
 
-    expect(db.payload("clashes", "update")).toEqual({ status: "resolved" });
-    const q = db.on("clashes")[0];
-    expect(q.calls.filter((c) => c.op === "eq").map((c) => c.args)).toEqual([
+    const list = db.on("clashes")[0];
+    expect(list.calls.filter((c) => c.op === "eq").map((c) => c.args)).toEqual([
       ["workspace_id", WS],
       ["resource_member_id", "m1"],
       ["type", "resource"],
-      ["status", "open"],
     ]);
+    expect(list.calls.find((c) => c.op === "in")?.args).toEqual(["status", ["open", "investigating"]]);
+    const updates = db.on("clashes").filter((q) => q.calls.some((c) => c.op === "update"));
+    expect(updates).toHaveLength(2);
+    expect(updates[0].calls.find((c) => c.op === "update")?.args[0]).toEqual({ status: "resolved" });
+    expect(updates.map((q) => q.calls.find((c) => c.op === "eq" && c.args[0] === "id")?.args[1])).toEqual(["c1", "c2"]);
   });
 
-  it("does not write an audit row when resolving (documented: resolution is unaudited — see report)", async () => {
-    const db = makeDb({
-      members: MEMBERS,
-      allocations: { m1: [alloc("a1", 50, "2026-01-01", "2026-06-01")] },
-    });
+  it("writes exactly one clash.auto_resolve audit row per resolved clash, by the triggering actor", async () => {
+    const db = makeDb({ ...UNDER, liveClashes: [{ id: "c1", status: "open" }, { id: "c2", status: "investigating" }] });
+    await detectOverAllocation(db.client, WS, "m1", actor());
+    expect(writeAudit).toHaveBeenCalledTimes(2);
+    const calls = writeAudit.mock.calls.map((c) => c[0]);
+    expect(calls.map((c) => c.action)).toEqual(["clash.auto_resolve", "clash.auto_resolve"]);
+    expect(calls.map((c) => c.targetId)).toEqual(["c1", "c2"]);
+    expect(calls[0]).toMatchObject({ workspaceId: WS, actor: actor(), targetType: "clash", before: { id: "c1", status: "open" }, after: { status: "resolved" } });
+  });
+
+  it("writes no audit row when there is no live clash to resolve", async () => {
+    const db = makeDb({ ...UNDER, liveClashes: [] });
     await detectOverAllocation(db.client, WS, "m1", actor());
     expect(writeAudit).not.toHaveBeenCalled();
   });
@@ -534,5 +557,38 @@ describe("detectOverAllocation — members are isolated from each other", () => 
       ["member_id", "m2"],
       ["workspace_id", WS],
     ]);
+  });
+});
+
+describe("detectOverAllocation — an investigating clash counts as open", () => {
+  it("updates the investigating clash instead of raising a second one", async () => {
+    const db = makeDb({
+      members: MEMBERS,
+      allocations: { m1: [alloc("a1", 80, "2026-01-01", "2026-06-01"), alloc("a2", 80, "2026-01-01", "2026-06-01")] },
+      existingClash: { id: "clash_inv", status: "investigating" },
+    });
+    await expect(detectOverAllocation(db.client, WS, "m1", actor())).resolves.toBe(true);
+    expect(db.payload("clashes", "insert")).toBeUndefined();
+    expect(db.payload("clashes", "update")).toBeDefined();
+    expect(writeAudit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("detectOverAllocationSafe", () => {
+  it("returns a warning instead of throwing when detection fails", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = makeDb({
+      members: MEMBERS,
+      allocations: { m1: [alloc("a1", 80, null, null), alloc("a2", 80, null, null)] },
+      insertError: { message: "boom" },
+    });
+    const out = await detectOverAllocationSafe(db.client, WS, "m1", actor());
+    expect(out.detected).toBe(false);
+    expect(out.warning).toMatch(/allocation was saved/);
+    spy.mockRestore();
+  });
+  it("passes the result through on success", async () => {
+    const db = makeDb({ members: MEMBERS, allocations: { m1: [alloc("a1", 50, null, null)] } });
+    await expect(detectOverAllocationSafe(db.client, WS, "m1", actor())).resolves.toEqual({ detected: false, warning: null });
   });
 });

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
-import { apiGet, apiPost, type ApiError } from "@/lib/api-client";
+import { apiGet, apiPostWithWarnings, type ApiError } from "@/lib/api-client";
 import { Field, FormError, SelectInput } from "@/components/forms/project-form";
 import {
   FormSection,
@@ -121,8 +121,10 @@ export function AllocationForm({
     };
 
     try {
-      await apiPost("/api/allocations", payload);
+      const { warnings } = await apiPostWithWarnings("/api/allocations", payload);
       toast.success("Allocation created");
+      // Non-blocking: the allocation was saved, the server just flags a concern.
+      for (const w of warnings) toast.info(w, { duration: 8000 });
       router.refresh();
       inspector.close();
     } catch (err) {

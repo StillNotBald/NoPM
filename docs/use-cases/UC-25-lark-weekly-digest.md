@@ -55,6 +55,6 @@
 - **Group chat field.** PLAN names `digest.weekday` but not the field that holds the group chat identifier.
 - **Timezone.** PLAN does not say which timezone defines the weekday and the ISO week. This UC assumes UTC.
 - **Manual send and the weekly guard.** Whether a manual send should count toward the once-per-week guard. This UC assumes it does not.
-- **Audit for scheduled sends.** PLAN audits the manual send only, but the convention is one audit row per governed mutation. Decide whether a scheduled digest is a mutation that needs its own row.
+- **Audit for scheduled sends.** Resolved: the code audits a scheduled send too (`integration.digest.send` with the scheduled trigger, written before the message is queued).
 - **Empty workspace.** Whether the digest still sends, with empty sections, when there is no governed data. PLAN is silent.
 - **Retry spacing on a quiet workspace.** Retries follow the 1 minute / 5 minutes / 30 minutes / 2 hours / 12 hours ladder only while the workspace has approval traffic to trigger a drain; otherwise they wait for the daily tick (about a day per attempt). A sub-daily tick would close the gap and is an infrastructure decision for the owner (ADR 0012).

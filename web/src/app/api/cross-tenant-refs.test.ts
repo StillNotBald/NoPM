@@ -28,7 +28,10 @@ vi.mock("@/lib/integrations/emit", () => ({
   emitApprovalRequested: () => undefined,
   emitApprovalDecided: () => undefined,
 }));
-vi.mock("@/lib/clash/detect", () => ({ detectOverAllocation: async () => false }));
+vi.mock("@/lib/clash/detect", () => ({
+  detectOverAllocation: async () => false,
+  detectOverAllocationSafe: async () => ({ detected: false, warning: null }),
+}));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({}) }));
 vi.mock("@/lib/auth/mfa", () => ({

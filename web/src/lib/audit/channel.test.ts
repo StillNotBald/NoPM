@@ -6,10 +6,18 @@ function headers(entries: Record<string, string>): Headers {
 }
 
 describe("resolveClientMeta — channel", () => {
-  it("honors X-NoPM-Client when it names a known channel", () => {
-    for (const channel of ["ui", "api", "cli", "mcp", "assistant"] as const) {
-      expect(resolveClientMeta(headers({ "x-nopm-client": channel }), "user").channel).toBe(channel);
+  it("honors X-NoPM-Client for a token when it names a non-UI channel", () => {
+    for (const channel of ["api", "cli", "mcp", "assistant"] as const) {
       expect(resolveClientMeta(headers({ "x-nopm-client": channel }), "token").channel).toBe(channel);
+    }
+  });
+
+  it("derives the channel server-side from the credential (A3-11)", () => {
+    // a Bearer token can never be the browser UI
+    expect(resolveClientMeta(headers({ "x-nopm-client": "ui" }), "token").channel).toBe("api");
+    // a cookie session can never be cli/mcp/assistant/api
+    for (const claim of ["cli", "mcp", "assistant", "api", "ui"]) {
+      expect(resolveClientMeta(headers({ "x-nopm-client": claim }), "user").channel).toBe("ui");
     }
   });
 

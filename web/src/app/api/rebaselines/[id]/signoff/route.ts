@@ -1,11 +1,12 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
+import { requireApprover } from "@/lib/auth/approver";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
-import { assertSignoffOpen, statusFromVotes } from "@/lib/governance/rebaseline-lifecycle";
+import { assertSignoffOpen } from "@/lib/governance/rebaseline-lifecycle";
+import { auditRpcArgs, throwRebaselineRpcError } from "@/lib/governance/rebaseline-rpc";
 import { signoffSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
@@ -27,6 +28,7 @@ export const runtime = "nodejs";
 export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "rebaseline:approve");
   const principal = requirePrincipal(actor);
+  requireApprover(actor); // D-16: sign-off is for admins and managers only
 
   const db = createAdminClient();
 
@@ -68,139 +70,23 @@ export const POST = route(async ({ actor, params, request }) => {
     );
   }
 
-  const now = new Date().toISOString();
-  const approverId = principal;
-
-  // The voter's previous vote on this rebaseline, if any: it is what a changed
-  // vote replaces, so the audit row keeps it and a rollback can restore it.
-  const { data: previousVote, error: previousError } = await db
-    .from("rebaseline_signoffs")
-    .select("vote, comment, voted_at")
-    .eq("rebaseline_id", params.id)
-    .eq("approver_id", approverId)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (previousError) throw previousError;
-
-  // Upsert the signoff row for (rebaseline_id, approver_id)
-  const { data: signoff, error: upsertError } = await db
-    .from("rebaseline_signoffs")
-    .upsert(
-      {
-        workspace_id: actor.workspaceId,
-        rebaseline_id: params.id,
-        approver_id: approverId,
-        approver_principal_id: principal,
-        vote: parsed.data.vote,
-        voted_at: now,
-        comment: parsed.data.comment ?? null,
-      },
-      {
-        onConflict: "rebaseline_id,approver_id",
-      },
-    )
-    .select()
-    .single();
-
-  if (upsertError) throw upsertError;
-
-  // From here the vote is only provisional: it stands if, and only if, the
-  // status write below lands. Anything else (a concurrent sign-off decided the
-  // rebaseline first, a DB error) takes the vote back out, so a vote can never
-  // persist next to a status it contradicts (B votes go and approves while A's
-  // concurrent no_go is recorded but its own status write loses: A's row must
-  // not survive beside `approved`).
-  const withdrawVote = async () => {
-    const { error } = previousVote
-      ? await db
-          .from("rebaseline_signoffs")
-          .upsert(
-            {
-              workspace_id: actor.workspaceId,
-              rebaseline_id: params.id,
-              approver_id: approverId,
-              approver_principal_id: principal,
-              vote: previousVote.vote,
-              voted_at: previousVote.voted_at ?? null,
-              comment: previousVote.comment ?? null,
-            },
-            { onConflict: "rebaseline_id,approver_id" },
-          )
-      : await db
-          .from("rebaseline_signoffs")
-          .delete()
-          .eq("rebaseline_id", params.id)
-          .eq("approver_id", approverId)
-          .eq("workspace_id", actor.workspaceId);
-    // A vote that cannot be withdrawn is worse than a failed request: surface it.
-    if (error) throw error;
-  };
-
-  let updatedRebaseline: Record<string, unknown> | null = null;
-  try {
-    // Recompute rebaseline status from all signoffs
-    const { data: allSignoffs, error: signoffsError } = await db
-      .from("rebaseline_signoffs")
-      .select("vote")
-      .eq("rebaseline_id", params.id)
-      .eq("workspace_id", actor.workspaceId);
-
-    if (signoffsError) throw signoffsError;
-
-    const newStatus = statusFromVotes(allSignoffs ?? [], rebaseline.status);
-
-    // Compare-and-set on the state the vote was accepted in: if a concurrent
-    // sign-off already decided the rebaseline, this write matches nothing.
-    const { data, error: updateError } = await db
-      .from("rebaselines")
-      .update({ status: newStatus })
-      .eq("id", params.id)
-      .eq("workspace_id", actor.workspaceId)
-      .eq("status", "pending_approval")
-      .select()
-      .maybeSingle();
-
-    if (updateError) throw updateError;
-    updatedRebaseline = data;
-  } catch (e) {
-    await withdrawVote();
-    throw e;
-  }
-
-  if (!updatedRebaseline) {
-    await withdrawVote();
-    throw new RuleError("This rebaseline was decided while your vote was being recorded.", "rebaseline_not_pending");
-  }
-
-  const beforeRebaseline = { ...rebaseline };
-
-  // The row records the vote itself, not just the rebaseline's status: the vote,
-  // its comment, and the voter's previous vote (null on a first vote), so a
-  // changed vote is not erased from the trail.
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "rebaseline.signoff",
-    targetType: "rebaseline",
-    targetId: params.id,
-    before: {
-      ...beforeRebaseline,
-      signoff: previousVote
-        ? { approver_id: approverId, vote: previousVote.vote, comment: previousVote.comment ?? null, voted_at: previousVote.voted_at ?? null }
-        : null,
-    },
-    after: {
-      ...updatedRebaseline,
-      signoff: {
-        approver_id: approverId,
-        vote: parsed.data.vote,
-        comment: parsed.data.comment ?? null,
-        voted_at: now,
-        previous_vote: previousVote?.vote ?? null,
-      },
-    },
+  // The vote, the status it implies and the rebaseline.signoff audit row are ONE
+  // database transaction (nopm_signoff_rebaseline, migration 0063): the
+  // rebaseline row is locked, the status is re-checked under that lock, and the
+  // audit row is written before the commit, so a vote can never stand without
+  // its trail or next to a status it contradicts (this replaces the earlier
+  // provisional-vote-then-withdraw dance). The function repeats the approver
+  // role rule in SQL (P0018).
+  const { data, error } = await db.rpc("nopm_signoff_rebaseline", {
+    p_rebaseline_id: params.id,
+    p_workspace_id: actor.workspaceId,
+    p_vote: parsed.data.vote,
+    p_comment: parsed.data.comment ?? null,
+    p_approver_principal_id: principal,
+    ...auditRpcArgs(actor),
   });
+  if (error) throwRebaselineRpcError(error, "Failed to record the sign-off");
 
-  return ok({ signoff, rebaseline: updatedRebaseline });
+  const result = data as { signoff: Record<string, unknown>; rebaseline: Record<string, unknown> };
+  return ok({ signoff: result.signoff, rebaseline: result.rebaseline });
 });

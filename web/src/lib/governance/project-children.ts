@@ -54,3 +54,19 @@ export async function projectChildCounts(db: SupabaseClient, projectId: string):
   if (error) throw new Error(`Could not snapshot the project's contents: ${error.message}`);
   return (data ?? {}) as ChildCounts;
 }
+
+/**
+ * The governed records a project deletion takes with it (D2). Approving the
+ * deletion writes one audit row per record of these kinds (migration 0064:
+ * `<type>.cascade_delete`), so the approval screen should say how many there are.
+ * Keys are the `child_counts` keys; sign-offs hang off rebaselines and are
+ * audited with them, so they have no count of their own.
+ */
+export const GOVERNED_CHILD_KEYS = ["change_requests", "decisions", "documents", "rebaselines"] as const;
+export type GovernedChildCounts = Record<(typeof GOVERNED_CHILD_KEYS)[number], number>;
+
+/** `{ change_requests, decisions, documents, rebaselines }` from a snapshot (0 when absent). */
+export function governedChildCounts(snapshot: ChildCounts | null | undefined): GovernedChildCounts {
+  const counts = countsOnly(snapshot ?? {});
+  return Object.fromEntries(GOVERNED_CHILD_KEYS.map((k) => [k, counts[k] ?? 0])) as GovernedChildCounts;
+}

@@ -3,7 +3,8 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { ConflictError, NotFoundError } from "@/lib/api/errors";
+import { PENDING_REBASELINE_EXISTS_MESSAGE } from "@/lib/governance/rebaseline-rpc";
 import { requireMakerPrincipal } from "@/lib/governance/decide";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
@@ -127,7 +128,21 @@ export const POST = route(async ({ actor, params, request }) => {
     .select()
     .single();
 
-  if (insertError) throw insertError;
+  if (insertError) {
+    // D4: uniq_pending_rebaseline allows ONE rebaseline waiting for sign-off per
+    // project; a second proposal is a conflict, not a server fault.
+    // R-15: only that index maps to the "already waiting" message; a version
+    // (project, version) collision from two racing proposals is a different
+    // conflict and must not be reported as a pending sign-off.
+    if (insertError.code === "23505") {
+      const detail = `${insertError.message ?? ""} ${(insertError as { details?: string }).details ?? ""}`;
+      if (detail.includes("uniq_pending_rebaseline")) {
+        throw new ConflictError(PENDING_REBASELINE_EXISTS_MESSAGE, "pending_rebaseline_exists");
+      }
+      throw new ConflictError("Another rebaseline proposal was created at the same moment. Reload and try again.", "rebaseline_version_conflict");
+    }
+    throw insertError;
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

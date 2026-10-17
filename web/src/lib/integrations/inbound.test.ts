@@ -336,10 +336,10 @@ describe("kill switch and input validation", () => {
 });
 
 describe("governance outcomes (decideApproval errors -> typed outcomes)", () => {
-  it("self-approval (four-eyes) -> self_approval, and the card is spent", async () => {
+  it("self-approval (four-eyes) -> self_approval, and the card is NOT spent (D-ACC-14)", async () => {
     decideMock.mockRejectedValueOnce(new ScopeError("Self-approval is not allowed (four-eyes)"));
     expect(await handleApprovalAction(input())).toEqual({ status: "self_approval" });
-    expect(token(RAW_TOKEN).used_at).not.toBeNull();
+    expect(token(RAW_TOKEN).used_at).toBeNull();
   });
 
   it("branches on the governed error code first (self_approval, already_decided, rationale_required, no_principal)", () => {
@@ -394,10 +394,10 @@ describe("governance outcomes (decideApproval errors -> typed outcomes)", () => 
     expect(decideMock).toHaveBeenCalledTimes(1);
   });
 
-  it("a self-approval refusal keeps the card spent (no later tap can change it)", async () => {
+  it("a self-approval refusal releases the card: the request stays pending and the card is still usable (D-ACC-14)", async () => {
     decideMock.mockRejectedValueOnce(new ScopeError("Self-approval is not allowed (four-eyes)", "forbidden_scope"));
     expect((await handleApprovalAction(input({ externalEventId: "evt-self" }))).status).toBe("self_approval");
-    expect(token(RAW_TOKEN).used_at).not.toBeNull();
+    expect(token(RAW_TOKEN).used_at).toBeNull();
   });
 
   it("already decided -> already_decided", async () => {

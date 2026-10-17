@@ -22,20 +22,65 @@
  * upstream capacity/rate-limit, transient network error), a grounded,
  * rate-limited, read-only fallback answers instead — see
  * src/lib/assistant/fallback.ts. X-Demo-Mode is 'true' whenever usedDemoKey
- * or usedFallback is true, else 'false'.
+ * or usedFallback is true, else 'false'. If the failed turn had already run
+ * tools, the fallback reply lists those actions (D-ACC-8).
+ *
+ * Demo quota (D-ACC-10, A1-12): charged once per user turn, per client address
+ * and globally, fail-closed. An exhausted quota answers 429 with Retry-After; a
+ * broken counter store answers 503.
  */
 
 export const runtime = "nodejs";
 
+import { NextResponse } from "next/server";
 import { route } from "@/lib/api/handler";
-import { ScopeError } from "@/lib/api/errors";
+import { ApiError, ScopeError } from "@/lib/api/errors";
+import { ipRateKey } from "@/lib/api/client-ip";
+import { resolveInternalOrigin } from "@/lib/api/internal-origin";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { runAssistant, runAssistantStream, checkDemoRateLimit, type Action, type AssistantResult } from "@/lib/assistant/index";
-import { runAssistantFallback, type FallbackResult } from "@/lib/assistant/fallback";
+import {
+  runAssistant,
+  runAssistantStream,
+  resolveProvider,
+  chargeTurnQuota,
+  newTurnQuota,
+  DemoQuotaExceededError,
+  type Action,
+  type AssistantResult,
+  type ResolvedProvider,
+} from "@/lib/assistant/index";
+import { runAssistantFallback, priorActionsNote, type FallbackResult } from "@/lib/assistant/fallback";
 import { isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const MID_STREAM_ERROR_MESSAGE = "The assistant hit a problem mid-reply. Please try again.";
+
+/** HTTP 429 for an exhausted demo quota, with the Retry-After the client should honour. */
+function quotaExceededResponse(err: DemoQuotaExceededError): Response {
+  return NextResponse.json(
+    { error: err.message, code: err.code ?? "rate_limited" },
+    { status: 429, headers: { "Retry-After": String(err.retryAfterSeconds) } },
+  );
+}
+
+/**
+ * Run the grounded fallback. If it is refused by the demo quota AFTER the failed
+ * turn already executed tools, the user still gets the list of what was done
+ * (those actions are real and audited) instead of an error that hides them.
+ */
+async function answerWithFallback(
+  fallbackOpts: Parameters<typeof runAssistantFallback>[0],
+  prior: Action[],
+): Promise<FallbackResult> {
+  try {
+    return await runAssistantFallback({ ...fallbackOpts, priorActions: prior });
+  } catch (err) {
+    if (prior.length > 0 && err instanceof ApiError) {
+      return { reply: priorActionsNote(prior), actions: prior, usedFallback: true, usedDemoKey: false };
+    }
+    throw err;
+  }
+}
 
 export const POST = route(async ({ actor, request }) => {
   // Session-user only — token actors are rejected
@@ -89,8 +134,47 @@ export const POST = route(async ({ actor, request }) => {
     ]);
   }
 
+  // The assistant sends its ephemeral bearer token to this origin, so it must be
+  // the operator's configured app URL, never the Host-derived request origin
+  // (A1-11; same rule as /api/mcp). Fail closed when none can be trusted.
+  const origin = resolveInternalOrigin(request);
+  if (!origin) {
+    console.error(
+      "[nopm][assistant] NEXT_PUBLIC_APP_URL is not set in production, so the assistant refuses rather than sending its token to a Host-derived origin",
+    );
+    throw new ApiError(
+      503,
+      "The assistant is not configured: the operator must set NEXT_PUBLIC_APP_URL to this app's public URL.",
+      "misconfigured",
+    );
+  }
+
   const db = createAdminClient();
   const demo = await isDemoActor(actor);
+
+  // Demo-key quota: charged ONCE per user turn (provider resolution charges it,
+  // the fallback's check is then a no-op). Resolved BEFORE anything is persisted
+  // so a refused turn leaves no orphan conversation or message behind.
+  const quota = newTurnQuota(ipRateKey(request.headers));
+  let resolved: ResolvedProvider | null = null;
+  try {
+    resolved = await resolveProvider(actor, quota);
+  } catch (err) {
+    if (err instanceof DemoQuotaExceededError) return quotaExceededResponse(err);
+    if (err instanceof ApiError) throw err; // quota store down -> 503, fail closed
+    resolved = null; // no credentials / unreadable key: the grounded fallback answers
+  }
+  const rateCheck = () => chargeTurnQuota(db, actor.id, quota);
+  if (!resolved) {
+    // Straight to the fallback, which charges the demo quota. Do that now so an
+    // exhausted quota is a real 429 (not an error event inside a 200 stream).
+    try {
+      await rateCheck();
+    } catch (err) {
+      if (err instanceof DemoQuotaExceededError) return quotaExceededResponse(err);
+      throw err;
+    }
+  }
 
   // Resolve or create the conversation — demo actors NEVER persist (fresh
   // chat every visit, no cross-visit history, no migration). BYOK/non-demo
@@ -142,13 +226,14 @@ export const POST = route(async ({ actor, request }) => {
     });
   }
 
-  const origin = new URL(request.url).origin;
   const wantsStream = body.stream === true;
-  const rateCheck = () => checkDemoRateLimit(db, actor.id);
   // Forward the caller's own X-Request-Id (if any) into the assistant's
   // internal tool-call fetches so those audit_log rows correlate back to
   // this chat request rather than each minting its own id (R-82).
   const requestId = actor.requestId;
+  // Every action the turn executes lands here as it runs, so a provider failure
+  // after tools ran can still report them (D-ACC-8).
+  const actionLog: Action[] = [];
 
   if (wantsStream) {
     // ── Streaming path ────────────────────────────────────────────────────────
@@ -156,11 +241,22 @@ export const POST = route(async ({ actor, request }) => {
     const capturedDb = db;
     const capturedDemo = demo;
 
+    // The ephemeral token is revoked on EVERY exit (A1-10): the stream's own
+    // generator only revokes once iteration starts, so a client that goes away
+    // first (cancel), an error, or a timeout would otherwise leave it alive.
+    let cancelled = false;
+    let release: (() => Promise<void>) | null = null;
+
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
         const enc = new TextEncoder();
         function emit(obj: Record<string, unknown>) {
-          controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+          try {
+            controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+          } catch {
+            // The reader is gone (cancelled): stop producing, keep cleaning up.
+            cancelled = true;
+          }
         }
 
         let tokensFlushed = false;
@@ -173,20 +269,34 @@ export const POST = route(async ({ actor, request }) => {
           let midStreamFailure = false;
 
           try {
-            const { actions: streamActions, usedDemoKey: streamUsedDemoKey, textChunks } =
-              await runAssistantStream({ actor, message, history, origin, requestId });
-            actions = streamActions;
-            usedDemoKey = streamUsedDemoKey;
+            if (!resolved) throw new Error("no provider configured");
+            const stream = await runAssistantStream({
+              actor,
+              message,
+              history,
+              origin,
+              requestId,
+              conversationId: capturedConversationId,
+              actionLog,
+              quota,
+              resolved,
+            });
+            release = stream.release;
+            if (cancelled) return; // finally revokes
+            actions = stream.actions;
+            usedDemoKey = stream.usedDemoKey;
 
             // Emit actions event first
             emit({ type: "actions", actions });
 
             // Stream text tokens
-            for await (const chunk of textChunks) {
+            for await (const chunk of stream.textChunks) {
+              if (cancelled) break; // leaving the loop runs the generator's finally
               tokensFlushed = true;
               fullReply += chunk;
               emit({ type: "token", text: chunk });
             }
+            if (cancelled) return;
           } catch {
             if (tokensFlushed) {
               // Mid-stream failure AFTER tokens already flushed — never
@@ -196,14 +306,19 @@ export const POST = route(async ({ actor, request }) => {
             } else {
               // Failure BEFORE any token was emitted — run the grounded,
               // rate-limited fallback and emit its reply as normal
-              // token/done events into the still-open stream.
-              const fallbackResult = await runAssistantFallback({
-                actor,
-                message,
-                origin,
-                rateCheck,
-                requestId,
-              });
+              // token/done events into the still-open stream. The actions the
+              // failed turn already ran stay in the result (D-ACC-8).
+              const fallbackResult = await answerWithFallback(
+                {
+                  actor,
+                  message,
+                  origin,
+                  rateCheck,
+                  requestId,
+                  conversationId: capturedConversationId,
+                },
+                [...actionLog],
+              );
               actions = fallbackResult.actions;
               usedDemoKey = fallbackResult.usedDemoKey;
               fullReply = fallbackResult.reply;
@@ -248,14 +363,34 @@ export const POST = route(async ({ actor, request }) => {
             usedDemoKey,
             usedFallback,
           });
-        } catch {
-          // Catch-all safety net (e.g. the fallback itself failing — a
-          // truly-exhausted rate limit propagates here). Never leak raw
-          // error text.
-          emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE });
+        } catch (err) {
+          // Catch-all safety net (e.g. the fallback itself being refused). Never
+          // leak raw error text. A spent demo quota is named (the 200 stream is
+          // already open, so it travels as an error event with the same code).
+          if (err instanceof DemoQuotaExceededError) {
+            emit({
+              type: "error",
+              code: "rate_limited",
+              retry_after_seconds: err.retryAfterSeconds,
+              message: err.message,
+            });
+          } else {
+            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE });
+          }
         } finally {
-          controller.close();
+          const r: (() => Promise<void>) | null = release;
+          if (r) await r().catch(() => {});
+          try {
+            controller.close();
+          } catch {
+            /* already closed by a cancel */
+          }
         }
+      },
+      async cancel() {
+        cancelled = true;
+        const r: (() => Promise<void>) | null = release;
+        if (r) await r().catch(() => {});
       },
     });
 
@@ -273,11 +408,21 @@ export const POST = route(async ({ actor, request }) => {
   let result: AssistantResult | FallbackResult;
   let usedFallback = false;
   try {
-    result = await runAssistant({ actor, message, history, origin, requestId });
+    if (!resolved) throw new Error("no provider configured");
+    result = await runAssistant({ actor, message, history, origin, requestId, conversationId, actionLog, quota, resolved });
   } catch {
     // Never surface the raw provider/upstream error to the client — answer
-    // with the grounded, rate-limited fallback instead.
-    result = await runAssistantFallback({ actor, message, origin, rateCheck, requestId });
+    // with the grounded, rate-limited fallback instead, keeping the list of
+    // anything the failed turn had already done.
+    try {
+      result = await answerWithFallback(
+        { actor, message, origin, rateCheck, requestId, conversationId },
+        [...actionLog],
+      );
+    } catch (err) {
+      if (err instanceof DemoQuotaExceededError) return quotaExceededResponse(err);
+      throw err;
+    }
     usedFallback = true;
   }
 

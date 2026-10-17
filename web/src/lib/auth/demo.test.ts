@@ -82,14 +82,14 @@ describe("isDemoActor — session actors, DEMO_EMAIL configured", () => {
     await expect(isDemoActor(userActor())).resolves.toBe(false);
   });
 
-  it("fails closed (false) when the profile lookup errors", async () => {
+  it("R-13: fails closed (throws) when the profile lookup errors, so a DB hiccup cannot pass the demo account through", async () => {
     createAdminClient.mockReturnValue(
       fakeDbReturning({ data: null, error: { message: "connection reset" } }),
     );
-    await expect(isDemoActor(userActor())).resolves.toBe(false);
+    await expect(isDemoActor(userActor())).rejects.toBeTruthy();
   });
 
-  it("fails closed (false) when no profile is found for the actor id", async () => {
+  it("is false (not the demo account) when no profile is found for the actor id", async () => {
     createAdminClient.mockReturnValue(fakeDbReturning({ data: null, error: null }));
     await expect(isDemoActor(userActor())).resolves.toBe(false);
   });

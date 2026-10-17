@@ -39,11 +39,25 @@ interface TaskOption {
   project_id: string;
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+/** The user's LOCAL calendar date (D-WRK-9): toISOString() is UTC and shows "yesterday" east of Greenwich in the morning. */
+export function todayIso(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
-export function LogTimeForm({ defaultMemberId }: { defaultMemberId?: string }) {
+export function LogTimeForm({
+  defaultMemberId,
+  ownMemberIds,
+}: {
+  defaultMemberId?: string;
+  /**
+   * D-17: a plain member logs only their OWN hours, so the picker offers just
+   * these members. Omit for admins and managers (any member).
+   */
+  ownMemberIds?: string[];
+}) {
   const router = useRouter();
   const toast = useToast();
 
@@ -68,8 +82,12 @@ export function LogTimeForm({ defaultMemberId }: { defaultMemberId?: string }) {
   const [lockRefresh, setLockRefresh] = useState(0);
 
   useEffect(() => {
-    apiGet<NamedOption[]>("/api/resources?limit=100").then((list) => setMembers(list ?? [])).catch(() => {});
+    apiGet<NamedOption[]>("/api/resources?limit=100").then((list) =>
+      setMembers((list ?? []).filter((m) => !ownMemberIds || ownMemberIds.includes(m.id))),
+    ).catch(() => {});
     apiGet<NamedOption[]>("/api/projects?limit=100").then((list) => setProjects(list ?? [])).catch(() => {});
+    // ownMemberIds is fixed per page load (a new array each render), so load once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

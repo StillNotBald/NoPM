@@ -107,6 +107,11 @@ export const POST = route(async ({ actor, params, request }) => {
       completion_pct: input.completion_pct,
       owner_id: input.owner_id ?? null,
       sort_order: input.sort_order,
+      description: input.description ?? null,
+      deliverable: input.deliverable ?? null,
+      start_date: input.start_date ?? null,
+      baseline_target_date: input.baseline_target_date ?? null,
+      actual_date: input.actual_date ?? null,
     })
     .select()
     .single();

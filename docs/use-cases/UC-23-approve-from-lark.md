@@ -40,7 +40,7 @@
 
 ## Postconditions
 
-- The decision has the same result as the same decision made in the console: the same status change, the same scope and lock checks, the same four-eyes rule.
+- The decision has the same result as the same decision made in the console: the same status change, the same scope and lock checks, the same four-eyes rule, and (since decision 16) the same admin-or-manager role rule. In chat the role is checked before any action token is consumed.
 - Audit: every row written by the decision carries `channel='lark'`, the connector id, the Lark event id and the external actor reference. The counts follow the console path. A deletion approval writes two rows in one transaction, the entity delete and `deletion_request.approved` (UC-12). A deletion rejection writes `deletion_request.rejected`. A change request decision writes `change_request.decide`. A timesheet decision writes `timesheet.approved` or `timesheet.rejected`.
 - The request leaves the approvals queue and the Review Queue.
 - Every card sent for the request shows the decided state, and no live buttons remain.
@@ -50,6 +50,13 @@
 
 - The Trust Center `channel` filter set to `lark` lists these decisions. The object's history shows the linked profile as the actor.
 - `GET /api/audit?channel=lark` returns the same rows through the audit cursor, in order.
+
+## Update 2026-10-17 — journey-audit fixes
+
+- Owner decision 16 ("follow Lark rules", ADR 0014, R-113): approving or deciding is for admins and managers only, on every channel. A member or viewer gets `403` `role_not_permitted` ("Only managers and admins can approve"). A token is judged by the CURRENT role of the person who minted it, so a member cannot approve through a token and a demoted manager's token stops approving at once. Chat already worked this way ("Only managers and admins can approve or reject from chat."); the web now matches it.
+- **A refused self-approval keeps the card usable.** If the requester taps their own card, the click is refused and the card stays live for the real approvers.
+- **Catch-up on resume.** When a paused connector is resumed, approval cards for requests that are still pending are sent (deduplicated), so approvers no longer miss requests raised while it was paused.
+- **Atomic revoke.** Revoking a connector is one transaction (links, queued messages and the audit row together). While a connector is paused, `link-code` answers `422` `connector_paused` ("The Lark connection is paused. Ask an admin to resume it.").
 
 ## Traceability
 
@@ -63,5 +70,5 @@
 
 - `[UNVERIFIED]` Whether card-button callbacks arrive over the long connection for self-hosted instances. A spike must confirm this before the self-hosted approval path is claimed (ADR 0012).
 - Card patching: the vendor's patch API is documented for shared cards within a time window. PLAN does not set the card configuration. Confirm that decided-state patches reach every card sent.
-- Eligibility: PLAN resolves approvers as admin or manager for all three kinds. Confirm that this matches the scopes each kind needs, since a manager may not hold every approve scope by default.
+- Resolved 2026-10-17 (decision 16, ADR 0014): admin or manager is now the rule on every channel, not only in chat. The console, REST, CLI and MCP refuse a member or viewer with `role_not_permitted`, so chat no longer differs from the web. A manager still needs the exact approve scope on a token; a chat click uses the linked user's role.
 - Toast and replacement-card wording, and whether the expired, already-used and not-recipient paths also replace the card. PLAN is silent on all of them.

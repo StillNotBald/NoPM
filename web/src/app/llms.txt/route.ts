@@ -23,7 +23,21 @@ not this site is refused 403 (code bad_origin). Bearer-token requests are never 
 A malformed id (not a UUID) in a path is 404 not_found; a malformed value in a query filter or body is 422
 validation_failed.
 Wildcard scopes (* and resource:*) NEVER grant the five approve/decide scopes: task:delete:approve,
-project:delete:approve, time:approve, change:decide, rebaseline:approve. Each must be granted by exact name.
+project:delete:approve, time:approve, change:decide, rebaseline:approve. Each must be granted by exact name,
+and the token's creator must currently be an admin or manager for it to take effect (403 role_not_permitted).
+
+Retries and limits: POST /time-entries, POST /projects/{id}/expenses, POST /projects/{id}/tasks and
+POST /allocations accept an Idempotency-Key header (1-200 chars of A-Za-z0-9_.:-; remembered 24 hours per
+workspace + actor + route; expenses/tasks routes include the project id). Repeat the request with the same key after a timeout and you get the FIRST result back
+instead of a duplicate record. A malformed or empty key is 400 invalid_idempotency_key; the same key while the first
+request is still running is 409 idempotency_in_progress ("A request with this Idempotency-Key is still in progress");
+the same key with a different body is 422 idempotency_key_reused ("Idempotency-Key reused with a different request"). Every 429 carries a Retry-After header (seconds): wait
+that long. Rate buckets are per actor id (workspace ceiling 5x); failed bearer authentication is throttled at 20
+per minute per client IP: once an address spends its budget it gets 429 with Retry-After (a VALID token is never throttled
+by this). A PAT whose creator is now a viewer is read-only (403 forbidden_scope, "This token's creator now has read-only
+access; the token is read-only"); approvals still need an admin/manager creator. Timesheet approve/reject has a database
+backstop for the approver role (P0018 -> 403 role_not_permitted). A PAT stops working (401) when its creator's profile is removed. Audit rows now carry
+principal_id (the person behind the actor).
 
 Public routes (no Bearer token): /health, /api/openapi.json, /llms.txt, POST /auth/demo-login,
 POST /auth/signout, POST /invites/accept, and GET /calendar/{token} (the secret in the URL is the credential).
@@ -107,17 +121,26 @@ Change requests: title REQUIRED on create. category = scope | schedule | cost | 
              is decided (422 change_request_decided).
 Task dependencies: type = FS | SS | FF | SF (default FS), lag_days integer (default 0).
 
-## Four-eyes compares PEOPLE, and agents never approve
+## Four-eyes compares PEOPLE, and only admins and managers approve
 Every maker-checker flow (task/project deletion, change requests, timesheets, rebaselines) is decided by a
 DIFFERENT PERSON from the one who raised it. "Person" means the principal behind the caller: a signed-in user is
 their own principal, an API token counts as the user who minted it, and a Lark card click counts as the NoPM
 user the Lark account is linked to. So a requester cannot approve their own request with a token they created,
 nor with a second token, however many identities they hold — 403, code self_approval. A token with no recorded
 owner can never decide — 403, code no_principal. Wildcard scopes never grant the approve/decide scopes (above).
-Consequence for agents: an agent can raise requests and READ what is waiting (GET /review, nopm review, MCP tool
-list_pending_approvals) but is never the one that approves — approvals come from humans, in the console or on a
-Lark card. The assistant's token never holds an approve/decide scope, and the MCP tool set has no
-approve/decide tool.
+Who may approve (owner decision D-16, "follow Lark rules"): approving or deciding — deletion approve/reject,
+change-request decide, rebaseline sign-off and apply, timesheet approve/reject/reopen — needs an admin or
+manager HUMAN principal, on every channel. A member or viewer gets 403, code role_not_permitted, "Only managers
+and admins can approve". A PAT that carries an approve scope inherits its CREATOR's CURRENT role: it can decide
+while the person who minted it is an admin or manager, and stops the moment they are demoted (a member cannot
+approve by minting a token). So an approve scope on a token is a manager's delegated authority; the four-eyes
+rule still applies (a token never decides what its creator raised). Keep approve scopes off agent tokens unless
+you mean it. Consequence for agents: an agent can raise requests and READ what is waiting (GET /review,
+nopm review, MCP tool list_pending_approvals); the assistant's token never holds an approve/decide scope and
+neither the assistant nor the MCP tool set has an approve/decide tool, so in practice a person decides, in the
+console, on a Lark card, or over the REST API with their own credentials.
+Time entries (D-17, to be confirmed by the owner): a member may log, edit and delete only their OWN hours;
+admins and managers may do it for others. 403, code not_your_hours, "You can only log your own hours".
 
 ## Maker-checker: task and project deletion
 DELETE /tasks/{id} and DELETE /projects/{id} do NOT immediately delete the target.
@@ -187,10 +210,10 @@ PUT    /me/preferences                     — user session only — merge displ
 POST   /auth/demo-login                    — public — start a demo session. A browser navigation (Accept: text/html) that fails is redirected to /login?error=demo_unavailable|demo_unconfigured; programmatic callers keep JSON 503 when the demo is not configured and a 302 to /login?error=demo_unavailable when sign-in fails
 POST   /auth/signout                       — user session — end the session
 GET    /auth/mfa                           — user session — get MFA status: enabled, enrolled, satisfied (challenge passed this session)
-POST   /auth/mfa/challenge                 — user session — verify TOTP or backup code after sign-in; sets the nopm_mfa cookie (5 failed attempts / 10 min)
-POST   /auth/mfa/enroll                    — user session — begin TOTP enrollment (returns secret + otpauth URI)
+POST   /auth/mfa/challenge                 — user session — verify TOTP or backup code after sign-in; sets the nopm_mfa cookie (10 attempts / 5 min per account, shared with verify and disable; 429 + Retry-After)
+POST   /auth/mfa/enroll                    — user session — begin TOTP enrollment (returns secret + otpauth URI); 409 mfa_already_enabled "Two-step is already on. Turn it off first." when already on
 POST   /auth/mfa/verify                    — user session — confirm TOTP code, enable MFA, receive backup codes (shown once)
-POST   /auth/mfa/disable                   — user session — disable MFA and clear TOTP secret
+POST   /auth/mfa/disable                   — user session — disable MFA; body { "code": "<current TOTP or unused backup code>" } is REQUIRED while on (422 when wrong or missing, audited auth.mfa.disable_failed); a TOTP code works once only; instead of { code } a two-step challenge passed in the last 10 minutes is accepted. Enroll, verify and disable answer 403 demo_restricted for the shared demo login; re-enrol over a live factor is also allowed within 10 minutes of a challenge
 
 GET    /tokens                             — admin/manager session — list API tokens (token_hash never returned). Hides only the in-app assistant's per-turn ephemeral tokens, by their kind — never by name
 POST   /tokens                             — admin/manager session — mint a new token (raw value returned once)
@@ -279,12 +302,12 @@ PATCH  /allocations/{id}                   — scope:resource:write — update a
 DELETE /allocations/{id}                   — scope:resource:write — delete an allocation
 
 GET    /time-entries                       — scope:time:read  — list time entries (?project_id, ?member_id, ?date_from/?date_to entry_date window, ?billable filters available)
-POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate; billable defaults from the project's default_billable when omitted — L-29); 422 if the entry's week is locked — period_locked (an approved timesheet submission covers it — R-76/L-32) or timesheet_locked (a submitted one does: the sheet is under review, a rejection unlocks the week); task_id must be in this workspace
-DELETE /time-entries/{id}                  — scope:time:write — delete a time entry; 422 if the entry's week is locked (period_locked / timesheet_locked, same locks as POST)
+POST   /time-entries                       — scope:time:write — log a time entry (cost auto-computed as hours * member.cost_rate; billable defaults from the project's default_billable when omitted — L-29); 422 if the entry's week is locked — period_locked (an approved timesheet submission covers it — R-76/L-32) or timesheet_locked (a submitted one does: the sheet is under review, a rejection unlocks the week); task_id must be in this workspace AND in the entry's project (422); a member may log only their own hours (403 not_your_hours); Idempotency-Key supported
+DELETE /time-entries/{id}                  — scope:time:write — delete a time entry (own entries for a member, anyone's for admin/manager — 403 not_your_hours); 422 if the entry's week is locked (period_locked / timesheet_locked, same locks as POST)
 
 GET    /timesheet-submissions              — scope:time:read    — list timesheet submissions. Filters: ?member_id, ?status=submitted|approved|rejected, ?period=YYYY-MM-DD (period_start exact match). Ordered submitted_at desc.
 POST   /timesheet-submissions              — scope:time:submit  — submit a weekly timesheet for a member (four-eyes maker step, L-31); period_start must be a Monday; snapshots hours_total/entry_count and a content digest from that week's time_entries, never recomputed afterwards (the approval is bound to it, and the week's entries are frozen while the sheet awaits a decision); 422 if nothing to submit or an open submission already exists for this member+period (the one exception: a REOPENED sheet — POST again for that member and week after amending the entries and it is re-snapshotted, you become its submitter, and it goes back to the approvers; the loser of two concurrent submits gets the same 422 duplicate_submission); 403 no_principal for a token with no recorded owner; 403 not_your_timesheet unless the caller is the member themselves (the profile linked to the resource row) or an admin / manager — submitting freezes the week
-POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject|reopen a timesheet submission (four-eyes checker step, L-31; reopen is the R-76/L-32 period-close-lock unlock verb); the decider must be a different PERSON from the submitter (principal compare plus the legacy compound id+type comparison, guard symmetry on ALL THREE verbs — 403 self_approval otherwise; a token with no recorded owner is 403 no_principal); approve/reject require status=submitted (422 already_decided), reopen requires the INVERSE (status=approved, 422 not_reopenable); the member whose hours these are cannot decide the sheet (403 self_approval); approve is refused (422 timesheet_changed) if the time entries changed since submission — reject it and have the member resubmit; rationale required on reject and reopen; reopen reverts to submitted, marks it open for amendment and clears the prior decision (the member amends the entries and re-submits via POST /timesheet-submissions; until then an approval is refused with timesheet_changed — or reject it with a reason and resubmit a fresh row)
+POST   /timesheet-submissions/{id}/decision — scope:time:approve — approve|reject|reopen a timesheet submission (admins and managers only — 403 role_not_permitted, including reopen; four-eyes checker step, L-31; reopen is the R-76/L-32 period-close-lock unlock verb); the decider must be a different PERSON from the submitter (principal compare plus the legacy compound id+type comparison, guard symmetry on ALL THREE verbs — 403 self_approval otherwise; a token with no recorded owner is 403 no_principal); approve/reject require status=submitted (422 already_decided), reopen requires the INVERSE (status=approved, 422 not_reopenable); the member whose hours these are cannot decide the sheet (403 self_approval); approve is refused (422 timesheet_changed) if the time entries changed since submission — reject it and have the member resubmit; rationale required on reject and reopen; reopen reverts to submitted, marks it open for amendment and clears the prior decision (the member amends the entries and re-submits via POST /timesheet-submissions; until then an approval is refused with timesheet_changed — or reject it with a reason and resubmit a fresh row)
 
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual, variance, burn_pct)
 PUT    /projects/{id}/budget               — scope:budget:write — set the project budget: planned_amount required, committed_amount / currency default to 0 / USD when omitted; actual_amount, contingency_reserve, management_reserve are stored when sent
@@ -314,18 +337,18 @@ POST   /projects/{id}/change-requests      — scope:change:write — raise a ch
 GET    /change-requests/{id}               — scope:change:read  — get a change request
 PATCH  /change-requests/{id}               — scope:change:write — update a change request (status is NOT updatable here); only while raised/under_review (422 change_request_decided once decided) and only by the requester's person - the user who raised it or a token that user minted (403 not_requester for anyone else, 403 no_principal for an ownerless token). Editing what an approver decides on retires any approval card already sent and issues a fresh one
 DELETE /change-requests/{id}               — scope:change:write — delete a change request; only while raised/under_review (422 change_request_decided once decided) and only by the requester's person (403 not_requester otherwise); the approval cards already sent for it are closed
-POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (approve | reject | defer + rationale, audited); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
+POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (admins and managers only — 403 role_not_permitted; approve | reject | defer + rationale, audited); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
 
 GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
-POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required); 403 no_principal for a token with no recorded owner. Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected, or pending_approval / approved -> cancelled when the project is unlocked (applied, rejected and cancelled are terminal)
-POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign off a rebaseline (four-eyes by PERSON: vote { "go" | "no_go", comment? }; a token votes as the user who minted it; 403 self_approval / no_principal). Only while pending_approval — otherwise 422 rebaseline_not_pending (a rejected one cannot be revived, an applied one cannot regress)
-POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply an approved rebaseline: milestone, task AND project baseline dates become the current plan, and the rebaseline.apply audit row carries after.project_baseline { before, after } so History and the Trust Center show the project baseline moving (the requester cannot apply their own — 403 self_approval; 422 already_applied if it was applied already, 422 rule_violation if it is not approved)
+POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required); 403 no_principal for a token with no recorded owner; 409 pending_rebaseline_exists ("This project already has a rebaseline waiting for sign-off") when one is already awaiting sign-off; 409 rebaseline_version_conflict ("Another rebaseline proposal was created at the same moment. Reload and try again.") when two proposals race (distinct from pending_rebaseline_exists). Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected, or pending_approval / approved -> cancelled when the project is unlocked (applied, rejected and cancelled are terminal)
+POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign off a rebaseline (admins and managers only — 403 role_not_permitted; four-eyes by PERSON: vote { "go" | "no_go", comment? }; a token votes as the user who minted it; 403 self_approval / no_principal). Only while pending_approval — otherwise 422 rebaseline_not_pending (a rejected one cannot be revived, an applied one cannot regress)
+POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply an approved rebaseline (admins and managers only — 403 role_not_permitted; 422 project_not_locked "Rebaseline cannot be applied: its project is no longer locked. Lock the project and propose a new rebaseline." when the project was unlocked meanwhile): milestone, task AND project baseline dates become the current plan, and the rebaseline.apply audit row carries after.project_baseline { before, after } so History and the Trust Center show the project baseline moving (the requester cannot apply their own — 403 self_approval; 422 already_applied if it was applied already, 422 rule_violation if it is not approved)
 
 GET    /review                             — scope:task:read or audit:read or change:read or time:read or project:read — "what is waiting for a human?": every governed decision pending in the workspace, oldest first, across deletion requests (task + project), change requests (raised/under_review), submitted timesheets and rebaselines awaiting sign-off. READ-ONLY. ?kind=task_deletion|project_deletion|change_request|timesheet|rebaseline (comma list or repeated), ?page, ?limit (1..200, default 50). Response { data: [{ kind, id, title, summary, project_id, project_name, requested_by_label, requested_at, can_decide, reason_if_not }], total, page, limit, hidden_kinds }. can_decide = holds the decide scope AND is a different person from the requester; reason_if_not says why not. Kinds the token cannot read are named in hidden_kinds (an empty list is NOT proof nothing is pending); a token that can read none gets 403.
 
 GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed|withdrawn; target_type=task|project)
-POST   /deletion-requests/{id}/approve     — scope:<type>:delete:approve — approve and execute a pending deletion (per-type gate: task:delete:approve or project:delete:approve; four-eyes by PERSON: approver != requester — 403 self_approval, 403 no_principal; 422 already_decided). Optional body { "note": "<why>" } is recorded in the audit row.
-POST   /deletion-requests/{id}/reject      — scope:<type>:delete:approve — reject a pending deletion request (per-type gate; four-eyes: no self-rejection — 422 for the same actor, 403 for the same person via another identity; optional body { "reason" })
+POST   /deletion-requests/{id}/approve     — scope:<type>:delete:approve — approve and execute a pending deletion (admins and managers only — 403 role_not_permitted; per-type gate: task:delete:approve or project:delete:approve; four-eyes by PERSON: approver != requester — 403 self_approval, 403 no_principal; 422 already_decided). Optional body { "note": "<why>" } is recorded in the audit row.
+POST   /deletion-requests/{id}/reject      — scope:<type>:delete:approve — reject a pending deletion request (admins and managers only — 403 role_not_permitted; per-type gate; four-eyes: no self-rejection — 422 for the same actor, 403 for the same person via another identity; optional body { "reason" })
 POST   /deletion-requests/{id}/withdraw    — scope:task:delete:request or project:delete:request — withdraw your OWN pending deletion request (maker step; per-type scope matching the request's target)
 
 GET    /notifications                      — scope:notification:read — list in-app notifications for the actor
@@ -402,8 +425,10 @@ An admin connects ONE Lark or Feishu self-built app per workspace (POST /integra
 Webhook mode REQUIRES an Encrypt Key (events are then signed and encrypted); long-connection mode does not.
 Admins see delivery health (pending / retry / dead counts, last send, last error, last scheduler run) on
 GET /integrations/connectors.
-AGENTS NEVER APPROVE. The integration adds a channel for humans, not for agents: an agent token cannot click a
-card, cannot decide anything, and holds no approve/decide scope. Four-eyes compares PEOPLE (a token counts as
+APPROVALS NEED A HUMAN ADMIN OR MANAGER. The integration adds a channel for humans, not for agents: an agent
+token cannot click a card, and the assistant holds no approve/decide scope. Only an admin or manager can approve
+or reject from chat (members are told "Only managers and admins can approve or reject from chat."), and the same
+role rule applies on every other channel. Four-eyes compares PEOPLE (a token counts as
 the user who minted it; a Lark click counts as the linked user), so a requester can never approve their own
 request by another route, and wildcard scopes never grant approve/decide. What an agent CAN do is read what is
 waiting: GET /review, "nopm review", or the MCP tool list_pending_approvals (it reports can_decide per item,
@@ -440,10 +465,16 @@ MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agen
 remotely at POST /mcp (Streamable HTTP) with your own PAT in the Authorization header.
 list_pending_approvals is read-only (it calls GET /review): it answers "what is waiting for a human?" and reports
 can_decide / reason_if_not per item, but there is deliberately no approve or decide tool.
+The stdio server (web/mcp/server.mjs) can also raise a change request (create_change_request), propose a rebaseline
+(propose_rebaseline), sign one off or apply it (sign_off_rebaseline, apply_rebaseline — these call the approve
+routes with YOUR token, so they only work when the PAT holds rebaseline:approve and its creator is currently an
+admin or manager; otherwise they return the API's 403 verbatim), submit a timesheet week (submit_timesheet),
+and create a decision (create_decision) or a document record (create_document).
 Tool schemas are generated from the same registry the in-app assistant uses and are
 lock-tested against the API's Zod validators. Capabilities are bounded by the PAT
 scopes; all writes are audited; task and project deletion both go through maker-checker
-(the assistant/MCP tool set can only request deletion — approve scopes are never granted).
+(the assistant can only request deletion and has no approve tool; an MCP token can approve only through the
+rebaseline tools above, and only when its creator is an admin or manager).
 See web/mcp/README.md for setup instructions.
 
 ---

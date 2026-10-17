@@ -36,6 +36,8 @@ interface AuditRow {
    *  existed have no channel on file. */
   channel?: "ui" | "api" | "cli" | "mcp" | "assistant" | "lark" | string | null;
   request_id?: string | null;
+  /** The human behind the actor (migration 0071); null for system actors and RPC-written rows. */
+  principal_id?: string | null;
 }
 
 function shortRequestId(id: string | null | undefined): string | null {
@@ -63,7 +65,7 @@ function AuditActor({ entry }: { entry: AuditRow }) {
           entry.actor_type === "token" ? "bg-warning/15 text-warning-ink" : "bg-sunken text-ink-secondary",
         )}
       >
-        {entry.actor_type === "token" ? "token" : "user"}
+        {entry.actor_label?.startsWith("system:") ? "system" : entry.actor_type === "token" ? "token" : "user"}
       </span>
       {entry.channel && (
         <span

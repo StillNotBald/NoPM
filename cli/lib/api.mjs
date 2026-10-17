@@ -42,9 +42,21 @@ export function saveConfig(cfg) {
   writeFileSync(CFG_FILE, JSON.stringify(cfg, null, 2), { mode: 0o600 });
 }
 
+/**
+ * Idempotency-Key header for a create call (time entries, expenses, tasks,
+ * allocations): a retry with the same key returns the first result instead of a
+ * duplicate. Only POSTs carry it; a bare flag (no value) is ignored.
+ */
+export function idempotencyHeader(method, key) {
+  if (method !== "POST" || typeof key !== "string" || !key.trim()) return {};
+  return { "Idempotency-Key": key.trim() };
+}
+
 /** Render the curl equivalent of a request (token masked as $NOPM_TOKEN). */
-function toCurl(method, url, body) {
+function toCurl(method, url, body, idemKey) {
+  const idem = idempotencyHeader(method, idemKey)["Idempotency-Key"];
   const parts = [`curl -X ${method} '${url}'`, `-H 'Authorization: Bearer '"$NOPM_TOKEN"''`];
+  if (idem) parts.push(`-H 'Idempotency-Key: ${idem}'`);
   if (body) parts.push(`-H 'Content-Type: application/json'`, `-d '${JSON.stringify(body).replace(/'/g, "'\\''")}'`);
   return parts.join(" \\\n  ");
 }
@@ -59,7 +71,7 @@ export async function api(method, p, body, opts = {}) {
   const cfg = loadConfig();
   if (!cfg.token) die("No token. Run: nopm auth set-token <token> [--url <url>]");
   if (opts.curl) {
-    console.log(toCurl(method, cfg.url + p, body));
+    console.log(toCurl(method, cfg.url + p, body, opts.idempotencyKey));
     throw new CliDryRun();
   }
   const res = await fetch(cfg.url + p, {
@@ -68,6 +80,7 @@ export async function api(method, p, body, opts = {}) {
       Authorization: `Bearer ${cfg.token}`,
       "Content-Type": "application/json",
       "X-NoPM-Client": "cli",
+      ...idempotencyHeader(method, opts.idempotencyKey),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -83,6 +96,26 @@ export async function api(method, p, body, opts = {}) {
         json,
       );
       err.status = 412;
+      throw err;
+    }
+    if (res.status === 403 && json.code === "role_not_permitted") {
+      // D-16: approving or deciding is for admins and managers only. A token is
+      // judged by the CURRENT role of the person who minted it.
+      const err = new CliError(
+        `Not allowed: ${json.error || "Only managers and admins can approve"}. A token approves with the role of the person who created it; ask an admin or manager to run this.`,
+        json,
+      );
+      err.status = 403;
+      throw err;
+    }
+    if (res.status === 429) {
+      const wait = res.headers.get("retry-after");
+      const err = new CliError(
+        `HTTP 429: ${json.error || "Too many requests"}${wait ? ` — retry in ${wait}s` : ""}`,
+        json,
+      );
+      err.status = 429;
+      err.retryAfter = wait ? Number(wait) : null;
       throw err;
     }
     const err = new CliError(`HTTP ${res.status}: ${json.error || JSON.stringify(json)}`, json);

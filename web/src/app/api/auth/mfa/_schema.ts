@@ -17,4 +17,15 @@ export const challengeMfaSchema = z.object({
   code: z.string().trim().min(6).max(64),
 });
 
+/**
+ * POST /api/auth/mfa/disable (D-ACC-5) — turning two-step off needs proof of the
+ * factor: a current TOTP code or an unused backup code (same loose bound as the
+ * challenge, which accepts both shapes).
+ */
+export const disableMfaSchema = z.object({
+  code: z.string().trim().min(6).max(64),
+});
+
+export type DisableMfaInput = z.infer<typeof disableMfaSchema>;
+
 export type ChallengeMfaInput = z.infer<typeof challengeMfaSchema>;

@@ -20,7 +20,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
-import { FakeDb, type Row, type RpcHandler } from "@/lib/governance/test-support/fake-admin";
+import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
 
 const { holder, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -68,6 +68,7 @@ function pat(id: string, owner: string): Actor {
     workspaceId: WS,
     scopes: SCOPES,
     principalId: owner,
+    principalRole: owner ? "manager" : null,
     channel: "api",
     requestId: `req-${id}`,
   };
@@ -142,23 +143,6 @@ function simulateProjectBaselineTrigger(fake: FakeDb) {
   };
 }
 
-/** nopm_apply_rebaseline_snapshot as migration 0055 defines it (bypass on; milestones, tasks, then the project row). */
-const snapshot0055: RpcHandler = (args, fake) => {
-  const inScope = (r: Row, idColumn: string) => r[idColumn] === args.p_project_id && r.workspace_id === args.p_workspace_id;
-  for (const m of fake.rows("milestones").filter((r) => inScope(r, "project_id") && r.target_date != null)) {
-    m.baseline_target_date = m.target_date;
-  }
-  for (const t of fake.rows("tasks").filter((r) => inScope(r, "project_id") && (r.start_date != null || r.due_date != null))) {
-    t.baseline_start_date = t.start_date;
-    t.baseline_due_date = t.due_date;
-  }
-  for (const p of fake.rows("projects").filter((r) => inScope(r, "id") && (r.start_date != null || r.target_date != null))) {
-    p.baseline_start_date = p.start_date;
-    p.baseline_target_date = p.target_date;
-  }
-  return { data: null, error: null };
-};
-
 // ── seed ──────────────────────────────────────────────────────────────────
 
 function seed(): FakeDb {
@@ -185,6 +169,10 @@ function seed(): FakeDb {
     ],
     rebaselines: [
       { id: "rb-approved", workspace_id: WS, project_id: PROJECT, version: 1, status: "approved", requested_by: ALICE, requested_principal_id: ALICE },
+    ],
+    profiles: [
+      { id: ALICE, workspace_id: WS, role: "admin" },
+      { id: BOB, workspace_id: WS, role: "manager" },
     ],
     audit_log: [],
     notifications: [],
@@ -293,7 +281,6 @@ describe("POST /rebaselines/:id/apply — moves the project's baseline and recor
       baseline_start_date: "2027-02-01",
       baseline_target_date: "2027-08-31",
     });
-    db.rpcHandlers.nopm_apply_rebaseline_snapshot = snapshot0055;
   });
 
   it("the project's baseline becomes its current dates, next to its milestones and tasks, and the rebaseline is applied", async () => {
@@ -306,7 +293,7 @@ describe("POST /rebaselines/:id/apply — moves the project's baseline and recor
     expect(row("rebaselines", "rb-approved")).toMatchObject({ status: "applied" });
     // Another project is not touched.
     expect(row("projects", OTHER_PROJECT).baseline_start_date).toBeNull();
-    expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")).toHaveLength(1);
+    expect(db.rpcCallsTo("nopm_apply_rebaseline")).toHaveLength(1);
   });
 
   it("the single rebaseline.apply audit row carries after.project_baseline = { before: the old baseline, after: the new one }", async () => {
@@ -337,8 +324,8 @@ describe("POST /rebaselines/:id/apply — moves the project's baseline and recor
     expect(json.data).not.toHaveProperty("project_baseline");
   });
 
-  it("a snapshot failure moves nothing and writes no audit row: the rebaseline stays approved", async () => {
-    db.rpcHandlers.nopm_apply_rebaseline_snapshot = () => ({ data: null, error: { code: "XX000", message: "deadlock detected" } });
+  it("a failure inside the apply RPC moves nothing and writes no audit row: the rebaseline stays approved", async () => {
+    db.rpcHandlers.nopm_apply_rebaseline = () => ({ data: null, error: { code: "XX000", message: "deadlock detected" } });
     const res = await call(applyRebaseline, bobPat(), "rb-approved", {});
     expect(res.status).toBe(500);
     expect(project()).toMatchObject({ baseline_start_date: "2027-02-01", baseline_target_date: "2027-08-31" });

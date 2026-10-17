@@ -43,3 +43,13 @@ describe("snapshot shape", () => {
     expect(countsOnly({ tasks: 2 })).toEqual({ tasks: 2 });
   });
 });
+
+describe("governedChildCounts", () => {
+  it("picks the four governed kinds, defaulting to 0, ignoring the fingerprint", async () => {
+    const { governedChildCounts } = await import("./project-children");
+    expect(
+      governedChildCounts({ tasks: 9, change_requests: 2, documents: 1, [SCOPE_KEY]: { project: "x", ids: {} } }),
+    ).toEqual({ change_requests: 2, decisions: 0, documents: 1, rebaselines: 0 });
+    expect(governedChildCounts(null)).toEqual({ change_requests: 0, decisions: 0, documents: 0, rebaselines: 0 });
+  });
+});

@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { route } from "@/lib/api/handler";
 import { noContent, ok, safeJson } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { isDemoActor } from "@/lib/auth/demo";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { BUCKET, INLINE_MIME_TYPES, matchesMagicBytes, normalizeMimeType, validateStoragePath } from "@/lib/documents/storage";
+import { BUCKET, INLINE_MIME_TYPES, MAX_FILE_SIZE, buildStoragePath, matchesMagicBytes, normalizeMimeType, validateStoragePath } from "@/lib/documents/storage";
 
 export const runtime = "nodejs";
 
@@ -48,6 +49,8 @@ export const GET = route(async ({ actor, params }) => {
  */
 export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "document:write");
+  // The shared demo login is public: it never uploads files (A1-3).
+  if (await isDemoActor(actor)) throw new ScopeError("Not available in the shared demo", "demo_readonly");
 
   const { id } = await Promise.resolve(params);
   const db = createAdminClient();
@@ -74,8 +77,16 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   // Verify the path truly belongs to this workspace + document.
-  if (!validateStoragePath(body.path, actor.workspaceId, id)) {
+  // Exact shape (<workspace>/<document>/<clean name>), and it must be the path the
+  // sign step minted for this file name — not merely something under the prefix.
+  if (
+    !validateStoragePath(body.path, actor.workspaceId, id) ||
+    body.path !== buildStoragePath(actor.workspaceId, id, body.file_name)
+  ) {
     throw new RuleError("Storage path does not belong to this document");
+  }
+  if (!Number.isFinite(body.file_size) || body.file_size <= 0 || body.file_size > MAX_FILE_SIZE) {
+    throw new RuleError("file_size must be between 1 byte and 25 MiB");
   }
 
   // Confirm the object actually exists in the bucket (errors if missing).
@@ -145,13 +156,6 @@ export const DELETE = route(async ({ actor, params }) => {
   if (!existing) throw new NotFoundError("Document not found");
   if (!existing.storage_path) throw new NotFoundError("No file attached to this document");
 
-  const admin = createAdminClient();
-  const { error: removeError } = await admin.storage
-    .from(BUCKET)
-    .remove([existing.storage_path]);
-
-  if (removeError) throw new Error(removeError.message);
-
   const { error: updateError } = await db
     .from("documents")
     .update({
@@ -175,6 +179,21 @@ export const DELETE = route(async ({ actor, params }) => {
     before:     existing,
     after:      null,
   });
+
+  // Last: the record and its audit row are already committed, so a failure here
+  // can leave an unreferenced object but never a record pointing at a missing
+  // one (A3-6). The object is retried by hand; the audit row carries its path.
+  const admin = createAdminClient();
+  const { error: removeError } = await admin.storage
+    .from(BUCKET)
+    .remove([existing.storage_path]);
+  if (removeError) {
+    console.error("[documents] file record cleared but the storage object could not be removed", {
+      documentId: existing.id,
+      path: existing.storage_path,
+      message: removeError.message,
+    });
+  }
 
   return noContent();
 });

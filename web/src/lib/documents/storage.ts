@@ -32,15 +32,23 @@ export function buildStoragePath(
 }
 
 /**
- * Confirm that a client-supplied path truly belongs to the expected document.
- * Prevents a caller from attaching an object from another workspace/document.
+ * Confirm that a client-supplied path is EXACTLY the shape buildStoragePath
+ * makes: <workspaceId>/<documentId>/<sanitized file name>, three segments, the
+ * last one already clean. A prefix check let "ws/doc/sub/dir/x" and
+ * "ws/doc/../x" through (A2-3). Prevents attaching an object from another
+ * workspace/document, or one nested somewhere unexpected.
  */
 export function validateStoragePath(
   path: string,
   workspaceId: string,
   documentId: string,
 ): boolean {
-  return path.startsWith(`${workspaceId}/${documentId}/`);
+  const parts = path.split("/");
+  if (parts.length !== 3) return false;
+  const [ws, doc, name] = parts;
+  if (ws !== workspaceId || doc !== documentId) return false;
+  if (!name || name === "." || name === "..") return false;
+  return sanitizeFileName(name) === name;
 }
 
 export { BUCKET, MAX_FILE_SIZE };
@@ -62,7 +70,7 @@ export const INLINE_MIME_TYPES: ReadonlySet<string> = new Set([
 const EXECUTABLE_MIME =
   /^(text\/html|application\/xhtml\+xml|image\/svg\+xml|text\/javascript|application\/(x-)?javascript|application\/ecmascript|text\/xml|application\/xml)$/;
 
-const MIME_SHAPE = /^[a-z0-9][a-z0-9!#export { BUCKET, MAX_FILE_SIZE };^_.+-]{0,126}\/[a-z0-9][a-z0-9!#export { BUCKET, MAX_FILE_SIZE };^_.+-]{0,126}$/;
+const MIME_SHAPE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/;
 
 /**
  * Normalize a client-declared MIME type: lower-case, strip parameters, and

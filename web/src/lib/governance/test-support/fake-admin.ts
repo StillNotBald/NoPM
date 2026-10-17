@@ -17,6 +17,14 @@ export type RpcError = { message: string; code?: string };
 export type RpcResult = { data: unknown; error: RpcError | null };
 export type RpcHandler = (args: Record<string, unknown>, db: FakeDb) => RpcResult | Promise<RpcResult>;
 
+import {
+  applyRebaselineRpc,
+  decideChangeRequestRpc,
+  lockProjectRpc,
+  signoffRebaselineRpc,
+  unlockProjectAuditedRpc,
+} from "./fake-rpcs";
+
 type Filter = (row: Row) => boolean;
 
 type Hook = { table: string; fn: (db: FakeDb) => void };
@@ -31,10 +39,29 @@ export class FakeDb {
     }),
     nopm_commit_task_deletion: commitDeletionRpc,
     nopm_commit_project_deletion: commitDeletionRpc,
+    nopm_apply_rebaseline: applyRebaselineRpc,
+    nopm_unlock_project_audited: unlockProjectAuditedRpc,
+    nopm_signoff_rebaseline: signoffRebaselineRpc,
+    nopm_decide_change_request: decideChangeRequestRpc,
+    nopm_lock_project: lockProjectRpc,
     nopm_project_child_counts: (args, db) => ({
       data: projectChildCounts(db, args.p_project_id as string),
       error: null,
     }),
+    // Migration 0064: per-workspace counter that only goes up (CR-001, DEC-001, DOC-001).
+    nopm_next_ref: (args, db) => {
+      const prefix = { change_request: "CR", decision: "DEC", document: "DOC" }[args.p_kind as string];
+      if (!prefix) return { data: null, error: { message: "unknown reference kind" } };
+      const counters = db.rows("nopm_ref_counters");
+      let row = counters.find((c) => c.workspace_id === args.p_workspace_id && c.kind === args.p_kind);
+      if (!row) {
+        row = { workspace_id: args.p_workspace_id, kind: args.p_kind, last_value: 0 };
+        counters.push(row);
+      }
+      const next = Number(row.last_value) + 1;
+      row.last_value = next;
+      return { data: `${prefix}-${String(next).padStart(3, "0")}`, error: null };
+    },
   };
   private seq = 0;
   private hooks: Hook[] = [];
@@ -174,6 +201,15 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
         this.db.fireHooks(this.table);
         break;
       case "insert": {
+        // Unique indexes the code under test relies on (a real insert fails with 23505).
+        const unique = UNIQUE_INDEXES[this.table];
+        if (unique) {
+          for (const p of this.payload) {
+            if (rows.some((r) => unique.every((c) => r[c] === p[c]))) {
+              return { data: null, error: { code: "23505", message: `duplicate key value violates unique constraint on ${this.table}` } as { message: string } };
+            }
+          }
+        }
         for (const p of this.payload) {
           const row: Row = { id: this.db.nextId(this.table), ...p };
           rows.push(row);
@@ -217,6 +253,11 @@ class Builder implements PromiseLike<{ data: unknown; error: { message: string }
       : { data: null, error: { message: "JSON object requested, multiple (or no) rows returned" } };
   }
 }
+
+const UNIQUE_INDEXES: Record<string, string[]> = {
+  // migration 0067
+  idempotency_keys: ["workspace_id", "actor_id", "route", "key"],
+};
 
 // ── project child counts, as migrations 0049 + 0054 define them ───────────
 

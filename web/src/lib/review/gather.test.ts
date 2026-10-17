@@ -126,7 +126,7 @@ describe("gatherReviewItems — the record beside the decision", () => {
 });
 
 describe("gatherReviewItems — four-eyes verdict for the signed-in viewer", () => {
-  const me = { id: "user-me", role: "member" };
+  const me = { id: "user-me", role: "manager" };
 
   it("refuses a deletion raised through the viewer's own token, allows someone else's", async () => {
     const { db } = fakeDb({
@@ -193,6 +193,6 @@ describe("gatherReviewItems — four-eyes verdict for the signed-in viewer", () 
       change_requests: [{ id: "cr-1", title: "X", status: "raised", requested_by: "user-other", created_at: daysAgo(1) }],
     });
     const [item] = (await gatherReviewItems(db, { id: "user-me", role: "viewer" })).filter((i) => i.kind === "change");
-    expect(item.decide).toMatchObject({ canDecide: false, block: "no_scope" });
+    expect(item.decide).toMatchObject({ canDecide: false, block: "role_not_permitted" });
   });
 });

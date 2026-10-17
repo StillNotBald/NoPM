@@ -558,6 +558,32 @@ function SettingsSectionNav() {
   );
 }
 
+// ── Turn-off code field ───────────────────────────────────────────────────────
+// The API requires the current 6-digit code (or an unused backup code) to turn
+// two-step off. The modal body is a snapshot, so the typed value lives in a ref
+// the confirm handler reads.
+function DisableCodeField({ valueRef }: { valueRef: { current: string } }) {
+  const id = useId();
+  const [value, setValue] = useState("");
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs font-medium text-ink-secondary">
+        Current code or a backup code
+      </label>
+      <Input
+        id={id}
+        value={value}
+        inputMode="text"
+        autoComplete="one-time-code"
+        onChange={(e) => {
+          setValue(e.target.value);
+          valueRef.current = e.target.value;
+        }}
+      />
+    </div>
+  );
+}
+
 // ── Settings page ──────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -604,8 +630,14 @@ export default function SettingsPage() {
       setEnroll({ secret: enrolled.secret, otpauth: enrolled.otpauth });
       setStep("verify");
     } catch (e) {
+      // 409 "Two-step is already on. Turn it off first." is shown as sent.
       setCodeError(e instanceof Error ? e.message : "Enrollment failed.");
-      setStep("idle");
+      if ((e as { status?: number })?.status === 409) {
+        toast.error(e instanceof Error ? e.message : "Two-step is already on.");
+        setStep("enabled");
+      } else {
+        setStep("idle");
+      }
     }
   };
 
@@ -631,13 +663,15 @@ export default function SettingsPage() {
   // Turning 2FA off lowers the account's protection, so it asks first; the
   // dialog stays open with the API's message if the call fails.
   const askDisable = () => {
+    const typed = { current: "" };
     modal.open(
       <ConfirmDialog
         heading="Turn off two-factor authentication?"
         confirmLabel="Disable 2FA"
         failureFallback="Could not disable 2FA."
         onConfirm={async () => {
-          await apiPost("/api/auth/mfa/disable");
+          if (!typed.current.trim()) throw new Error("Enter a current code or a backup code to turn two-step off.");
+          await apiPost("/api/auth/mfa/disable", { code: typed.current.trim() });
           setCodeError(null);
           setStep("idle");
           toast.success("Two-factor authentication is off.");
@@ -646,6 +680,7 @@ export default function SettingsPage() {
       >
         <p>Signing in will only need your password. Your backup codes stop working.</p>
         <p>You can turn it on again at any time.</p>
+        <DisableCodeField valueRef={typed} />
       </ConfirmDialog>,
       { title: "Disable 2FA", size: "sm" },
     );

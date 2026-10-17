@@ -3,6 +3,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { generateToken } from "@/lib/auth/tokens";
+import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
+import { ConflictError, ScopeError } from "@/lib/api/errors";
 import { assertCanManageInvites, assertRoleWithinCap, deriveInviteStatus } from "@/lib/governance/invite-guard";
 import { createInviteSchema } from "./_schema";
 
@@ -102,6 +104,8 @@ export const GET = route(async ({ actor, request }) => {
 // POST /api/invites — mint a new link invite (admin/manager session only, D5).
 export const POST = route(async ({ actor, request }) => {
   assertCanManageInvites(actor);
+  // A1-3 / A2-2: the shared public demo login must not mint invites.
+  if (await isDemoActor(actor)) throw new ScopeError(DEMO_RESTRICTED_MESSAGE, "demo_restricted");
 
   const body = await safeJson(request);
   const parsed = createInviteSchema.safeParse(body);
@@ -116,6 +120,22 @@ export const POST = route(async ({ actor, request }) => {
   assertRoleWithinCap(actor.role ?? "", parsed.data.role);
 
   const db = createAdminClient();
+
+  // D-ACC-15: someone who already has an account in this workspace cannot be
+  // invited again (accepting would only fail later with "email already exists").
+  // ilike with the wildcard characters escaped = a case-insensitive exact match.
+  const emailPattern = parsed.data.email.replace(/[\\%_]/g, (c) => "\\" + c);
+  const { data: existingAccount, error: accountError } = await db
+    .from("profiles")
+    .select("id")
+    .eq("workspace_id", actor.workspaceId)
+    .ilike("email", emailPattern)
+    .limit(1)
+    .maybeSingle();
+  if (accountError) throw accountError;
+  if (existingAccount) {
+    throw new ConflictError("This person already has an account", "account_exists");
+  }
 
   // Pre-check: an existing PENDING invite for this email already covers the
   // same intent (clean 422 — the DB has no unique index for this, so this

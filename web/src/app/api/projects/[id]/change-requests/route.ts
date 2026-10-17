@@ -6,38 +6,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
+import { insertWithReference } from "@/lib/governance/next-ref";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 export const runtime = "nodejs";
-
-/** Derive the next CR-NNN reference_id for a workspace. */
-async function nextCrRefId(
-  db: ReturnType<typeof createAdminClient>,
-  workspaceId: string,
-): Promise<string> {
-  const { data, error } = await db
-    .from("change_requests")
-    .select("reference_id")
-    .eq("workspace_id", workspaceId)
-    .not("reference_id", "is", null);
-
-  if (error) throw new Error(`nextCrRefId: ${error.message}`);
-
-  let maxNum = 0;
-  if (data && data.length > 0) {
-    for (const row of data) {
-      const val = row.reference_id as string | null;
-      if (!val) continue;
-      const dashIdx = val.lastIndexOf("-");
-      if (dashIdx === -1) continue;
-      const num = parseInt(val.slice(dashIdx + 1), 10);
-      if (!isNaN(num) && num > maxNum) maxNum = num;
-    }
-    if (maxNum === 0) maxNum = data.length;
-  }
-
-  return `CR-${String(maxNum + 1).padStart(3, "0")}`;
-}
 
 /** GET /api/projects/:id/change-requests — list change requests for a project */
 export const GET = route(async ({ actor, params, request }) => {
@@ -108,9 +80,7 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
-  const refId = await nextCrRefId(db, actor.workspaceId);
-
-  const { data: row, error } = await db
+  const { data: row, error } = await insertWithReference(db, actor.workspaceId, "change_request", (refId) => db
     .from("change_requests")
     .insert({
       workspace_id: actor.workspaceId,
@@ -138,7 +108,7 @@ export const POST = route(async ({ actor, params, request }) => {
       requested_principal_id: requesterPrincipal,
     })
     .select()
-    .single();
+    .single());
 
   if (error || !row) throw new Error(error?.message ?? "Insert failed");
 

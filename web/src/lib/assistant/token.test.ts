@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor } from "@/lib/auth/guard";
 
-const { insertSpy } = vi.hoisted(() => ({ insertSpy: vi.fn() }));
+const { insertSpy, updateSpy, writeAuditMock } = vi.hoisted(() => ({
+  insertSpy: vi.fn(),
+  updateSpy: vi.fn(),
+  writeAuditMock: vi.fn(async (_input: Record<string, unknown>) => {}),
+}));
+vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: (table: string) => {
@@ -11,12 +16,18 @@ vi.mock("@/lib/supabase/admin", () => ({
           insertSpy(row);
           return { select: () => ({ single: async () => ({ data: { id: "tok-new" }, error: null }) }) };
         },
+        update: (patch: Record<string, unknown>) => ({
+          eq: async (col: string, val: string) => {
+            updateSpy(patch, col, val);
+            return { error: null };
+          },
+        }),
       };
     },
   }),
 }));
 
-import { mintEphemeralToken, scopesForActor } from "./token";
+import { EPHEMERAL_TOKEN_TTL_MS, mintEphemeralToken, revokeEphemeralToken, scopesForActor } from "./token";
 import { TOOL_SCOPES } from "./tools";
 
 const actor = (role?: string): Actor =>
@@ -83,5 +94,59 @@ describe("mintEphemeralToken — records the human it acts for", () => {
   it("never records a token id as created_by (api_tokens.created_by is a profile FK)", async () => {
     await mintEphemeralToken({ type: "token", id: "tok-9", workspaceId: "w1", label: "T", scopes: [] } as Actor);
     expect(insertSpy.mock.calls[0][0].created_by).toBeNull();
+  });
+});
+
+describe("ephemeral token lifecycle audit (A1-10, A3-14)", () => {
+  const user = { type: "user", id: "u1", principalId: "u1", workspaceId: "w1", label: "Pat", role: "member" } as Actor;
+  beforeEach(() => {
+    insertSpy.mockClear();
+    updateSpy.mockClear();
+    writeAuditMock.mockClear();
+    writeAuditMock.mockImplementation(async () => {});
+  });
+
+  it("expires after the longest possible turn (10 minutes), not an hour", async () => {
+    expect(EPHEMERAL_TOKEN_TTL_MS).toBe(10 * 60 * 1000);
+    const before = Date.now();
+    await mintEphemeralToken(user);
+    const exp = new Date(insertSpy.mock.calls[0][0].expires_at as string).getTime();
+    expect(exp - before).toBeLessThanOrEqual(EPHEMERAL_TOKEN_TTL_MS + 1000);
+    expect(exp - before).toBeGreaterThan(EPHEMERAL_TOKEN_TTL_MS - 5000);
+  });
+
+  it("writes exactly one mint audit row that links the conversation id", async () => {
+    await mintEphemeralToken(user, { conversationId: "conv-1" });
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    const arg = writeAuditMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.action).toBe("assistant.token.mint");
+    expect(arg.targetId).toBe("conv-1");
+    expect(arg.after).toMatchObject({ token_id: "tok-new", conversation_id: "conv-1" });
+  });
+
+  it("revokes the token and refuses the turn when the mint cannot be audited (fail-closed)", async () => {
+    writeAuditMock.mockImplementationOnce(async () => {
+      throw new Error("audit down");
+    });
+    await expect(mintEphemeralToken(user, { conversationId: "conv-1" })).rejects.toThrow(/audit down/);
+    expect(updateSpy).toHaveBeenCalledWith({ revoked: true }, "id", "tok-new");
+  });
+
+  it("revoke marks the token revoked and writes one revoke audit row with the conversation id", async () => {
+    await revokeEphemeralToken("tok-new", { actor: user, conversationId: "conv-1" });
+    expect(updateSpy).toHaveBeenCalledWith({ revoked: true }, "id", "tok-new");
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    const arg = writeAuditMock.mock.calls[0][0] as Record<string, unknown>;
+    expect(arg.action).toBe("assistant.token.revoke");
+    expect(arg.targetId).toBe("conv-1");
+    expect(arg.after).toMatchObject({ token_id: "tok-new", conversation_id: "conv-1" });
+  });
+
+  it("a failing revoke audit never throws out of a finally block", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    writeAuditMock.mockImplementationOnce(async () => {
+      throw new Error("audit down");
+    });
+    await expect(revokeEphemeralToken("tok-new", { actor: user })).resolves.toBeUndefined();
   });
 });

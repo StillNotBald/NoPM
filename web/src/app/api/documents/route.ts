@@ -4,6 +4,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { createDocumentSchema } from "@/app/api/documents/_schema";
+import { insertWithReference } from "@/lib/governance/next-ref";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
@@ -67,25 +68,9 @@ export const POST = route(async ({ actor, request }) => {
     { table: "profiles", id: input.owner_id, field: "owner_id" },
   ]);
 
-  // Derive next DOC-NNN reference_id.
-  const { data: existing } = await db
-    .from("documents")
-    .select("reference_id")
-    .eq("workspace_id", actor.workspaceId)
-    .not("reference_id", "is", null);
-
-  let maxNum = 0;
-  for (const row of existing ?? []) {
-    const val = row.reference_id as string | null;
-    if (!val) continue;
-    const idx = val.lastIndexOf("-");
-    if (idx === -1) continue;
-    const n = parseInt(val.slice(idx + 1), 10);
-    if (!isNaN(n) && n > maxNum) maxNum = n;
-  }
-  const refId = `DOC-${String(maxNum + 1).padStart(3, "0")}`;
-
-  const { data: row, error } = await db
+  // The DOC-NNN reference comes from a per-workspace counter that never goes
+  // backwards (a deleted newest record does not free its number).
+  const { data: row, error } = await insertWithReference(db, actor.workspaceId, "document", (refId) => db
     .from("documents")
     .insert({
       workspace_id: actor.workspaceId,
@@ -102,7 +87,7 @@ export const POST = route(async ({ actor, request }) => {
       created_by:   actor.type === "user" ? actor.id : null,
     })
     .select()
-    .single();
+    .single());
 
   if (error || !row) throw new Error(error?.message ?? "Insert failed");
 

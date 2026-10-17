@@ -95,6 +95,7 @@ function pat(id: string, owner: string | null): Actor {
     workspaceId: WS,
     scopes: SCOPES,
     principalId: owner,
+    principalRole: owner ? "manager" : null,
     channel: "api",
     requestId: `req-${id}`,
   };
@@ -241,7 +242,6 @@ function seed(): FakeDb {
 beforeEach(() => {
   db = seed();
   holder.db = db;
-  db.rpcHandlers.nopm_apply_rebaseline_snapshot = () => ({ data: null, error: null });
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -284,13 +284,16 @@ describe("P1-1 — POST /projects/:id/lock captures the baselines, then locks", 
     expect(db.rows("audit_log")[0].after).toMatchObject({ is_locked: true });
   });
 
-  it("a snapshot failure leaves the project OPEN and un-audited, and a retry finishes the job", async () => {
-    failNext(db, "tasks", "update", { code: "XX000", message: "connection reset" });
+  it("the snapshot, the lock and the audit row are ONE RPC: a failure leaves the project OPEN, un-baselined and un-audited, and a retry finishes the job", async () => {
+    const real = db.rpcHandlers.nopm_lock_project;
+    db.rpcHandlers.nopm_lock_project = () => ({ data: null, error: { code: "XX000", message: "connection reset" } });
     const failed = await call(lockProject, alicePat(), PROJECT);
     expect(failed.status).toBe(500);
     expect(project().is_locked).toBe(false);
+    expect(row("tasks", TASK_1).baseline_due_date).toBeNull();
     expect(auditActions()).toEqual([]);
 
+    db.rpcHandlers.nopm_lock_project = real;
     const retry = await call(lockProject, alicePat(), PROJECT);
     expect(retry.status).toBe(200);
     expect(row("tasks", TASK_1).baseline_due_date).toBe("2027-02-10");
@@ -432,41 +435,46 @@ describe("P2-1 — task and milestone PATCH under a lock compare VALUES, like th
 
 // ── P2-9: apply runs the snapshot before the terminal status flip ──────────
 
-describe("P2-9 — POST /rebaselines/:id/apply", () => {
-  it("runs the idempotent snapshot FIRST, then flips approved -> applied, then audits", async () => {
-    const statusAtSnapshot: unknown[] = [];
-    db.rpcHandlers.nopm_apply_rebaseline_snapshot = (_args, d) => {
-      statusAtSnapshot.push(d.rows("rebaselines")[0].status);
-      return { data: null, error: null };
-    };
-
-    const res = await call(applyRebaseline, bobPat(), "rb-approved");
-    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
-    expect(statusAtSnapshot).toEqual(["approved"]);
-    expect(db.rows("rebaselines")[0]).toMatchObject({ status: "applied" });
-    expect(auditActions()).toEqual(["rebaseline.apply"]);
-    expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")[0].args).toMatchObject({ p_project_id: PROJECT, p_workspace_id: WS });
+describe("P2-9 — POST /rebaselines/:id/apply (one atomic RPC, migration 0062)", () => {
+  beforeEach(() => {
+    project().is_locked = true; // a sign-off is for a LOCKED project
   });
 
-  it("a snapshot failure leaves the rebaseline NOT applied and un-audited, so it can be retried", async () => {
-    db.rpcHandlers.nopm_apply_rebaseline_snapshot = () => ({ data: null, error: { code: "XX000", message: "deadlock detected" } });
+  it("flips approved -> applied and writes the single rebaseline.apply audit row in the same call", async () => {
+    const res = await call(applyRebaseline, bobPat(), "rb-approved");
+    expect(res.status, JSON.stringify(await res.clone().json())).toBe(200);
+    expect(db.rows("rebaselines")[0]).toMatchObject({ status: "applied" });
+    expect(auditActions()).toEqual(["rebaseline.apply"]);
+    expect(db.rpcCallsTo("nopm_apply_rebaseline")[0].args).toMatchObject({
+      p_rebaseline_id: "rb-approved",
+      p_workspace_id: WS,
+      p_approver_principal_id: BOB,
+    });
+  });
+
+  it("a failure inside the RPC leaves the rebaseline approved and un-audited, so it can be retried", async () => {
+    const real = db.rpcHandlers.nopm_apply_rebaseline;
+    db.rpcHandlers.nopm_apply_rebaseline = () => ({ data: null, error: { code: "XX000", message: "deadlock detected" } });
     const res = await call(applyRebaseline, bobPat(), "rb-approved");
     expect(res.status).toBe(500);
     expect(db.rows("rebaselines")[0]).toMatchObject({ status: "approved" });
-    expect(db.rows("rebaselines")[0].applied_at).toBeUndefined();
     expect(auditActions()).toEqual([]);
 
-    db.rpcHandlers.nopm_apply_rebaseline_snapshot = () => ({ data: null, error: null });
+    db.rpcHandlers.nopm_apply_rebaseline = real;
     expect((await call(applyRebaseline, bobPat(), "rb-approved")).status).toBe(200);
     expect(db.rows("rebaselines")[0]).toMatchObject({ status: "applied" });
   });
 
-  it("losing the compare-and-set race is still 422 already_applied, with no audit row for the loser", async () => {
-    db.rpcHandlers.nopm_apply_rebaseline_snapshot = (_args, d) => {
-      Object.assign(d.rows("rebaselines")[0], { status: "applied" }); // a concurrent apply won meanwhile
-      return { data: null, error: null };
-    };
+  it("losing the race (the RPC finds it no longer approved) is still 422 already_applied, with no audit row for the loser", async () => {
+    db.rpcHandlers.nopm_apply_rebaseline = () => ({ data: null, error: { code: "P0001", message: "ALREADY_DECIDED" } });
     await expectRule(await call(applyRebaseline, bobPat(), "rb-approved"), "already_applied");
+    expect(auditActions()).toEqual([]);
+  });
+
+  it("D11: a project that is no longer locked refuses the apply (422 project_not_locked), nothing moves", async () => {
+    project().is_locked = false;
+    await expectRule(await call(applyRebaseline, bobPat(), "rb-approved"), "project_not_locked");
+    expect(db.rows("rebaselines")[0]).toMatchObject({ status: "approved" });
     expect(auditActions()).toEqual([]);
   });
 });

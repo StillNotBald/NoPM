@@ -115,7 +115,7 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
       .is("revoked_at", null)
       .maybeSingle();
     if (identityError) throw identityError;
-    if (!identity) return await finish(claimId, { status: "unlinked" });
+    if (!identity) return await finish(claimId, workspaceId, { status: "unlinked" });
 
     const { data: profile, error: profileError } = await db
       .from("profiles")
@@ -124,13 +124,14 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
       .eq("workspace_id", workspaceId)
       .maybeSingle();
     if (profileError) throw profileError;
-    if (!profile) return await finish(claimId, { status: "unlinked" });
+    if (!profile) return await finish(claimId, workspaceId, { status: "unlinked" });
     // Cards only ever go to admins/managers (resolveWorkspaceApprovers); a
     // person demoted since the card was sent must not keep approving from it.
     if (profile.role !== "admin" && profile.role !== "manager") {
       return await finish(
         claimId,
-        { status: "forbidden", message: "Only workspace admins and managers can approve or reject from chat." },
+        workspaceId,
+        { status: "forbidden", message: "Only managers and admins can approve or reject from chat." },
         { principalId: profile.id },
       );
     }
@@ -151,7 +152,7 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
 
     if (!consumed || consumed.length === 0) {
       const denied = await classifyTokenFailure(workspaceId, tokenHash, profile.id);
-      return await finish(claimId, denied, { principalId: profile.id });
+      return await finish(claimId, workspaceId, denied, { principalId: profile.id });
     }
     const token = consumed[0] as TokenRow;
     tokenId = token.id;
@@ -208,8 +209,14 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
     // fix (a transient error, a lock they can lift, a scope an admin grants
     // afterwards) must not burn the card. "decided" and "already_decided" never
     // reach this branch, so a successful decision's token stays spent and cannot
-    // be replayed; "self_approval" stays burnt too (no later tap can change it).
-    if (outcome.status === "error" || outcome.status === "invalid" || outcome.status === "forbidden") {
+    // be replayed; a refused self-approval (D-ACC-14) does not spend the card either: the request stays
+    // pending and the card is released unused, exactly like the other refusals.
+    if (
+      outcome.status === "error" ||
+      outcome.status === "invalid" ||
+      outcome.status === "forbidden" ||
+      outcome.status === "self_approval"
+    ) {
       await releaseToken(tokenId, workspaceId);
     }
     if (outcome.status === "error") {
@@ -218,7 +225,7 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
       claimId = null;
       return outcome;
     }
-    return await finish(claimId, outcome, { principalId: profile.id, ref });
+    return await finish(claimId, workspaceId, outcome, { principalId: profile.id, ref });
   } catch (err) {
     console.error("[integrations] inbound action failed:", sanitizeError(err));
     if (tokenId) await releaseToken(tokenId, connector.workspace_id).catch(() => {});
@@ -363,6 +370,7 @@ async function readClaim(
 /** Record the typed outcome on the claim and return it. */
 async function finish(
   claimId: string,
+  workspaceId: string,
   outcome: InboundOutcome,
   extra: { principalId?: string; ref?: { kind: ApprovalKind; id: string } } = {},
 ): Promise<InboundOutcome> {
@@ -374,7 +382,8 @@ async function finish(
       ...(extra.principalId ? { principal_id: extra.principalId } : {}),
       ...(extra.ref ? { approval_kind: extra.ref.kind, approval_id: extra.ref.id } : {}),
     })
-    .eq("id", claimId);
+    .eq("id", claimId)
+    .eq("workspace_id", workspaceId);
   if (error) console.error("[integrations] failed to store inbound outcome:", sanitizeError(error));
   return outcome;
 }
@@ -414,7 +423,7 @@ async function refuseChanged(
   if (error) console.error("[integrations] failed to retire a stale token:", sanitizeError(error));
 
   const outcome: InboundOutcome = { status: "changed" };
-  await finish(claimId, outcome, { principalId, ref });
+  await finish(claimId, workspaceId, outcome, { principalId, ref });
   schedule("stale card tapped", workspaceId, () => reissueAfterChange(workspaceId, ref));
   return outcome;
 }

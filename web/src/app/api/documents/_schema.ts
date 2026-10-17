@@ -25,9 +25,9 @@ export const createDocumentSchema = z.object({
   title:        z.string().min(1, "title is required").max(500),
   doc_type:     docTypeEnum,
   status:       docStatusEnum.optional().default("draft"),
-  summary:      z.string().optional().nullable(),
-  body:         z.string().optional().nullable(),
-  external_url: z.string().url("external_url must be a valid URL").optional().nullable(),
+  summary:      z.string().max(10_000).optional().nullable(),
+  body:         z.string().max(100_000).optional().nullable(),
+  external_url: z.string().url("external_url must be a valid URL").max(2000).optional().nullable(),
   owner_id:     z.string().uuid("owner_id must be a valid UUID").optional().nullable(),
 });
 
@@ -37,9 +37,9 @@ export const updateDocumentSchema = z.object({
   title:        z.string().min(1).max(500).optional(),
   doc_type:     docTypeEnum.optional(),
   status:       docStatusEnum.optional(),
-  summary:      z.string().optional().nullable(),
-  body:         z.string().optional().nullable(),
-  external_url: z.string().url("external_url must be a valid URL").optional().nullable(),
+  summary:      z.string().max(10_000).optional().nullable(),
+  body:         z.string().max(100_000).optional().nullable(),
+  external_url: z.string().url("external_url must be a valid URL").max(2000).optional().nullable(),
   owner_id:     z.string().uuid("owner_id must be a valid UUID").optional().nullable(),
 });
 

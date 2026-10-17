@@ -14,6 +14,8 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().optional(),
   program: z.string().optional(),
+  // D-WRK-4: program membership write path (must belong to the caller's workspace).
+  program_id: z.string().uuid().nullable().optional(),
   owner_id: z.string().uuid().optional(),
   rag_status: z
     .enum(["not_started", "red", "amber", "green", "complete"])
@@ -50,10 +52,13 @@ export const updateProjectSchema = z.object({
   name: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
   program: z.string().optional(),
+  program_id: z.string().uuid().nullable().optional(),
   owner_id: z.string().uuid().optional(),
   rag_status: z
     .enum(["not_started", "red", "amber", "green", "complete"])
     .optional(),
+  // Accepted for echo-compat only: the route refuses a value that differs from
+  // the stored one (422) because completion is calculated from the tasks.
   completion_pct: z.number().min(0).max(100).optional(),
   start_date: z.string().optional(),
   target_date: z.string().optional(),

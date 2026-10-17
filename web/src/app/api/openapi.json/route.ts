@@ -80,14 +80,37 @@ const spec = {
       "with no recorded owner can never decide (403, code no_principal). The approve/decide scopes " +
       "(task:delete:approve, project:delete:approve, time:approve, change:decide, rebaseline:approve) " +
       "are NEVER granted by a wildcard (* or task:*, time:*, ...): each must be granted by its exact " +
-      "name. Agents never approve: GET /review lists what is waiting for a human, and the decision is " +
-      "made by a person in the console or on a chat card. " +
+      "name. Approving or deciding (deletion approve/reject, change-request decide, rebaseline sign-off and apply, " +
+      "timesheet approve/reject/reopen) is for ADMINS and MANAGERS only, on every channel (owner decision D-16, " +
+      "'follow Lark rules'): a member or viewer gets 403, code role_not_permitted, 'Only managers and admins can " +
+      "approve'. A token is judged by the CURRENT role of the person who minted it (api_tokens.created_by), so a " +
+      "token carrying an approve scope can decide only while its creator is still an admin or manager, and stops " +
+      "the moment they are demoted. Such a token acts with its creator's authority: keep approve scopes off " +
+      "agent tokens unless that is intended; GET /review lists what is waiting for a decision. Time entries " +
+      "(D-17, to be confirmed by the owner): a member may log, edit and delete only their OWN hours; admins and " +
+      "managers may do it for others (403, code not_your_hours, 'You can only log your own hours'). " +
+      "Retries: POST /time-entries, POST /projects/{id}/expenses, POST /projects/{id}/tasks and POST /allocations " +
+      "accept an Idempotency-Key header (1-200 chars of [A-Za-z0-9_.:-], remembered 24 h per workspace + actor + " +
+      "route; the expenses and tasks routes include the project id); a retry with the same key returns the first result instead of creating a second record. " +
+      "A malformed or empty Idempotency-Key header is 400 invalid_idempotency_key. The same key while the first request is still running is 409 idempotency_in_progress " +
+      "('A request with this Idempotency-Key is still in progress'). The same key with a different body is 422 idempotency_key_reused " +
+      "('Idempotency-Key reused with a different request'). Every 429 carries a Retry-After header (seconds). Rate buckets are per actor id " +
+      "with a workspace ceiling of 5x; failed bearer authentication is throttled at 20/min per client IP before " +
+      "any token lookup: once an address spends its failed-attempt budget it gets 429 with Retry-After, and a VALID token is never throttled by this. " +
+      "A personal access token whose creator is now a viewer is read-only (403 forbidden_scope, 'This token's creator now has read-only access; the token is read-only'); approvals still need an admin or manager creator. " +
+      "Timesheet approve and reject also have a database backstop for the approver role (P0018, surfaced as 403 role_not_permitted). " +
+      "A personal access token stops authenticating (401) when its creator's profile is gone or " +
+      "belongs to another workspace; calendar feeds are unaffected (owner decision 9). Audit rows expose " +
+      "principal_id (the person behind the actor, nullable) and the channel is derived from the credential " +
+      "(a session is ui; a token is never ui). " +
       "Error bodies carry a stable machine-readable `code` beside `error` (e.g. unauthorized, " +
       "forbidden_scope, not_found, rule_violation, rate_limited, self_approval, no_principal, " +
       "already_decided, project_locked, period_locked, timesheet_locked, timesheet_changed, " +
       "rebaseline_not_pending, already_applied, change_request_decided, children_changed, target_changed, target_gone, " +
       "bad_origin, invalid_reference, decision_in_use, not_your_timesheet, duplicate_submission, " +
-      "duplicate_deletion_request, has_timesheet_records) — branch on it, not on the message. " +
+      "duplicate_deletion_request, has_timesheet_records, role_not_permitted, not_your_hours, " +
+      "pending_rebaseline_exists, rebaseline_version_conflict, invalid_idempotency_key, idempotency_in_progress, idempotency_key_reused, forbidden_scope, project_not_locked, mfa_already_enabled, account_exists, already_revoked, " +
+      "demo_restricted, demo_readonly, connector_paused, demo_quota_unavailable, misconfigured) — branch on it, not on the message. " +
       "A browser-session (cookie) POST/PUT/PATCH/DELETE whose Origin header is another site is refused " +
       "(403, code bad_origin); Bearer-token requests are never origin-checked. A malformed id (not a UUID) in " +
       "a path is 404 not_found, and a malformed value in a query filter or body is 422 validation_failed. " +
@@ -369,13 +392,29 @@ const spec = {
         },
       },
     },
+    parameters: {
+      IdempotencyKey: {
+        name: "Idempotency-Key",
+        in: "header",
+        required: false,
+        schema: { type: "string", minLength: 1, maxLength: 200, pattern: "^[A-Za-z0-9_.:-]+$" },
+        description:
+          "Optional retry key (1-200 chars of A-Z a-z 0-9 _ . : -). A repeat of the same POST with the same key by the same " +
+          "actor in the same workspace within 24 h returns the first result instead of creating a second record. " +
+          "A malformed or empty key is 400 invalid_idempotency_key. Keys are scoped per workspace, actor and route (expenses and tasks include the project id). " +
+          "Same key while the first request still runs: 409 idempotency_in_progress. Same key with a different body: 422 idempotency_key_reused.",
+      },
+    },
     responses: {
       RateLimited: {
         description:
           "429 — baseline rate limit exceeded (workspace+actor-class, fixed 60s window; " +
           "defaults 600/min read, 120/min write; configurable via NOPM_RATE_READ_PER_MIN / " +
           "NOPM_RATE_WRITE_PER_MIN). Applies to every authenticated route in this API — " +
-          "documented once here rather than per-path. code: rate_limited.",
+          "documented once here rather than per-path. code: rate_limited. Always sends a Retry-After " +
+          "header (integer seconds). Rate buckets are per actor id with a workspace ceiling of 5x; at most one " +
+          "rate.limited audit row is written per actor per bucket per window.",
+        headers: { "Retry-After": { schema: { type: "integer" }, description: "Seconds to wait before retrying" } },
         content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
       },
       PreconditionFailed: {
@@ -462,7 +501,7 @@ const spec = {
       post: {
         tags: ["tokens"],
         summary: "Mint a new API token",
-        description: "scope: admin or manager user session. Raw token returned once only.",
+        description: "scope: admin or manager user session. Raw token returned once only. A token with an approve scope can decide only while its creator is an admin or manager. Refused on the shared demo login (403, code demo_restricted).",
         operationId: "createToken",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["name", "scopes"], properties: { name: { type: "string" }, scopes: { type: "array", items: { type: "string" } }, expires_at: { type: "string", format: "date-time" } } } } } },
         responses: {
@@ -475,11 +514,12 @@ const spec = {
       delete: {
         tags: ["tokens"],
         summary: "Revoke a token",
-        description: "scope: admin or manager user session. Sets revoked=true.",
+        description: "scope: admin or manager user session. Sets revoked=true. Only user tokens can be revoked here (not the assistant's ephemeral tokens). Revoking an already-revoked token is 409.",
         operationId: "revokeToken",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Token revoked", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "409": { description: "Token already revoked (code already_revoked)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -509,7 +549,9 @@ const spec = {
           "scope: admin or manager user session (D5). Role-escalation cap: invite.role must be <= the " +
           "creator's own role rank (viewer<member<manager<admin) — a manager can never mint an admin " +
           "invite (422 rule_violation). Token prefix npi_ (distinct from api_tokens' npm_). expires_at = " +
-          "now + 7 days. Raw invite link (invite_url) is returned ONCE and never stored/logged again.",
+          "now + 7 days. Raw invite link (invite_url) is returned ONCE and never stored/logged again. Accepting an invite is " +
+          "retry-safe (a repeated accept does not fail half-way). 409 account_exists when the email already has an account; " +
+          "403 demo_restricted on the shared demo login.",
         operationId: "createInvite",
         requestBody: zodBody(createInviteSchema),
         responses: {
@@ -616,7 +658,7 @@ const spec = {
           "as for tasks and milestones — the way to move a frozen baseline is a governed unlock or an approved rebaseline, " +
           "never one holder of project:write. A field sent with its stored value is not a change. Name, owner, RAG, " +
           "commentary and the rest stay editable under lock. owner_id must be a member of THIS workspace (422 " +
-          "invalid_reference otherwise).",
+          "invalid_reference otherwise). program_id (uuid or null) is accepted on create and PATCH; a program outside the workspace is 422. completion_pct is calculated from the tasks: a PATCH that sends a value different from the stored one is 422 (\"Project completion is calculated from its tasks\").",
         operationId: "updateProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateProjectSchema),
@@ -839,7 +881,7 @@ const spec = {
         description:
           "scope: sprint:write. The task must exist in this workspace AND already belong to the sprint's " +
           "own project (422 otherwise, not 404 — the combination is invalid, not the sprint id). 422 if " +
-          "the sprint is closed.",
+          "the sprint is closed, or if the task belongs to a closed sprint (422 \"This task belongs to a closed sprint and cannot be moved to another sprint\").",
         operationId: "attachSprintTask",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(sprintTaskAttachSchema),
@@ -943,7 +985,7 @@ const spec = {
         requestBody: zodBody(timesheetDecisionSchema),
         responses: {
           "200": { description: "Decision recorded", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-decision rejected (four-eyes, code self_approval) — includes self-reopen and deciding a sheet for your own hours; no recorded owner on the token (no_principal); or missing time:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Self-decision rejected (four-eyes, code self_approval) — includes self-reopen and deciding a sheet for your own hours; not an admin or manager (role_not_permitted, 'Only managers and admins can approve' — applies to approve, reject AND reopen); no recorded owner on the token (no_principal); or missing time:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Already decided (approve/reject — code already_decided), not approved yet (reopen — code not_reopenable), rationale missing on reject/reopen (code rationale_required), or the time entries changed since the sheet was submitted (approve — code timesheet_changed)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -1062,7 +1104,7 @@ const spec = {
       post: {
         tags: ["milestones"],
         summary: "Create a milestone under a project",
-        description: "scope: milestone:write. 422 project_locked when the project is locked.",
+        description: "scope: milestone:write. 422 project_locked when the project is locked. Saves description, deliverable, start_date, baseline_target_date and actual_date as well as the core fields.",
         operationId: "createMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createMilestoneSchema),
@@ -1087,7 +1129,7 @@ const spec = {
       patch: {
         tags: ["milestones"],
         summary: "Update a milestone",
-        description: "scope: milestone:write. 422 project_locked when the patch touches a schedule-shape field (target_date/baseline_target_date) and the project is locked; status/etc. edits stay live under lock.",
+        description: "scope: milestone:write. 422 project_locked when the patch touches a schedule-shape field (target_date/baseline_target_date) and the project is locked; status/etc. edits stay live under lock. Saves description, deliverable, start_date, baseline_target_date and actual_date.",
         operationId: "updateMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateMilestoneSchema),
@@ -1129,9 +1171,9 @@ const spec = {
       post: {
         tags: ["tasks"],
         summary: "Create a task in a project",
-        description: "scope: task:write. 422 project_locked when the project is locked.",
+        description: "scope: task:write. 422 project_locked when the project is locked. Send Idempotency-Key to make a retry return the first task.",
         operationId: "createTask",
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: zodBody(TaskCreateSchema),
         responses: {
           "201": { description: "Task created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -1226,7 +1268,7 @@ const spec = {
       post: {
         tags: ["risks"],
         summary: "Create a risk under a project",
-        description: "scope: risk:write",
+        description: "scope: risk:write. Saves every schema field: probability_pct, impact_score, response_strategy, risk_category, impact_area, trigger, residual_risk.",
         operationId: "createRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createRiskSchema),
@@ -1251,7 +1293,7 @@ const spec = {
       patch: {
         tags: ["risks"],
         summary: "Update a risk",
-        description: "scope: risk:write",
+        description: "scope: risk:write. Saves every schema field (probability_pct, impact_score, response_strategy, risk_category, impact_area, trigger, residual_risk). Raising severity to high or critical sends the same risk.escalated notification as create.",
         operationId: "updateRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateRiskSchema),
@@ -1293,7 +1335,7 @@ const spec = {
       post: {
         tags: ["issues"],
         summary: "Create an issue under a project",
-        description: "scope: issue:write",
+        description: "scope: issue:write. Saves every schema field: severity, issue_category, impact, resolution_eta, resolved_at.",
         operationId: "createIssue",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createIssueSchema),
@@ -1318,7 +1360,7 @@ const spec = {
       patch: {
         tags: ["issues"],
         summary: "Update an issue",
-        description: "scope: issue:write",
+        description: "scope: issue:write. Saves every schema field: severity, issue_category, impact, resolution_eta, resolved_at.",
         operationId: "updateIssue",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateIssueSchema),
@@ -1485,8 +1527,9 @@ const spec = {
       post: {
         tags: ["allocations"],
         summary: "Create an allocation",
-        description: "scope: resource:write. Triggers over-allocation clash detection.",
+        description: "scope: resource:write. Triggers over-allocation clash detection. allocation_pct is 0..500 or omitted (null is 422). If the detector fails the allocation is still saved (201) and the response carries warnings: string[] (\"The allocation was saved, but over-allocation detection failed; clashes for this member may be out of date.\"). A clash already in investigating counts as open (no duplicate is raised); clashes the detector closes are audited as clash.auto_resolve. Send Idempotency-Key to make a retry return the first allocation.",
         operationId: "createAllocation",
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, allocation_pct: { type: "number" }, hours: { type: "number" }, window_start: { type: "string", format: "date-time" }, window_end: { type: "string", format: "date-time" } } } } } },
         responses: {
           "201": { description: "Allocation created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -1509,7 +1552,7 @@ const spec = {
       patch: {
         tags: ["allocations"],
         summary: "Update an allocation",
-        description: "scope: resource:write. Re-runs over-allocation detection.",
+        description: "scope: resource:write. Re-runs over-allocation detection. allocation_pct is 0..500 (null is 422). The response may carry warnings: string[] when detection failed after the save.",
         operationId: "updateAllocation",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, allocation_pct: { type: "number" }, hours: { type: "number" }, window_start: { type: "string", format: "date-time" }, window_end: { type: "string", format: "date-time" } } } } } },
@@ -1560,12 +1603,17 @@ const spec = {
           "review and what the approver sees must be what they approve (a rejection unlocks the week; a reopened " +
           "sheet is open for amendment again, but an amended sheet can no longer be approved as submitted — 422 " +
           "timesheet_changed — so reject it and have the member resubmit). task_id, when " +
-          "sent, must be a task in this workspace (422 invalid_reference).",
+          "sent, must be a task in this workspace AND in the entry's project (422, 'Task does not belong to this project'). " +
+          "Ownership (D-17): a member may log only their own hours — member_id must be the caller's own member; admins and managers " +
+          "may log for others (403, code not_your_hours, 'You can only log your own hours'). A token is judged by the person who " +
+          "minted it. Send Idempotency-Key to make a retry return the first entry.",
         operationId: "createTimeEntry",
+        parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["member_id", "project_id", "entry_date", "hours"], properties: { member_id: { type: "string", format: "uuid" }, project_id: { type: "string", format: "uuid" }, task_id: { type: "string", format: "uuid" }, entry_date: { type: "string", format: "date" }, hours: { type: "number", minimum: 0 }, note: { type: "string" }, billable: { type: "boolean", description: "L-29: whether this entry counts as billable. Omitted → defaults from the owning project's default_billable." } } } } } },
         responses: {
           "201": { description: "Time entry created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "422": { description: "Validation error; the entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision); or invalid_reference (task_id)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "A member logging hours for someone else (code not_your_hours)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; the entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision); invalid_reference (task_id); or task_id belongs to another project", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1576,11 +1624,13 @@ const spec = {
         description:
           "scope: time:write. 422 if the entry's week is locked for this member: period_locked when an APPROVED " +
           "timesheet submission covers it (R-76/L-32; reopen the submission to unlock it), timesheet_locked when a " +
-          "SUBMITTED one does (under review; a rejection unlocks the week).",
+          "SUBMITTED one does (under review; a rejection unlocks the week). A member may delete only their own entries " +
+          "(403, code not_your_hours); admins and managers may delete anyone's.",
         operationId: "deleteTimeEntry",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "204": { description: "Deleted" },
+          "403": { description: "Not your hours (code not_your_hours)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "The entry's week is locked — period_locked (approved timesheet submission) or timesheet_locked (submitted, awaiting a decision)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -1648,9 +1698,9 @@ const spec = {
       post: {
         tags: ["budget"],
         summary: "Create an expense for a project",
-        description: "scope: budget:write",
+        description: "scope: budget:write. incurred_on is optional and defaults to today (UTC). Send Idempotency-Key to make a retry return the first expense.",
         operationId: "createExpense",
-        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }, { $ref: "#/components/parameters/IdempotencyKey" }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["description", "amount"], properties: { description: { type: "string" }, amount: { type: "number", minimum: 0 }, category: { type: "string" }, incurred_on: { type: "string", format: "date" } } } } } },
         responses: {
           "201": { description: "Expense created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -1697,7 +1747,8 @@ const spec = {
           "compares PEOPLE: the approver must be a different person from the requester — a token counts as " +
           "the user who minted it, so you cannot approve with your own token what you (or any of your tokens) " +
           "requested (403, code self_approval); a token with no recorded owner can never approve (403, code " +
-          "no_principal). Optional body { note }: the approver's note, recorded in the audit row of the " +
+          "no_principal). The caller must also be an admin or manager — a token is judged by its creator's current role (403, " +
+          "code role_not_permitted, 'Only managers and admins can approve'). Optional body { note }: the approver's note, recorded in the audit row of the " +
           "decision (an empty body is fine). " +
           "Dispatches by target_type to the matching atomic commit RPC " +
           "(nopm_commit_task_deletion / nopm_commit_project_deletion) — deletes the target and commits " +
@@ -1726,7 +1777,7 @@ const spec = {
         },
         responses: {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Missing the per-type approve scope (forbidden_scope); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing the per-type approve scope (forbidden_scope); the caller (or the person behind the token) is not an admin or manager (role_not_permitted, 'Only managers and admins can approve'); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); a time entry in a locked timesheet week would be cascaded away (period_locked / timesheet_locked); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -1736,13 +1787,13 @@ const spec = {
       post: {
         tags: ["deletion-requests"],
         summary: "Reject a pending deletion request (checker step)",
-        description: "scope: task:delete:approve for task requests, project:delete:approve for project requests (per-type gate; a wildcard scope never grants it). Four-eyes compares PEOPLE: the decider must be a different person from the requester. Self-rejection by the SAME actor returns 422 (code self_approval); the same person through ANOTHER identity (e.g. a token they minted) returns 403 (code self_approval); a token with no recorded owner returns 403 (code no_principal). A maker cancels their own request via /withdraw instead.",
+        description: "scope: task:delete:approve for task requests, project:delete:approve for project requests (per-type gate; a wildcard scope never grants it). Four-eyes compares PEOPLE: the decider must be a different person from the requester. Self-rejection by the SAME actor returns 422 (code self_approval); the same person through ANOTHER identity (e.g. a token they minted) returns 403 (code self_approval); a token with no recorded owner returns 403 (code no_principal). A maker cancels their own request via /withdraw instead. Admins and managers only (403, code role_not_permitted, 'Only managers and admins can approve').",
         operationId: "rejectDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string", maxLength: 1000 } } } } } },
         responses: {
           "200": { description: "Request rejected — { data: { rejected: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Missing the per-type approve scope (forbidden_scope); the same person as the requester through another identity (self_approval); or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing the per-type approve scope (forbidden_scope); not an admin or manager (role_not_permitted); the same person as the requester through another identity (self_approval); or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Request already decided (already_decided), self-rejection by the same actor (self_approval), or validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -1887,13 +1938,13 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Verify a TOTP code or backup code after password sign-in (R-91)",
-        description: "scope: user session only. Exempt from the MFA-challenge gate itself. Rate-limited: 5 failed attempts / 10 min / user. On success sets the signed HttpOnly nopm_mfa cookie (max 12h, never outliving the session).",
+        description: "scope: user session only. Exempt from the MFA-challenge gate itself. Rate-limited: 10 attempts / 5 min / account (shared with verify and disable). A TOTP code already used is refused (replay guard); failures are audited as auth.mfa.verify_failed. On success sets the signed HttpOnly nopm_mfa cookie (max 12h, never outliving the session).",
         operationId: "challengeMfa",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", description: "6-digit TOTP code, or a 32-char backup code (consumed on use)" } } } } } },
         responses: {
           "200": { description: "Challenge passed; nopm_mfa cookie set", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Invalid code, or MFA not enabled for this account", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "429": { description: "Too many attempts (5 / 10 min)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Too many attempts (10 / 5 min per account, shared with verify and disable); Retry-After header gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1901,10 +1952,11 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Begin TOTP enrollment — returns secret and otpauth URI",
-        description: "scope: user session only",
+        description: "scope: user session only. Refused while two-step is already on (409, code mfa_already_enabled, 'Two-step is already on. Turn it off first.'), unless a two-step challenge was passed in the last 10 minutes (re-enrol over a live factor). The shared demo login gets 403 demo_restricted.",
         operationId: "enrollMfa",
         responses: {
           "200": { description: "Enrollment started (secret + otpauth)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "409": { description: "Two-step is already on (code mfa_already_enabled)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1912,7 +1964,7 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Confirm TOTP code, enable MFA, receive backup codes",
-        description: "scope: user session only",
+        description: "scope: user session only. The shared demo login gets 403 demo_restricted.",
         operationId: "verifyMfa",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", description: "6-digit TOTP code" } } } } } },
         responses: {
@@ -1925,10 +1977,13 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Disable MFA and clear TOTP secret",
-        description: "scope: user session only",
+        description: "scope: user session only. While two-step is on, the body must carry { code }: a current TOTP code or an unused backup code. Instead of { code } the body may rely on a two-step challenge passed in the last 10 minutes. The shared demo login gets 403 demo_restricted. A wrong or missing code is 422 and audited as auth.mfa.disable_failed. A TOTP code can be used only once (replays are refused). Verify, challenge and disable share one budget of 10 attempts / 5 min per account (429 with Retry-After).",
         operationId: "disableMfa",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["code"], properties: { code: { type: "string", minLength: 6, maxLength: 64, description: "Current 6-digit TOTP code, or an unused backup code" } } } } } },
         responses: {
           "200": { description: "MFA disabled", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "422": { description: "Wrong or missing code (audited auth.mfa.disable_failed)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Too many attempts (10 / 5 min per account); Retry-After header gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1936,7 +1991,7 @@ const spec = {
       post: {
         tags: ["auth"],
         summary: "Sign out the current session",
-        description: "No auth required. Clears the server-side Supabase cookie session. Always succeeds.",
+        description: "No auth required. Clears the server-side Supabase cookie session. Always succeeds. A signed-in sign-out is audited as auth.signout.",
         security: [],
         operationId: "signOut",
         responses: {
@@ -2093,13 +2148,15 @@ const spec = {
       post: {
         tags: ["assistant"],
         summary: "Send a message to the AI assistant",
-        description: "Session-user only. Runs the agentic assistant loop and returns the reply plus any actions taken.",
+        description: "Session-user only. Runs the agentic assistant loop and returns the reply plus any actions taken. The assistant works with a short-lived (10 min) ephemeral token that is revoked on every path (audited assistant.token.mint / assistant.token.revoke) and has no approve tool. On the shared demo key: 429 with Retry-After when the demo quota is spent (per-IP cap 8/h plus a shared cap), 503 demo_quota_unavailable if the quota store cannot be read (fails closed), 503 misconfigured when no model key is set. A streamed error event may carry code and retry_after_seconds. The fallback reply lists the actions already done.",
         operationId: "assistantChat",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["message"], properties: { message: { type: "string" }, history: { type: "array", items: { type: "object", required: ["role", "content"], properties: { role: { type: "string", enum: ["user", "assistant"] }, content: { type: "string" } } } } } } } } },
         responses: {
           "200": { description: "{ reply, actions, usedDemoKey }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Token actors not allowed", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Demo quota spent (Retry-After header)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "demo_quota_unavailable or misconfigured", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2148,7 +2205,7 @@ const spec = {
       post: {
         tags: ["documents"],
         summary: "Create a document",
-        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id.",
+        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id (numbers are never reused). Text limits: long text 10,000 chars, body 100,000, external_url 2,000 (422).",
         operationId: "createDocument",
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "doc_type"], properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
         responses: {
@@ -2208,7 +2265,7 @@ const spec = {
       post: {
         tags: ["documents"],
         summary: "Record file metadata after a direct-upload",
-        description: "scope: document:write. Call after the browser uploads bytes to the signed upload URL. Body: { path, file_name, mime_type, file_size }.",
+        description: "scope: document:write. Call after the browser uploads bytes to the signed upload URL. Body: { path, file_name, mime_type, file_size }. path must belong to this document (422 'Storage path does not belong to this document'); file_size 1 byte..25 MiB. Refused on the shared demo login (403 demo_readonly).",
         operationId: "attachDocumentFile",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["path", "file_name", "mime_type", "file_size"], properties: { path: { type: "string" }, file_name: { type: "string" }, mime_type: { type: "string", description: "Declared type. Browser-executable types (html, svg, xml, js) are stored as application/octet-stream; inline-rendered types (pdf, png, jpeg, gif, webp) are verified against the uploaded bytes on attach (422 on mismatch); other types are served as downloads." }, file_size: { type: "integer" } } } } } },
@@ -2220,7 +2277,7 @@ const spec = {
       delete: {
         tags: ["documents"],
         summary: "Remove the attached file from a document",
-        description: "scope: document:write. Deletes the storage object and clears the metadata columns.",
+        description: "scope: document:write. Clears the metadata and writes the audit row first, then deletes the storage object.",
         operationId: "removeDocumentFile",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -2233,7 +2290,7 @@ const spec = {
       post: {
         tags: ["documents"],
         summary: "Mint a signed upload URL for a document file",
-        description: "scope: document:write. Returns a short-lived Supabase Storage signed upload URL. Max file size 25 MiB.",
+        description: "scope: document:write. Returns a short-lived Supabase Storage signed upload URL. Max file size 25 MiB. Refused on the shared demo login (403 demo_readonly).",
         operationId: "signDocumentFileUpload",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["file_name", "mime_type", "file_size"], properties: { file_name: { type: "string" }, mime_type: { type: "string", description: "Declared type. Browser-executable types (html, svg, xml, js) are stored as application/octet-stream; inline-rendered types (pdf, png, jpeg, gif, webp) are verified against the uploaded bytes on attach (422 on mismatch); other types are served as downloads." }, file_size: { type: "integer", description: "Bytes, max 26214400 (25 MiB)" } } } } } },
@@ -2347,13 +2404,15 @@ const spec = {
           "looking at — and if it was edited since, the decision is refused with 412 (code precondition_failed) instead " +
           "of approving content the decider never saw; omit it and today's behaviour is unchanged. The decision write is " +
           "itself pinned to that version, so an edit landing between the check and the write also fails with 412. A " +
-          "decision made from a chat card is always pinned to the version the card was issued for.",
+          "decision made from a chat card is always pinned to the version the card was issued for. Admins and managers only " +
+          "(403, code role_not_permitted, 'Only managers and admins can approve'); the decision, its audit row and the " +
+          "status change are one database transaction (nopm_decide_change_request).",
         operationId: "decideChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(decisionActionSchema),
         responses: {
           "200": { description: "Decision recorded (the updated change request)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-approval rejected (code self_approval), token has no recorded owner (no_principal), or missing change:decide (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Self-approval rejected (code self_approval), not an admin or manager (role_not_permitted), token has no recorded owner (no_principal), or missing change:decide (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "412": { description: "expected_updated_at no longer matches: the change request was edited (or decided) since you loaded it (code precondition_failed; current_updated_at is included when known). Re-read it and decide again.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Already decided (code already_decided), or validation error (decision/rationale)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2380,7 +2439,7 @@ const spec = {
       post: {
         tags: ["decisions"],
         summary: "Log a decision under a project",
-        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id.",
+        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id (numbers are never reused). Long text is limited to 10,000 chars (422).",
         operationId: "createDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
@@ -2479,7 +2538,10 @@ const spec = {
           "rebaseline four-eyes flow, so a token with no recorded owner cannot propose (403, code no_principal): its " +
           "requester principal would be null, comparable to nobody, and the same person could then sign off their own " +
           "proposal. Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected; " +
-          "applied and rejected are terminal. A pending_approval or approved rebaseline becomes cancelled (also terminal) when its project is unlocked.",
+          "applied and rejected are terminal. A pending_approval or approved rebaseline becomes cancelled (also terminal) when its project is unlocked. " +
+          "A project can have only ONE rebaseline waiting for sign-off: a second proposal is 409, code pending_rebaseline_exists, " +
+          "'This project already has a rebaseline waiting for sign-off'. Two proposals created at the same moment: the loser gets 409, code rebaseline_version_conflict, " +
+          "'Another rebaseline proposal was created at the same moment. Reload and try again.' (distinct from pending_rebaseline_exists).",
         operationId: "createRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string" }, before: { type: "object" }, after: { type: "object" } } } } } },
@@ -2500,13 +2562,15 @@ const spec = {
           "off their own rebaseline, nor can the same person through another identity (a token they minted) — 403, code " +
           "self_approval; the legacy same-user case returns 422 with the same code. The vote is cast by a person: a " +
           "session votes as themselves and a token votes as the user who minted it (one vote per person per " +
-          "rebaseline); a token with no recorded owner cannot vote (403, code no_principal).",
+          "rebaseline); a token with no recorded owner cannot vote (403, code no_principal). Admins and managers only (403, code " +
+          "role_not_permitted, 'Only managers and admins can approve'). The vote, the status change and the audit row are one " +
+          "transaction (nopm_signoff_rebaseline).",
         operationId: "signoffRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(signoffSchema),
         responses: {
           "200": { description: "Signoff recorded; rebaseline status may update ({ signoff, rebaseline })", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-signoff by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Not an admin or manager (role_not_permitted), self-signoff by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Validation error; the requester signing off their own rebaseline as the same user (self_approval); or the rebaseline is not pending_approval — a draft, or already approved / rejected / applied / cancelled — so it can no longer be voted on (code rebaseline_not_pending, also returned when a concurrent sign-off decided it first)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -2516,14 +2580,14 @@ const spec = {
       post: {
         tags: ["rebaselines"],
         summary: "Apply an approved rebaseline (four-eyes)",
-        description: "scope: rebaseline:approve (a wildcard never grants it). Only approved rebaselines may be applied. The requester may not apply their own rebaseline — compared on the person, so a token the requester minted is refused too (403, code self_approval; the legacy same-user case is a 422 with the same code); a token with no recorded owner cannot apply (403, code no_principal). Overwrites baseline dates for all milestones and tasks in the project, and moves the project's own baseline_start_date / baseline_target_date to its current start_date / target_date (a project with no dates keeps its baseline). The rebaseline.apply audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }) — it shows in the project's History tab and the Trust Center stream. The baseline snapshot runs first and the status flips to applied only after it succeeds, so a failed snapshot (500) leaves the rebaseline approved and the call can simply be repeated.",
+        description: "scope: rebaseline:approve (a wildcard never grants it). Only approved rebaselines may be applied. The requester may not apply their own rebaseline — compared on the person, so a token the requester minted is refused too (403, code self_approval; the legacy same-user case is a 422 with the same code); a token with no recorded owner cannot apply (403, code no_principal). Overwrites baseline dates for all milestones and tasks in the project, and moves the project's own baseline_start_date / baseline_target_date to its current start_date / target_date (a project with no dates keeps its baseline). The rebaseline.apply audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }) — it shows in the project's History tab and the Trust Center stream. The baseline snapshot runs first and the status flips to applied only after it succeeds, so a failed snapshot (500) leaves the rebaseline approved and the call can simply be repeated. Admins and managers only (403, code role_not_permitted). The apply is one database transaction (nopm_apply_rebaseline) and is refused if the project is no longer locked (422, code project_not_locked, 'Rebaseline cannot be applied: its project is no longer locked. Lock the project and propose a new rebaseline.').",
         operationId: "applyRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
           "200": { description: "Rebaseline applied", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Self-apply by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Not an admin or manager (role_not_permitted), self-apply by the same person via another identity (self_approval), no recorded owner on the token (no_principal), or missing rebaseline:approve (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "The requester applying their own rebaseline as the same user (self_approval); the rebaseline is already applied (code already_applied — also returned to the loser of two concurrent applies); or it is not in status approved — a cancelled rebaseline included (code rule_violation)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The requester applying their own rebaseline as the same user (self_approval); the rebaseline is already applied (code already_applied — also returned to the loser of two concurrent applies); or it is not in status approved — a cancelled rebaseline included (code rule_violation); or the project is no longer locked (code project_not_locked)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

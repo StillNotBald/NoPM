@@ -4,10 +4,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { AuthError, toErrorResponse } from "@/lib/api/errors";
 import { resolveRequestId } from "@/lib/audit/channel";
 import { resolveInternalOrigin } from "@/lib/api/internal-origin";
-// mcp/tools.mjs is the single tool registry shared with the stdio server
+// mcp/tools.mjs MCP_TOOLS = assistant registry + MCP-only governance tools (as the stdio server)
 // (web/mcp/server.mjs) and the in-app BYOK assistant — kept outside src/ on
 // purpose so it stays a plain-Node, no-build-step artifact for the CLI.
-import { TOOL_REGISTRY } from "../../../../mcp/tools.mjs";
+import { MCP_TOOLS } from "../../../../mcp/tools.mjs";
 
 export const runtime = "nodejs";
 
@@ -34,7 +34,7 @@ type ToolRegistryEntry = {
   toRequest: (args: Record<string, unknown>) => { path: string; method: string; body?: unknown };
 };
 
-const REGISTRY = TOOL_REGISTRY as ToolRegistryEntry[];
+const REGISTRY = MCP_TOOLS as ToolRegistryEntry[];
 
 async function callApi(
   origin: string,

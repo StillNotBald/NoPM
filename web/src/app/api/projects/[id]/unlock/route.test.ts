@@ -6,14 +6,14 @@
  * time, so a sign-off must never survive "unlock, edit the dates, relock".
  *
  * Same harness as the apply route test: the real routes over the in-memory
- * admin client. nopm_unlock_project is simulated by `unlockRpc` below, which
+ * admin client. nopm_unlock_project_audited is simulated by `unlockRpc` below, which
  * mirrors the SQL of migration 0058 (the SQL itself is covered by the
  * migration-text test and the local-DB probes).
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
-import { FakeDb, type Row, type RpcHandler } from "@/lib/governance/test-support/fake-admin";
+import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
 
 const { holder, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -43,7 +43,6 @@ vi.mock("@/lib/auth/guard", async (importOriginal) => {
 import { POST as unlock } from "./route";
 import { POST as apply } from "@/app/api/rebaselines/[id]/apply/route";
 import { POST as signoff } from "@/app/api/rebaselines/[id]/signoff/route";
-import { isLegalRebaselineTransition } from "@/lib/governance/rebaseline-lifecycle";
 
 const WS = "ws-1";
 const OTHER_WS = "ws-2";
@@ -71,32 +70,10 @@ const bobPat = (): Actor => ({
   workspaceId: WS,
   scopes: ["rebaseline:approve"],
   principalId: BOB,
+  principalRole: "manager",
   channel: "api",
   requestId: "req-bob",
 });
-
-/**
- * nopm_unlock_project (0058): open rebaselines of THIS project in THIS workspace
- * become cancelled, then the project unlocks. Draft / applied / rejected stay.
- * Applies the 0049 state machine like the trigger does.
- */
-const unlockRpc: RpcHandler = (args, fake) => {
-  const project = fake.rows("projects").find((p) => p.id === args.p_project_id && p.workspace_id === args.p_workspace_id);
-  if (!project) return { data: null, error: { message: "NOT_FOUND: project not found", code: "P0002" } };
-  const cancelled: Row[] = [];
-  const open = fake
-    .rows("rebaselines")
-    .filter((r) => r.project_id === args.p_project_id && r.workspace_id === args.p_workspace_id)
-    .filter((r) => r.status === "pending_approval" || r.status === "approved")
-    .sort((a, b) => (a.version as number) - (b.version as number));
-  for (const r of open) {
-    if (!isLegalRebaselineTransition(r.status as string, "cancelled")) throw new Error("illegal transition");
-    cancelled.push({ id: r.id, version: r.version, previous_status: r.status });
-    r.status = "cancelled";
-  }
-  Object.assign(project, { is_locked: false, locked_by: null, locked_at: null, lock_reason: null });
-  return { data: { project: { ...project }, cancelled }, error: null };
-};
 
 let db: FakeDb;
 const rb = (id: string) => db.rows("rebaselines").find((r) => r.id === id) as Row;
@@ -129,10 +106,13 @@ beforeEach(() => {
       { id: "rb-other-ws", workspace_id: OTHER_WS, project_id: P3, version: 1, status: "pending_approval", requested_by: ALICE, requested_principal_id: ALICE },
     ],
     rebaseline_signoffs: [],
+    profiles: [
+      { id: ALICE, workspace_id: WS, role: "admin" },
+      { id: BOB, workspace_id: WS, role: "manager" },
+    ],
     audit_log: [],
     notifications: [],
   });
-  db.rpcHandlers.nopm_unlock_project = unlockRpc;
   holder.db = db;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -164,9 +144,13 @@ describe("unlock cancels the project's open rebaselines", () => {
 
   it("goes through ONE atomic RPC scoped to the actor's workspace (no separate unlock write)", async () => {
     await callUnlock(P1);
-    expect(db.rpcCallsTo("nopm_unlock_project")).toEqual([
-      { name: "nopm_unlock_project", args: { p_project_id: P1, p_workspace_id: WS } },
-    ]);
+    expect(db.rpcCallsTo("nopm_unlock_project_audited")).toHaveLength(1);
+    expect(db.rpcCallsTo("nopm_unlock_project_audited")[0].args).toMatchObject({
+      p_project_id: P1,
+      p_workspace_id: WS,
+      p_reason: "fix the target date",
+      p_actor_id: ALICE,
+    });
   });
 
   it("a project with nothing open still unlocks and records an empty cancelled list", async () => {
@@ -213,14 +197,14 @@ describe("unlock audit trail", () => {
     const res = await callUnlock(P1, {});
     expect(res.status).toBe(422);
     expect(rb("rb-approved").status).toBe("approved");
-    expect(db.rpcCallsTo("nopm_unlock_project")).toHaveLength(0);
+    expect(db.rpcCallsTo("nopm_unlock_project_audited")).toHaveLength(0);
     expect(audits("project.unlock")).toHaveLength(0);
   });
 });
 
 describe("fail-closed", () => {
   it("if the RPC fails the call fails and nothing changes (the unlock cannot stand without the cancellation)", async () => {
-    db.rpcHandlers.nopm_unlock_project = () => ({ data: null, error: { message: "connection reset", code: "XX000" } });
+    db.rpcHandlers.nopm_unlock_project_audited = () => ({ data: null, error: { message: "connection reset", code: "XX000" } });
     const res = await callUnlock(P1);
     expect(res.status).toBe(500);
     expect(db.rows("projects").find((p) => p.id === P1)?.is_locked).toBe(true);
@@ -229,7 +213,7 @@ describe("fail-closed", () => {
   });
 
   it("a database without migration 0058 fails the unlock instead of unlocking without cancelling", async () => {
-    delete db.rpcHandlers.nopm_unlock_project;
+    delete db.rpcHandlers.nopm_unlock_project_audited;
     const res = await callUnlock(P1);
     expect(res.status).toBe(500);
     expect(db.rows("projects").find((p) => p.id === P1)?.is_locked).toBe(true);

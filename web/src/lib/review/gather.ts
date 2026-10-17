@@ -23,8 +23,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DecideState } from "@/components/governance/four-eyes-note";
-import { describeDeletionTarget } from "./deletion-target";
-import { judgeDecision, type Viewer } from "./four-eyes";
+import { describeChildCounts, describeDeletionTarget, type ChildCountLine } from "./deletion-target";
+import { judgeDecision, judgeRebaselineSignoff, type Viewer } from "./four-eyes";
 import { clip } from "./pending";
 
 // ── ReviewItem shape ──────────────────────────────────────────────────────────
@@ -61,6 +61,8 @@ export interface ReviewItem {
   targetName?: string;
   /** Project the target lives in (by name) */
   targetProject?: string;
+  /** Project deletions: what approving also deletes (non-zero child counts). */
+  childCounts?: ChildCountLine[];
 
   // ── Inline-action fields (kind === 'change') ──────────────────────────────
   /** Current status of the change request */
@@ -144,8 +146,11 @@ export async function gatherReviewItems(
   // Build a project-id → name map for enrichment
   const { data: projectRows } = await db
     .from("projects")
-    .select("id, name, code");
+    .select("id, name, code, is_locked");
 
+  const lockedProjectIds = new Set<string>(
+    (projectRows ?? []).filter((p: { is_locked?: boolean }) => p.is_locked).map((p: { id: string }) => p.id),
+  );
   const projectMap = new Map<string, string>(
     (projectRows ?? []).map((p: { id: string; name: string }) => [p.id, p.name]),
   );
@@ -181,7 +186,7 @@ export async function gatherReviewItems(
     // 2. Rebaselines pending sign-off
     db
       .from("rebaselines")
-      .select("id, project_id, reason, created_at")
+      .select("id, project_id, reason, created_at, requested_by, requested_principal_id")
       .eq("status", "pending_approval")
       .order("created_at", { ascending: true }),
 
@@ -272,8 +277,10 @@ export async function gatherReviewItems(
               viewer,
               kind: row.target_type === "project" ? "project_deletion" : "task_deletion",
               row,
+              projectLocked: !!target.projectId && lockedProjectIds.has(target.projectId),
             })
           : undefined,
+        childCounts: row.target_type === "project" ? describeChildCounts(row.before) : undefined,
       });
     }
   }
@@ -288,8 +295,10 @@ export async function gatherReviewItems(
         title: `Rebaseline sign-off${row.reason ? ` — ${row.reason}` : ""}`,
         project: projectName,
         ageDays: ageDays(row.created_at),
-        href: row.project_id ? `/projects/${row.project_id}` : "/projects",
+        // D1: the governed sign-off / apply controls live on /baselines.
+        href: `/baselines?focus=${row.id}`,
         actionLabel: "Sign off",
+        decide: viewer ? judgeRebaselineSignoff(viewer, row) : undefined,
       });
     }
   }

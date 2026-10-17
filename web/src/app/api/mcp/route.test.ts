@@ -88,3 +88,49 @@ describe("/api/mcp internal origin", () => {
     expect(target).not.toContain("evil.example");
   });
 });
+
+describe("/api/mcp governance tools (parity with the stdio server)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  const rpc = (method: string, params: unknown) =>
+    new Request("http://localhost/api/mcp", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer npm_caller",
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+    });
+
+  it("tools/list includes every governance tool", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://nopm.example.com");
+    const { MCP_GOVERNANCE_TOOLS } = await import("../../../../mcp/tools.mjs");
+    const res = await POST(rpc("tools/list", {}));
+    const body = await res.json();
+    const names = body.result.tools.map((t: { name: string }) => t.name);
+    for (const t of MCP_GOVERNANCE_TOOLS as Array<{ name: string }>) expect(names).toContain(t.name);
+  });
+
+  it("forwards a governance tool call with the caller token", async () => {
+    vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://nopm.example.com");
+    const { MCP_GOVERNANCE_TOOLS } = await import("../../../../mcp/tools.mjs");
+    type P = { type?: string; enum?: unknown[] };
+    const tool = (MCP_GOVERNANCE_TOOLS as unknown as Array<{ name: string; parameters: { required?: string[]; properties: Record<string, P> } }>)[0];
+    const args: Record<string, unknown> = {};
+    for (const k of tool.parameters.required ?? []) {
+      const p = tool.parameters.properties[k];
+      args[k] = p.enum ? p.enum[0] : p.type === "number" || p.type === "integer" ? 1 : p.type === "boolean" ? true : "00000000-0000-4000-8000-000000000001";
+    }
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: { ok: true } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await POST(rpc("tools/call", { name: tool.name, arguments: args }));
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = (fetchMock.mock.calls[0] as unknown as [URL, RequestInit])[1];
+    expect((init.headers as Record<string, string>).Authorization).toBe("Bearer npm_caller");
+  });
+});

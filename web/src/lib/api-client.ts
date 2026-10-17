@@ -19,7 +19,11 @@ export type ApiError = Error & {
   currentUpdatedAt?: string;
 };
 
-async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+async function callFull<T = unknown>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<{ data: T; warnings: string[] }> {
   const res = await fetch(path, {
     method,
     headers: body !== undefined ? { "content-type": "application/json" } : undefined,
@@ -27,6 +31,7 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
   });
   const json = (await res.json().catch(() => ({}))) as {
     data?: T;
+    warnings?: unknown;
     error?: string;
     code?: string;
     fields?: { field: string; message: string }[];
@@ -42,8 +47,17 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
     }
     throw err;
   }
-  return json.data as T;
+  const warnings = Array.isArray(json.warnings) ? json.warnings.filter((w): w is string => typeof w === "string") : [];
+  return { data: json.data as T, warnings };
 }
+
+async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  return (await callFull<T>(method, path, body)).data;
+}
+
+/** POST that also returns the response's non-blocking `warnings` (e.g. allocation over-capacity). */
+export const apiPostWithWarnings = <T = unknown>(path: string, body?: unknown) => callFull<T>("POST", path, body);
+export const apiPatchWithWarnings = <T = unknown>(path: string, body?: unknown) => callFull<T>("PATCH", path, body);
 
 export const apiGet = <T = unknown>(path: string) => call<T>("GET", path);
 export const apiPost = <T = unknown>(path: string, body?: unknown) => call<T>("POST", path, body);

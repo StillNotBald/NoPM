@@ -18,6 +18,12 @@ vi.mock("@/lib/auth/guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/guard")>()),
   requireAuth: requireAuthMock,
 }));
+// The FakeDb has no reference counter; the allocator has its own tests (next-ref.test.ts).
+let refSeq = 0;
+vi.mock("@/lib/governance/next-ref", () => ({
+  insertWithReference: async (_db: unknown, _ws: string, _kind: string, insert: (ref: string) => PromiseLike<unknown>) =>
+    insert(`CR-${String(++refSeq).padStart(3, "0")}`),
+}));
 vi.mock("@/lib/integrations/lark", () => ({ larkAdapter: undefined }));
 vi.mock("next/server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/server")>()),

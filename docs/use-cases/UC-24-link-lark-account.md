@@ -22,8 +22,8 @@
 
 ## Alternate and exception flows
 
-- **Code expired (more than 10 minutes old).** The bot replies that the code is not valid. No link is made. The member mints a new code.
-- **Code already used, or unknown.** The bot gives the same reply. The reply does not reveal whether a code exists.
+- **Code expired (more than 10 minutes old).** The bot replies "Code expired". No link is made. The member mints a new code.
+- **Code already used, or unknown.** The bot gives its own card for each case ("Code already used", "Code not recognised"). While the connector is paused, minting a code is refused: `422` `connector_paused` ("The Lark connection is paused. Ask an admin to resume it.").
 - **Lark account already linked to another profile on this connector.** Refused by the one-active-link rule. The existing link must be removed first, by its owner or an admin.
 - **Profile already linked on this connector through another Lark account.** Refused by the one-active-link-per-profile rule: a code never replaces an existing link, so a leaked code cannot re-point someone's approvals. The bot answers "This NoPM account is already linked to another Lark account. Unlink it in NoPM (Integrations) first, then send a new code." The code is spent and the refusal is audited as `integration.identity.link.blocked` (code owner as actor, ids masked). The member removes the old link, mints a new code and sends it from the new account.
 - **Connector paused or revoked.** v1: the bot does not link, and the code stays unused until it expires.

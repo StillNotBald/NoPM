@@ -122,6 +122,14 @@ export const POST = route(async ({ actor, params, request }) => {
       status: input.status,
       raised_at: input.raised_at ?? new Date().toISOString().slice(0, 10), // NOT NULL date — default to today
       due_date: input.due_date ?? null,
+      // content-enrichment (0008): every field the schema accepts is saved
+      probability_pct: input.probability_pct ?? null,
+      impact_score: input.impact_score ?? null,
+      response_strategy: input.response_strategy,
+      risk_category: input.risk_category ?? null,
+      impact_area: input.impact_area ?? null,
+      trigger: input.trigger ?? null,
+      residual_risk: input.residual_risk ?? null,
       // ── complement seam (0041, R-81) ─────────────────────────────────────────
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,

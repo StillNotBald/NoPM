@@ -131,10 +131,15 @@ describe("project-lock DB backstop migration (0028)", () => {
 });
 
 describe("rebaseline apply route wired to the bypass RPC (not a per-row update loop)", () => {
-  it("calls the nopm_apply_rebaseline_snapshot RPC", () => {
-    expect(applyRoute).toContain('db.rpc("nopm_apply_rebaseline_snapshot"');
-    expect(applyRoute).toMatch(/p_project_id:\s*projectId/);
+  it("calls the atomic nopm_apply_rebaseline RPC, which wraps the bypass snapshot (migration 0062)", () => {
+    expect(applyRoute).toContain('db.rpc("nopm_apply_rebaseline"');
+    expect(applyRoute).toMatch(/p_rebaseline_id:\s*params\.id/);
     expect(applyRoute).toMatch(/p_workspace_id:\s*actor\.workspaceId/);
+    const m0062 = readFileSync(
+      join(__dirname, "..", "..", "..", "supabase", "migrations", "20261017000062_rebaseline_apply_unlock_atomic.sql"),
+      "utf8",
+    );
+    expect(m0062).toContain("perform nopm_apply_rebaseline_snapshot(");
   });
 
   it("no longer contains the old per-row milestone/task update loop", () => {

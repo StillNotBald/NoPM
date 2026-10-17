@@ -45,7 +45,7 @@ export const POST = route(async ({ actor, params, request }) => {
 
   const { data: task, error: taskError } = await db
     .from("tasks")
-    .select("id, project_id")
+    .select("id, project_id, sprint_id")
     .eq("id", parsed.data.task_id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -53,6 +53,20 @@ export const POST = route(async ({ actor, params, request }) => {
   if (taskError) throw taskError;
   if (!task || task.project_id !== sprint.project_id) {
     throw new RuleError("Task must exist in this workspace and belong to the sprint's project");
+  }
+
+  // D-WRK-14: a task sitting in a closed sprint is frozen history; attaching it
+  // elsewhere would silently steal it from that sprint.
+  if (task.sprint_id && task.sprint_id !== sprint.id) {
+    const { data: current } = await db
+      .from("sprints")
+      .select("state")
+      .eq("id", task.sprint_id)
+      .eq("workspace_id", actor.workspaceId)
+      .maybeSingle();
+    if (current?.state === "closed") {
+      throw new RuleError("This task belongs to a closed sprint and cannot be moved to another sprint");
+    }
   }
 
   const { data: updatedTask, error: attachError } = await db

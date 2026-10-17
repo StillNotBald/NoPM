@@ -1,0 +1,88 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { NextRequest } from "next/server";
+import type { Actor } from "@/lib/auth/guard";
+
+const h = vi.hoisted(() => ({
+  updates: [] as Record<string, unknown>[],
+  notify: vi.fn(async () => {}),
+}));
+const EXISTING = {
+  id: "r1", workspace_id: "w", project_id: "p1", title: "Vendor slip", description: "d",
+  reference_id: "R-1", severity: "low", updated_at: "2026-10-01T00:00:00Z",
+};
+vi.mock("@/lib/audit/write", () => ({ writeAudit: vi.fn(async () => {}) }));
+vi.mock("@/lib/notify/publish", () => ({
+  notify: h.notify,
+  resolveProjectOwner: vi.fn(async () => "owner-1"),
+}));
+vi.mock("@/lib/auth/guard", async (orig) => ({
+  ...(await orig<typeof import("@/lib/auth/guard")>()),
+  requireAuth: vi.fn(async (): Promise<Actor> => ({
+    type: "user", id: "u", label: "u", workspaceId: "w", role: "manager", principalId: "u",
+  })),
+}));
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({
+    rpc: async () => ({ data: { allowed: true }, error: null }),
+    from: () => {
+      let isUpdate = false;
+      const b: Record<string, unknown> = {};
+      for (const m of ["select", "eq"]) b[m] = () => b;
+      b.update = (u: Record<string, unknown>) => {
+        isUpdate = true;
+        h.updates.push(u);
+        return b;
+      };
+      b.maybeSingle = async () => ({
+        data: isUpdate ? { ...EXISTING, ...h.updates[h.updates.length - 1] } : EXISTING,
+        error: null,
+      });
+      return b;
+    },
+  }),
+}));
+
+import { PATCH } from "./route";
+
+const patch = (body: unknown) =>
+  PATCH(
+    new NextRequest("http://localhost/api/risks/r1", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ id: "r1" }) },
+  );
+const flush = () => new Promise((r) => setTimeout(r, 0));
+
+beforeEach(() => {
+  h.updates.length = 0;
+  h.notify.mockClear();
+});
+
+describe("PATCH /api/risks/:id", () => {
+  it("saves every enrichment field the schema accepts", async () => {
+    const res = await patch({
+      probability_pct: 40, impact_score: 4, impact_area: "cost", risk_category: "scope_management",
+      response_strategy: "avoid", trigger: "PO late", residual_risk: "low",
+    });
+    expect(res.status).toBe(200);
+    expect(h.updates[0]).toMatchObject({
+      probability_pct: 40, impact_score: 4, impact_area: "cost", risk_category: "scope_management",
+      response_strategy: "avoid", trigger: "PO late", residual_risk: "low",
+    });
+  });
+
+  it("fires the high/critical alert when severity is raised", async () => {
+    await patch({ severity: "critical" });
+    await flush();
+    expect(h.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not alert for a lower severity or an unchanged one", async () => {
+    await patch({ severity: "low" });
+    await patch({ title: "x" });
+    await flush();
+    expect(h.notify).not.toHaveBeenCalled();
+  });
+});

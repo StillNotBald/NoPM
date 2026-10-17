@@ -399,3 +399,19 @@ describe("requireAuth — MFA_CHALLENGE_EXEMPT_PATHS: exact pathname match only"
     await expect(requireAuth(request("/api/tasks"))).rejects.toMatchObject({ code: "mfa_required" });
   });
 });
+
+describe("requireScope — token follows its creator's current role (R-6)", () => {
+  it("a token whose creator is now a viewer is read-only", () => {
+    const t = { ...tokenActor(["task:read", "task:write"]), principalRole: "viewer" };
+    expect(() => requireScope(t, "task:read")).not.toThrow();
+    expect(() => requireScope(t, "task:write")).toThrowError(ScopeError);
+    expect(() => requireScope(t, "task:delete:request")).toThrowError(ScopeError);
+  });
+
+  it("a token whose creator is a member/manager/admin or unknown keeps its scopes", () => {
+    for (const principalRole of ["member", "manager", "admin", null]) {
+      const t = { ...tokenActor(["task:write"]), principalRole };
+      expect(() => requireScope(t, "task:write")).not.toThrow();
+    }
+  });
+});

@@ -247,3 +247,18 @@ describe("matchesMagicBytes", () => {
     for (const t of INLINE_MIME_TYPES) expect(matchesMagicBytes(t, new Uint8Array(0))).toBe(false);
   });
 });
+
+describe("validateStoragePath — exact shape (A2-3)", () => {
+  const ws = "ws-1";
+  const doc = "doc-1";
+  it("rejects nested, traversal and unclean names even under the right prefix", () => {
+    expect(validateStoragePath(`${ws}/${doc}/sub/x.pdf`, ws, doc)).toBe(false);
+    expect(validateStoragePath(`${ws}/${doc}/../x.pdf`, ws, doc)).toBe(false);
+    expect(validateStoragePath(`${ws}/${doc}/..`, ws, doc)).toBe(false);
+    expect(validateStoragePath(`${ws}/${doc}/`, ws, doc)).toBe(false);
+    expect(validateStoragePath(`${ws}/${doc}/a b.pdf`, ws, doc)).toBe(false);
+  });
+  it("accepts what buildStoragePath produces", () => {
+    expect(validateStoragePath(buildStoragePath(ws, doc, "My report (v2).pdf"), ws, doc)).toBe(true);
+  });
+});

@@ -145,8 +145,19 @@ describe("POST /api/integrations/identities/link-code", () => {
     expect(db.rows("identity_link_codes")).toHaveLength(0);
   });
 
-  it("422s when the workspace has no active connector (paused, revoked or absent)", async () => {
+  it("a PAUSED connector says so and who can fix it (D-ACC-16)", async () => {
     db.rows("integration_connectors")[0].status = "paused";
+    const res = await mint();
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as { code: string; error: string };
+    expect(body.code).toBe("connector_paused");
+    expect(body.error).toBe("The Lark connection is paused. Ask an admin to resume it.");
+    expect(db.rows("identity_link_codes")).toHaveLength(0);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("422s when the workspace has no active connector (revoked or absent)", async () => {
+    db.rows("integration_connectors")[0].status = "revoked";
     const res = await mint();
     expect(res.status).toBe(422);
     expect(((await res.json()) as { code: string }).code).toBe("no_connector");

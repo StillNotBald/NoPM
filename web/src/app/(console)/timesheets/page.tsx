@@ -132,6 +132,7 @@ export default async function TimesheetsPage({
   // policy — writes only happen through the audited API routes).
   let submissionStatus: "submitted" | "approved" | "rejected" | null = null;
   let submissionReopened = false;
+  let submissionId: string | null = null;
   // The week is FROZEN (the API refuses time-entry writes, 422 period_locked /
   // timesheet_locked) while a covering submission is approved, or submitted and
   // not reopened. Same rule as lib/governance/period-lock.ts, read here so the
@@ -140,7 +141,7 @@ export default async function TimesheetsPage({
   if (selectedMemberId) {
     const { data: latestSubmission } = await db
       .from("timesheet_submissions")
-      .select("status, reopened_at")
+      .select("id, status, reopened_at")
       .eq("member_id", selectedMemberId)
       .eq("period_start", weekStart)
       .order("submitted_at", { ascending: false })
@@ -148,6 +149,7 @@ export default async function TimesheetsPage({
       .maybeSingle();
     submissionStatus = (latestSubmission?.status as typeof submissionStatus) ?? null;
     submissionReopened = !!latestSubmission?.reopened_at;
+    submissionId = (latestSubmission?.id as string | undefined) ?? null;
 
     const { data: openSubmissions } = await db
       .from("timesheet_submissions")
@@ -224,7 +226,10 @@ export default async function TimesheetsPage({
                   <CardTitle>Log time</CardTitle>
                 </CardHeader>
                 <CardBody>
-                  <LogTimeForm defaultMemberId={selectedMemberId ?? undefined} />
+                  <LogTimeForm
+                    defaultMemberId={selectedMemberId ?? undefined}
+                    ownMemberIds={profile.role === "member" ? (myMembers ?? []).map((m) => m.id as string) : undefined}
+                  />
                 </CardBody>
               </Card>
             )}
@@ -247,6 +252,8 @@ export default async function TimesheetsPage({
                   canWrite={canWrite}
                   initialStatus={submissionStatus}
                   reopened={submissionReopened}
+                  submissionId={submissionId}
+                  canReopen={profile.role === "admin" || profile.role === "manager"}
                 />
               </CardHeader>
               <CardBody pad="none" className="border-b border-border-subtle p-4">

@@ -35,6 +35,13 @@ export class NotFoundError extends ApiError {
   }
 }
 
+/** The request conflicts with the current state (e.g. already revoked / already exists) → 409. */
+export class ConflictError extends ApiError {
+  constructor(message: string, code = "conflict") {
+    super(409, message, code);
+  }
+}
+
 /** Business-rule / state-transition failure (e.g. self-approval rejected). */
 export class RuleError extends ApiError {
   constructor(message: string, code = "rule_violation") {
@@ -79,7 +86,16 @@ export class PreconditionFailedError extends ApiError {
 
 /** Workspace+actor-class request budget exceeded (see @/lib/api/rate-limit). */
 export class RateLimitError extends ApiError {
-  constructor(message = "Rate limit exceeded", code = "rate_limited") {
+  /**
+   * @param retryAfterSeconds whole seconds until the caller may retry; sent as
+   *   the `Retry-After` header on EVERY 429 (A1-7) by toErrorResponse. Defaults
+   *   to one rate window (60s) when the limiter cannot say.
+   */
+  constructor(
+    message = "Rate limit exceeded",
+    code = "rate_limited",
+    public readonly retryAfterSeconds: number = 60,
+  ) {
     super(429, message, code);
   }
 }
@@ -114,6 +130,11 @@ export function invalidInputError(error: unknown, pathValues: readonly string[] 
     : new ApiError(422, "Invalid id or value format in the request", "validation_failed");
 }
 
+function retryAfterOf(error: ApiError): number {
+  const n = error instanceof RateLimitError ? error.retryAfterSeconds : 60;
+  return Number.isFinite(n) && n >= 1 ? Math.ceil(n) : 60;
+}
+
 export function toErrorResponse(error: unknown): NextResponse {
   if (error instanceof PreconditionFailedError) {
     return NextResponse.json(
@@ -134,7 +155,11 @@ export function toErrorResponse(error: unknown): NextResponse {
   if (error instanceof ApiError) {
     return NextResponse.json(
       { error: error.message, ...(error.code ? { code: error.code } : {}) },
-      { status: error.status },
+      {
+        status: error.status,
+        // A1-7: every 429 tells the caller when to retry, in this one place.
+        ...(error.status === 429 ? { headers: { "Retry-After": String(retryAfterOf(error)) } } : {}),
+      },
     );
   }
   // Unexpected: log server-side, return a sanitized 500.

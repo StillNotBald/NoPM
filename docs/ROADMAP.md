@@ -12,7 +12,7 @@ Owner decisions of 2026-10-17 put these items in the backlog. Each one is deferr
 
 - **Lark live-tenant test.** Run the Lark / Feishu adapter against a real tenant, including card callbacks over the long connection, which are unverified. The owner setup checklist is [`docs/runbooks/lark-first-live-test.md`](runbooks/lark-first-live-test.md). R-99 stays PARTIAL until this is done.
 - **CDN caching of the public pages** (approved 2026-10-17, started, not finished). Serve `/` and `/case-study` from the CDN without adding `'unsafe-inline'` to the CSP: a static root layout, plus an external before-paint appearance script.
-- **Approval-role policy.** Decide who may approve governed requests. Today a session user who is not a viewer holds the approve verbs implicitly, while Lark restricts chat decisions to admins and managers. Options: require admin or manager for session approval, or make it a workspace setting.
+- **Owner questions left open by the journey audit.** The Priority 1 questions (21 when written; the "who may approve" one is now answered) such as who may lock, rebaseline approvers, removed people's access and in-app role change, deferred change requests, assistant deletion requests, and the rest wait for an owner answer in [`journeys/OPEN-QUESTIONS.md`](../journeys/OPEN-QUESTIONS.md) ("Priority 1", full list in `journeys/DECISIONS-2026-10-17.csv`). "Who may approve" is settled by decision 16 (admins and managers only, on every channel; ADR 0014). Decision 17 (members log only their own hours) is awaiting the owner's confirmation.
 
 ## Paid-module menu: sponsor or hire to build
 

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { evaluateDecision, requesterOf, type PendingKind } from "./pending";
-import { judgeDecision, type Viewer } from "./four-eyes";
+import { canEditChangeRequest, judgeDecision, judgeRebaselineSignoff, type Viewer } from "./four-eyes";
 
 const ME = "user-me";
 const OTHER = "user-other";
-const viewer: Viewer = { id: ME, role: "member" };
+const viewer: Viewer = { id: ME, role: "manager" };
 
 const deletion = (over: Record<string, unknown> = {}) => ({
   requested_by_type: "user",
@@ -65,12 +65,42 @@ describe("judgeDecision — deletion requests", () => {
     });
   });
 
-  it("a viewer-role session cannot decide anything, whoever raised it", () => {
-    expect(judgeDecision({ viewer: { id: ME, role: "viewer" }, kind: "task_deletion", row: deletion() })).toEqual({
+  it("D-16: members and viewers cannot decide anything, whoever raised it", () => {
+    for (const role of ["member", "viewer"]) {
+      expect(judgeDecision({ viewer: { id: ME, role }, kind: "task_deletion", row: deletion() })).toEqual({
+        canDecide: false,
+        block: "role_not_permitted",
+        canWithdraw: false,
+      });
+    }
+  });
+
+  it("D-16: a member may still withdraw their own deletion request", () => {
+    const own = { requested_by_type: "user", requested_by_id: ME, requested_principal_id: ME };
+    expect(judgeDecision({ viewer: { id: ME, role: "member" }, kind: "task_deletion", row: own })).toMatchObject({
       canDecide: false,
-      block: "no_scope",
-      canWithdraw: false,
+      canWithdraw: true,
     });
+  });
+
+  it("D17: a deletion in a locked project is not offered for approval", () => {
+    expect(judgeDecision({ viewer, kind: "task_deletion", row: deletion(), projectLocked: true })).toMatchObject({
+      canDecide: false,
+      block: "project_locked",
+    });
+    expect(judgeDecision({ viewer, kind: "project_deletion", row: deletion(), projectLocked: false }).canDecide).toBe(true);
+  });
+
+  it("Q-GOV-17: only the requester edits an open change request", () => {
+    expect(canEditChangeRequest({ viewerId: ME, status: "raised", requestedPrincipalId: ME })).toBe(true);
+    expect(canEditChangeRequest({ viewerId: ME, status: "raised", requestedPrincipalId: OTHER })).toBe(false);
+    expect(canEditChangeRequest({ viewerId: ME, status: "approved", requestedPrincipalId: ME })).toBe(false);
+  });
+
+  it("D1: rebaseline sign-off is admin/manager only and never the proposer", () => {
+    expect(judgeRebaselineSignoff({ id: ME, role: "member" }, {}).block).toBe("role_not_permitted");
+    expect(judgeRebaselineSignoff(viewer, { requested_principal_id: ME }).block).toBe("you_raised");
+    expect(judgeRebaselineSignoff(viewer, { requested_principal_id: OTHER }).canDecide).toBe(true);
   });
 });
 
@@ -155,8 +185,10 @@ describe("judgeDecision agrees with the agent-facing evaluateDecision (same verd
             scopeProblem: role === "viewer" ? "Viewers have read-only access" : null,
           });
           const got = judgeDecision({ viewer: { id: ME, role }, kind, row });
-          expect(got.canDecide).toBe(expected.can_decide);
-          expect(got.block === null).toBe(expected.can_decide);
+          // D-16: the role gate sits on top of the shared four-eyes verdict.
+          const roleOk = role === "admin" || role === "manager";
+          expect(got.canDecide).toBe(roleOk && expected.can_decide);
+          expect(got.block === null).toBe(roleOk && expected.can_decide);
         });
       }
     }

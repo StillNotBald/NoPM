@@ -33,6 +33,21 @@ const VALID_CHANNELS: ReadonlySet<string> = new Set<AuditChannel>([
 const REQUEST_ID_RE = /^[A-Za-z0-9._-]{1,64}$/;
 
 /**
+ * Server-side narrowing of the declared channel (A3-11). The credential type is
+ * known to the server, so impossible claims are discarded:
+ *  - a cookie SESSION is the browser UI: always 'ui' (a session cannot be the
+ *    cli, mcp or assistant, which all use a Bearer token);
+ *  - a Bearer TOKEN is never the browser UI: a declared 'ui' becomes 'api'.
+ * Among the remaining labels (api/cli/mcp/assistant on a token) the header is
+ * still provenance, not proof.
+ */
+function deriveChannel(declared: string | null, actorType: "user" | "token"): AuditChannel {
+  if (actorType === "user") return "ui";
+  if (declared && VALID_CHANNELS.has(declared) && declared !== "ui") return declared as AuditChannel;
+  return "api";
+}
+
+/**
  * Resolve the declared channel + a correlation request id from incoming
  * request headers.
  *
@@ -51,12 +66,7 @@ export function resolveClientMeta(
   actorType: "user" | "token",
 ): { channel: AuditChannel; requestId: string } {
   const declared = headers.get("x-nopm-client");
-  const channel: AuditChannel =
-    declared && VALID_CHANNELS.has(declared)
-      ? (declared as AuditChannel)
-      : actorType === "token"
-        ? "api"
-        : "ui";
+  const channel: AuditChannel = deriveChannel(declared, actorType);
 
   return { channel, requestId: resolveRequestId(headers) };
 }
