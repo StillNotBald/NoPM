@@ -67,7 +67,7 @@
 ## R-IDs touched
 - **New:** R-95 DONE · R-96 DONE · R-97 DONE · R-98 DONE · R-99 PARTIAL · R-100 DONE · R-101 DONE · R-102 DONE · R-103 DONE · R-104 DONE · R-105 DONE · R-106 DONE · R-107 DONE · R-108 DONE · R-109 DONE · R-110 DONE · R-111 DONE · R-112 DONE (DONE = code-complete; migrations 0045 – 0047 and 0049 – 0053 not yet applied to the live project, the F2a precedent; 0048 is live).
 - **Amended inline (2026-10-16 and 2026-10-17):** R-02 · R-03 · R-04 · R-06 · R-07 · R-21 / R-22 · R-23 · R-24 · R-25 · R-37 · R-38 · R-62 (health build, cron entry, ledger lock) · R-64 (tool id safety) · R-67 · R-74 · R-82 · R-83 · R-84 · R-93, and R-95 … R-102 themselves for the round-2 changes (R-102 rewritten: 24 tables, the ledger lock, the live hotfix).
-- `requirements/REQUIREMENTS.md` and `requirements/TRACEABILITY.md` were updated together; `npm run rtm:verify` from `web/` passed at drafting time (102 R-IDs status-matched, 1066 Code-file paths verified on disk); TODO re-run at gate time.
+- `requirements/REQUIREMENTS.md` and `requirements/TRACEABILITY.md` were updated together; `npm run rtm:verify` from `web/` passed at drafting time (102 R-IDs status-matched, 1066 Code-file paths verified on disk); re-run at gate time: OK.
 
 ## Files
 - **Migrations:** `web/supabase/migrations/20261016000045_principal_four_eyes.sql` · `…046_integration_hub.sql` · `…047_calendar_feeds.sql` · `…048_rls_api_only_writes.sql` · `20261017000049_lifecycle_guards.sql` · `…050_truncate_guard.sql` · `…051_hub_reliability.sql` · `…052_api_tokens_kind.sql` · `…053_hub_card_integrity.sql`.
@@ -92,13 +92,13 @@
 - **D10** ICS milestone feed, generic to any calendar app, revocable secret URL.
 
 ## Tests / verification
-- `npx tsc --noEmit`: TODO
-- `npm run lint`: TODO
-- `npm run test` (vitest): TODO — count and files
-- CLI tests (`cli/`): TODO · worker tests (`npm run test:worker`): TODO
-- `npm run rtm:verify`: OK at drafting time (102 R-IDs status-matched, 1066 Code-file paths verified on disk); TODO re-run at gate time
-- `npm run build` (dummy env): TODO · `npm run gen:metrics` freshness: TODO
-- Local Supabase (`npx supabase start`): migrations 0045 – 0053 apply in order; four-eyes, lifecycle, Lark inbound, calendar and direct-write probes: TODO — record each probe's result here
+- `npx tsc --noEmit`: 0 errors
+- `npm run lint`: 0 errors (5 pre-existing warnings)
+- `npm run test` (vitest): 4611 passed / 4611, 181 files
+- CLI tests (`cli/`): 44/44 · worker tests (`npm run test:worker`): 35/35
+- `npm run rtm:verify`: OK at gate time (102 R-IDs status-matched, 1066 Code-file paths verified on disk)
+- `npm run build` (local-stack env): OK · `npm run gen:metrics`: regenerated (102 R-IDs, 98 endpoints, 4611 tests, 17 deps) and `--check` passes
+- Local Supabase (`npx supabase start`, seeded with the full demo chain): migrations 0001 – 0053 apply in order. Probes on a fresh production build: probe-migrations 9/9, probe-four-eyes 28/28, probe-rls-direct-write 23/23 (every direct member write blocked, reads intact), probe-api 15/15, probe-calendar 10/10, probe-lark 51/51 (real emit path against a loopback fake Lark; nothing reached a real Lark host)
 - Live: 0048 applied 2026-10-17, authenticated page smoke 24 / 24 (reported by the orchestrator)
 - Adversarial rounds: R1, R2, R3 reports reviewed for this receipt; a re-attack of the fixed findings: TODO
 - UI re-render and re-score after the fix wave: TODO
