@@ -16,7 +16,7 @@
 4. MCP setup (stdio): set `NOPM_TOKEN` env var, point Claude Code/Desktop/Cursor at `web/mcp/server.mjs` (a cloned repo's root `.mcp.json` makes this zero-config for Claude Code). MCP setup (Streamable HTTP, remote): register `https://stillnotbald.com/api/mcp` as a connector with `Authorization: Bearer npm_…`. Both transports send `X-NoPM-Client: mcp`.
 5. Operate: any of the 25 MCP tools, or any `nopm` CLI command, calls the same governed REST API a human uses — same scopes, same audit, same maker-checker. A `project:read`-only token cannot create a project; the server surfaces a `403` scope error as the tool result, never silently swallowed.
 6. Token-authenticated callers use the admin client (RLS-bypassing) internally, but are always filtered by `actor.workspaceId` server-side — a token can never reach outside its own workspace regardless of scope.
-7. Revoke: `/tokens` → Revoke (admin/manager session), or `DELETE /api/tokens/{id}`. Sets `revoked = true` immediately; the token's next call fails scope checks. There is no separate "disable" state, and revoke is not reversible.
+7. Revoke: `/tokens` → Revoke (admin/manager session), or `DELETE /api/tokens/{id}`. Sets `revoked = true` immediately; the token's next call fails scope checks. There is no separate "disable" state, and revoke is not reversible. Revoking a token that is already revoked is `409` `already_revoked` ("Token already revoked"); only user tokens can be revoked here, not the assistant's short-lived ones.
 
 ## Alternate and exception flows
 
@@ -37,6 +37,15 @@
 - Trust Center's `channel` chip (R-82) is the direct evidence trail for "what did the agent actually do" — filterable to `channel=mcp` or `channel=cli`.
 - `GET /api/openapi.json` and `GET /llms.txt` are both drift-tested against the live route set (R-21/R-22/R-64) — an agent (or a developer) reading either gets an accurate, current picture, never a stale one.
 - Diagram: [`agent-token-lifecycle-flow.html`](../processes/agent-token-lifecycle-flow.html).
+
+## Update 2026-10-17 — journey-audit fixes
+
+- **A token approves with its creator's role (ADR 0014, R-113).** A token carrying an approve scope decides only while the person who minted it is an admin or manager; it stops the moment they are demoted. Agents should read `GET /api/review` and tell a person what is waiting; keep approve scopes off agent tokens unless that is intended.
+- **A token dies with its creator's profile.** If the creator's profile is gone or belongs to another workspace, the token answers `401`. Calendar feeds are unaffected (decision 9).
+- **Retry-safe creates (R-115).** `POST /api/time-entries`, project expenses, project tasks and `POST /api/allocations` accept `Idempotency-Key`; the CLI has `--idempotency-key`.
+- **Rate limits.** Every `429` sends `Retry-After`. Buckets are per actor id with a workspace ceiling of 5 times; failed bearer authentication is throttled at 20 per minute per client network address before any token lookup.
+- **MCP.** The stdio server adds change request, rebaseline propose / sign-off / apply, timesheet submit, decision and document tools (`web/mcp/README.md`). The assistant gets none of them.
+- **Shared demo login.** It cannot mint tokens or invites (`403` `demo_restricted`).
 
 ## Traceability
 

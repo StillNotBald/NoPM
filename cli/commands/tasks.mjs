@@ -12,11 +12,12 @@ export const describe = "List, get, create, update, or request deletion of tasks
 export const usage = [
   "nopm tasks ls     --project <projectId> [--page <n>] [--limit <n>] [--external-ref <ref>]",
   "nopm tasks get    <taskId>",
-  "nopm tasks create --project <id> --name <n> [--priority low|medium|high|urgent] [--status-type backlog|unstarted|started|completed|canceled] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm tasks create --project <id> --name <n> [--priority low|medium|high|urgent] [--status-type backlog|unstarted|started|completed|canceled] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--idempotency-key <key>]",
   "nopm tasks update <taskId> [--name <n>] [--priority <p>] [--status-type <t>] [--pct <0-100>] [--milestone <id>] [--due <date>] [--start <date>] [--description <d>] [--points <sp>] [--hours <h>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
   "nopm tasks rm     <taskId> --reason <why>      (MAKER — creates a pending deletion request)",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this task mirrors, e.g. --source jira --external-ref PROJ-123",
   "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
+  "  --idempotency-key <key>: retry-safe create — the same key (24 h) returns the first task, not a duplicate",
   "  flags: --json",
 ];
 

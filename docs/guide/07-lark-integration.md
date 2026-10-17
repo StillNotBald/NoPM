@@ -25,7 +25,7 @@ Who counts as an eligible approver: a workspace admin or manager, with a linked 
 The integration is built so that adding a chat channel cannot weaken the rules in [guide 03](03-how-governance-works.md).
 
 1. **The decision is made in NoPM, not in Lark.** Lark only draws a card and passes a button click along. NoPM decides, using the same code path as the console, the API, the CLI and the agent tools.
-2. **Four-eyes is enforced between people.** A click is mapped to a NoPM account you linked on purpose (see "Link your account"). The person who raised a request can never approve it, whichever channel they use, and a click from a Lark account that is not linked is refused.
+2. **Four-eyes is enforced between people.** A click is mapped to a NoPM account you linked on purpose (see "Link your account"). The person who raised a request can never approve it, whichever channel they use, and a click from a Lark account that is not linked is refused. Only admins and managers can approve, on every channel, not only in chat.
 3. **Buttons cannot be passed around.** Each card carries a single-use, expiring (7 days) token that is bound to one recipient and one request. Forward the card to a colleague and their click is refused. Click twice and the second click does nothing.
 4. **Every decision is audited once, with its channel.** The audit row records `channel = lark`, which connector, the Lark event id and which Lark user clicked. Filter the Trust Center by channel `lark` to review them. Replays of the same click (a double tap, a Lark retry) return the stored result and write nothing new.
 5. **The usual rules still apply at click time.** Role, scopes and project locks are checked when the button is pressed, not when the card was sent. If someone's role changed in between, the click is refused.
@@ -133,7 +133,7 @@ Open **Events and callbacks** in the Lark developer console.
 
 4. Add the callback **Card interaction** (`card.action.trigger`; in the Chinese console 卡片回传交互). This is what makes the Approve and Reject buttons work. Choose this NEW callback, not the older "消息卡片回传交互（旧）" (`card.action.trigger_v1`): NoPM does not handle the old one.
 
-The connector id is shown in NoPM on the Integrations page after Step 4. Both addresses use it, which is why you create the connector in NoPM first. If Lark's verification request fails, check that the Verification Token and Encrypt Key in NoPM match the console exactly, then save again in the console. A connector that is paused or revoked answers Lark exactly like a wrong signature (a bare 401), so a paused connector shows up here as a failed verification: resume it first.
+The connector id is shown in NoPM on the Integrations page after Step 4. Both addresses use it, which is why you create the connector in NoPM first. If Lark's verification request fails, check that the Verification Token and Encrypt Key in NoPM match the console exactly, then save again in the console. A connector that is paused or revoked answers Lark's hosted webhook exactly like a wrong signature (a bare 401), so a paused connector shows up here as a failed verification: resume it first. (The self-host relay worker authenticates first and then answers 403 `connector_inactive`.) When you resume a paused connector, approval cards for requests still pending are sent (once each), so nothing raised during the pause is missed.
 
 ### Long-connection mode
 

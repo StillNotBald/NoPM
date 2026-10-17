@@ -9,6 +9,7 @@ export const describe = "Approve or reject a pending deletion request (checker â
 export const usage = [
   "nopm approve <requestId>                  approve and commit the deletion",
   "nopm approve reject <requestId> [--reason <why>]   reject the deletion request",
+  "  only admins and managers can approve; a token approves with the role of the person who created it (403 otherwise)",
 ];
 
 export async function run(rest, ctx) {

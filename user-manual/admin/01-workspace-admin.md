@@ -4,7 +4,9 @@
 
 ## Roles
 
-`profiles.role` is a Postgres enum with **four** values: `admin`, `manager`, `member`, `viewer`. At the API-guard layer (`requireScope`, `web/src/lib/auth/guard.ts`) the only distinction currently enforced for a signed-in user is binary: **`viewer` is read-only** (any non-`read` action is rejected, `403`); `admin`, `manager`, and `member` are all treated as full-write today — there is no granular admin-vs-manager permission split enforced yet. If your operating model needs that split, it isn't there yet — track it as a gap, don't assume the label alone restricts anything.
+`profiles.role` is a Postgres enum with **four** values: `admin`, `manager`, `member`, `viewer`. At the API-guard layer (`requireScope`, `web/src/lib/auth/guard.ts`): **`viewer` is read-only** (any non-`read` action is rejected, `403`); `member` can write work records; and **only `admin` and `manager` can approve or decide** (deletion approvals, change-request decisions, rebaseline sign-off and apply, timesheet approve, reject and reopen) — a member gets `403` "Only managers and admins can approve" (owner decision 16, ADR 0014). A member also logs, edits and deletes only their own hours (`403` "You can only log your own hours"; decision 17, to be confirmed). Managers and admins mint tokens, manage invites and connect integrations; a manager cannot invite an admin.
+
+A token is judged by the **current** role of the person who created it: an approve scope on a token works only while its creator is an admin or manager, and stops when they are demoted.
 
 A signed-in user's role is visible (read-only) on their own `/settings` page. There is no console UI to change *another* user's role — see [`docs/runbooks/user-provisioning.md`](../../docs/runbooks/user-provisioning.md) for how role assignment is actually done today (direct `profiles` row, by whoever has Supabase project access).
 
@@ -16,15 +18,15 @@ A signed-in user's role is visible (read-only) on their own `/settings` page. Th
 - Shows the raw token **once**, at creation — it's stored server-side only as a SHA-256 hash, never logged, never retrievable again. Losing it means minting a new one.
 - Token-authenticated callers use the admin client (RLS-bypassing) and are always filtered by `actor.workspaceId` server-side — a token can never reach outside its own workspace regardless of scope.
 
-Revoking a token (also on `/tokens`) sets `revoked = true` immediately; a revoked token's calls start failing scope checks on the next request. There is no separate "disable" state — revoke is the only off switch, and it's not reversible.
+Revoking a token (also on `/tokens`) sets `revoked = true` immediately (revoking one twice answers "Token already revoked"); a revoked token's calls start failing scope checks on the next request. There is no separate "disable" state — revoke is the only off switch, and it's not reversible.
 
 ## MFA
 
-`/settings` hosts TOTP-based MFA enroll/verify/disable (`/api/auth/mfa`, `/api/auth/mfa/enroll`, `/api/auth/mfa/verify`, `/api/auth/mfa/disable`) — a user secures their own login with an authenticator app; there's no admin-forced MFA policy today.
+`/settings` hosts TOTP-based MFA enroll/verify/disable (`/api/auth/mfa`, `/api/auth/mfa/enroll`, `/api/auth/mfa/verify`, `/api/auth/mfa/disable`) — a user secures their own login with an authenticator app; there's no admin-forced MFA policy today. Turning two-step off asks for a current code (or an unused backup code); enrolling while it is already on is refused ("Two-step is already on. Turn it off first."); a code works once, and after 10 wrong or repeated attempts in 5 minutes the account waits (the response says how many seconds).
 
 ## Seat provisioning
 
-Adding a new person to the workspace — creating their login and assigning a role — is **not** a console flow in this build. It's an ops-level action performed against Supabase directly. See [`docs/runbooks/user-provisioning.md`](../../docs/runbooks/user-provisioning.md) for the real, current mechanism, and its pointer to the planned link-based invite flow.
+Adding a person is done with a **link invite** (admin or manager; the link is valid for 7 days). Removing a person is an operator task: revoke their tokens, ban the login, set their role to viewer — never delete the profile. See [`docs/runbooks/user-provisioning.md`](../../docs/runbooks/user-provisioning.md) for both procedures.
 
 ## Where to go next
 

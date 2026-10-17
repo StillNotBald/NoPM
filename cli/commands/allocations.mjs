@@ -12,9 +12,10 @@ export const describe = "List, create, inspect, update, or delete resource alloc
 export const usage = [
   "nopm allocations ls                                          list all allocations",
   "nopm allocations get <id>                                    fetch a single allocation",
-  "nopm allocations create --member <uuid> [--project <uuid>] [--task <uuid>] [--pct <0-500>] [--hours <h>] [--start <datetime>] [--end <datetime>]",
-  "nopm allocations update <id> [--member <uuid>] [--project <uuid>] [--task <uuid>] [--pct <0-999>] [--hours <h>] [--start <datetime>] [--end <datetime>]",
+  "nopm allocations create --member <uuid> [--project <uuid>] [--task <uuid>] [--pct <0-500>] [--hours <h>] [--start <datetime>] [--end <datetime>] [--idempotency-key <key>]",
+  "nopm allocations update <id> [--member <uuid>] [--project <uuid>] [--task <uuid>] [--pct <0-500>] [--hours <h>] [--start <datetime>] [--end <datetime>]",
   "nopm allocations rm     <id>                                 delete an allocation",
+  "  --idempotency-key <key>: retry-safe create — the same key (24 h) returns the first allocation, not a duplicate",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -54,7 +55,8 @@ export async function run(rest, ctx) {
         ...(f.start   && { window_start: f.start }),
         ...(f.end     && { window_end: f.end }),
       };
-      const { data } = await ctx.api("POST", "/api/allocations", body);
+      const { data, warnings } = await ctx.api("POST", "/api/allocations", body);
+      for (const w of warnings || []) console.error("! " + w);
       console.log("✓ created allocation", data.id);
       ctx.out(data, ctx, ROW_COLS);
       break;
@@ -72,7 +74,8 @@ export async function run(rest, ctx) {
       if (f.start)                                  body.window_start   = f.start;
       if (f.end)                                    body.window_end     = f.end;
       if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --member, --project, --pct, --hours, etc.");
-      const { data } = await ctx.api("PATCH", `/api/allocations/${id}`, body);
+      const { data, warnings } = await ctx.api("PATCH", `/api/allocations/${id}`, body);
+      for (const w of warnings || []) console.error("! " + w);
       console.log("✓ updated allocation", id);
       ctx.out(data, ctx, ROW_COLS);
       break;

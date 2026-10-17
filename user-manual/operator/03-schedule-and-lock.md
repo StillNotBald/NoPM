@@ -29,20 +29,28 @@ Locking a project (the Lock/Unlock action on the project detail header) freezes 
 - Task/milestone **create**, task **delete-request**
 - Dependency **add/remove**
 
+**Lock reason.** The Lock dialog proposes the reason "Baseline frozen" and lets you change it (up to 1,000 characters). The reason is kept on the project and in the audit row.
+
 **Stays editable under lock:** status / status_type (including Kanban drag), completion_pct, checklist, acceptance_criteria, name, description, labels, priority, assignee.
 
 A blocked write returns `422` with code `project_locked` and a message telling you what to do next ("ask an admin to unlock it or apply a rebaseline") — it isn't a silent no-op. Each blocked attempt also writes a fail-soft audit row (see [`04-approvals-and-trust.md`](04-approvals-and-trust.md)) so a pattern of rejected writes is visible in the Trust Center, not just to the person who hit the wall.
 
 ## Rebaseline flow
 
-To change the schedule shape of a locked project, the governed path is: **unlock is not required** — instead a **rebaseline** is proposed, reviewed, and applied while the lock stays on. In the current build:
+To change the schedule shape of a locked project, the governed path is: **unlock is not required** — instead a **rebaseline** is proposed, reviewed, and applied while the lock stays on. Everything below can be done from the **Baselines** page (`/baselines`), or through the API, the CLI or an MCP client:
 
-1. A rebaseline is created against the project (`POST /api/projects/[id]/rebaselines`) — today this is done through the API/agent surfaces (CLI, MCP, or the BYOK assistant with a scoped token), not a console form.
-2. A pending rebaseline shows up in the **Review Queue** (`/review`, filter tab "Rebaselines") as a "Rebaseline Sign-off" item. Clicking it deep-links to the project's detail page for context.
-3. Sign-off and apply (`POST /api/rebaselines/[id]/signoff`, `POST /api/rebaselines/[id]/apply`) are, as of this writing, **API/agent-driven** — the console surfaces the pending item for visibility but does not yet expose an in-console sign-off button. If you need to sign off from the browser today, do it through the BYOK assistant panel or a scoped PAT via the CLI (see [`agents/README.md`](../agents/README.md)).
+1. **Propose.** On `/baselines`, choose **Propose rebaseline**, pick the project and write the reason (required: approvers sign what you write). The current and proposed plan boxes are optional. A project can have only **one** rebaseline waiting for sign-off; a second proposal is refused with "This project already has a rebaseline waiting for sign-off".
+2. **Sign off.** A pending rebaseline shows in the **Review Queue** (`/review`, tab "Rebaselines") and on `/baselines`. An admin or manager who is **not** the person who proposed it chooses **Sign off rebaseline** and votes go or no-go (a no-go needs a reason). Anyone else sees the status and a note instead of buttons: "Only managers and admins can approve", or "You proposed this. A different manager or admin must sign off and apply it."
+3. **Apply.** Once approved, an admin or manager other than the proposer chooses **Apply**. The project's milestone, task **and** project baseline dates move to the current plan, and the audit trail records the project baseline before and after. Applying is refused if the project is no longer locked ("Rebaseline cannot be applied: its project is no longer locked. Lock the project and propose a new rebaseline.").
+
+Each step is saved together with its audit row in one step, so a failed audit write cannot leave a change unrecorded, and a failed apply can simply be repeated.
 
 Applying a rebaseline is the one legitimate way dates get written to a locked project — the apply path runs inside a transaction-local bypass of the lock guard, not a general exception.
 
+## Unlocking — read the warning
+
+Unlocking a project is still a one-person action: choose **Unlock**, give a reason (required), confirm. **Unlocking cancels every pending and approved rebaseline** of that project, because a sign-off must never be applied to dates edited after it. The Unlock dialog lists what will be cancelled ("Unlocking cancels 2 pending/approved rebaselines: …") before you confirm. Applied, rejected and draft rebaselines are left alone. After editing the dates, lock the project again and propose a new rebaseline if it still needs to move.
+
 ## Baselines page
 
-`/baselines` (Governance section of the sidebar) is the console's read-only nav home for this flow: a **Locked baselines** table (every locked project, who locked it, when, and why) and a **Rebaselines** table (every rebaseline, its status, when it was requested, and its sign-off count). It exists so the lock → rebaseline → sign-off → apply story doesn't require opening an individual project or the Review Queue to see. The write actions themselves stay exactly where step 1–3 above describe them — this page is a register, not a form.
+`/baselines` (Governance section of the sidebar) is the console's home for this flow: a **Locked baselines** table (every locked project, who locked it, when, and why) and a **Rebaselines** table (every rebaseline, its status, when it was requested, and its sign-off count) with the Propose, Sign off and Apply controls described above. It exists so the lock → rebaseline → sign-off → apply story doesn't require opening an individual project or the Review Queue. Members and viewers can read it; the decision buttons appear only to admins and managers.

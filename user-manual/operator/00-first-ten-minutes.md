@@ -10,7 +10,7 @@ The in-app equivalent of this page is `/start` — "Getting started" in the acco
 2. **Add a task and move it on the board.** Open the project's **Board** tab, add a task, and drag its card to a new column. That drag is a real governed write: it produces the same `task.update` audit row you'd get from editing the field by hand.
 3. **See the audit receipt.** Open **Trust Center** and find the row the drag just created. This is the whole thesis of the product in one screen: every mutation is exactly one immutable audit row.
 4. **Connect your AI agent.** On the **Tokens** page, click **Mint token** and pick the agent preset scopes. A workspace admin does this step — if you're not one, ask them; the token is what lets your own agent call NoPM's API on your behalf.
-5. **Invite a teammate.** Four-eyes deletion approvals need a second, different person in the workspace — a solo workspace can request a deletion but never approve one. Invite from **Settings**.
+5. **Invite a teammate.** Four-eyes deletion approvals need a second, different person who is an admin or a manager — a solo workspace can request a deletion but never approve one, and a member cannot approve. Invite from **Settings**.
 
 ## Before you start clicking: the sidebar starts small
 

@@ -9,8 +9,9 @@ export const describe = "List, create, or delete project expenses";
 
 export const usage = [
   "nopm expenses ls --project <uuid>                          list expenses for a project",
-  "nopm expenses create --project <uuid> --desc <text> --amount <n> [--category <cat>] [--on <YYYY-MM-DD>]",
+  "nopm expenses create --project <uuid> --desc <text> --amount <n> [--category <cat>] [--on <YYYY-MM-DD>] [--idempotency-key <key>]",
   "nopm expenses rm <id>                                      delete an expense",
+  "  --on defaults to today (UTC); --idempotency-key <key>: retry-safe create — the same key (24 h) returns the first expense",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 

@@ -463,6 +463,69 @@ test("api() non-412 errors keep the plain HTTP <status>: <error> message", async
   });
 });
 
+// ── D-16 / D-17 / idempotency / Retry-After ─────────────────────────────────
+
+test("api() 403 role_not_permitted renders a clean not-allowed message and keeps the payload", async () => {
+  await withStubbedFetch(403, { error: "Only managers and admins can approve", code: "role_not_permitted" }, async () => {
+    await assert.rejects(
+      () => api("POST", "/api/deletion-requests/x/approve"),
+      (e) => {
+        assert.equal(e.status, 403);
+        assert.match(e.message, /^Not allowed: Only managers and admins can approve./);
+        assert.equal(e.payload.code, "role_not_permitted");
+        return true;
+      },
+    );
+  });
+});
+
+test("api() 429 message carries the Retry-After seconds", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: false, status: 429, headers: { get: (h) => (h.toLowerCase() === "retry-after" ? "17" : null) }, json: async () => ({ error: "Rate limit exceeded", code: "rate_limited" }) });
+  process.env.NOPM_API_URL = "http://test";
+  process.env.NOPM_TOKEN = "npm_test";
+  try {
+    await assert.rejects(() => api("GET", "/api/projects"), (e) => {
+      assert.equal(e.status, 429);
+      assert.equal(e.retryAfter, 17);
+      assert.match(e.message, /retry in 17s/);
+      return true;
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("idempotencyHeader: only POST with a non-empty string key sends the header", async () => {
+  const { idempotencyHeader } = await import("../lib/api.mjs");
+  assert.deepEqual(idempotencyHeader("POST", "abc-1"), { "Idempotency-Key": "abc-1" });
+  assert.deepEqual(idempotencyHeader("POST", true), {});
+  assert.deepEqual(idempotencyHeader("POST", "  "), {});
+  assert.deepEqual(idempotencyHeader("GET", "abc-1"), {});
+  assert.deepEqual(idempotencyHeader("POST", undefined), {});
+});
+
+test("api() sends the Idempotency-Key header on a keyed POST", async () => {
+  const originalFetch = globalThis.fetch;
+  let seen;
+  globalThis.fetch = async (_url, init) => { seen = init.headers; return { ok: true, status: 201, headers: { get: () => null }, json: async () => ({ data: {} }) }; };
+  process.env.NOPM_API_URL = "http://test";
+  process.env.NOPM_TOKEN = "npm_test";
+  try {
+    await api("POST", "/api/time-entries", { hours: 1 }, { idempotencyKey: "retry-42" });
+    assert.equal(seen["Idempotency-Key"], "retry-42");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("create commands document --idempotency-key in their usage", async () => {
+  for (const g of ["time", "expenses", "tasks", "allocations"]) {
+    const mod = await import(`../commands/${g}.mjs`);
+    assert.ok(mod.usage.join("|").includes("--idempotency-key"), `${g} usage lacks --idempotency-key`);
+  }
+});
+
 // ── every command module exposes the help contract ──────────────────────────
 
 test("every command module exports describe + usage + run", async () => {

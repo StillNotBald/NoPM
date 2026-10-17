@@ -2,7 +2,7 @@
 
 **Goal:** Freeze a project's approved schedule shape so it can't drift by accident, while day-to-day work continues, and provide a reviewed path (rebaseline) for legitimate schedule changes afterward.
 
-**Actors:** Any actor with `project:write` locks the project and proposes a rebaseline (the guard does not separate admin, manager and member). Approver / second pair of eyes signs off, as a different person from the requester. AI agent via token can propose, sign off and apply through the REST API or the `nopm` CLI, but not through the MCP server or the BYOK assistant, which expose no rebaseline tool. Console sign-off is not yet a button — see below.
+**Actors:** Any actor with `project:write` locks the project and proposes a rebaseline (the guard does not separate admin, manager and member). Approver / second pair of eyes (an admin or manager) signs off, as a different person from the requester, and an admin or manager applies. AI agent via token can propose through the REST API, the `nopm` CLI or the stdio MCP server; sign-off and apply work only when the token carries `rebaseline:approve` AND its creator is currently an admin or manager. The BYOK assistant has no rebaseline tool. The console now has the controls (see the update below).
 
 **Preconditions:** A project exists with a schedule (tasks/milestones with dates).
 
@@ -12,7 +12,7 @@
 
 1. `POST /api/projects/{id}/lock` (scope `project:write`) — UI: Lock action on the project detail header. Reason is optional on lock (unlike unlock, see below). Milestone/task **baselines** are captured at lock time (`baseline_start_date`/`baseline_target_date`/`baseline_due_date`), so slip later renders as ghost bars plus variance on the Gantt (R-33).
 2. Locking freezes **schedule shape only**: task `start_date`, `due_date`, `baseline_start_date`, `baseline_due_date`, `estimate_hours`, `milestone_id`, `project_id`; milestone `start_date`, `target_date`, `baseline_target_date`; task/milestone **create**; task **delete-request**; dependency add/remove. Status, completion_pct, checklist, acceptance_criteria, name, description, labels, priority, and assignee all stay editable — locking a project does not stop people from working on it.
-3. `/baselines` (Governance nav) is the read-only console home for this flow: a "Locked baselines" table (every locked project, who locked it, when, why) and a "Rebaselines" table (status, requested-at, sign-off count) — a register, not a form.
+3. `/baselines` (Governance nav) is the console home for this flow: a "Locked baselines" table (every locked project, who locked it, when, why) and a "Rebaselines" table (status, requested-at, sign-off count) with the propose, sign-off and apply controls (update below).
 
 ## Main flow — rebaseline
 
@@ -41,6 +41,15 @@
 - `/baselines` register page (Locked baselines + Rebaselines tables).
 - Gantt slip visualization (current vs baseline, R-33) is itself a reporting surface — a reviewer can see schedule drift without reading the audit log.
 - Diagram: [`project-lock-rebaseline-flow.html`](../processes/project-lock-rebaseline-flow.html).
+
+## Update 2026-10-17 — journey-audit fixes
+
+- **Rebaseline controls on `/baselines` (R-118).** Propose (reason required), sign off go or no go, and apply are buttons on the page, calling the same API routes the CLI and agents use. Sign-off and apply are shown only to admins and managers (not the proposer); everyone else sees status only.
+- Owner decision 16 ("follow Lark rules", ADR 0014, R-113): approving or deciding is for admins and managers only, on every channel. A member or viewer gets `403` `role_not_permitted` ("Only managers and admins can approve"). A token is judged by the CURRENT role of the person who minted it, so a member cannot approve through a token and a demoted manager's token stops approving at once. It covers sign-off and apply.
+- **One at a time.** A project may have only one rebaseline waiting for sign-off: a second proposal is `409` `pending_rebaseline_exists` ("This project already has a rebaseline waiting for sign-off").
+- **Apply needs a locked project.** If the project was unlocked after sign-off, apply is `422` `project_not_locked` ("Rebaseline cannot be applied: its project is no longer locked. Lock the project and propose a new rebaseline."). Unlocking already cancels pending and approved rebaselines; the console now WARNS what will be cancelled before you confirm the unlock.
+- **Lock reason is editable.** The lock dialog proposes a reason and lets you change it; it is recorded on the project and in the audit row.
+- **All-or-nothing.** Lock, unlock, sign-off and apply each run as one database transaction with the audit row inside (`nopm_lock_project`, `nopm_unlock_project_audited`, `nopm_signoff_rebaseline`, `nopm_apply_rebaseline`; migrations 0062 and 0063). A failed audit write rolls the change back instead of leaving it unrecorded, and an apply can be retried.
 
 ## Traceability
 

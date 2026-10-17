@@ -731,3 +731,188 @@ export function guardTool(tool) {
 
 /** @type {ToolRegistryEntry[]} */
 export const TOOL_REGISTRY = RAW_TOOLS.map(guardTool);
+
+// ── Governance tools for the MCP surfaces ONLY ──────────────────────────────
+//
+// NOT part of TOOL_REGISTRY, so the in-app assistant (which maps TOOL_REGISTRY
+// one-to-one) never gets them. The assistant has no approve/decide tool and its
+// ephemeral token holds none of these scopes (see TOOL_SCOPES in
+// web/src/lib/assistant/tools.ts); an MCP client drives them with its OWN
+// personal access token, so the API enforces the same rules as for any REST caller:
+//   - sign_off_rebaseline / apply_rebaseline need scope rebaseline:approve (never
+//     granted by a wildcard) AND a token whose creator is currently an admin or
+//     manager (owner decision D-16) — otherwise the API's 403 comes back verbatim;
+//   - four-eyes by person still applies (a token never decides what its creator raised).
+// Locked to the OpenAPI spec and the Zod validators by
+// web/src/lib/assistant/tools-mcp-governance.test.ts.
+
+export const REBASELINE_VOTES = ["go", "no_go"];
+export const CHANGE_CATEGORIES = ["scope", "schedule", "cost", "quality", "resource", "other"];
+export const CHANGE_PRIORITIES = ["low", "medium", "high", "critical"];
+export const DECISION_STATUSES = ["proposed", "accepted", "superseded", "rejected"];
+export const DOCUMENT_TYPES = ["charter", "plan", "raid", "status_report", "change_request", "minutes", "spec", "other"];
+export const DOCUMENT_STATUSES = ["draft", "in_review", "approved", "archived"];
+
+/** @type {ToolRegistryEntry[]} */
+const RAW_MCP_GOVERNANCE_TOOLS = [
+  {
+    name: "create_change_request",
+    description:
+      "Raise a change request on a project (scope: change:write). Status is raised or under_review only; " +
+      "approval is a separate decision by an admin or manager, never made here. Needs a token with a recorded owner.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID" },
+        title: { type: "string", description: "Short title, 1-255 chars" },
+        description: { type: "string", description: "Up to 10,000 chars" },
+        category: { type: "string", enum: CHANGE_CATEGORIES },
+        priority: { type: "string", enum: CHANGE_PRIORITIES },
+        status: { type: "string", enum: ["raised", "under_review"] },
+        impact_summary: { type: "string", description: "Up to 10,000 chars" },
+        impact_schedule_days: { type: "number", description: "Integer days of schedule impact (negative = earlier)" },
+        impact_cost: { type: "number", description: "Cost impact in the project currency" },
+        target_date: { type: "string", description: DATE },
+      },
+      required: ["project_id", "title"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const { project_id, ...body } = args;
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/change-requests`, method: "POST", body };
+    },
+  },
+  {
+    name: "propose_rebaseline",
+    description:
+      "Propose a rebaseline of a project's baseline dates (pending sign-off when the project is locked) (scope: project:write). A project may have only one " +
+      "rebaseline waiting for sign-off (409 pending_rebaseline_exists). It then needs sign-off by an admin or manager " +
+      "other than the requester and an apply step.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID" },
+        reason: { type: "string", description: "Why the baseline must move, 1-2000 chars" },
+      },
+      required: ["project_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const { project_id, ...body } = args;
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/rebaselines`, method: "POST", body };
+    },
+  },
+  {
+    name: "sign_off_rebaseline",
+    description:
+      "Cast a go / no_go sign-off vote on a rebaseline awaiting sign-off (scope: rebaseline:approve, which a wildcard " +
+      "never grants). Only works when this token's creator is currently an admin or manager and is a different person " +
+      "from the requester; otherwise the API answers 403 (role_not_permitted: \"Only managers and admins can approve\", " +
+      "or self_approval) and nothing changes. Do not retry a 403; tell the user who needs to decide.",
+    parameters: {
+      type: "object",
+      properties: {
+        rebaseline_id: { type: "string", description: "Rebaseline UUID" },
+        vote: { type: "string", enum: REBASELINE_VOTES },
+        comment: { type: "string", description: "Optional, up to 2000 chars" },
+      },
+      required: ["rebaseline_id", "vote"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const { rebaseline_id, ...body } = args;
+      return { path: `/api/rebaselines/${idSeg("rebaseline_id", rebaseline_id)}/signoff`, method: "POST", body };
+    },
+  },
+  {
+    name: "apply_rebaseline",
+    description:
+      "Apply an approved rebaseline: milestone, task and project baseline dates become the current plan (scope: " +
+      "rebaseline:approve). Same rules as sign_off_rebaseline (token creator must be an admin or manager, different person from the " +
+      "requester); 422 project_not_locked if the project was unlocked meanwhile. 403s come back verbatim.",
+    parameters: {
+      type: "object",
+      properties: { rebaseline_id: { type: "string", description: "Rebaseline UUID" } },
+      required: ["rebaseline_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/rebaselines/${idSeg("rebaseline_id", args.rebaseline_id)}/apply`,
+      method: "POST",
+    }),
+  },
+  {
+    name: "submit_timesheet",
+    description:
+      "Submit a member's weekly timesheet for approval (scope: time:submit). period_start must be a Monday. The week " +
+      "locks while it is under review; an admin or manager other than the member decides it.",
+    parameters: {
+      type: "object",
+      properties: {
+        member_id: { type: "string", description: "Member (resource) UUID" },
+        period_start: { type: "string", description: "The Monday of the week, YYYY-MM-DD" },
+      },
+      required: ["member_id", "period_start"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({ path: "/api/timesheet-submissions", method: "POST", body: args }),
+  },
+  {
+    name: "create_decision",
+    description: "Log a decision in a project's decision register (scope: decision:write). Gets a DEC-NNN reference.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID" },
+        title: { type: "string", description: "1-255 chars" },
+        context: { type: "string", description: "Up to 10,000 chars" },
+        options: { type: "string", description: "Options considered, up to 10,000 chars" },
+        decision: { type: "string", description: "What was decided, up to 10,000 chars" },
+        rationale: { type: "string", description: "Why, up to 10,000 chars" },
+        status: { type: "string", enum: DECISION_STATUSES },
+        decided_at: { type: "string", description: DATETIME },
+        supersedes: { type: "string", description: "UUID of the decision this replaces" },
+      },
+      required: ["project_id", "title"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const { project_id, ...body } = args;
+      return { path: `/api/projects/${idSeg("project_id", project_id)}/decisions`, method: "POST", body };
+    },
+  },
+  {
+    name: "create_document",
+    description:
+      "Create a document record (scope: document:write): a title, type, status, summary or body, optionally linked to a " +
+      "project. Gets a DOC-NNN reference. File upload is a browser step, not part of this tool.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID (optional)" },
+        folder: { type: "string", description: "Folder name, default General" },
+        title: { type: "string", description: "1-500 chars" },
+        doc_type: { type: "string", enum: DOCUMENT_TYPES },
+        status: { type: "string", enum: DOCUMENT_STATUSES },
+        summary: { type: "string", description: "Up to 10,000 chars" },
+        body: { type: "string", description: "Up to 100,000 chars" },
+        external_url: { type: "string", format: "uri", maxLength: 2000 },
+        owner_id: { type: "string", description: "Owner member UUID" },
+      },
+      required: ["title", "doc_type"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({ path: "/api/documents", method: "POST", body: args }),
+  },
+];
+
+/**
+ * Governance tools offered by the MCP servers (stdio server.mjs; the remote
+ * /api/mcp route can register them too) on top of TOOL_REGISTRY. Never merged
+ * into TOOL_REGISTRY: the in-app assistant must not get approve tools.
+ * @type {ToolRegistryEntry[]}
+ */
+export const MCP_GOVERNANCE_TOOLS = RAW_MCP_GOVERNANCE_TOOLS.map(guardTool);
+
+/** Everything an MCP client sees: the shared registry plus the governance tools. */
+export const MCP_TOOLS = [...TOOL_REGISTRY, ...MCP_GOVERNANCE_TOOLS];

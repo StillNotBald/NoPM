@@ -58,8 +58,9 @@ export class FakeDb {
         row = { workspace_id: args.p_workspace_id, kind: args.p_kind, last_value: 0 };
         counters.push(row);
       }
-      row.last_value += 1;
-      return { data: `${prefix}-${String(row.last_value).padStart(3, "0")}`, error: null };
+      const next = Number(row.last_value) + 1;
+      row.last_value = next;
+      return { data: `${prefix}-${String(next).padStart(3, "0")}`, error: null };
     },
   };
   private seq = 0;

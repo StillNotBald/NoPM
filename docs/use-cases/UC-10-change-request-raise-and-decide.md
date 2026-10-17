@@ -2,7 +2,7 @@
 
 **Goal:** Formally propose a change to a project's scope, schedule, or cost, and have a different person than the requester assess and decide it, replacing an email thread with a traceable record.
 
-**Actors:** Project Manager / stakeholder (raises), Approver / second pair of eyes (decides — must be a different person from the requester). AI agent via token can raise (`change:write`). It cannot decide through the MCP or assistant tool set, and `change:decide` is never in the agent preset (see alternate flows).
+**Actors:** Project Manager / stakeholder (raises), Approver / second pair of eyes (an admin or manager who decides — must be a different person from the requester). AI agent via token can raise (`change:write`). It cannot decide through the MCP or assistant tool set, and `change:decide` is never in the agent preset (see alternate flows).
 
 **Preconditions:** A project exists.
 
@@ -20,6 +20,7 @@
 - **Decider is the same person as the requester** (a token or assistant counts as the person who minted it) → `403` "Self-approval is not allowed (four-eyes)".
 - **CR already decided** (`status` not `raised`/`under_review`) → `422` "Change request already decided (status: …)".
 - **Missing `change:write`/`change:decide`** → `403`.
+- **Decider is a member or viewer** (or a token whose creator is) → `403` `role_not_permitted`, "Only managers and admins can approve".
 - **An agent tries to decide its own raised CR** → not possible through the MCP or assistant tool set. `change:decide` is never in the assistant's scope ceiling or any PAT preset (R-83, asserted in both scope test files). An admin can still mint a token with `change:decide` by exact name, and that token can decide a request only if its owner is a different person from the requester.
 
 ## Postconditions
@@ -33,6 +34,13 @@
 - `GET /api/projects/{id}/change-requests` (scope `change:read`) lists the register; `GET /change-requests/{id}` fetches one.
 - No `entity=change_requests` value documented on `GET /api/export`'s entity list `[UNVERIFIED]`.
 - Diagram: [`change-request-lifecycle-flow.html`](../processes/change-request-lifecycle-flow.html).
+
+## Update 2026-10-17 — journey-audit fixes
+
+- Owner decision 16 ("follow Lark rules", ADR 0014, R-113): approving or deciding is for admins and managers only, on every channel. A member or viewer gets `403` `role_not_permitted` ("Only managers and admins can approve"). A token is judged by the CURRENT role of the person who minted it, so a member cannot approve through a token and a demoted manager's token stops approving at once.
+- **Atomic decision.** The decision, its status change and its `change_request.decide` audit row are one database transaction (`nopm_decide_change_request`, migration 0063); a failed audit write can no longer leave a decided request without a trail.
+- **Only the requester edits or deletes an open request** (decision 11). Text limits: description and impact summary 10,000 characters (`422`). `CR-` reference numbers come from a counter and are never reused.
+- **MCP.** The stdio MCP server can now raise a change request (`create_change_request`). Deciding stays a person's act: there is no MCP or assistant tool that decides one.
 
 ## Traceability
 

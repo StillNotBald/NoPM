@@ -2,7 +2,7 @@
 
 **Goal:** Log time against a project, submit a week for approval, have a second person approve it (locking that week against further edits), and, if needed, formally reopen it.
 
-**Actors:** Team member (logs time, submits), Approver / second pair of eyes (approves, rejects, or reopens; must be a different person from the submitter), Finance/PMO (consumes the time report).
+**Actors:** Team member (logs time, submits), Approver / second pair of eyes (an admin or manager who approves, rejects, or reopens; must be a different person from the submitter), Finance/PMO (consumes the time report).
 
 **Preconditions:** The team member is a `resource_member` with a cost rate. The week being submitted has at least one time entry (submission of an empty week is rejected).
 
@@ -37,6 +37,13 @@
 - Filtered time report (member/project/date-range/billable) with by-member/by-project totals from `aggregateTimeReport` — cost is always the entry's snapshotted cost, never the member's current rate; the caption states the reconciliation rule against `/budget`.
 - `GET /api/export?entity=time_entries` (`project_id`/`member_id`/`date_from`/`date_to`/`billable` filters) for the governed CSV export.
 - Diagrams: [`timesheet-lifecycle-flow.html`](../processes/timesheet-lifecycle-flow.html) and, for the lock/reopen sub-flow, [`period-close-reopen-flow.html`](../processes/period-close-reopen-flow.html), both in `docs/processes/`.
+
+## Update 2026-10-17 — journey-audit fixes
+
+- Owner decision 16 ("follow Lark rules", ADR 0014, R-113): approving or deciding is for admins and managers only, on every channel. A member or viewer gets `403` `role_not_permitted` ("Only managers and admins can approve"). A token is judged by the CURRENT role of the person who minted it, so a member cannot approve through a token and a demoted manager's token stops approving at once. It covers approve, reject AND reopen.
+- **Own hours only (decision 17, to be confirmed by the owner; R-114).** A member logs, edits and deletes only their own time entries: `POST` and `DELETE /api/time-entries` answer `403` `not_your_hours` ("You can only log your own hours") for someone else's hours. Admins and managers may act for others. The log-time form offers a member only themselves. `task_id` must belong to the entry's project (`422`).
+- **Retry-safe logging (R-115).** `POST /api/time-entries` accepts an `Idempotency-Key` header; a retry with the same key returns the first entry.
+- **Console.** A rejected week can be resubmitted from the submit panel, and a reopened week can be amended and resubmitted; approve and reject buttons are hidden from members and viewers.
 
 ## Traceability
 

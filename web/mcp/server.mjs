@@ -3,8 +3,10 @@
  * NoPM MCP server — STDIO transport.
  * Maps MCP tool calls to NoPM REST API calls authenticated with a scoped PAT.
  *
- * Tool definitions come from ./tools.mjs — the same registry the in-app
- * assistant uses, so the two agent surfaces cannot drift apart.
+ * Tool definitions come from ./tools.mjs — the registry the in-app assistant
+ * uses (so the two agent surfaces cannot drift apart) plus the governance tools
+ * only MCP offers (change request, rebaseline propose / sign-off / apply, timesheet
+ * submit, decision, document). The assistant never gets the approve tools.
  *
  * Config (env):
  *   NOPM_API_URL   Base URL of the NoPM API  (default: https://stillnotbald.com)
@@ -20,7 +22,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { TOOL_REGISTRY } from "./tools.mjs";
+import { MCP_TOOLS } from "./tools.mjs";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -68,7 +70,7 @@ const server = new Server(
 
 // tools/list
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: TOOL_REGISTRY.map(({ name, description, parameters }) => ({
+  tools: MCP_TOOLS.map(({ name, description, parameters }) => ({
     name,
     description,
     inputSchema: parameters,
@@ -79,7 +81,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
 
-  const tool = TOOL_REGISTRY.find((t) => t.name === name);
+  const tool = MCP_TOOLS.find((t) => t.name === name);
   if (!tool) {
     return {
       content: [{ type: "text", text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
@@ -113,4 +115,4 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-process.stderr.write(`[nopm-mcp] server ready — ${TOOL_REGISTRY.length} tools, API: ${API_URL}\n`);
+process.stderr.write(`[nopm-mcp] server ready — ${MCP_TOOLS.length} tools, API: ${API_URL}\n`);

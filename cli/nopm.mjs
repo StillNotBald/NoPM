@@ -62,7 +62,7 @@ async function main() {
   currentFlags = flags;
   const ctx = {
     flags,
-    api: (method, p, body) => api(method, p, body, { curl: flags.curl }),
+    api: (method, p, body) => api(method, p, body, { curl: flags.curl, idempotencyKey: flags["idempotency-key"] }),
     out: (data, _ctx, columns) => out(data, { flags }, columns),
     die,
     loadConfig,

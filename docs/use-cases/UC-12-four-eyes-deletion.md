@@ -2,7 +2,7 @@
 
 **Goal:** Delete a task or a project only after a second, different person reviews and approves the request, so the most destructive actions in the system can never be a single click (or a single agent call).
 
-**Actors:** Requester / maker (any actor with the matching `:delete:request` scope), Approver / checker (a **different** person holding the matching `:delete:approve` scope; a token counts as the person who minted it).
+**Actors:** Requester / maker (any actor with the matching `:delete:request` scope), Approver / checker (a **different** person, who is an admin or manager, holding the matching `:delete:approve` scope; a token counts as the person who minted it).
 
 **Preconditions:** The target task or project exists. For project deletion, the project must not be locked at commit time (see below).
 
@@ -19,6 +19,7 @@
 ## Alternate and exception flows
 
 - **Self-approval** (the approver is the requester's person, a token included) → `403`.
+- **Approver or rejecter is a member or viewer** (or holds a token minted by one) → `403` `role_not_permitted`, "Only managers and admins can approve".
 - **Self-rejection** → `422` (four-eyes binds both decisions, not just approval).
 - **Checker rejects instead** → `POST /api/deletion-requests/{id}/reject` (same per-type scope gate as approve); the request closes without deleting anything.
 - **Requester wants to cancel their own pending request** → `POST /api/deletion-requests/{id}/withdraw` (scope: the matching `:delete:request` scope) — the maker's one permitted self-act, audited as `deletion_request.withdrawn`. On the Approvals page, if the pending request is yours, the only offered action is **Withdraw**, not Approve/Reject, since a self-decision would just be rejected anyway. Withdrawing is terminal (a withdrawn request can't be withdrawn again), but the same target can be re-requested afterward.
@@ -40,6 +41,12 @@
 - `GET /api/deletion-requests` (scope `task:read` or `audit:read`) — `?status=pending|approved|rejected|committed|withdrawn`, `?target_type=task|project`.
 - `/trust?target_type=task&target_id=<id>` (or `project`) — per-object History deep-link.
 - Diagram: [`four-eyes-deletion-flow.html`](../processes/four-eyes-deletion-flow.html) exists today under this exact name in `docs/processes/`.
+
+## Update 2026-10-17 — journey-audit fixes
+
+- Owner decision 16 ("follow Lark rules", ADR 0014, R-113): approving or deciding is for admins and managers only, on every channel. A member or viewer gets `403` `role_not_permitted` ("Only managers and admins can approve"). A token is judged by the CURRENT role of the person who minted it, so a member cannot approve through a token and a demoted manager's token stops approving at once.
+- **Child audit rows (R-119).** Committing a project deletion now writes one audit row per cascade-deleted child in the same transaction: `change_request.cascade_delete`, `decision.cascade_delete`, `document.cascade_delete`, `rebaseline.cascade_delete` and `rebaseline_signoff.cascade_delete`, beside `project.delete` and `deletion_request.approved`. The approval screen shows the child counts before the approver decides, and `children_changed` (`422`) still refuses a request that no longer describes what would be deleted.
+- **Document files.** Removing a document file clears the database row and writes the audit row first, then deletes the storage object.
 
 ## Traceability
 

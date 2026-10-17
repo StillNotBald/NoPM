@@ -4,9 +4,13 @@
 
 ## Four-eyes deletes
 
-Deleting a **task** or a **project** is never a single action. Requesting one (`DELETE /api/tasks/[id]` or `DELETE /api/projects/[id]`) does not delete anything — it snapshots the target row and inserts a `deletion_requests` row (status `pending`), returning `202 Accepted`. A human (or an agent with the right scope) must separately approve it before the delete actually commits.
+Deleting a **task** or a **project** is never a single action. Requesting one (`DELETE /api/tasks/[id]` or `DELETE /api/projects/[id]`) does not delete anything — it snapshots the target row and inserts a `deletion_requests` row (status `pending`), returning `202 Accepted`. An admin or a manager (a different person from the requester) must separately approve it before the delete actually commits.
 
-**The core rule, enforced at the API layer:** the approver must be a different actor from the requester. Self-approval and self-rejection both return `403`/`422` — you cannot decide your own request.
+**The core rules, enforced at the API layer and again in the database:**
+
+- **Who may approve.** Only admins and managers can approve or reject, on every channel: the web, the API, the CLI and chat. A member or viewer sees no Approve or Reject buttons, and a direct call answers `403` "Only managers and admins can approve" (code `role_not_permitted`). This is the same rule Lark has always applied to cards.
+- **A different person.** The approver must be a different person from the requester. Self-approval and self-rejection both return `403`/`422` — you cannot decide your own request, even with a second login or a token you created (a token counts as the person who created it).
+- **Tokens follow their creator.** A token with an approve scope approves only while the person who created it is an admin or manager. If they are demoted, their tokens stop approving at once.
 
 If the pending request is yours, the Approvals page offers only **Withdraw** (`POST /api/deletion-requests/[id]/withdraw`) instead of Approve/Reject — since four-eyes would just reject your own decision anyway. Withdrawing is terminal: a withdrawn request can't be withdrawn again, but the same target can be re-requested for deletion afterward.
 
@@ -14,7 +18,7 @@ Milestones, risks, and issues are hard-deleted with an audit row only — they d
 
 ## Where you approve/reject
 
-`/approvals` lists every **pending** deletion request, showing target type, a shortened target id, who requested it, their stated reason, and when. Approve accepts an optional note; Reject requires a reason. Both routes are governed the same way — approve commits the delete via a DB RPC, reject just closes the request out.
+`/approvals` lists every **pending** deletion request, showing target type, a shortened target id, who requested it, their stated reason, and when. Approve accepts an optional note; Reject requires a reason. For a project deletion, the row shows how many tasks, milestones, risks, issues, change requests, decisions and documents will be deleted with it, and the audit trail records each of those children separately once the deletion is approved. Both routes are governed the same way — approve commits the delete via a DB RPC, reject just closes the request out.
 
 `/review` (Review Queue) is the broader "everything waiting on a human" surface — it includes pending deletion requests, but also pending rebaseline sign-offs, change requests in review, high/critical risks, unresolved clashes, and documents in review, priority-sorted in one place. Use `/approvals` when you specifically want the deletion queue; use `/review` for the fuller picture.
 
@@ -37,7 +41,17 @@ These rows exist so a pattern of denied attempts is visible in the same stream a
 
 ## What a 429 means
 
-NoPM rate-limits authenticated traffic, keyed on workspace + actor class (user vs token) + read/write bucket — a DB-backed fixed window, not per-token (agent tools mint a fresh ephemeral token per turn, so per-token keying would be a no-op). Hitting the limit returns `429` with error code `rate_limited`. The limiter fails **open** (never blocks traffic) if its own infrastructure errors, but fails **closed and loud** on an actual limit hit — you'll see a real `429`, not a silent drop, and the attempt is logged as `rate.limited` in the Trust Center.
+NoPM rate-limits authenticated traffic, keyed on workspace + actor class (user vs token) + read/write bucket — a DB-backed fixed window, not per-token (agent tools mint a fresh ephemeral token per turn, so per-token keying would be a no-op). Hitting the limit returns `429` with error code `rate_limited` and a `Retry-After` header saying how many seconds to wait. The limiter fails **open** (never blocks traffic) if its own infrastructure errors, but fails **closed and loud** on an actual limit hit — you'll see a real `429`, not a silent drop, and the attempt is logged as `rate.limited` in the Trust Center.
+
+## Other approvals
+
+The same rule (admins and managers only, never the person who raised it) applies to the other decisions that arrive in `/review`:
+
+- **Change requests:** approve, reject or defer, with a rationale (UC-10).
+- **Rebaselines:** sign off go or no go, then apply (on `/baselines`, see [`03-schedule-and-lock.md`](03-schedule-and-lock.md)).
+- **Timesheets:** approve, reject, or reopen a week.
+
+If you see "Only managers and admins can approve", ask an admin or manager to take the decision; nothing was changed.
 
 ## Where to go next
 
