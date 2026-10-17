@@ -28,7 +28,7 @@ Environment variables `NOPM_TOKEN` / `NOPM_API_URL` override the saved config.
 ```bash
 nopm projects ls                             # list all projects
 nopm projects get <id>                       # fetch one project
-nopm projects create --name "Network Modernisation" --code NBC-H [--program <p>] [--rag green] [--phase planning] [--start 2025-01-01] [--target 2025-12-31]
+nopm projects create --name "Network Modernisation" --code NET-MOD [--program <p>] [--rag green] [--phase planning] [--start 2025-01-01] [--target 2025-12-31]
 nopm projects update <id> --rag amber --pct 40
 nopm projects lock   <id> [--reason "Approved baseline"]
 nopm projects unlock <id>

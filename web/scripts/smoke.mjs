@@ -32,7 +32,7 @@ const before = Array.isArray(j.data) ? j.data.length : -1;
 
 r = await fetch(BASE + "/api/projects", {
   method: "POST", headers: h(MAKER),
-  body: JSON.stringify({ code: "NBC-H", name: "Network Modernisation", program: "NBC-H Merger", rag_status: "amber" }),
+  body: JSON.stringify({ code: "NET-MOD", name: "Network Modernisation", program: "Network Programme", rag_status: "amber" }),
 });
 j = await r.json().catch(() => ({}));
 check("maker create -> 201 (implies audit write OK)", r.status === 201 && !!j.data?.id, `${r.status} ${JSON.stringify(j).slice(0, 160)}`);
