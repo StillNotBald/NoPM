@@ -309,13 +309,15 @@ const spec = {
       ConnectorHealth: {
         type: "object",
         description: "Delivery-queue health of one connector.",
-        required: ["pending", "retry", "dead", "last_sent_at", "last_error", "last_cron_at", "last_cron"],
+        required: ["pending", "retry", "dead", "last_sent_at", "last_error", "last_cron_at", "last_cron", "cron_state_available", "scheduler_stale"],
         properties: {
           pending: { type: "integer", description: "Queued and never attempted yet" },
           retry: { type: "integer", description: "Failed at least once and waiting for the next attempt (retries follow 1 m / 5 m / 30 m / 2 h / 12 h)" },
           dead: { type: "integer", description: "Gave up — a card that never reached anyone. Pruned after the retention window (60 days)." },
           last_sent_at: { type: ["string", "null"], format: "date-time", description: "When the most recent message went out" },
-          last_error: { type: ["string", "null"], description: "Why the most recent failing delivery failed — already sanitised (no secrets), at most 300 characters" },
+          last_error: { type: ["string", "null"], description: "Why the failing delivery with the LATEST ATTEMPT failed (not the newest row, so an old dead letter does not outlive later successes) — already sanitised (no secrets), at most 300 characters" },
+          cron_state_available: { type: "boolean", description: "False when the scheduler state could not be read (migration not applied, or a lookup error); then last_cron_at is null for that reason, not because the scheduler never ran" },
+          scheduler_stale: { type: ["boolean", "null"], description: "True when the daily scheduler has not processed this connector for more than 36 hours (counted from creation if it never has). null when that cannot be told (cron_state_available is false)" },
           last_cron_at: { type: ["string", "null"], format: "date-time", description: "When the daily scheduler last processed this connector (null if it never has, or the database has not applied migration 0051)" },
           last_cron: {
             description: "Counts from that scheduler run",
@@ -3013,6 +3015,46 @@ const spec = {
         },
       },
     },
+    "/integrations/connectors/{id}/requeue-dead": {
+      post: {
+        tags: ["integrations"],
+        summary: "Requeue dead approval cards",
+        description:
+          "scope: admin user session only. After the retry ladder is spent an approval card goes dead and nothing redrives it. " +
+          "This sends a fresh card for every request that is STILL pending and has a dead card, with the same dedupe as the resume " +
+          "catch-up (an approver who already holds a live card gets nothing; the hourly card budget applies). Dead rows are kept " +
+          "as history; the new cards are new rows. Digests, bot replies and updates for decided requests are never resent. " +
+          "Audited BEFORE any card is queued (integration.approvals.requeue_dead). The connector must be active.",
+        operationId: "requeueDeadIntegrationCards",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Dead cards looked at and the requests re-sent",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["dead_requests", "still_pending"],
+                      properties: {
+                        dead_requests: { type: "integer", description: "Distinct requests that have a dead card (at most 60 per call)" },
+                        still_pending: { type: "integer", description: "Of those, how many are still awaiting a decision and were handed to the card fan-out" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "403": { description: "Not an admin user session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The connector is not active (code connector_not_active)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/integrations/identities": {
       get: {
         tags: ["integrations"],
@@ -3382,7 +3424,7 @@ const spec = {
               },
             },
           },
-          "401": { description: "Bad signature or missing headers, or an UNKNOWN connector id (code invalid_relay_signature — indistinguishable from a wrong signature); timestamp outside +/-300 s (stale_relay_timestamp); or the connector has no relay secret (no_relay_secret)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { description: "ONE generic answer (code invalid_relay_signature) for every failure before the caller is authenticated: bad or missing signature or headers, an unknown connector id, a timestamp outside +/-300 s, or a connector with no relay secret. The reason is logged server-side only", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "403": { description: "The connector is not active (connector_inactive) or not in long_connection mode (wrong_mode) — only revealed to an authenticated caller", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Malformed connector id only (code connector_not_found)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "413": { description: "Body larger than 256 KiB (code body_too_large)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },

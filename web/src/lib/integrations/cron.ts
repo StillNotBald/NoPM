@@ -12,6 +12,7 @@ import {
   mergeDrain,
   type DrainSummary,
 } from "@/lib/integrations/deliveries";
+import { reconcileLostApprovals } from "@/lib/integrations/catchup";
 import { gatherDigestData } from "@/lib/integrations/digest-data";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import { CONNECTOR_COLUMNS, maskExternalId, normalizeConfig } from "@/lib/integrations/store";
@@ -114,6 +115,8 @@ export type CronSummary = {
    * or its send failed and it is waiting to retry or is dead).
    */
   digests: { sent: number; skipped: number; queued: number; failed: number };
+  /** Lost-emit repair (F1): pending requests with no card at all that got one this tick, and connectors whose pass failed. */
+  reconciled: { requests: number; failed: number };
   /** Connectors the deadline stopped us reaching (their queue is untouched for the next tick). */
   skippedForDeadline: number;
   /** Connector jobs that overran the deadline and were abandoned. */
@@ -142,6 +145,7 @@ export async function runCron(
     connectors: 0,
     deliveries: { ...EMPTY_DRAIN },
     digests: { sent: 0, skipped: 0, queued: 0, failed: 0 },
+    reconciled: { requests: 0, failed: 0 },
     skippedForDeadline: 0,
     timedOut: 0,
     pruned: { deliveries: 0, action_tokens: 0, inbound_actions: 0 },
@@ -175,6 +179,20 @@ export async function runCron(
     } catch (err) {
       console.error("[integrations] cron digest step failed for a connector:", sanitizeError(err));
       runs.get(connector.id)!.digest = "failed";
+    }
+  });
+
+  // Phase 1b: repair a lost after-commit emit (F1). A pending request older than a few minutes that
+  // never got any card is sent one now. Bounded per connector and by the deadline; a connector this
+  // pass does not reach is simply repaired by the next tick.
+  await mapPool(connectors, concurrency, async (connector) => {
+    if (Date.now() >= deadline) return;
+    try {
+      const res = await reconcileLostApprovals(connector, { now });
+      summary.reconciled.requests += res.queued;
+    } catch (err) {
+      summary.reconciled.failed += 1;
+      console.error("[integrations] cron reconciliation failed for a connector:", sanitizeError(err));
     }
   });
 

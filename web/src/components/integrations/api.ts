@@ -13,6 +13,7 @@
  *   DELETE /api/integrations/connectors/{id}              -> revoke
  *   POST   /api/integrations/connectors/{id}/test         -> { ok, bot_name?, error? }
  *   POST   /api/integrations/connectors/{id}/digest       -> { delivery_id, status } (send the digest now)
+ *   POST   /api/integrations/connectors/{id}/requeue-dead -> { dead_requests, still_pending } (re-send failed approval cards)
  *   GET    /api/integrations/identities                   -> identity[] (mine; admin: all)
  *   POST   /api/integrations/identities/link-code         -> { code, expires_at }
  *   DELETE /api/integrations/identities/{id}              -> unlink
@@ -35,6 +36,7 @@ import {
   normalizeFeedCreated,
   normalizeIdentities,
   normalizeLinkCode,
+  normalizeRequeueResult,
   normalizeProjects,
   normalizeTestResult,
   pickConnector,
@@ -90,6 +92,10 @@ export async function testConnector(id: string) {
 
 export async function sendDigestNow(id: string): Promise<DigestStatus> {
   return normalizeDigestStatus(await apiPost<unknown>(`/api/integrations/connectors/${encodeURIComponent(id)}/digest`));
+}
+
+export async function requeueDeadCards(id: string) {
+  return normalizeRequeueResult(await apiPost<unknown>(`/api/integrations/connectors/${encodeURIComponent(id)}/requeue-dead`));
 }
 
 // ── Identity linking ────────────────────────────────────────────────────────
