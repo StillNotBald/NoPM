@@ -103,3 +103,95 @@ describe("route() — 401 still carries X-Request-Id", () => {
     expect(res.headers.get("X-Request-Id")).toBe("actor-req-id");
   });
 });
+
+describe("route() — malformed ids are not a 500 (V1 R1-Low)", () => {
+  const user = { type: "user", id: "u1", label: "User", workspaceId: "ws1", requestId: "req-1" };
+  const uuidError = (v: string) => ({ code: "22P02", message: `invalid input syntax for type uuid: "${v}"` });
+
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    requireAuthMock.mockResolvedValue(user);
+  });
+
+  it("a non-UUID path id that reaches the database -> 404 not_found (not 500), request id still stamped", async () => {
+    const handler = route(async () => {
+      throw uuidError("not-a-uuid");
+    });
+    const res = await handler(request(), { params: Promise.resolve({ id: "not-a-uuid" }) });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Not found", code: "not_found" });
+    expect(res.headers.get("X-Request-Id")).toBe("req-1");
+  });
+
+  it("the same error re-wrapped as new Error(message), as most routes do, maps the same way", async () => {
+    const handler = route(async () => {
+      throw new Error(uuidError("123").message);
+    });
+    const res = await handler(request(), { params: Promise.resolve({ id: "123" }) });
+    expect(res.status).toBe(404);
+  });
+
+  it("a malformed filter value (not a path param) -> 422 validation_failed", async () => {
+    const handler = route(async () => {
+      throw uuidError("not-a-uuid");
+    });
+    const res = await handler(request(), { params: Promise.resolve({}) });
+    expect(res.status).toBe(422);
+    expect((await res.json()).code).toBe("validation_failed");
+  });
+
+  it("other database errors are still a sanitized 500", async () => {
+    const handler = route(async () => {
+      throw new Error("connection reset");
+    });
+    const res = await handler(request(), { params: Promise.resolve({}) });
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("route() — Origin check on cookie-session mutations (V1 R1-Low)", () => {
+  const user = { type: "user", id: "u1", label: "User", workspaceId: "ws1", requestId: "req-1" };
+  const token = { type: "token", id: "t1", label: "agent", workspaceId: "ws1", scopes: ["*"], requestId: "req-2" };
+  const ok = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
+  const call = (handler: ReturnType<typeof route>, method: string, headers: Record<string, string> = {}) =>
+    handler(new NextRequest("http://localhost/api/whatever", { method, headers }), { params: Promise.resolve({}) });
+
+  it.each(["POST", "PUT", "PATCH", "DELETE"])("session + %s + foreign Origin -> 403 bad_origin; the handler never runs", async (method) => {
+    requireAuthMock.mockResolvedValueOnce(user);
+    const body = vi.fn(ok);
+    const res = await call(route(body), method, { origin: "https://evil.example.net" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("bad_origin");
+    expect(res.headers.get("X-Request-Id")).toBe("req-1");
+    expect(body).not.toHaveBeenCalled();
+  });
+
+  it("session + the app's own Origin, or no Origin at all -> allowed", async () => {
+    for (const headers of [{ origin: "http://localhost" }, {}] as Record<string, string>[]) {
+      requireAuthMock.mockResolvedValueOnce(user);
+      expect((await call(route(ok), "PATCH", headers)).status).toBe(200);
+    }
+  });
+
+  it("session + GET with a foreign Origin -> allowed (safe method)", async () => {
+    requireAuthMock.mockResolvedValueOnce(user);
+    expect((await call(route(ok), "GET", { origin: "https://evil.example.net" })).status).toBe(200);
+  });
+
+  it("a Bearer-token request is exempt, whatever the Origin", async () => {
+    requireAuthMock.mockResolvedValueOnce(token);
+    expect((await call(route(ok), "POST", { origin: "https://evil.example.net" })).status).toBe(200);
+  });
+
+  it("{ auth: false } routes (Lark webhook, relay, card, cron, invite accept) are not origin-checked", async () => {
+    const res = await call(route(ok, { auth: false }), "POST", { origin: "https://open.larksuite.example" });
+    expect(requireAuthMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
+
+  it("the check runs before the handler body and before the rate limiter", async () => {
+    requireAuthMock.mockResolvedValueOnce(user);
+    const res = await call(route(ok), "POST", { origin: "https://evil.example.net" });
+    expect(res.status).toBe(403);
+  });
+});

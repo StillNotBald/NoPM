@@ -5,7 +5,8 @@
  *   <QueueCallout count={3} noun="deletion request" href="/decisions" />
  *
  * Renders nothing when count is 0. Pluralises `noun` by appending "s"
- * (override with `plural`). Not yet adopted by pages.
+ * (override with `plural`). Carries its own `mb-4` (beats a parent's `space-y-*`);
+ * a `className` margin replaces it, so pass `mb-3` to tuck a sibling under it.
  */
 import type { ReactNode } from "react";
 import Link from "next/link";

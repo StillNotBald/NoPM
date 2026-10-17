@@ -10,6 +10,7 @@ import { PageContainer } from "@/components/ui/page-container";
 import { QueryError } from "@/components/ui/query-error";
 import { Table, THead, TH, TD } from "@/components/ui/data-table";
 import { computeProgramRollup } from "@/lib/insight/program-rollup";
+import { countOpenIssues, countOpenRisks, isOpenIssue, isOpenRisk } from "@/lib/insight/open-status";
 import { ragLabel, ragTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
 import { RagDonutCard } from "@/components/dashboard/rag-donut-card";
@@ -18,13 +19,19 @@ import { HealthRollupCards } from "@/components/dashboard/health-rollup-cards";
 import { ExportBoardPack } from "@/components/dashboard/export-board-pack";
 import { EntityLink } from "@/components/ui/entity-link";
 import { DashboardProjectRow } from "@/components/dashboard/dashboard-project-row";
+import {
+  DashboardProjectCards,
+  type DashboardCardRow,
+} from "@/components/dashboard/dashboard-project-cards";
 import { CardFreshness } from "@/components/dashboard/card-freshness";
 import { DashboardFilterBar } from "@/components/dashboard/dashboard-filter-bar";
 import { FirstRunWizard } from "@/components/onboarding/first-run-wizard";
 import { GovernanceTour } from "@/components/onboarding/governance-tour";
+import { readOnboardingSeed } from "@/lib/onboarding/seed-server";
 import {
   filterDashboardProjects,
   dashboardFilterLabel,
+  hasActiveDashboardFilter,
   type DashboardFilters,
 } from "@/lib/insight/dashboard-filter";
 
@@ -83,7 +90,7 @@ export default async function DashboardPage({
 
   // Parallel fetches — unfiltered; the filter is applied in JS below so
   // every card's numbers derive from the same filtered project set.
-  const [projectsResult, programsResult, risksResult, issuesResult, clashesResult, viewerProfileResult] = await Promise.all([
+  const [projectsResult, programsResult, risksResult, issuesResult, clashesResult, viewerProfileResult, onboardingSeed] = await Promise.all([
     db.from("projects").select("id,code,name,rag_status,completion_pct,program,program_id,target_date"),
     db.from("programs").select("id,name"),
     db.from("risks").select("project_id,status"),
@@ -94,6 +101,9 @@ export default async function DashboardPage({
     // first-run wizard below (L-45 — viewers never see it, per
     // recon-identity.md §5 verify-as-funnel-identity).
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    // the viewer's tour / wizard state, read on the server so those cards are in
+    // the first paint (React-cache()d: the layouts already made this read)
+    readOnboardingSeed(),
   ]);
   const canWrite = viewerProfileResult.data?.role !== "viewer";
 
@@ -143,8 +153,11 @@ export default async function DashboardPage({
       )
     : allClashRows;
 
-  const riskCount = riskRows.length;
-  const issueCount = issueRows.length;
+  // "Open risks" means open: still needing attention (open / mitigating), not
+  // every risk ever raised. Same status sets as the dossier and the portfolio
+  // tile (lib/insight/open-status.ts).
+  const riskCount = countOpenRisks(riskRows);
+  const issueCount = countOpenIssues(issueRows);
   const clashCount = clashRows.length;
 
   // Active-filter subtitle — the filtered project's code/name, not its raw id.
@@ -156,13 +169,13 @@ export default async function DashboardPage({
   // per-project OPEN counts — the iron-triangle health shown on each portfolio row
   const openRisksByProject = new Map<string, number>();
   for (const r of riskRows) {
-    if (r.project_id && (r.status === "open" || r.status === "mitigating")) {
+    if (r.project_id && isOpenRisk(r.status)) {
       openRisksByProject.set(r.project_id, (openRisksByProject.get(r.project_id) ?? 0) + 1);
     }
   }
   const openIssuesByProject = new Map<string, number>();
   for (const it of issueRows) {
-    if (it.project_id && (it.status === "open" || it.status === "in_progress")) {
+    if (it.project_id && isOpenIssue(it.status)) {
       openIssuesByProject.set(it.project_id, (openIssuesByProject.get(it.project_id) ?? 0) + 1);
     }
   }
@@ -224,19 +237,30 @@ export default async function DashboardPage({
     .sort((a, b) => a.code.localeCompare(b.code))
     .map((p) => ({ id: p.id, label: `${p.code} — ${p.name}` }));
 
+  // Phone cards: same numbers as the table rows, with dates already formatted
+  // for the viewer's preference (the cards are a client component).
+  const cardRows: DashboardCardRow[] = projects.map((project) => {
+    const target = project.target_date ? formatByPref(project.target_date, dateDisplayPref) : null;
+    return {
+      id: project.id,
+      code: project.code,
+      name: project.name,
+      rag_status: project.rag_status,
+      completion_pct: project.completion_pct,
+      program: project.program,
+      target_date: project.target_date,
+      openR: openRisksByProject.get(project.id) ?? 0,
+      openI: openIssuesByProject.get(project.id) ?? 0,
+      targetText: target?.text ?? null,
+      targetTitle: target?.title ?? null,
+      isOverdue:
+        project.rag_status !== "complete" && !!project.target_date && new Date(project.target_date) < today,
+    };
+  });
+
   return (
     <PageContainer className="space-y-6">
-      <PageHeader title="Dashboard" action={<ExportBoardPack />} />
-
-      {/* ── Governance tour (L-50, R-77) — every role incl. viewers, only
-          once the workspace has at least one project anywhere (the
-          first-run wizard below owns the zero-project empty state; this
-          owns the seeded/demo state). Deliberately keyed off the FULL
-          unfiltered project set, not the dashboard's active filter, so
-          narrowing the filter to an empty slice never hides this card. ── */}
-      {allProjects.length > 0 && (
-        <GovernanceTour firstProjectHref={`/projects/${allProjects[0].id}`} />
-      )}
+      <PageHeader title="Dashboard" action={<ExportBoardPack filtered={hasActiveDashboardFilter(filters)} />} />
 
       {/* ── Dashboard-wide filter (L-15) ── */}
       <DashboardFilterBar programs={programOptions} projects={projectOptions} />
@@ -268,7 +292,7 @@ export default async function DashboardPage({
           <div className="min-w-0">
             <CardTitle>Portfolio</CardTitle>
             <span className="mt-0.5 block text-xs text-ink-muted truncate">
-              {totalProjects} projects{filterLabel ? ` · ${filterLabel}` : ""}
+              {totalProjects} project{totalProjects === 1 ? "" : "s"}{filterLabel ? ` · ${filterLabel}` : ""}
             </span>
           </div>
           <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />
@@ -290,7 +314,7 @@ export default async function DashboardPage({
                   inside FirstRunWizard itself (it knows that state
                   client-side; the server here only knows role). */}
               {canWrite ? (
-                <FirstRunWizard />
+                <FirstRunWizard seed={onboardingSeed} />
               ) : (
                 <p className="mt-4 text-center text-xs text-ink-muted">
                   Or{" "}
@@ -301,7 +325,17 @@ export default async function DashboardPage({
               )}
             </div>
           ) : (
-            <Table bare className="min-w-[640px]">
+            <>
+            {/* Phone: one card per project (RAG, completion and target stay on screen) */}
+            <DashboardProjectCards rows={cardRows} />
+            <Table
+              bare
+              wrapperClassName="hidden md:block"
+              className="min-w-[640px]"
+              // tighter cells: at the default padding the Target column ran
+              // ~100px past the card edge at 1280 with no scroll cue
+              style={{ "--cell-px": "0.75rem" } as React.CSSProperties}
+            >
                 <THead>
                   <tr>
                     <TH>Code</TH>
@@ -352,7 +386,7 @@ export default async function DashboardPage({
                         {/* Completion bar */}
                         <TD>
                           <div className="flex items-center gap-3">
-                            <div className="h-1.5 w-28 overflow-hidden rounded-full bg-sunken">
+                            <div className="h-1.5 w-20 overflow-hidden rounded-full bg-sunken">
                               <div
                                 className="h-full rounded-full bg-accent transition-all duration-300"
                                 style={{ width: `${pct}%` }}
@@ -413,9 +447,25 @@ export default async function DashboardPage({
                   })}
                 </tbody>
               </Table>
+            </>
           )}
         </CardBody>
       </Card>
+
+      {/* ── Governance tour (L-50, R-77) — every role incl. viewers, only
+          once the workspace has at least one project anywhere (the
+          first-run wizard above owns the zero-project empty state; this
+          owns the seeded/demo state). Deliberately keyed off the FULL
+          unfiltered project set, not the dashboard's active filter, so
+          narrowing the filter to an empty slice never hides this card.
+          It sits BELOW the numbers on purpose: this is the management read-out,
+          and the tour used to lead it, leaving only ~100px of KPIs above the
+          fold. It no longer shifts anything either way: `seed` is the viewer's
+          tour state as read on the server, so the card is in the first paint
+          (it used to pop in after the preferences GET, CLS 0.19). ── */}
+      {allProjects.length > 0 && (
+        <GovernanceTour firstProjectHref={`/projects/${allProjects[0].id}`} seed={onboardingSeed} />
+      )}
     </PageContainer>
   );
 }

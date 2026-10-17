@@ -43,7 +43,7 @@ function LockConfirmDialog({
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 rounded-full bg-warning/15 p-2">
-          <AlertTriangle size={18} className="text-warning" />
+          <AlertTriangle size={18} className="text-warning-ink" />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">Lock this project?</p>
@@ -63,7 +63,6 @@ function LockConfirmDialog({
           size="sm"
           onClick={handleConfirm}
           disabled={busy}
-          className="bg-warning text-white hover:bg-warning/90 border-warning"
         >
           {busy ? <Spinner size="sm" className="mr-1.5" /> : null}
           Lock baseline
@@ -106,7 +105,7 @@ function UnlockConfirmDialog({
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 rounded-full bg-warning/15 p-2">
-          <AlertTriangle size={18} className="text-warning" />
+          <AlertTriangle size={18} className="text-warning-ink" />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">Unlock this project?</p>
@@ -178,7 +177,7 @@ function RequestDeletionDialog({
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-3">
         <div className="mt-0.5 shrink-0 rounded-full bg-danger/15 p-2">
-          <AlertTriangle size={18} className="text-danger" />
+          <AlertTriangle size={18} className="text-danger-ink" />
         </div>
         <div>
           <p className="text-sm font-medium text-ink">Request deletion of this project?</p>
@@ -233,7 +232,10 @@ export function ProjectActions({ project }: ProjectActionsProps) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // F9 — History/Lock/Request-deletion collapse into a 44px overflow menu
-  // below sm, so "Request deletion" no longer wraps onto its own line
+  // below the `@lg` CONTAINER width (the project header is an `@container`),
+  // not the viewport: the right-hand inspector narrows the content column
+  // without changing the viewport, and the inline row used to be squeezed
+  // over the project title when a task was open. So "Request deletion" no longer wraps onto its own line
   // beside three other actions; Edit stays the one always-inline action.
   // Same collapse pattern as PageHeader's secondaryActions (page-header.tsx)
   // reimplemented here since this page's rich title row (code/name/program/
@@ -356,7 +358,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
     <Link
       href={`/trust?target_type=project&target_id=${project.id}`}
       onClick={() => setMenuOpen(false)}
-      className="flex min-h-[44px] items-center gap-1.5 rounded-md px-3 text-sm text-ink-secondary hover:bg-sunken hover:text-ink sm:inline-flex sm:h-9 sm:min-h-0"
+      className="focus-ring flex min-h-[44px] items-center gap-1.5 rounded-md px-3 text-sm text-ink-secondary hover:bg-sunken hover:text-ink @lg:inline-flex @lg:h-9 @lg:min-h-0"
     >
       <History size={14} />
       History
@@ -374,8 +376,8 @@ export function ProjectActions({ project }: ProjectActionsProps) {
       }}
       disabled={locking}
       className={cn(
-        "min-h-[44px] w-full justify-start sm:w-auto sm:min-h-0 sm:justify-center",
-        project.is_locked ? "text-warning hover:text-warning/80" : "",
+        "min-h-[44px] w-full justify-start @lg:w-auto @lg:min-h-0 @lg:justify-center",
+        project.is_locked ? "text-warning-ink hover:text-warning-ink/80" : "",
       )}
     >
       {locking ? (
@@ -397,7 +399,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
         handleDeleteRequest();
       }}
       disabled={deleteRequesting}
-      className="min-h-[44px] w-full justify-start text-danger hover:bg-danger/10 sm:w-auto sm:min-h-0 sm:justify-center"
+      className="min-h-[44px] w-full justify-start text-danger-ink hover:bg-danger/10 @lg:w-auto @lg:min-h-0 @lg:justify-center"
     >
       {deleteRequesting ? (
         <Spinner size="sm" className="mr-1.5" />
@@ -427,22 +429,22 @@ export function ProjectActions({ project }: ProjectActionsProps) {
           Edit
         </Button>
 
-        {/* sm+: History/Lock/Request deletion render inline, as before */}
-        <div className="hidden items-center gap-2 sm:flex">
+        {/* @lg+: History/Lock/Request deletion render inline, as before */}
+        <div className="hidden items-center gap-2 @lg:flex">
           {historyLink}
           {lockButton}
           {deleteButton}
         </div>
 
-        {/* below sm: collapsed into one 44px overflow menu (F9) */}
-        <div className="relative sm:hidden" ref={menuRef}>
+        {/* below @lg: collapsed into one 44px overflow menu (F9) */}
+        <div className="relative @lg:hidden" ref={menuRef}>
           <button
             type="button"
             onClick={() => setMenuOpen((v) => !v)}
             aria-label="More actions"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+            className="focus-ring grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
           >
             <MoreHorizontal size={18} />
           </button>
@@ -468,10 +470,10 @@ export function ProjectActions({ project }: ProjectActionsProps) {
 
       {/* Inline errors — shown beneath the button row, no browser alert */}
       {lockError && (
-        <p className="text-xs text-danger text-right max-w-xs">{lockError}</p>
+        <p className="text-xs text-danger-ink text-right max-w-xs">{lockError}</p>
       )}
       {deleteError && (
-        <p className="text-xs text-danger text-right max-w-xs">{deleteError}</p>
+        <p className="text-xs text-danger-ink text-right max-w-xs">{deleteError}</p>
       )}
     </div>
   );

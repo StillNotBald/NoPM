@@ -124,7 +124,7 @@ export function AcceptInviteForm({ token, email }: { token: string; email: strin
       </div>
 
       {error && (
-        <p className="rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger">
+        <p className="rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger-ink">
           {error}
         </p>
       )}

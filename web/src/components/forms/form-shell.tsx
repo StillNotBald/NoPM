@@ -78,12 +78,23 @@ export function FormGrid({
   );
 }
 
-/** Sticky-feeling footer action row (Cancel / Save). */
+/**
+ * Pinned footer action row (Cancel / Save). Every form renders inside the
+ * inspector panel's scrolling body (`p-4`, bottom padding
+ * `max(1rem, safe-area)`), so this sticks to the bottom of that body and Save
+ * stays in view however tall the form is. The negative margins and `bottom`
+ * offset cancel that padding (sticky measures from the content edge), so the
+ * bar spans the panel edge to edge.
+ *
+ * Phones: one row, Cancel at its natural width, the primary action fills the
+ * rest (two stacked 44px buttons would pin 130px of a 844px screen).
+ * sm+: right-aligned pair.
+ */
 export function FormActions({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div
       className={cn(
-        "flex flex-col-reverse gap-2 border-t border-border-subtle pt-3 sm:flex-row sm:justify-end",
+        "sticky bottom-[calc(-1*max(1rem,env(safe-area-inset-bottom)))] z-10 -mx-4 -mb-[max(1rem,env(safe-area-inset-bottom))] grid grid-cols-[auto_1fr] gap-2 border-t border-border-subtle bg-surface px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex sm:justify-end",
         className,
       )}
     >

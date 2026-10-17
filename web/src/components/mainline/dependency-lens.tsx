@@ -11,7 +11,9 @@ import { TimelineTable } from "@/components/timeline/timeline-table";
 
 export interface DependencyEdgeRow {
   id: string;
-  project_id: string;
+  /** Derived from the tasks at both ends (the table has no such column);
+   *  null for an edge that spans projects or has an unknown end. */
+  project_id: string | null;
   predecessor_id: string;
   successor_id: string;
   type: "FS" | "SS" | "FF" | "SF";
@@ -67,6 +69,9 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
   const criticalIds = useMemo(() => {
     const byProject = new Map<string, CpmInputDep[]>();
     for (const d of dependencies) {
+      // an edge with no single owning project still draws; it just can't
+      // take part in a per-project critical-path pass
+      if (!d.project_id) continue;
       if (!byProject.has(d.project_id)) byProject.set(d.project_id, []);
       byProject.get(d.project_id)!.push({
         predecessor_id: d.predecessor_id,
@@ -112,7 +117,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-auto rounded-xl border border-border-subtle bg-surface shadow-sm p-4">
+      <div className="overflow-auto rounded-lg border border-border-subtle bg-surface p-4">
         <svg width={width} height={height} style={{ minWidth: width }} role="img" aria-label="Task dependency network. A table of the same edges follows for screen readers.">
           <defs>
             <marker id="mainline-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
@@ -189,7 +194,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
               className={cn(
                 "focus-ring inline-flex min-h-[44px] sm:min-h-[28px] items-center rounded-full border px-2.5 text-xs transition-colors",
                 critical
-                  ? "border-danger/40 bg-danger/10 text-danger hover:bg-danger/15"
+                  ? "border-danger/40 bg-danger/10 text-danger-ink hover:bg-danger/15"
                   : "border-border-subtle bg-sunken text-ink-secondary hover:text-ink",
               )}
             >

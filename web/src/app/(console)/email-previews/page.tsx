@@ -4,6 +4,7 @@ import { Card, CardHeader, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { renderNotificationEmail } from "@/lib/notify/email";
+import { SAMPLE_NOTIFICATIONS } from "./samples";
 
 export const metadata = { title: "Email Previews" };
 
@@ -16,6 +17,9 @@ interface NotificationRow {
   read_at: string | null;
   created_at: string;
 }
+
+/** A row to preview: a real notification, or a sample (no timestamp). */
+type PreviewRow = Omit<NotificationRow, "read_at" | "created_at"> & { created_at: string | null };
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -60,6 +64,19 @@ export default async function EmailPreviewsPage() {
     .limit(20);
 
   const notifications: NotificationRow[] = rows ?? [];
+  // Nothing delivered yet (and no read error): preview the template with one
+  // labelled sample per notification type instead of an empty page.
+  const isSample = !error && notifications.length === 0;
+  const previews: PreviewRow[] = isSample
+    ? SAMPLE_NOTIFICATIONS.map((s, i) => ({
+        id: `sample-${i}`,
+        type: s.type,
+        title: s.title,
+        body: s.body ?? null,
+        payload: s.payload ?? null,
+        created_at: null,
+      }))
+    : notifications;
 
   return (
     <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
@@ -86,31 +103,27 @@ export default async function EmailPreviewsPage() {
           </p>
         </div>
 
-        {/* Error state */}
+        {/* Error state — a generic line: the raw database message is not for the page. */}
         {error && (
-          <div className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger">
-            Failed to load notifications: {error.message}
+          <div
+            role="alert"
+            className="rounded-lg border border-danger/30 bg-danger/15 px-4 py-3 text-sm text-danger-ink"
+          >
+            Could not load notifications. Reload the page to try again.
           </div>
         )}
 
-        {/* Empty state */}
-        {!error && notifications.length === 0 && (
-          <Card>
-            <CardBody>
-              <div className="flex flex-col items-center gap-3 py-12 text-center">
-                <p className="text-sm text-ink-muted">No notifications yet — email previews appear here once governance events fire.</p>
-              </div>
-            </CardBody>
-          </Card>
-        )}
-
-        {/* Notification previews */}
-        {notifications.length > 0 && (
+        {/* Notification previews — real ones, or one labelled sample per type when there are none. */}
+        {previews.length > 0 && (
           <div className="space-y-6">
             <p className="text-xs text-ink-muted">
-              {notifications.length === 20 ? "Showing newest 20 notifications" : `${notifications.length} notification${notifications.length === 1 ? "" : "s"}`}
+              {isSample
+                ? "No notifications yet, so these are samples: one per notification type, rendered with the same template."
+                : notifications.length === 20
+                  ? "Showing newest 20 notifications"
+                  : `${notifications.length} notification${notifications.length === 1 ? "" : "s"}`}
             </p>
-            {notifications.map((n) => {
+            {previews.map((n) => {
               const { subject, html } = renderNotificationEmail({
                 type: n.type,
                 title: n.title,
@@ -128,12 +141,16 @@ export default async function EmailPreviewsPage() {
                         {subject}
                       </span>
                     </div>
-                    <time
-                      dateTime={n.created_at}
-                      className="shrink-0 text-xs text-ink-muted"
-                    >
-                      {relativeTime(n.created_at)}
-                    </time>
+                    {n.created_at ? (
+                      <time
+                        dateTime={n.created_at}
+                        className="shrink-0 text-xs text-ink-muted"
+                      >
+                        {relativeTime(n.created_at)}
+                      </time>
+                    ) : (
+                      <Badge tone="neutral" className="shrink-0">Sample</Badge>
+                    )}
                   </CardHeader>
                   <CardBody pad="none" className="overflow-hidden rounded-b-lg">
                     {/* Sandboxed iframe — email styles are fully isolated.

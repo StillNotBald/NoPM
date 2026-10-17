@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Bookmark, ChevronDown, Copy, Lock, LockOpen, Share2, Trash2, Users, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,10 @@ export function SavedViewsBar({
   const [saveScope, setSaveScope] = useState<"personal" | "shared">("personal");
   const [saving, setSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const viewsPanelId = useId();
+  const savePanelId = useId();
+  const saveNameId = useId();
+  const anyOpen = dropdownOpen || saveOpen;
 
   useEffect(() => {
     apiGet<{ id: string; role: string | null }>("/api/me")
@@ -77,17 +81,22 @@ export function SavedViewsBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [register]);
 
-  // Close either popover on an outside click.
+  // Close either popover on an outside click or when focus leaves the bar.
   useEffect(() => {
-    function onDocMouseDown(e: MouseEvent) {
+    if (!anyOpen) return;
+    function closeIfOutside(e: Event) {
       if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
         setSaveOpen(false);
       }
     }
-    document.addEventListener("mousedown", onDocMouseDown);
-    return () => document.removeEventListener("mousedown", onDocMouseDown);
-  }, []);
+    document.addEventListener("mousedown", closeIfOutside);
+    document.addEventListener("focusin", closeIfOutside);
+    return () => {
+      document.removeEventListener("mousedown", closeIfOutside);
+      document.removeEventListener("focusin", closeIfOutside);
+    };
+  }, [anyOpen]);
 
   const activeView = views.find((v) => v.id === activeViewId) ?? null;
 
@@ -162,12 +171,26 @@ export function SavedViewsBar({
   const sharedViews = views.filter((v) => v.scope === "shared");
 
   return (
-    <div ref={rootRef} className="relative flex items-center gap-2">
+    <div
+      ref={rootRef}
+      className="relative flex items-center gap-2"
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || !anyOpen) return;
+        e.stopPropagation();
+        const trigger = saveOpen ? "button[data-save-trigger]" : "button[data-views-trigger]";
+        setDropdownOpen(false);
+        setSaveOpen(false);
+        rootRef.current?.querySelector<HTMLButtonElement>(trigger)?.focus();
+      }}
+    >
       <Button
         type="button"
         variant="secondary"
         size="sm"
-        className="min-h-[44px] sm:min-h-0"
+        className="min-h-[44px] sm:h-10 sm:min-h-0"
+        data-views-trigger=""
+        aria-expanded={dropdownOpen}
+        aria-controls={dropdownOpen ? viewsPanelId : undefined}
         onClick={() => {
           setDropdownOpen((o) => !o);
           setSaveOpen(false);
@@ -182,7 +205,10 @@ export function SavedViewsBar({
         type="button"
         variant="ghost"
         size="sm"
-        className="min-h-[44px] sm:min-h-0"
+        className="min-h-[44px] sm:h-10 sm:min-h-0"
+        data-save-trigger=""
+        aria-expanded={saveOpen}
+        aria-controls={saveOpen ? savePanelId : undefined}
         onClick={() => {
           setSaveOpen((o) => !o);
           setDropdownOpen(false);
@@ -193,7 +219,12 @@ export function SavedViewsBar({
       </Button>
 
       {dropdownOpen && (
-        <div className="absolute left-0 top-full z-20 mt-2 w-80 rounded-lg border border-border-subtle bg-surface p-2 shadow-lg">
+        <div
+          id={viewsPanelId}
+          role="group"
+          aria-label="Saved views"
+          className="absolute left-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-border-subtle bg-surface p-2 shadow-lg md:left-auto md:right-0"
+        >
           {loading && (
             <div className="flex items-center gap-2 px-2 py-3 text-sm text-ink-muted">
               <Spinner size="sm" /> Loading views…
@@ -241,24 +272,30 @@ export function SavedViewsBar({
 
       {saveOpen && (
         <form
+          id={savePanelId}
+          aria-label="Save view"
           onSubmit={handleSave}
-          className="absolute left-0 top-full z-20 mt-2 w-80 space-y-3 rounded-lg border border-border-subtle bg-surface p-3 shadow-lg"
+          className="absolute left-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] space-y-3 rounded-lg border border-border-subtle bg-surface p-3 shadow-lg md:left-auto md:right-0"
         >
           <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
             Save current filters + sort + columns + grouping
           </p>
           <Input
+            id={saveNameId}
             autoFocus
+            aria-label="View name"
             value={saveName}
             onChange={(e) => setSaveName(e.target.value)}
             placeholder="View name"
-            className="h-10 text-sm"
+            className="text-sm"
           />
-          <div className="flex items-center gap-3 text-sm">
+          <fieldset className="flex items-center gap-3 text-sm">
+            <legend className="sr-only">Who can see this view</legend>
             <label className="flex min-h-[44px] items-center gap-1.5 sm:min-h-0">
               <input
                 type="radio"
                 name="saved-view-scope"
+                className="focus-ring"
                 checked={saveScope === "personal"}
                 onChange={() => setSaveScope("personal")}
               />
@@ -268,17 +305,30 @@ export function SavedViewsBar({
               <input
                 type="radio"
                 name="saved-view-scope"
+                className="focus-ring"
                 checked={saveScope === "shared"}
                 onChange={() => setSaveScope("shared")}
               />
               Shared
             </label>
-          </div>
+          </fieldset>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setSaveOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="min-h-[44px] sm:min-h-0"
+              onClick={() => setSaveOpen(false)}
+            >
               Cancel
             </Button>
-            <Button type="submit" variant="primary" size="sm" disabled={saving || !saveName.trim()}>
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              className="min-h-[44px] sm:min-h-0"
+              disabled={saving || !saveName.trim()}
+            >
               {saving ? <Spinner size="sm" /> : "Save"}
             </Button>
           </div>
@@ -311,6 +361,7 @@ function ViewSection({
   onDuplicate: (v: SavedView) => void;
   onDelete: (v: SavedView) => void;
 }) {
+  const [confirming, setConfirming] = useState<string | null>(null);
   return (
     <div className="mb-1 last:mb-0">
       <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
@@ -320,6 +371,7 @@ function ViewSection({
       <ul>
         {items.map((view) => {
           const canManage = me != null && (me.id === view.owner_id || me.role === "admin");
+          const confirmingThis = confirming === view.id;
           return (
             <li
               key={view.id}
@@ -328,40 +380,69 @@ function ViewSection({
                 view.id === activeViewId ? "bg-accent/10" : "hover:bg-sunken",
               )}
             >
-              <button
-                type="button"
-                onClick={() => onApply(view)}
-                className="min-h-[44px] flex-1 text-left text-sm text-ink sm:min-h-0"
-              >
-                {view.name}
-                {view.protected && <Lock size={11} className="ml-1.5 inline text-ink-muted" aria-label="Protected" />}
-              </button>
-              <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-                {/* Duplicate is available to ANYONE who can see the view —
-                    protection guards the ORIGINAL's config, it never blocks
-                    forking a personal working copy (L-07; the duplicate route
-                    only requires visibility). Manage actions stay owner/admin. */}
-                <IconAction label="Duplicate as personal copy" onClick={() => onDuplicate(view)}>
-                  <Copy size={13} />
-                </IconAction>
-                {canManage && (
-                  <>
-                    <IconAction label={view.scope === "shared" ? "Make personal" : "Share with workspace"} onClick={() => onToggleShare(view)}>
-                      <Share2 size={13} />
+              {confirmingThis ? (
+                <>
+                  <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                    Delete &ldquo;{view.name}&rdquo;?
+                  </span>
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => {
+                      setConfirming(null);
+                      onDelete(view);
+                    }}
+                    className="focus-ring min-h-[44px] rounded px-2 text-sm font-medium text-danger-ink hover:bg-sunken sm:min-h-0 sm:py-1"
+                  >
+                    Delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirming(null)}
+                    className="focus-ring min-h-[44px] rounded px-2 text-sm text-ink-secondary hover:bg-sunken sm:min-h-0 sm:py-1"
+                  >
+                    Keep
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => onApply(view)}
+                    className="focus-ring min-h-[44px] flex-1 rounded text-left text-sm text-ink sm:min-h-0"
+                  >
+                    {view.name}
+                    {view.protected && <Lock size={11} className="ml-1.5 inline text-ink-muted" aria-label="Protected" />}
+                  </button>
+                  {/* Hover-revealed on pointer devices; always shown on touch (no hover to reveal them). */}
+                  <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100 max-md:opacity-100">
+                    {/* Duplicate is available to ANYONE who can see the view —
+                        protection guards the ORIGINAL's config, it never blocks
+                        forking a personal working copy (L-07; the duplicate route
+                        only requires visibility). Manage actions stay owner/admin. */}
+                    <IconAction label="Duplicate as personal copy" onClick={() => onDuplicate(view)}>
+                      <Copy size={13} />
                     </IconAction>
-                    <IconAction label={view.protected ? "Unprotect" : "Protect"} onClick={() => onToggleProtect(view)}>
-                      {view.protected ? <LockOpen size={13} /> : <Lock size={13} />}
-                    </IconAction>
-                    <IconAction label="Delete" onClick={() => onDelete(view)}>
-                      <Trash2 size={13} />
-                    </IconAction>
-                  </>
-                )}
-              </div>
-              {!canManage && (
-                <Badge tone="neutral" size="sm" className="shrink-0">
-                  {view.scope}
-                </Badge>
+                    {canManage && (
+                      <>
+                        <IconAction label={view.scope === "shared" ? "Make personal" : "Share with workspace"} onClick={() => onToggleShare(view)}>
+                          <Share2 size={13} />
+                        </IconAction>
+                        <IconAction label={view.protected ? "Unprotect" : "Protect"} onClick={() => onToggleProtect(view)}>
+                          {view.protected ? <LockOpen size={13} /> : <Lock size={13} />}
+                        </IconAction>
+                        <IconAction label={`Delete view ${view.name}`} onClick={() => setConfirming(view.id)}>
+                          <Trash2 size={13} />
+                        </IconAction>
+                      </>
+                    )}
+                  </div>
+                  {!canManage && (
+                    <Badge tone="neutral" size="sm" className="shrink-0">
+                      {view.scope}
+                    </Badge>
+                  )}
+                </>
               )}
             </li>
           );
@@ -386,7 +467,7 @@ function IconAction({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className="grid h-8 w-8 min-h-[44px] min-w-[44px] place-items-center rounded text-ink-secondary hover:bg-sunken hover:text-ink sm:h-7 sm:w-7 sm:min-h-0 sm:min-w-0"
+      className="focus-ring grid h-8 w-8 min-h-[44px] min-w-[44px] place-items-center rounded text-ink-secondary hover:bg-sunken hover:text-ink sm:h-7 sm:w-7 sm:min-h-0 sm:min-w-0"
     >
       {children}
     </button>

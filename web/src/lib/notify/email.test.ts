@@ -54,6 +54,7 @@ describe("buildSubject — known notification types", () => {
     ["approval.rejected", "Rejected"],
     ["risk.escalated", "Risk escalated"],
     ["clash.detected", "Clash detected"],
+    ["integration.link_replaced", "Security notice"],
   ];
 
   for (const [type, prefix] of cases) {

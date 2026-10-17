@@ -23,7 +23,11 @@ function requireTokenAdmin(actor: Actor): void {
 const SAFE_COLUMNS =
   "id, name, prefix, scopes, expires_at, revoked, last_used_at, created_at" as const;
 
-// GET /api/tokens — list this workspace's tokens (sanitized, no token_hash)
+// GET /api/tokens — list this workspace's tokens (sanitized, no token_hash).
+// Hides ONLY the assistant's per-turn ephemeral tokens, identified by the
+// `kind = 'assistant'` column that lib/assistant/token.ts alone sets (0052).
+// It used to hide by NAME prefix, which any token-creator could type to make a
+// credential vanish from this inventory.
 export const GET = route(async ({ actor, request }) => {
   requireTokenAdmin(actor);
 
@@ -41,7 +45,7 @@ export const GET = route(async ({ actor, request }) => {
     .from("api_tokens")
     .select("id", { count: "exact", head: true })
     .eq("workspace_id", actor.workspaceId)
-    .not("name", "ilike", "AI Assistant ·%");
+    .neq("kind", "assistant");
 
   if (countError) throw countError;
 
@@ -49,7 +53,7 @@ export const GET = route(async ({ actor, request }) => {
     .from("api_tokens")
     .select(SAFE_COLUMNS)
     .eq("workspace_id", actor.workspaceId)
-    .not("name", "ilike", "AI Assistant ·%")
+    .neq("kind", "assistant")
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 

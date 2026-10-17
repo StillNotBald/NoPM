@@ -51,17 +51,10 @@ const applyRoutePath = join(
 );
 const applyRoute = readFileSync(applyRoutePath, "utf8");
 
-const approveRoutePath = join(
-  repoRoot,
-  "web",
-  "src",
-  "app",
-  "api",
-  "deletion-requests",
-  "[id]",
-  "approve",
-  "route.ts",
-);
+// The deletion-approve RPC error mapping lives in the governed decision path
+// (src/lib/governance/decide.ts, approveDeletion) since the approve route
+// became a thin wrapper over it (2026-10-16 principal four-eyes).
+const approveRoutePath = join(repoRoot, "web", "src", "lib", "governance", "decide.ts");
 const approveRoute = readFileSync(approveRoutePath, "utf8");
 
 describe("project-lock DB backstop migration (0028)", () => {
@@ -150,7 +143,7 @@ describe("rebaseline apply route wired to the bypass RPC (not a per-row update l
   });
 });
 
-describe("deletion-request approve route maps PROJECT_LOCKED to a 422 RuleError", () => {
+describe("deletion-request approve path (decide.ts) maps PROJECT_LOCKED to a 422 RuleError", () => {
   it("maps errcode P0010 / message PROJECT_LOCKED to RuleError with the exact governance message", () => {
     expect(approveRoute).toMatch(/PROJECT_LOCKED.*error\.code === "P0010"|error\.code === "P0010"/);
     expect(approveRoute).toContain(

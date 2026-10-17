@@ -58,21 +58,50 @@ function auditInsertColumnLists(text: string): string[] {
   return [...text.matchAll(/insert into audit_log \(([^)]*)\)/g)].map((m) => m[1]);
 }
 
-type FnCase = { name: string; oldSig: string; newParamCount: number };
+/**
+ * `oldSig` is the signature the LATEST definition must drop before redefining
+ * (so no stale overload stays callable). The two deletion-commit RPCs were
+ * recreated a second time in 0045 (principal-aware four-eyes), which dropped
+ * the 7-argument 0044 signature; nopm_accept_invite is still on its 0044 form.
+ *
+ * `channels` is the p_channel allow-list the INVALID_CHANNEL guard must carry:
+ * the deletion RPCs also accept 'lark' since 0045 (a chat-card approval is
+ * server-derived provenance); invites can never come from a chat connector.
+ */
+type FnCase = { name: string; oldSig: string; channels: string; minMigration: number };
+
+const BASE_CHANNELS = "'ui', 'api', 'cli', 'mcp', 'assistant'";
+const CHAT_CHANNELS = `${BASE_CHANNELS}, 'lark'`;
+const PRINCIPAL_MIGRATION_NUMBER = 20261016000045;
 
 const FUNCTIONS: FnCase[] = [
-  { name: "nopm_commit_task_deletion", oldSig: "uuid, uuid, text, uuid, text", newParamCount: 7 },
-  { name: "nopm_commit_project_deletion", oldSig: "uuid, uuid, text, uuid, text", newParamCount: 7 },
-  { name: "nopm_accept_invite", oldSig: "text, uuid, text, text", newParamCount: 6 },
+  {
+    name: "nopm_commit_task_deletion",
+    oldSig: "uuid, uuid, text, uuid, text, text, text",
+    channels: CHAT_CHANNELS,
+    minMigration: PRINCIPAL_MIGRATION_NUMBER,
+  },
+  {
+    name: "nopm_commit_project_deletion",
+    oldSig: "uuid, uuid, text, uuid, text, text, text",
+    channels: CHAT_CHANNELS,
+    minMigration: PRINCIPAL_MIGRATION_NUMBER,
+  },
+  {
+    name: "nopm_accept_invite",
+    oldSig: "text, uuid, text, text",
+    channels: BASE_CHANNELS,
+    minMigration: PROVENANCE_MIGRATION_NUMBER,
+  },
 ];
 
 describe("R-84: RPC audit-row provenance (migration-text drift test)", () => {
-  for (const { name, oldSig } of FUNCTIONS) {
+  for (const { name, oldSig, channels, minMigration } of FUNCTIONS) {
     describe(name, () => {
       const { file, text } = latestDefining(name);
 
-      it(`latest definition lives in migration 0044 or later (found in ${file})`, () => {
-        expect(migrationNumber(file)).toBeGreaterThanOrEqual(PROVENANCE_MIGRATION_NUMBER);
+      it(`latest definition lives in migration ${minMigration} or later (found in ${file})`, () => {
+        expect(migrationNumber(file)).toBeGreaterThanOrEqual(minMigration);
       });
 
       it("drops the pre-provenance signature before redefining (avoids a stale overload)", () => {
@@ -91,7 +120,7 @@ describe("R-84: RPC audit-row provenance (migration-text drift test)", () => {
       it("guards p_channel against an out-of-set value (INVALID_CHANNEL)", () => {
         const fnBody = text.slice(text.indexOf(`function ${name}(`));
         expect(fnBody).toContain("INVALID_CHANNEL");
-        expect(fnBody).toMatch(/p_channel not in \('ui', 'api', 'cli', 'mcp', 'assistant'\)/);
+        expect(fnBody).toContain(`p_channel not in (${channels})`);
       });
 
       it("every audit_log insert's column list includes both channel and request_id", () => {

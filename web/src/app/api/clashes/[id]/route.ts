@@ -5,6 +5,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { patchClashSchema } from "../_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
       parsed.error.issues.map((e) => ({ field: e.path.join("."), message: e.message })),
     );
   }
+
+  // Cross-tenant guard (see POST /api/clashes).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "projects", id: parsed.data.project_a_id, field: "project_a_id" },
+    { table: "projects", id: parsed.data.project_b_id, field: "project_b_id" },
+    { table: "resource_members", id: parsed.data.resource_member_id, field: "resource_member_id" },
+    { table: "profiles", id: parsed.data.owner_id, field: "owner_id" },
+  ]);
 
   // Strip any id/workspace_id from update payload
   const { data: updated, error: updateError } = await db

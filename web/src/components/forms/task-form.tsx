@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useId } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiGet, apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { Field, FieldLabel, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import type { ChecklistItem } from "@/app/api/tasks/_schema";
 import { validateFields } from "@/lib/forms/validate";
@@ -128,6 +128,7 @@ export function TaskForm({
     task?.checklist ?? []
   );
   const [newItemText, setNewItemText] = useState("");
+  const checklistLabelId = useId();
 
   function addChecklistItem() {
     const text = newItemText.trim();
@@ -167,7 +168,7 @@ export function TaskForm({
 
     // Client-side validation — immediate feedback before the network round-trip.
     const clientResult = validateFields([
-      { key: "name", value: name, message: "Task name is required" },
+      { key: "name", value: name.trim(), message: "Task name is required" },
     ]);
     if (!clientResult.ok) {
       setFieldErrors(clientResult.errors);
@@ -251,30 +252,23 @@ export function TaskForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Title — prominent */}
-      <div>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Task name"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.name} />
-      </div>
+      <TitleField
+        label="Task name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Task name"
+        required
+        error={fieldErrors.name}
+      />
 
       {/* Section: Status & Schedule */}
       <FormSection title="Status & Schedule">
         <FormGrid>
           {/* Status */}
-          <div>
-            <FieldLabel>Status</FieldLabel>
+          <Field label="Status" error={fieldErrors.status_type}>
             <SelectInput
               value={statusType}
               onChange={(e) => setStatusType(e.target.value as Task["status_type"])}
@@ -285,12 +279,10 @@ export function TaskForm({
               <option value="completed">Completed</option>
               <option value="canceled">Canceled</option>
             </SelectInput>
-            <FieldError message={fieldErrors.status_type} />
-          </div>
+          </Field>
 
           {/* Priority */}
-          <div>
-            <FieldLabel>Priority</FieldLabel>
+          <Field label="Priority" error={fieldErrors.priority}>
             <SelectInput
               value={priority}
               onChange={(e) => setPriority(e.target.value as Task["priority"])}
@@ -300,12 +292,10 @@ export function TaskForm({
               <option value="high">High</option>
               <option value="urgent">Urgent</option>
             </SelectInput>
-            <FieldError message={fieldErrors.priority} />
-          </div>
+          </Field>
 
           {/* Milestone */}
-          <div>
-            <FieldLabel>Milestone</FieldLabel>
+          <Field label="Milestone" error={fieldErrors.milestone_id}>
             <SelectInput
               value={selectedMilestoneId}
               onChange={(e) => setSelectedMilestoneId(e.target.value)}
@@ -317,12 +307,10 @@ export function TaskForm({
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.milestone_id} />
-          </div>
+          </Field>
 
           {/* Completion % */}
-          <div>
-            <FieldLabel>Completion %</FieldLabel>
+          <Field label="Completion %" error={fieldErrors.completion_pct}>
             <Input
               type="number"
               min={0}
@@ -332,32 +320,27 @@ export function TaskForm({
               placeholder="0"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.completion_pct} />
-          </div>
+          </Field>
 
           {/* Start Date */}
-          <div>
-            <FieldLabel>Start Date</FieldLabel>
+          <Field label="Start Date" error={fieldErrors.start_date}>
             <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.start_date} />
-          </div>
+          </Field>
 
           {/* Due Date */}
-          <div>
-            <FieldLabel>Due Date</FieldLabel>
+          <Field label="Due Date" error={fieldErrors.due_date}>
             <Input
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.due_date} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -365,8 +348,7 @@ export function TaskForm({
       <FormSection title="Estimation">
         <FormGrid>
           {/* Estimate (hours) */}
-          <div>
-            <FieldLabel>Estimate (hours)</FieldLabel>
+          <Field label="Estimate (hours)" error={fieldErrors.estimate_hours}>
             <Input
               type="number"
               min={0}
@@ -376,12 +358,10 @@ export function TaskForm({
               placeholder="e.g. 8"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.estimate_hours} />
-          </div>
+          </Field>
 
           {/* Story Points */}
-          <div>
-            <FieldLabel>Story Points</FieldLabel>
+          <Field label="Story Points" error={fieldErrors.story_points}>
             <Input
               type="number"
               min={0}
@@ -391,8 +371,7 @@ export function TaskForm({
               placeholder="e.g. 3"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.story_points} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -400,8 +379,7 @@ export function TaskForm({
       <FormSection title="Assignment">
         <FormGrid>
           {/* Assignee */}
-          <div>
-            <FieldLabel>Assignee</FieldLabel>
+          <Field label="Assignee" error={fieldErrors.assignee_id}>
             <SelectInput
               value={assigneeId}
               onChange={(e) => setAssigneeId(e.target.value)}
@@ -413,12 +391,10 @@ export function TaskForm({
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.assignee_id} />
-          </div>
+          </Field>
 
           {/* Blocked by */}
-          <div>
-            <FieldLabel>Blocked by</FieldLabel>
+          <Field label="Blocked by" error={fieldErrors.blocked_by}>
             <SelectInput
               value={blockedBy}
               onChange={(e) => setBlockedBy(e.target.value)}
@@ -432,20 +408,17 @@ export function TaskForm({
                   </option>
                 ))}
             </SelectInput>
-            <FieldError message={fieldErrors.blocked_by} />
-          </div>
+          </Field>
 
           {/* Labels */}
-          <div>
-            <FieldLabel>Labels</FieldLabel>
+          <Field label="Labels" error={fieldErrors.labels}>
             <Input
               value={labels}
               onChange={(e) => setLabels(e.target.value)}
               placeholder="comma, separated, tags"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.labels} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -453,42 +426,38 @@ export function TaskForm({
       <FormSection title="Definition of Done">
         {/* Description — progressive disclosure */}
         {showDescription ? (
-          <div>
-            <FieldLabel>Description</FieldLabel>
+          <Field label="Description" error={fieldErrors.description}>
             <TextareaInput
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Optional details…"
               rows={3}
             />
-            <FieldError message={fieldErrors.description} />
-          </div>
+          </Field>
         ) : (
           <button
             type="button"
             onClick={() => setShowDescription(true)}
-            className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+            className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
           >
             + Add description
           </button>
         )}
 
         {/* Acceptance criteria */}
-        <div>
-          <FieldLabel>Acceptance Criteria</FieldLabel>
+        <Field label="Acceptance Criteria" error={fieldErrors.acceptance_criteria}>
           <TextareaInput
             value={acceptanceCriteria}
             onChange={(e) => setAcceptanceCriteria(e.target.value)}
             placeholder="Definition of done — what must be true for this task to be accepted?"
             rows={3}
           />
-          <FieldError message={fieldErrors.acceptance_criteria} />
-        </div>
+        </Field>
 
         {/* Checklist */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <FieldLabel>
+        <div role="group" aria-labelledby={checklistLabelId}>
+          <div className="mb-1.5 flex items-center justify-between">
+            <FieldLabel id={checklistLabelId}>
               Checklist
               {checklist.length > 0 && (
                 <span className="ml-2 text-xs font-normal text-ink-muted">
@@ -498,25 +467,27 @@ export function TaskForm({
             </FieldLabel>
           </div>
           {checklist.length > 0 && (
-            <ul className="mb-2 space-y-1 rounded-md border border-border-subtle bg-sunken/40 px-3 py-2">
+            <ul className="mb-2 space-y-1 rounded-md border border-border-subtle bg-sunken/40 px-3 py-1">
               {checklist.map((item) => (
                 <li key={item.id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={item.done}
-                    onChange={() => toggleChecklistItem(item.id)}
-                    className="accent-accent h-3.5 w-3.5 shrink-0 cursor-pointer"
-                  />
-                  <span className={item.done ? "line-through text-ink-muted flex-1" : "flex-1 text-ink"}>
-                    {item.text}
-                  </span>
+                  <label className="flex min-h-[44px] flex-1 cursor-pointer items-center gap-2 sm:min-h-8">
+                    <input
+                      type="checkbox"
+                      checked={item.done}
+                      onChange={() => toggleChecklistItem(item.id)}
+                      className="focus-ring h-4 w-4 shrink-0 cursor-pointer accent-accent"
+                    />
+                    <span className={item.done ? "flex-1 text-ink-muted line-through" : "flex-1 text-ink"}>
+                      {item.text}
+                    </span>
+                  </label>
                   <button
                     type="button"
                     onClick={() => removeChecklistItem(item.id)}
-                    className="shrink-0 text-ink-muted hover:text-danger text-xs px-1"
-                    aria-label="Remove checklist item"
+                    className="focus-ring grid min-h-[44px] min-w-[44px] shrink-0 place-items-center rounded text-xs text-ink-muted hover:text-danger-ink sm:min-h-8 sm:min-w-8"
+                    aria-label={`Remove checklist item: ${item.text}`}
                   >
-                    ×
+                    <span aria-hidden>×</span>
                   </button>
                 </li>
               ))}
@@ -524,10 +495,11 @@ export function TaskForm({
           )}
           <div className="flex gap-2">
             <Input
+              aria-label="Add checklist item"
               value={newItemText}
               onChange={(e) => setNewItemText(e.target.value)}
               placeholder="Add checklist item…"
-              className="h-9 text-sm flex-1"
+              className="flex-1 text-sm"
               onKeyDown={(e) => {
                 if (e.key === "Enter") { e.preventDefault(); addChecklistItem(); }
               }}
@@ -536,7 +508,7 @@ export function TaskForm({
               type="button"
               onClick={addChecklistItem}
               disabled={!newItemText.trim()}
-              className="h-9 px-3 rounded-md border border-border-subtle text-xs text-ink-muted hover:text-ink hover:bg-sunken disabled:opacity-40 transition-colors"
+              className="focus-ring h-11 rounded-md border border-border-subtle px-3 text-xs text-ink-secondary transition-colors hover:bg-sunken hover:text-ink disabled:opacity-40 sm:h-10"
             >
               Add
             </button>
@@ -549,7 +521,7 @@ export function TaskForm({
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving || !name.trim()} className="w-full sm:w-auto h-11 sm:h-10">
+        <Button type="submit" variant="primary" disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

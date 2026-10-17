@@ -4,14 +4,14 @@
 
 **Actors:** Self-hoster / Operator.
 
-**Preconditions:** None beyond access to the repository; this use case is explicitly **documentation, not shipped code** — a deliberate scope decision dated 2026-08-15 (ADR 0010, "F3 deferral and infra as documentation").
+**Preconditions:** None beyond access to the repository. The app layer is shipped code (R-88). The deeper self-hosted Supabase stack is **documentation, not shipped code** — a deliberate scope decision dated 2026-08-15 (ADR 0010, "F3 deferral and infra as documentation").
 
 **Trigger:** Someone wants to run NoPM outside the managed stack, or an operator needs to recover from a real incident (or drill for one before it happens).
 
-## Main flow — self-hosting (documented shape only)
+## Main flow — self-hosting
 
-1. Today's actual deployment is Vercel (Next.js host) + Supabase-managed (Postgres + Auth + Realtime + RLS) + Cloudflare (DNS). Nothing in this section is required to run the live product.
-2. A self-hosted install would need a Supabase-equivalent stack in front of plain Postgres: `web` (this repo's Next.js app) → `kong` (API gateway) → `postgrest` (REST-over-SQL) → `postgres` (the same schema in `web/supabase/migrations/`, applied as-is), plus `gotrue` (Auth) and `realtime` (Postgres logical replication → websocket fan-out for the live bell). `storage` is included in the topology sketch for completeness only — NoPM ships no file-upload feature that depends on it beyond what Documents already uses via Supabase Storage, which is itself part of the same managed/self-hosted Supabase surface.
+1. Today's actual deployment is Vercel (Next.js host) + Supabase-managed (Postgres + Auth + Realtime + RLS) + Cloudflare (DNS). Nothing in this section is required to run the live product. The app layer can already be self-hosted without it: `docker-compose.yml` and `web/Dockerfile` run the Next.js app against your own Supabase project, and `npm run setup` applies the migrations and bootstraps the first admin (R-88; see `docs/SELF_HOSTING.md`).
+2. Replacing managed Supabase with your own stack would need a Supabase-equivalent stack in front of plain Postgres: `web` (this repo's Next.js app) → `kong` (API gateway) → `postgrest` (REST-over-SQL) → `postgres` (the same schema in `web/supabase/migrations/`, applied as-is), plus `gotrue` (Auth) and `realtime` (Postgres logical replication → websocket fan-out for the live bell). `storage` is included in the topology sketch for completeness only — NoPM ships no file-upload feature that depends on it beyond what Documents already uses via Supabase Storage, which is itself part of the same managed/self-hosted Supabase surface.
 3. The app code never talks to Postgres directly except through the migration runner (`scripts/migrate.mjs` / `scripts/apply-migrations.mjs`) and ops scripts (seeders, `auth-smoke.mjs`) — every request path goes through `@supabase/ssr`/`@supabase/supabase-js`, so a self-hosted Supabase stack is expected to be a drop-in replacement as far as the app is concerned. **This sketch has not been stood up or verified against a working NoPM deployment** — it is derived from the public self-hosted Supabase reference architecture.
 4. Env vars: no new variables beyond `web/.env.example` — self-hosting is a matter of **where the existing variables point** (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_PASSWORD`, `DB_URL`, `NEXT_PUBLIC_APP_URL`) pointed at your own stack instead of the managed one.
 5. Migrations: `DB_URL=postgresql://<user>:<password>@<host>:5432/<db> node scripts/migrate.mjs` — the same script the managed path uses; setting `DB_URL` directly skips the managed-path convenience derivation and applies every migration against any reachable Postgres.
@@ -42,12 +42,12 @@
 ## Reporting and evidence
 
 - The Drill log table itself is the evidence artifact for this use case — a drill without a logged entry does not count as having happened, by the runbook's own stated rule.
-- `docs/SELF_HOSTING.md` and `docs/DR_RUNBOOK.md` **are** Wave 3's deliverable in its owner-accepted form: infra becomes documentation, not docker-compose code (ADR 0010).
+- `docs/SELF_HOSTING.md` and `docs/DR_RUNBOOK.md` **are** Wave 3's deliverable for the deeper stack in its owner-accepted form: documentation, not code (ADR 0010). The app-layer `docker-compose.yml` is separate and still runs against hosted Supabase.
 
 ## Traceability
 
-- R-IDs: none formal — this is explicitly the deferred F3 wave, delivered as documentation rather than a numbered, code-backed requirement. See `docs/adr/0010-f3-deferral-and-infra-as-documentation.md`.
-- Key files: `docs/SELF_HOSTING.md`, `docs/DR_RUNBOOK.md`, `CUTOVER/01-INSTALL.md` (Self-hosted path STUB), `CUTOVER/04-BACKUP-RESTORE.md` (Self-hosted path STUB), `docs/runbooks/backup-restore-drill.md`, `scripts/migrate.mjs`, `scripts/apply-migrations.mjs`, `web/scripts/auth-smoke.mjs`.
+- R-IDs: R-88 (app-layer self-host: Docker, `npm run setup`). The deeper stack has no formal R-ID: it is the deferred F3 wave, delivered as documentation. See `docs/adr/0010-f3-deferral-and-infra-as-documentation.md`.
+- Key files: `docker-compose.yml`, `web/Dockerfile`, `web/scripts/setup.mjs`, `docs/SELF_HOSTING.md`, `docs/DR_RUNBOOK.md`, `CUTOVER/01-INSTALL.md` (Self-hosted path STUB), `CUTOVER/04-BACKUP-RESTORE.md` (Self-hosted path STUB), `docs/runbooks/backup-restore-drill.md`, `scripts/migrate.mjs`, `scripts/apply-migrations.mjs`, `web/scripts/auth-smoke.mjs`.
 - Tests: none — this use case is procedural/manual by design; `auth-smoke.mjs` is the automated verification step within the procedure, not a test of the procedure itself.
 
 ## Outcome note

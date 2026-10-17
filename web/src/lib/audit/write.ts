@@ -12,6 +12,22 @@ export type AuditInput = {
 };
 
 /**
+ * Connector provenance (migration 0046): which integration relayed the action,
+ * the platform's event id and the platform user reference. They are written
+ * ONLY when the Actor carries them, so first-party writes keep the exact row
+ * shape they always had (and keep working on a database that has not applied
+ * 0046 yet); a connector-originated action is non-repudiable without stuffing
+ * the `after` JSON.
+ */
+function connectorProvenance(actor: Actor): Record<string, string> {
+  return {
+    ...(actor.viaConnectorId ? { via_connector_id: actor.viaConnectorId } : {}),
+    ...(actor.externalEventId ? { external_event_id: actor.externalEventId } : {}),
+    ...(actor.externalActorRef ? { external_actor_ref: actor.externalActorRef } : {}),
+  };
+}
+
+/**
  * Fail-closed audit write: every mutation MUST produce exactly one audit row.
  * Throws if the row can't be written, so the caller can abort the mutation
  * (no silent writes). Uses the service-role client; the audit_log table is
@@ -31,6 +47,7 @@ export async function writeAudit(input: AuditInput): Promise<void> {
     after: (input.after as object) ?? null,
     channel: input.actor.channel ?? null,
     request_id: input.actor.requestId ?? null,
+    ...connectorProvenance(input.actor),
   });
   if (error) {
     throw new Error(`Fail-closed audit write failed: ${error.message}`);

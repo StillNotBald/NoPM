@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 /**
@@ -12,6 +12,13 @@ export type FilterFieldConfig =
   | { key: string; label: string; type: "text"; placeholder?: string }
   | { key: string; label: string; type: "select"; options: Array<{ value: string; label: string }> }
   | { key: string; label: string; type: "date-range"; fromKey: string; toKey: string };
+
+/**
+ * How a filter write reaches the URL. Typing in a text filter writes
+ * `{ replace: true }`: it would otherwise add one history entry per debounced
+ * burst, and Back would step through search drafts instead of leaving the page.
+ */
+export type FilterChangeOptions = { replace?: boolean };
 
 export type SortDirection = "asc" | "desc";
 export type SortState = { field: string; direction: SortDirection };
@@ -45,6 +52,11 @@ export function parseFilters(
     if (v) out[key] = v;
   }
   return out;
+}
+
+/** Text filters are typed into; every other control is a discrete choice worth a history entry. */
+export function filterWritesReplaceHistory(field: FilterFieldConfig): boolean {
+  return field.type === "text";
 }
 
 /** Parse `?sort=field:asc|desc`. Malformed/missing → null (caller applies its own default). */
@@ -117,6 +129,51 @@ export function toApiQueryString(
 }
 
 // ---------------------------------------------------------------------------
+// Writes in flight. A control change is built on the params we most recently
+// WROTE, not the ones last rendered: a debounced text commit can fire while an
+// earlier select change is still navigating, and building it from the stale
+// rendered params would silently drop that select. Pure so the sequencing is
+// unit-testable.
+// ---------------------------------------------------------------------------
+
+/** How long a write we issued may stand in for the router's own params. */
+export const PENDING_WINDOW_MS = 5000;
+
+export interface PendingWrites {
+  /** Query strings written but not yet seen echoed by the router, oldest first. */
+  qs: string[];
+  /** When the newest was written (ms). */
+  at: number;
+}
+
+export function recordWrite(prev: PendingWrites | null, qs: string, now: number): PendingWrites {
+  return { qs: [...(prev?.qs ?? []), qs], at: now };
+}
+
+/**
+ * The router rendered `renderedQs`. If that is one of our writes, everything up
+ * to and including it has landed; if it is none of them, an external navigation
+ * (Back/Forward, a link) has superseded them all.
+ */
+export function settleWrites(prev: PendingWrites | null, renderedQs: string): PendingWrites | null {
+  if (!prev) return null;
+  const landed = prev.qs.indexOf(renderedQs);
+  if (landed >= 0 && landed < prev.qs.length - 1) return { qs: prev.qs.slice(landed + 1), at: prev.at };
+  return null;
+}
+
+/** The query string the next control change should be built on. */
+export function baseQueryString(
+  pending: PendingWrites | null,
+  renderedQs: string,
+  now: number,
+  windowMs: number = PENDING_WINDOW_MS,
+): string {
+  if (pending && pending.qs.length > 0 && now - pending.at < windowMs) return pending.qs[pending.qs.length - 1];
+  return renderedQs;
+}
+
+// ---------------------------------------------------------------------------
 // The hook — wires the pure helpers above to Next's URL state.
 // ---------------------------------------------------------------------------
 
@@ -135,34 +192,51 @@ export function useListControls(fields: readonly FilterFieldConfig[]) {
   const page = useMemo(() => parsePageParam(searchParams.get("page")), [searchParams]);
   const activeFilterCount = Object.keys(filters).length;
 
+  // See "Writes in flight" above: control changes build on what we last wrote,
+  // not on what the router last rendered.
+  const writesRef = useRef<PendingWrites | null>(null);
+  const renderedQs = searchParams.toString();
+  useEffect(() => {
+    writesRef.current = settleWrites(writesRef.current, renderedQs);
+  }, [renderedQs]);
+
+  const baseParams = useCallback(
+    (): URLSearchParams => new URLSearchParams(baseQueryString(writesRef.current, renderedQs, Date.now())),
+    [renderedQs],
+  );
+
   const push = useCallback(
-    (next: URLSearchParams) => {
+    (next: URLSearchParams, opts?: FilterChangeOptions) => {
       const qs = next.toString();
-      router.push(qs ? `${pathname}?${qs}` : pathname);
+      writesRef.current = recordWrite(writesRef.current, qs, Date.now());
+      const href = qs ? `${pathname}?${qs}` : pathname;
+      if (opts?.replace) router.replace(href, { scroll: false });
+      else router.push(href);
     },
     [router, pathname],
   );
 
   const setFilter = useCallback(
-    (key: string, value: string | null) => push(applyControlsUpdate(searchParams, { [key]: value })),
-    [push, searchParams],
+    (key: string, value: string | null, opts?: FilterChangeOptions) =>
+      push(applyControlsUpdate(baseParams(), { [key]: value }), opts),
+    [push, baseParams],
   );
 
   const setSort = useCallback(
     (field: string, direction: SortDirection) =>
-      push(applyControlsUpdate(searchParams, { sort: buildSortParam(field, direction) })),
-    [push, searchParams],
+      push(applyControlsUpdate(baseParams(), { sort: buildSortParam(field, direction) })),
+    [push, baseParams],
   );
 
   const setPage = useCallback(
-    (p: number) => push(applyControlsUpdate(searchParams, { page: p > 1 ? String(p) : null })),
-    [push, searchParams],
+    (p: number) => push(applyControlsUpdate(baseParams(), { page: p > 1 ? String(p) : null })),
+    [push, baseParams],
   );
 
   const clearFilters = useCallback(
-    () => push(clearedParams(searchParams, fields)),
+    () => push(clearedParams(baseParams(), fields)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [push, searchParams, fieldKey],
+    [push, baseParams, fieldKey],
   );
 
   return { filters, sort, page, activeFilterCount, setFilter, setSort, setPage, clearFilters };

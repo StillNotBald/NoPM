@@ -2,7 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import { Info, X } from "lucide-react";
-import { usePreferences } from "@/lib/prefs/use-preferences";
+import { useSeededPreferences } from "@/components/onboarding/use-seeded-preferences";
+import type { PrefsSeed } from "@/lib/onboarding/seed";
 import { hintFor, hintDocUrl, isHintDismissed, dismissHint } from "@/lib/onboarding/hints";
 
 /**
@@ -17,9 +18,12 @@ import { hintFor, hintDocUrl, isHintDismissed, dismissHint } from "@/lib/onboard
  * onboarding surface in this app (governance-tour.tsx, first-run-wizard.tsx):
  * usePreferences() already no-ops the PUT for the shared demo identity.
  */
-export function PageHint() {
+export function PageHint({ seed }: { seed?: PrefsSeed | null } = {}) {
   const pathname = usePathname();
-  const { ready, config, update } = usePreferences();
+  // With `seed` (the console layout reads it on the server) the strip is in the
+  // first paint; without it the strip waits for the preferences GET and pushes
+  // the page down ~33px when it arrives.
+  const { ready, config, update } = useSeededPreferences(seed);
 
   if (!ready) return null;
 
@@ -30,7 +34,7 @@ export function PageHint() {
 
   function handleDismiss() {
     if (!hint) return;
-    void update(dismissHint(config, hint.id));
+    update(dismissHint(config, hint.id));
   }
 
   return (
@@ -48,7 +52,7 @@ export function PageHint() {
               href={docUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-accent hover:underline"
+              className="focus-ring rounded text-accent hover:underline"
             >
               {hint.docLabel ?? "Learn more"}
             </a>
@@ -62,7 +66,7 @@ export function PageHint() {
         type="button"
         onClick={handleDismiss}
         aria-label="Dismiss hint"
-        className="relative shrink-0 rounded-md p-1 text-ink-muted hover:bg-canvas hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
+        className="focus-ring relative shrink-0 rounded-md p-1 text-ink-muted hover:bg-canvas hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
       >
         <X size={12} />
       </button>

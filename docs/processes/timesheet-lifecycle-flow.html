@@ -105,7 +105,7 @@
       <h2>Timesheet lifecycle — end to end</h2>
     </div>
     <ul class="points">
-      <li><strong>Four-eyes on time itself</strong> — your week is decided by someone who is not you, enforced at API and DB.</li>
+      <li><strong>Four-eyes on time itself</strong> — your week is decided by a different person (a token counts as the person who created it), enforced at API and DB.</li>
       <li><strong>Approved = frozen</strong> — a DB trigger locks the week; a closed period locks the window (P0011).</li>
     </ul>
 
@@ -118,7 +118,7 @@
 
     <div class="flowwrap">
       <div class="diagram">
-        <svg viewBox="8 -34 990 672" role="img" aria-label="End-to-end flow for the NoPM timesheet lifecycle on a two-column grid. Phase 1, log and submit: a team member logs hours against a task or allocation in the weekly grid; an automatic period gate blocks entries into a closed period with error P0011 mapped to 422; the draft week accumulates entries; the member submits the week, firing an in-app notification and a rendered email preview. The submitted week crosses over to phase 2, decision and lock: the approver opens the review queue timesheet lane; a human four-eyes gate requires the approver to be a different person — self-approve and self-reject are both blocked with 403 (guard symmetry); a human approve gate can reject the week back to draft, shown as a dashed loop to revise and resubmit; on approve the week is locked — approved history is frozen by a database trigger, not a UI rule; an administrator then closes the period, engaging the P0011 lock for the whole window; a governed-reopen gate allows a reopened third verb, fully audited, with a dashed loop back to re-approve and re-close; the terminal state is a closed period with frozen, audit-derived history.">
+        <svg viewBox="8 -34 990 672" role="img" aria-label="End-to-end flow for the NoPM timesheet lifecycle on a two-column grid. Phase 1, log and submit: a team member logs hours against a task or allocation in the weekly grid; an automatic period gate blocks entries into a closed period with error P0011 mapped to 422; the draft week accumulates entries; the member submits the week, firing an in-app notification and a rendered email preview. The submitted week crosses over to phase 2, decision and lock: the approver opens the review queue timesheet lane; a human four-eyes gate requires the approver to be a different person (a token counts as the person who created it) — self-approve and self-reject are both blocked with 403 (guard symmetry); a human approve gate can reject the week back to draft, shown as a dashed loop to revise and resubmit; on approve the week is locked — approved history is frozen by a database trigger, not a UI rule; an administrator then closes the period, engaging the P0011 lock for the whole window; a governed-reopen gate allows a reopened third verb, fully audited, with a dashed loop back to re-approve and re-close; the terminal state is a closed period with frozen, audit-derived history.">
           <defs>
             <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b7178"/></marker>
             <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b06a2c"/></marker>
@@ -144,8 +144,8 @@
 <text x="690" y="20" text-anchor="middle" fill="#1a1d21" font-size="13.5" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Approver opens Review Queue</text>
 <text x="690" y="35" text-anchor="middle" fill="#6b7178" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">/review · timesheet lane</text>
 <polygon points="690,84 770,124 690,164 610,124" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
-<text x="690" y="121" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approver ≠</text>
-<text x="690" y="136" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">submitter?</text>
+<text x="690" y="121" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Different person</text>
+<text x="690" y="136" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">than submitter?</text>
 <polygon points="690,188 770,228 690,268 610,228" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
 <text x="690" y="232" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approve the week?</text>
 <rect x="570" y="292" width="240" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
@@ -225,7 +225,7 @@
         <ol>
           <li><span class="t">Log hours</span><span class="d">weekly grid</span></li>
           <li><span class="t">Submit</span><span class="d">one click · audited</span></li>
-          <li><span class="t">Teammate approves</span><span class="d">not you — 403 otherwise</span></li>
+          <li><span class="t">Teammate approves</span><span class="d">a different person — 403 otherwise</span></li>
           <li><span class="t">Week locks</span><span class="d">DB trigger</span></li>
           <li><span class="t">Period closes</span><span class="d">P0011 · history frozen</span></li>
         </ol>

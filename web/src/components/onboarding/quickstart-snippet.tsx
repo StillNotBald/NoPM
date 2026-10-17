@@ -73,7 +73,7 @@ export function QuickstartSnippet() {
           onClick={handleCopy}
           className="flex h-11 items-center gap-1.5 rounded-md px-2 text-xs text-ink-muted hover:bg-sunken hover:text-ink sm:h-7"
         >
-          {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+          {copied ? <Check size={12} className="text-success-ink" /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy"}
         </button>
       </div>

@@ -50,3 +50,6 @@ scripts/probe-*.mjs
 /test-results/
 /playwright-report/
 /e2e/.auth/
+
+# Supabase CLI local cache (created by `supabase` commands; never commit)
+supabase/.temp/

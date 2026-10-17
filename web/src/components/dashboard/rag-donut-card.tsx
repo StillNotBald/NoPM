@@ -40,7 +40,7 @@ export function RagDonutCard({
         <div className="min-w-0">
           <CardTitle>Portfolio Health</CardTitle>
           <span className="mt-0.5 block text-xs text-ink-muted font-mono truncate">
-            {total} projects{filterLabel ? ` · ${filterLabel}` : ""}
+            {total} project{total === 1 ? "" : "s"}{filterLabel ? ` · ${filterLabel}` : ""}
           </span>
         </div>
         {fetchedAt && <CardFreshness fetchedAt={fetchedAt} className="shrink-0" />}

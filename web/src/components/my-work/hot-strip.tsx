@@ -5,6 +5,8 @@ import { Severity } from "@/components/ui/severity";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
 import { entityHref } from "@/lib/nav/entity-href";
+import { formatByPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 export type HotItem =
   | {
@@ -53,18 +55,11 @@ function hrefFor(item: HotItem) {
   return entityHref("issue", { id: item.id });
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 export function HotStrip({ items }: { items: HotItem[] }) {
+  const pref = useDateDisplayPref();
   if (items.length === 0) {
     return (
-      <div className="flex items-center gap-2 rounded-md bg-success/8 px-3 py-2.5 text-sm text-success">
+      <div className="flex items-center gap-2 rounded-md bg-success/8 px-3 py-2.5 text-sm text-success-ink">
         <span aria-hidden className="text-2xs">●</span>
         <span>Nothing hot right now — all clear.</span>
       </div>
@@ -77,7 +72,7 @@ export function HotStrip({ items }: { items: HotItem[] }) {
         <Link
           key={`${item.kind}-${item.id}`}
           href={hrefFor(item)}
-          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
+          className="focus-ring flex min-h-11 min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken"
         >
           {/* Kind chip */}
           <Badge size="sm" tone={kindTone(item.kind)} className="shrink-0">
@@ -98,8 +93,8 @@ export function HotStrip({ items }: { items: HotItem[] }) {
 
           {/* Severity or overdue flag */}
           {item.kind === "task" && (
-            <span className={cn("shrink-0 whitespace-nowrap rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] font-medium text-danger")}>
-              overdue · {formatDate(item.due_date)}
+            <span className={cn("shrink-0 whitespace-nowrap rounded-full bg-danger/10 px-2 py-0.5 font-mono text-[11px] font-medium text-danger-ink")}>
+              overdue · {formatByPref(item.due_date, pref).text}
             </span>
           )}
           {(item.kind === "risk" || item.kind === "issue") && (

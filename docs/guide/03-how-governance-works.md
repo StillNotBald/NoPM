@@ -20,15 +20,15 @@ This is the "why NoPM is different" chapter. Every idea here is enforced by the 
 
 ## Four-eyes (maker-checker) approval
 
-**What it is:** for the two most destructive actions in the system, deleting a task and deleting a project, one person (or agent) can only ever *request* the deletion. A second, different person or token must separately approve it before anything is actually removed. The database has a hard rule, not just an app-level check, that the approver cannot be the same actor as the requester.
+**What it is:** for the two most destructive actions in the system, deleting a task and deleting a project, one person (or agent) can only ever *request* the deletion. A second, different person must separately approve it before anything is actually removed. A token counts as the person who minted it. The database has a hard rule, not just an app-level check, that the approver cannot be the same person as the requester.
 
-**Example:** an agent asks to delete a task. NoPM does not delete it. It snapshots the task and creates a pending "deletion request," returning a `202 Accepted` response, meaning "request received, not yet acted on." The task still exists. Someone else, a teammate or a different scoped token, has to open the Approvals page (or call the approve endpoint) to actually commit the deletion. If the same actor tries to approve their own request, the server rejects it, even if that actor somehow held the right scope.
+**Example:** an agent asks to delete a task. NoPM does not delete it. It snapshots the task and creates a pending "deletion request," returning a `202 Accepted` response, meaning "request received, not yet acted on." The task still exists. Someone else, a teammate or a token a teammate minted, has to open the Approvals page (or call the approve endpoint) to actually commit the deletion. If the same person tries to approve their own request, through a session or a token they minted, the server rejects it, even if that token somehow held the right scope.
 
 Milestones, risks, and issues are deleted immediately with just an audit row; they are not part of this four-eyes flow. That's a deliberate, documented trade-off (only the two riskiest object types get the extra ceremony), not an oversight.
 
 ## Change control
 
-**What it is:** a formal register for proposed changes to a project's scope, schedule, or cost. Raising a change and deciding on it are two different scopes (`change:write` to raise, `change:decide` to decide), and, like deletions, the person who decides on a change request cannot be the same actor who raised it.
+**What it is:** a formal register for proposed changes to a project's scope, schedule, or cost. Raising a change and deciding on it are two different scopes (`change:write` to raise, `change:decide` to decide), and, like deletions, the person who decides on a change request cannot be the same person who raised it (a token counts as the person who minted it).
 
 **Example:** a project stakeholder raises a change request: "add two weeks and $10,000 for an extra integration." That request sits in "under review" status and shows up in the workspace's Review Queue until someone else evaluates the schedule and cost impact and records a decision with their rationale. The whole exchange, raise, review, decide, is one traceable record, not an email thread that disappears.
 
@@ -68,12 +68,12 @@ None of these rules fail silently. A blocked write returns a `422` status with a
 |---|---|---|
 | Audit log | Every mutation | One permanent, unchangeable row per write |
 | Scopes | Every API call | A token can only do what it was explicitly granted |
-| Four-eyes | Task and project deletion | Requester and approver must be different actors |
-| Change control | Scope/schedule/cost changes | Raiser and decider must be different actors |
+| Four-eyes | Task and project deletion | Requester and approver must be different people |
+| Change control | Scope/schedule/cost changes | Raiser and decider must be different people |
 | Project lock + rebaseline | Locked projects' schedule fields | Schedule changes only through a reviewed rebaseline |
 | Period-close lock | Approved timesheet weeks | No new time entries against an already-approved week |
 | Trust Center | All of the above | A single place to see every action, successful or blocked |
 
 ## Why this matters for an AI agent specifically
 
-An AI agent acting on your behalf is fast and can make many changes in a short time. Governance built into the data layer means you never have to trust the agent's judgment alone to avoid catastrophe: even if you gave it a broad set of scopes and asked it to "clean up the old tasks," the four-eyes rule means it can propose deletions all day, but a human (or a differently-scoped token) still has to sign off before anything is actually gone. That is the core idea behind NoPM's whole design.
+An AI agent acting on your behalf is fast and can make many changes in a short time. Governance built into the data layer means you never have to trust the agent's judgment alone to avoid catastrophe: even if you gave it a broad set of scopes and asked it to "clean up the old tasks," the four-eyes rule means it can propose deletions all day, but a different person (or a token that person minted) still has to sign off before anything is actually gone. That is the core idea behind NoPM's whole design.

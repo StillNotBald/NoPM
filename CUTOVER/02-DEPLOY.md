@@ -11,6 +11,8 @@ NoPM's Vercel deploys are **manual** — there is no git-push→deploy hook wire
 1. Migrate (step 1 below) against the live database.
 2. Deploy (step 2 below) the code that expects the new schema.
 
+> **Exception: the lark wave (migrations 0045–0054).** Migration 0045 drops the seven-argument deletion-commit functions that the previous build calls, so that wave is not backward-compatible and its deletion approvals break between the migration and the promote. Follow [07-LARK-WAVE-ROLLOUT.md](07-LARK-WAVE-ROLLOUT.md) for that release: build without aliasing (`vercel deploy --prod --skip-domain`), apply all files in one transaction (`node scripts/migrate.mjs --atomic`), post-check, then `vercel promote`. The steps below still apply for every other release.
+
 Never deploy code that assumes a migration hasn't landed yet — a mid-deploy failure or a slow migration then leaves old code pointed at a half-migrated schema. If a migration must be reverted, see [03-ROLLBACK.md](03-ROLLBACK.md) — restore-from-backup, not a down-migration.
 
 ## 1. Apply migrations

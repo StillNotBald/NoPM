@@ -3,6 +3,8 @@
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { EntityLink } from "@/components/ui/entity-link";
+import { formatByPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 export interface MyIssue {
   id: string;
@@ -27,19 +29,12 @@ function statusLabel(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 export function IssueRow({ issue }: { issue: MyIssue }) {
+  const pref = useDateDisplayPref();
+  const due = issue.due_date ? formatByPref(issue.due_date, pref) : null;
   return (
     <div className="flex flex-col gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken sm:flex-row sm:items-center sm:gap-3 sm:py-2">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-h-11 min-w-0 items-center gap-3 sm:min-h-0">
         {/* Reference chip */}
         {issue.reference_id && (
           <span className="shrink-0 rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
@@ -51,7 +46,7 @@ export function IssueRow({ issue }: { issue: MyIssue }) {
         <EntityLink
           kind="issue"
           id={issue.id}
-          className="min-w-0 flex-1 font-medium"
+          className="min-w-0 flex-1 self-stretch font-medium"
         >
           {issue.title}
         </EntityLink>
@@ -75,8 +70,11 @@ export function IssueRow({ issue }: { issue: MyIssue }) {
 
         {/* Due date */}
         {issue.due_date && (
-          <span className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted">
-            {formatDate(issue.due_date)}
+          <span
+            title={due?.absolute}
+            className="shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-ink-muted"
+          >
+            {due?.text}
           </span>
         )}
       </div>

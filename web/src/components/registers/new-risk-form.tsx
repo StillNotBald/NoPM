@@ -7,16 +7,27 @@ import { RiskForm } from "@/components/forms/risk-form";
 
 type Project = { id: string; name: string };
 
-/** Header action: opens the "New Risk" form in the right push-panel. */
-export function NewRiskButton({ projects }: { projects: Project[] }) {
+/**
+ * Header action: opens the "New Risk" form in the right push-panel.
+ *
+ * The form carries its own required Project picker (this register spans every
+ * project, so there is no honest default). `defaultProjectId` preselects one —
+ * the register's active project filter, so "New Risk" while viewing one
+ * project's risks files under that project. It is ignored if it isn't one of
+ * `projects`.
+ */
+export function NewRiskButton({
+  projects,
+  defaultProjectId,
+}: {
+  projects: Project[];
+  defaultProjectId?: string;
+}) {
   const inspector = useInspector();
 
   function openNew() {
-    // Default to first project; user can switch inside the form if the full
-    // RiskForm ever gets a project-picker.  For now we open per-project.
-    const projectId = projects[0]?.id ?? "";
     inspector.open(
-      <RiskForm projectId={projectId} />,
+      <RiskForm projectId={defaultProjectId ?? ""} projects={projects} />,
       "New Risk",
     );
   }

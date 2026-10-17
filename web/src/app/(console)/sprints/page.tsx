@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -51,9 +53,10 @@ interface ProjectRow {
   name: string;
 }
 
-const STATE_TONE: Record<SprintRow["state"], "neutral" | "accent" | "success"> = {
+// Active is in progress: the info hue, never the brand blue (DESIGN.md).
+const STATE_TONE: Record<SprintRow["state"], "neutral" | "info" | "success"> = {
   planned: "neutral",
-  active: "accent",
+  active: "info",
   closed: "success",
 };
 
@@ -94,11 +97,7 @@ export default async function SprintsPage({
   ]);
 
   if (sprintsError) {
-    return (
-      <div className="px-4 py-5 sm:px-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load sprints.</p>
-      </div>
-    );
+    return <QueryError what="sprints" message={sprintsError.message} />;
   }
 
   const sprintRows = (sprints ?? []) as SprintRow[];
@@ -195,8 +194,8 @@ export default async function SprintsPage({
   }
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer className="space-y-6">
+      <div className="space-y-6">
         <PageHeader
           title="Sprints"
           action={canWrite ? <NewSprintButton /> : undefined}
@@ -261,6 +260,9 @@ export default async function SprintsPage({
                   <CardHeader>
                     <div className="min-w-0">
                       <CardTitle className="truncate">{selected.name}</CardTitle>
+                      <p className="mt-0.5 font-mono text-xs tabular-nums text-ink-muted">
+                        {selected.start_date} → {selected.end_date}
+                      </p>
                       {selected.goal && <p className="mt-0.5 text-xs text-ink-muted truncate">{selected.goal}</p>}
                     </div>
                     <div className="flex items-center gap-2">
@@ -386,6 +388,6 @@ export default async function SprintsPage({
           </div>
         )}
       </div>
-    </div>
+    </PageContainer>
   );
 }

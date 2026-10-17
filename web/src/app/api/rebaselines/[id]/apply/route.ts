@@ -4,12 +4,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
+import { assertApplicable } from "@/lib/governance/rebaseline-lifecycle";
 
 export const runtime = "nodejs";
 
-// POST /api/rebaselines/[id]/apply — apply an approved rebaseline (project:write)
+// POST /api/rebaselines/[id]/apply — apply an approved rebaseline (rebaseline:approve)
 export const POST = route(async ({ actor, params }) => {
   requireScope(actor, "rebaseline:approve");
+  // Applying is the checker's act (same scope as sign-off): it needs a human
+  // behind the actor, and that human must not be the requester.
+  const principal = requirePrincipal(actor);
 
   const db = createAdminClient();
 
@@ -26,40 +31,18 @@ export const POST = route(async ({ actor, params }) => {
 
   // Four-eyes: the requester may not apply a rebaseline they raised (R-04).
   if (actor.type === "user" && rebaseline.requested_by && actor.id === rebaseline.requested_by) {
-    throw new RuleError("Four-eyes: you cannot apply a rebaseline you requested.");
+    throw new RuleError("Four-eyes: you cannot apply a rebaseline you requested.", "self_approval");
   }
+  assertNotRequesterPrincipal(
+    rebaseline.requested_principal_id,
+    principal,
+    "Four-eyes: you cannot apply a rebaseline you requested.",
+  );
 
-  // Only approved rebaselines may be applied
-  if (rebaseline.status !== "approved") {
-    throw new RuleError(
-      `Rebaseline cannot be applied: status is '${rebaseline.status}', must be 'approved'`,
-    );
-  }
-
-  const now = new Date().toISOString();
-
-  const { data: after, error: updateError } = await db
-    .from("rebaselines")
-    .update({
-      status: "applied",
-      applied_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "rebaseline.apply",
-    targetType: "rebaseline",
-    targetId: params.id,
-    before: rebaseline,
-    after,
-  });
+  // Only approved rebaselines may be applied — and only once (R1/M2: an
+  // applied rebaseline used to regress to approved after any later vote and
+  // could be applied, and re-snapshot the baselines, again).
+  assertApplicable(rebaseline.status);
 
   // ── Re-baseline snapshot ───────────────────────────────────────────────────
   // When a rebaseline is applied, the newly-approved dates become the new
@@ -79,6 +62,13 @@ export const POST = route(async ({ actor, params }) => {
   // for the one transaction the RPC call opens — a loop of separate
   // supabase-js calls would each open their own transaction and the bypass
   // would not carry across them.
+  //
+  // It runs BEFORE the status flip: `applied` is terminal (the 0049 trigger
+  // refuses any further transition), so flipping first and failing in the
+  // snapshot used to strand a rebaseline that was "applied" with its baselines
+  // unchanged and no way to retry. The snapshot is idempotent (baseline :=
+  // current dates), so a failure here leaves the rebaseline `approved` and a
+  // retry simply runs it again.
   const projectId: string | null = rebaseline.project_id ?? null;
 
   if (projectId) {
@@ -88,6 +78,38 @@ export const POST = route(async ({ actor, params }) => {
     });
     if (snapshotErr) throw snapshotErr;
   }
+
+  const now = new Date().toISOString();
+
+  // Compare-and-set approved -> applied: two concurrent applies can't both win
+  // (the rebaselines trigger of migration 0049 is the DB backstop). The loser
+  // may have re-run the idempotent snapshot above; that changes nothing.
+  const { data: after, error: updateError } = await db
+    .from("rebaselines")
+    .update({
+      status: "applied",
+      applied_at: now,
+    })
+    .eq("id", params.id)
+    .eq("workspace_id", actor.workspaceId)
+    .eq("status", "approved")
+    .select()
+    .maybeSingle();
+
+  if (updateError) throw updateError;
+  if (!after) {
+    throw new RuleError("This rebaseline has already been applied.", "already_applied");
+  }
+
+  await writeAudit({
+    workspaceId: actor.workspaceId,
+    actor,
+    action: "rebaseline.apply",
+    targetType: "rebaseline",
+    targetId: params.id,
+    before: rebaseline,
+    after,
+  });
 
   return ok(after);
 });

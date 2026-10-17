@@ -4,6 +4,7 @@ import { hashToken } from "@/lib/auth/tokens";
 import { deriveInviteStatus, type InviteRow } from "@/lib/governance/invite-guard";
 import { AcceptInviteForm } from "@/components/invite/accept-form";
 import { Card, CardBody } from "@/components/ui/card";
+import { Wordmark } from "@/components/marketing/wordmark";
 
 export const runtime = "nodejs";
 
@@ -62,9 +63,7 @@ export default async function InviteAcceptPage({
     <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <Link href="/" className="text-2xl font-semibold tracking-tight text-ink">
-            No<span className="text-accent">PM</span>
-          </Link>
+          <Wordmark size="lg" />
           <p className="mt-1 text-sm text-ink-muted">You&apos;ve been invited</p>
         </div>
 
@@ -96,7 +95,7 @@ export default async function InviteAcceptPage({
                 </p>
                 <Link
                   href="/login"
-                  className="inline-block text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                  className="focus-ring inline-flex min-h-11 items-center rounded-sm text-sm text-accent hover:underline"
                 >
                   Go to sign in →
                 </Link>

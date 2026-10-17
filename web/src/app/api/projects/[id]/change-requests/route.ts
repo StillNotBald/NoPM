@@ -5,6 +5,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
+import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 export const runtime = "nodejs";
@@ -74,16 +75,23 @@ export const GET = route(async ({ actor, params, request }) => {
   return okList(items ?? [], { total: count ?? 0, page, limit });
 });
 
-/** POST /api/projects/:id/change-requests — raise a change request under a project */
+/**
+ * POST /api/projects/:id/change-requests — raise a change request under a project.
+ * The maker step of the change-control four-eyes flow: the actor must have a
+ * human behind it (R1/H3). A token with no recorded owner gets 403
+ * `no_principal` — a null requester principal is comparable to nobody, so the
+ * same person could then decide their own request from a session.
+ */
 export const POST = route(async ({ actor, params, request }) => {
   requireScope(actor, "change:write");
+  const requesterPrincipal = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
   const projectId = params.id;
 
   const { data: project } = await db
     .from("projects")
-    .select("id")
+    .select("id, name")
     .eq("id", projectId)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -125,6 +133,9 @@ export const POST = route(async ({ actor, params, request }) => {
       requested_by_label: actor.label,
       requested_by_type: actor.type,
       requested_by_id: actor.id,
+      // The HUMAN behind the requester (the user, or the token's creator) —
+      // four-eyes compares this, not the actor id.
+      requested_principal_id: requesterPrincipal,
     })
     .select()
     .single();
@@ -155,6 +166,23 @@ export const POST = route(async ({ actor, params, request }) => {
       });
     });
   }
+
+  // Tell the integration hub (chat approval cards) — never throws, runs after
+  // the request and its audit row are committed.
+  announceRequested({
+    workspaceId: actor.workspaceId,
+    kind: "change_request",
+    id: row.id,
+    title: `Change request ${row.reference_id ?? row.id}: ${input.title}`,
+    summary: input.impact_summary ?? input.description ?? null,
+    projectId,
+    projectName: project.name ?? null,
+    requestedByLabel: actorLabel(actor),
+    requesterPrincipalId: requesterPrincipal,
+    // The version this card describes: the hub binds the card's buttons to it, so an
+    // edit that lands before the card goes out cannot be approved unseen.
+    version: row.updated_at ?? null,
+  });
 
   return created(row);
 });

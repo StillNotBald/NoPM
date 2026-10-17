@@ -95,7 +95,7 @@
     </div>
     <div>
       <h1>Deletion is a decision two people make.</h1>
-      <div class="role">NoPM four-eyes deletion — maker requests, a different checker commits, the database is the last line of defense.</div>
+      <div class="role">NoPM four-eyes deletion — maker requests, a different person commits (a token counts as the person who created it), the database is the last line of defense.</div>
     </div>
   </header>
 
@@ -118,7 +118,7 @@
 
     <div class="flowwrap">
       <div class="diagram">
-        <svg viewBox="8 -34 985 506" role="img" aria-label="End-to-end flow for NoPM four-eyes deletion governance on a two-column grid. Phase 1, the maker request: an actor initiates delete on a task or project with a mandatory reason; an automatic scope gate denies agent tokens without the delete-request scope with HTTP 403; an automatic lock gate blocks deletion of locked projects with PROJECT_LOCKED error P0010 mapped to 422; then a snapshot is taken and a pending deletion request row is created, de-duplicated, with an in-app notification and a rendered email preview; a maker-withdraws gate lets the maker withdraw the pending request — withdrawn is terminal, re-withdraw returns 422, but a dashed loop shows the maker may re-request. The pending request crosses over to phase 2, the checker decision: the checker opens the review queue; a human four-eyes gate requires approver not equal to requester — a violation is blocked in triplicate by the API guard, the Postgres function raising P0003 SELF_APPROVAL, and a CHECK constraint, on both approve and reject (guard symmetry); a human approve gate can reject with a reason, leaving the target alive and audited; on approve, one atomic Postgres transaction deletes the target and writes the deletion audit row and the approval audit row together; the terminal state is deleted and audited with an in-app notification.">
+        <svg viewBox="8 -34 985 506" role="img" aria-label="End-to-end flow for NoPM four-eyes deletion governance on a two-column grid. Phase 1, the maker request: an actor initiates delete on a task or project with a mandatory reason; an automatic scope gate denies agent tokens without the delete-request scope with HTTP 403; an automatic lock gate blocks deletion of locked projects with PROJECT_LOCKED error P0010 mapped to 422; then a snapshot is taken and a pending deletion request row is created, de-duplicated, with an in-app notification and a rendered email preview; a maker-withdraws gate lets the maker withdraw the pending request — withdrawn is terminal, re-withdraw returns 422, but a dashed loop shows the maker may re-request. The pending request crosses over to phase 2, the checker decision: the checker opens the review queue; a human four-eyes gate requires a different person from the requester (a token counts as the person who created it) — a violation is blocked in triplicate by the API guard, the Postgres function raising P0003 SELF_APPROVAL, and a CHECK constraint, on both approve and reject (guard symmetry); a human approve gate can reject with a reason, leaving the target alive and audited; on approve, one atomic Postgres transaction deletes the target and writes the deletion audit row and the approval audit row together; the terminal state is deleted and audited with an in-app notification.">
           <defs>
             <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b7178"/></marker>
             <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b06a2c"/></marker>
@@ -145,8 +145,8 @@
 <text x="690" y="20" text-anchor="middle" fill="#1a1d21" font-size="13.5" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Checker opens Review Queue</text>
 <text x="690" y="35" text-anchor="middle" fill="#6b7178" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">/review · /approvals</text>
 <polygon points="690,84 770,124 690,164 610,124" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
-<text x="690" y="121" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approver ≠</text>
-<text x="690" y="136" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">requester?</text>
+<text x="690" y="121" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Different person</text>
+<text x="690" y="136" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">than requester?</text>
 <polygon points="690,188 770,228 690,268 610,228" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
 <text x="690" y="225" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approve the</text>
 <text x="690" y="240" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">deletion?</text>
@@ -227,7 +227,7 @@
           <li><span class="t">Delete + reason</span><span class="d">maker step — nothing dies yet</span></li>
           <li><span class="t">Request pending</span><span class="d">snapshot taken · notified</span></li>
           <li><span class="t">Second person reviews</span><span class="d">Review Queue</span></li>
-          <li><span class="t">Approve</span><span class="d">must not be the requester</span></li>
+          <li><span class="t">Approve</span><span class="d">a different person (a token counts as its creator)</span></li>
           <li><span class="t">Atomic delete + audit</span><span class="d">one transaction</span></li>
         </ol>
         <div class="foot">No un-audited path exists — every verb writes exactly one immutable row.</div>
@@ -244,7 +244,7 @@
         <h3>Why it holds</h3>
         <ul class="points">
       <li>Guard symmetry: self-<strong>reject</strong> is blocked the same three ways as self-approve.</li>
-      <li>Locked projects cannot be deleted — <strong>P0010</strong> fires before the cascade.</li>
+      <li>Locked projects cannot be requested for deletion or deleted: the lock is checked at request time (422 PROJECT_LOCKED), and <strong>P0010</strong> fires again before the cascade.</li>
       <li>An agent token can <strong>request</strong> a deletion but can structurally never approve one.</li>
         </ul>
       </div>

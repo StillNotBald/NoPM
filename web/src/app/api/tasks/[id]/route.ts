@@ -8,7 +8,9 @@ import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
-import { assertProjectUnlocked, SCHEDULE_SHAPE_TASK_FIELDS, touchesScheduleShape } from "@/lib/governance/lock";
+import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
+import { assertProjectUnlocked, changedScheduleShapeFields, SCHEDULE_SHAPE_TASK_FIELDS } from "@/lib/governance/lock";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -69,10 +71,13 @@ export const PATCH = route(async ({ actor, params, request }) => {
   const { expected_updated_at, ...fields } = input;
   checkOptimisticConcurrency(existing.updated_at, expected_updated_at);
 
-  // Schedule-shape changes (dates, estimate, milestone re-assignment) are
+  // Schedule-shape CHANGES (dates, estimate, milestone re-assignment) are
   // blocked while the parent project is locked; status/checklist/assignee/etc
-  // stay live so day-to-day work continues under a frozen baseline.
-  if (touchesScheduleShape(input, SCHEDULE_SHAPE_TASK_FIELDS)) {
+  // stay live so day-to-day work continues under a frozen baseline. Only a real
+  // value change counts — the DB trigger (0028) and the project route compare
+  // values too, so a form that echoes the whole record back is not blocked.
+  const frozenFields = changedScheduleShapeFields(fields, existing, SCHEDULE_SHAPE_TASK_FIELDS);
+  if (frozenFields.length > 0) {
     await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
       writeAudit({
         workspaceId: actor.workspaceId,
@@ -81,10 +86,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
         targetType: "task",
         targetId: params.id,
         before: null,
-        after: { reason: "project_locked", project_id: existing.project_id },
+        after: { reason: "project_locked", project_id: existing.project_id, fields: frozenFields },
       }),
     );
   }
+
+  // Cross-tenant guard: assignee (resource_member) and blocker (task) must be
+  // in THIS workspace. null clears the reference and is always allowed.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: input.assignee_id, field: "assignee_id" },
+    { table: "tasks", id: input.blocked_by, field: "blocked_by" },
+  ]);
 
   // If milestone_id is being changed, validate it belongs to the same project + workspace
   if (input.milestone_id !== undefined && input.milestone_id !== null) {
@@ -144,6 +156,10 @@ export const PATCH = route(async ({ actor, params, request }) => {
  */
 export const DELETE = route(async ({ actor, params, request }) => {
   requireScope(actor, "task:delete:request");
+  // A token with no recorded owner can't raise the request (R1/H3): its
+  // requester principal would be null, comparable to nobody, so the same
+  // person could then approve it from a normal session.
+  const requesterPrincipal = requireMakerPrincipal(actor);
 
   const db = createAdminClient();
 
@@ -212,11 +228,24 @@ export const DELETE = route(async ({ actor, params, request }) => {
       requested_by_type: actor.type,
       requested_by_id: actor.id,
       requested_by_label: actor.label,
+      // The HUMAN behind the requester (the user, or the token's creator) —
+      // four-eyes compares this, not the actor id. Never null: an ownerless
+      // token was refused above.
+      requested_principal_id: requesterPrincipal,
       before: task,
     })
     .select()
     .single();
 
+  // Two concurrent requests both pass the pre-check above; the partial unique
+  // index uniq_pending_deletion lets one win and refuses the other (23505) —
+  // the same clean 422 as the pre-check, not a raw 500.
+  if (insertError?.code === "23505") {
+    throw new RuleError(
+      "A pending deletion request already exists for this task",
+      "duplicate_deletion_request",
+    );
+  }
   if (insertError || !deletionRequest) {
     throw new Error(insertError?.message ?? "Failed to create deletion request");
   }
@@ -241,6 +270,20 @@ export const DELETE = route(async ({ actor, params, request }) => {
       body: reason ?? undefined,
       payload: { href: "/approvals", taskId: params.id, requestId: deletionRequest.id },
     });
+  });
+
+  // Tell the integration hub (chat approval cards) — never throws, runs after
+  // the request and its audit row are committed.
+  announceRequested({
+    workspaceId: actor.workspaceId,
+    kind: "task_deletion",
+    id: deletionRequest.id,
+    title: `Delete task "${task.name ?? params.id}"`,
+    summary: reason ?? null,
+    projectId: task.project_id ?? null,
+    projectName: await projectNameOf(db, actor.workspaceId, task.project_id),
+    requestedByLabel: actorLabel(actor),
+    requesterPrincipalId: requesterPrincipal,
   });
 
   // Return 202 Accepted with the deletion_request

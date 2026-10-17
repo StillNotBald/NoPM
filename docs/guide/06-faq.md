@@ -46,7 +46,7 @@ Each workspace is isolated: every table in the database carries a workspace id, 
 
 ## What happens if I ask my AI agent to delete something?
 
-It depends what it is. Tasks and projects go through four-eyes approval: the agent can request the deletion, but a separate person or differently-scoped token has to approve it before anything is actually removed (see `03-how-governance-works.md`). Milestones, risks, and issues are deleted immediately, with just an audit row recording it. There's no undo for those today.
+It depends what it is. Tasks and projects go through four-eyes approval: the agent can request the deletion, but a different person has to approve it before anything is actually removed (a token counts as the person who minted it) (see `03-how-governance-works.md`). Milestones, risks, and issues are deleted immediately, with just an audit row recording it. There's no undo for those today.
 
 ## Does NoPM support SSO or OAuth login?
 

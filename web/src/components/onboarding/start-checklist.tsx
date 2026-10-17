@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { CheckCircle2 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { usePreferences } from "@/lib/prefs/use-preferences";
+import { useSeededPreferences } from "@/components/onboarding/use-seeded-preferences";
+import type { PrefsSeed } from "@/lib/onboarding/seed";
 import {
   startSteps,
   progress,
@@ -14,7 +14,10 @@ import {
   type StartChecklistInput,
 } from "@/lib/onboarding/start-checklist";
 
-type Props = Omit<StartChecklistInput, "visited">;
+type Props = Omit<StartChecklistInput, "visited"> & {
+  /** The viewer's checklist state as the server read it (see lib/onboarding/seed.ts). */
+  seed?: PrefsSeed | null;
+};
 
 /**
  * Client half of /start — renders the 5-step checklist derived by
@@ -23,8 +26,8 @@ type Props = Omit<StartChecklistInput, "visited">;
  * other onboarding surface uses, via the `start` config key); every other
  * input is server-fetched workspace data passed down as props.
  */
-export function StartChecklist(props: Props) {
-  const { ready, config, update } = usePreferences();
+export function StartChecklist({ seed, ...props }: Props) {
+  const { ready, config, update } = useSeededPreferences(seed);
 
   if (!ready) return null;
 
@@ -34,11 +37,11 @@ export function StartChecklist(props: Props) {
   const finished = allDone(steps);
 
   function handleVisit(stepId: string) {
-    void update({ start: markStartVisited(start, stepId) });
+    update({ start: markStartVisited(start, stepId) });
   }
 
   function toggleDismissed(next: boolean) {
-    void update({ start: setStartDismissed(start, next) });
+    update({ start: setStartDismissed(start, next) });
   }
 
   if (start.dismissed) {
@@ -46,7 +49,7 @@ export function StartChecklist(props: Props) {
       <button
         type="button"
         onClick={() => toggleDismissed(false)}
-        className="w-full rounded-lg border border-border-subtle bg-surface px-5 py-3 text-left text-sm text-ink-secondary hover:bg-sunken"
+        className="focus-ring min-h-11 w-full rounded-lg border border-border-subtle bg-surface px-5 py-3 text-left text-sm text-ink-secondary hover:bg-sunken"
       >
         Checklist hidden · <span className="font-medium text-accent">Show</span>
       </button>
@@ -72,7 +75,7 @@ export function StartChecklist(props: Props) {
           <button
             type="button"
             onClick={() => toggleDismissed(true)}
-            className="shrink-0 -my-3.5 py-3.5 text-xs text-ink-muted hover:text-ink hover:underline"
+            className="focus-ring shrink-0 -my-3.5 rounded py-3.5 text-xs text-ink-muted hover:text-ink hover:underline"
           >
             Hide this page&apos;s checklist
           </button>
@@ -87,28 +90,32 @@ export function StartChecklist(props: Props) {
                 aria-hidden="true"
               >
                 {step.done ? (
-                  <CheckCircle2 size={16} className="text-success" />
+                  <CheckCircle2 size={16} className="text-success-ink" />
                 ) : (
-                  <span className="h-2 w-2 rounded-full border border-border-subtle" />
+                  <span className="h-2 w-2 rounded-full border border-border-strong" />
                 )}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink">{step.title}</p>
+                <p className="text-sm font-medium text-ink">
+                  {step.title}
+                  {/* the tick is aria-hidden; say it in text too */}
+                  {step.done && <span className="sr-only"> (done)</span>}
+                </p>
                 <p className="mt-0.5 text-xs text-ink-muted">
                   {step.canAct ? step.caption : `${step.caption} Ask your workspace admin.`}
                 </p>
               </div>
+              {/* one link styled as a secondary button (a <Button> inside a <Link>
+                  is nested interactive content) */}
               {step.canAct && !step.done && (
                 <Link
                   href={step.href}
                   onClick={() => {
                     if (step.kind === "read") handleVisit(step.id);
                   }}
-                  className="shrink-0"
+                  className="focus-ring inline-flex h-11 shrink-0 items-center justify-center rounded-md border border-border-subtle bg-surface px-3 text-sm font-medium text-ink transition-colors duration-150 hover:bg-sunken sm:h-8"
                 >
-                  <Button variant="secondary" size="sm" className="h-11 sm:h-8">
-                    {step.cta}
-                  </Button>
+                  {step.cta}
                 </Link>
               )}
             </li>

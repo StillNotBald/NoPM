@@ -12,6 +12,7 @@ async function handle(
   sections?: string[],
 ): Promise<Response> {
   requireScope(actor, "audit:read");
+  requireScope(actor, "budget:read"); // the project report carries budget figures (planned / committed / actual)
   if (!DECK_FORMATS.includes(format as DeckFormat)) {
     return fail("format must be one of: html, pptx, pdf", 422);
   }

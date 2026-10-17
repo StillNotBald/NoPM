@@ -22,6 +22,10 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { DecideState } from "@/components/governance/four-eyes-note";
+import { describeDeletionTarget } from "./deletion-target";
+import { judgeDecision, type Viewer } from "./four-eyes";
+import { clip } from "./pending";
 
 // ── ReviewItem shape ──────────────────────────────────────────────────────────
 
@@ -53,10 +57,24 @@ export interface ReviewItem {
   requestedByLabel?: string;
   /** Requester's stated reason for deletion */
   deletionReason?: string | null;
+  /** Name of the record being deleted, from the request's `before` snapshot */
+  targetName?: string;
+  /** Project the target lives in (by name) */
+  targetProject?: string;
 
   // ── Inline-action fields (kind === 'change') ──────────────────────────────
   /** Current status of the change request */
   crStatus?: string;
+  /** What the approver needs beside the decision: who asked, how big, why. */
+  change?: ChangeSummary;
+
+  // ── Four-eyes (approval / change / timesheet) ─────────────────────────────
+  /**
+   * May the signed-in viewer decide this, and if not, why — worked out on the
+   * server the way the API decides (see ./four-eyes). Absent when the gatherer
+   * was not told who is looking; the UI then offers the action as before.
+   */
+  decide?: DecideState;
 
   // ── Inline-action fields (kind === 'timesheet') ───────────────────────────
   /** Monday of the submitted week (period_start) */
@@ -65,7 +83,28 @@ export interface ReviewItem {
   hoursTotal?: number;
 }
 
+/** The change request as the approver sees it in the inspector (read-only). */
+export interface ChangeSummary {
+  reference: string | null;
+  priority: string | null;
+  category: string | null;
+  requestedBy: string | null;
+  impactSummary: string | null;
+  impactScheduleDays: number | null;
+  impactCost: number | null;
+  description: string | null;
+  raisedAt: string | null;
+  targetDate: string | null;
+  /** Sent back with the decision so an edit made after opening is refused (412), not approved unseen. */
+  updatedAt: string | null;
+  projectId: string | null;
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
+
+// A `select("*")` row: the columns the verdict reads vary by migration level.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LooseRow = Record<string, any>;
 
 function ageDays(createdAt: string): number {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -99,6 +138,8 @@ function weight(item: ReviewItem): number {
 
 export async function gatherReviewItems(
   db: SupabaseClient,
+  /** The signed-in person; when given, decision items carry a server-computed `decide`. */
+  viewer?: Viewer,
 ): Promise<ReviewItem[]> {
   // Build a project-id → name map for enrichment
   const { data: projectRows } = await db
@@ -110,9 +151,13 @@ export async function gatherReviewItems(
   );
 
   // Build a member-id → name map (for the 'timesheet' kind's title)
-  const { data: memberRows } = await db.from("resource_members").select("id, name");
+  const { data: memberRows } = await db.from("resource_members").select("id, name, profile_id");
   const memberMap = new Map<string, string>(
     (memberRows ?? []).map((m: { id: string; name: string }) => [m.id, m.name]),
+  );
+  // member -> login, so a timesheet is never offered to the person whose hours it is
+  const memberProfile = new Map<string, string | null>(
+    (memberRows ?? []).map((m: { id: string; profile_id?: string | null }) => [m.id, m.profile_id ?? null]),
   );
 
   // Fan out all queries in parallel
@@ -125,10 +170,11 @@ export async function gatherReviewItems(
     changeRequestsResult,
     timesheetsResult,
   ] = await Promise.allSettled([
-    // 1. Deletion requests pending approval
+    // 1. Deletion requests pending approval. `*` (not a column list): the verdict
+    //    needs the requester columns and the `before` snapshot names the target.
     db
       .from("deletion_requests")
-      .select("id, target_type, target_id, reason, requested_by_label, created_at")
+      .select("*")
       .eq("status", "pending")
       .order("created_at", { ascending: true }),
 
@@ -167,13 +213,16 @@ export async function gatherReviewItems(
       }
     })(),
 
-    // 6. Change requests under review (defensive — table may not exist yet)
+    // 6. Change requests awaiting a decision: BOTH 'raised' (the default a new
+    //    request is created in — nothing moves it on automatically) and
+    //    'under_review', the same pair the decision route accepts
+    //    (defensive — table may not exist yet)
     (async () => {
       try {
         return await db
           .from("change_requests")
-          .select("id, title, project_id, status, created_at")
-          .eq("status", "under_review")
+          .select("*")
+          .in("status", ["raised", "under_review"])
           .order("created_at", { ascending: true });
       } catch {
         return { data: null, error: null };
@@ -186,7 +235,7 @@ export async function gatherReviewItems(
       try {
         return await db
           .from("timesheet_submissions")
-          .select("id, member_id, period_start, hours_total, submitted_by_label, submitted_at")
+          .select("*")
           .eq("status", "submitted")
           .order("submitted_at", { ascending: true });
       } catch {
@@ -200,18 +249,31 @@ export async function gatherReviewItems(
   // ── Deletions ────────────────────────────────────────────────────────────────
   if (deletionsResult.status === "fulfilled") {
     for (const row of deletionsResult.value.data ?? []) {
+      const target = describeDeletionTarget(row);
       items.push({
         id: row.id,
         kind: "approval",
-        title: `Delete ${row.target_type}${row.reason ? ` — ${row.reason}` : ""}`,
+        // Name the record, not just its type: "Delete task: Cutover plan — <reason>"
+        title: `Delete ${row.target_type}${target.name ? `: ${target.name}` : ""}${row.reason ? ` — ${row.reason}` : ""}`,
+        // A project's own name is the title already; only a task shows its project.
+        project: target.type !== "project" && target.projectId ? projectMap.get(target.projectId) : undefined,
         ageDays: ageDays(row.created_at),
         href: "/approvals",
         actionLabel: "Approve / reject",
         // inline-action fields
         targetType: row.target_type,
         targetId: row.target_id,
+        targetName: target.name ?? undefined,
+        targetProject: target.type !== "project" && target.projectId ? projectMap.get(target.projectId) : undefined,
         requestedByLabel: row.requested_by_label ?? undefined,
         deletionReason: row.reason ?? null,
+        decide: viewer
+          ? judgeDecision({
+              viewer,
+              kind: row.target_type === "project" ? "project_deletion" : "task_deletion",
+              row,
+            })
+          : undefined,
       });
     }
   }
@@ -259,6 +321,14 @@ export async function gatherReviewItems(
         requestedByLabel: row.submitted_by_label,
         periodStart: row.period_start,
         hoursTotal: Number.isFinite(hours) ? hours : 0,
+        decide: viewer
+          ? judgeDecision({
+              viewer,
+              kind: "timesheet",
+              row: row as unknown as Record<string, unknown>,
+              subjectProfileId: memberProfile.get(row.member_id) ?? null,
+            })
+          : undefined,
       });
     }
   }
@@ -315,7 +385,7 @@ export async function gatherReviewItems(
 
   // ── Change requests (defensive) ──────────────────────────────────────────────
   if (changeRequestsResult.status === "fulfilled") {
-    for (const row of (changeRequestsResult.value as { data: Array<{ id: string; title: string; project_id: string | null; status: string; created_at: string }> | null }).data ?? []) {
+    for (const row of (changeRequestsResult.value as { data: LooseRow[] | null }).data ?? []) {
       const projectName = row.project_id ? projectMap.get(row.project_id) : undefined;
       items.push({
         id: row.id,
@@ -327,6 +397,21 @@ export async function gatherReviewItems(
         actionLabel: "Decide",
         // inline-action fields
         crStatus: row.status,
+        change: {
+          reference: row.reference_id ?? null,
+          priority: row.priority ?? null,
+          category: row.category ?? null,
+          requestedBy: row.requested_by_label ?? null,
+          impactSummary: clip(row.impact_summary, 400),
+          impactScheduleDays: typeof row.impact_schedule_days === "number" ? row.impact_schedule_days : null,
+          impactCost: typeof row.impact_cost === "number" ? row.impact_cost : null,
+          description: clip(row.description, 600),
+          raisedAt: row.raised_at ?? row.created_at ?? null,
+          targetDate: row.target_date ?? null,
+          updatedAt: typeof row.updated_at === "string" ? row.updated_at : null,
+          projectId: row.project_id ?? null,
+        },
+        decide: viewer ? judgeDecision({ viewer, kind: "change_request", row }) : undefined,
       });
     }
   }

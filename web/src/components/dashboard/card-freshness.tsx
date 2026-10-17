@@ -73,7 +73,7 @@ export function CardFreshness({ fetchedAt, className }: { fetchedAt: string; cla
           // dense icon-button size at sm+ where a mouse pointer is assumed.
           "print:hidden grid h-11 w-11 sm:h-[26px] sm:w-[26px] shrink-0 place-items-center rounded text-ink-muted",
           "hover:bg-sunken hover:text-ink transition-colors duration-150",
-          "disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+          "disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
         )}
       >
         <RotateCw size={11} className={cn(refreshing && "animate-spin")} />

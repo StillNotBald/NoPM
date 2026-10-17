@@ -151,7 +151,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
             className={cn(
               "flex min-h-[44px] items-center gap-3 rounded-lg border-2 border-accent/30 bg-accent/5 px-4 py-3 text-left transition-colors",
               "hover:border-accent/60 hover:bg-accent/10",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
             )}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-accent/15">
@@ -178,7 +178,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
             className={cn(
               "flex min-h-[44px] flex-col items-start justify-center gap-0.5 rounded-md border border-dashed border-border-subtle bg-canvas px-3 py-2.5 text-left transition-colors",
               "hover:border-border-strong hover:bg-sunken",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+              "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
             )}
           >
             <span className="text-sm font-medium text-ink">Connect your own model</span>
@@ -195,7 +195,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
           {demoAvailable && (
             <button
               onClick={() => setStep("choose")}
-              className="mb-1 flex items-center gap-1 font-mono text-xs text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="mb-1 flex items-center gap-1 font-mono text-xs text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -211,7 +211,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
               className={cn(
                 "flex items-center justify-between rounded-md border border-border-subtle bg-canvas px-3 py-2.5 text-left text-sm transition-colors",
                 "hover:border-border-strong hover:bg-sunken",
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
               )}
             >
               <span className="font-medium text-ink">{p.label}</span>
@@ -226,7 +226,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
           {/* Back */}
           <button
             onClick={() => { setStep("pick"); setError(null); setApiKey(""); }}
-            className="flex items-center gap-1 font-mono text-xs text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="flex items-center gap-1 font-mono text-xs text-ink-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
           >
             <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -265,7 +265,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
               onChange={(e) => setModel(e.target.value)}
               className={cn(
                 "h-10 w-full rounded-md border border-border-subtle bg-canvas px-3 text-sm text-ink",
-                "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+                "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent",
               )}
             >
               {providerMeta.models.map((m) => (
@@ -275,7 +275,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
           </div>
 
           {error && (
-            <p className="font-mono text-xs text-danger">{error}</p>
+            <p className="font-mono text-xs text-danger-ink">{error}</p>
           )}
 
           <Button

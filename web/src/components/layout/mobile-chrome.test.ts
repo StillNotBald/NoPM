@@ -28,6 +28,7 @@ const APP_SHELL = readFileSync(join(COMPONENTS_DIR, "layout", "app-shell.tsx"), 
 const TOAST = readFileSync(join(COMPONENTS_DIR, "ui", "toast.tsx"), "utf8");
 const RIGHT_PUSH_PANEL = readFileSync(join(COMPONENTS_DIR, "ui", "right-push-panel.tsx"), "utf8");
 const MODAL = readFileSync(join(COMPONENTS_DIR, "ui", "modal.tsx"), "utf8");
+const ICON_BUTTON = readFileSync(join(COMPONENTS_DIR, "ui", "icon-button.tsx"), "utf8");
 const FILTER_SHEET_PATH = join(COMPONENTS_DIR, "ui", "filter-sheet.tsx");
 const DATA_LIST_PATH = join(COMPONENTS_DIR, "ui", "data-list.tsx");
 const FILTER_SHEET = readFileSync(FILTER_SHEET_PATH, "utf8");
@@ -56,7 +57,7 @@ describe("command palette — mobile search entry", () => {
       COMMAND_PALETTE.indexOf("export function CmdKTrigger("),
       COMMAND_PALETTE.indexOf("export function CmdKTriggerMobile("),
     );
-    expect(pill).toMatch(/"hidden items-center/);
+    expect(pill).toMatch(/hidden items-center/);
     expect(pill).toMatch(/sm:flex/);
   });
 
@@ -65,8 +66,10 @@ describe("command palette — mobile search entry", () => {
     const mobileTrigger = COMMAND_PALETTE.slice(
       COMMAND_PALETTE.indexOf("export function CmdKTriggerMobile("),
     );
-    expect(mobileTrigger).toMatch(/aria-label="Search/);
-    expect(mobileTrigger).toMatch(/h-11 w-11/); // 44px (2.75rem) minimum touch target
+    // IconButton makes `label` the aria-label and carries the h-11 w-11 floor
+    expect(mobileTrigger).toMatch(/<IconButton[^>]*label="Search"/);
+    expect(ICON_BUTTON).toMatch(/h-11 w-11/); // 44px (2.75rem) minimum touch target
+    expect(ICON_BUTTON).toMatch(/aria-label=\{label\}/);
     expect(mobileTrigger).toMatch(/sm:hidden/); // exact complement of the sm:flex pill
   });
 
@@ -146,22 +149,25 @@ describe("toast.tsx — Toaster clears the mobile bottom nav + safe area", () =>
 // 3. Touch targets — header chrome only (targeted subset, locked decision 4)
 // ---------------------------------------------------------------------------
 describe("app-shell.tsx — header icon buttons hit >=44px below lg, unchanged at lg+", () => {
-  it("assistant (sparkles) trigger: h-11 w-11 below lg, lg:h-10 lg:w-10 (pixel-identical) at lg+", () => {
-    const assistantBtn = APP_SHELL.slice(
-      APP_SHELL.indexOf('aria-label="Open AI assistant"') - 400,
-      APP_SHELL.indexOf('aria-label="Open AI assistant"') + 400,
-    );
-    expect(assistantBtn).toMatch(/h-11 w-11/);
-    expect(assistantBtn).toMatch(/lg:h-10 lg:w-10/);
+  it("IconButton: 44px below lg (h-11 w-11), the original 40px (lg:h-10 lg:w-10) at lg+", () => {
+    expect(ICON_BUTTON).toMatch(/md: "h-11 w-11 lg:h-10 lg:w-10"/);
   });
 
-  it("sidebar collapse toggle: bumped to h-11 w-11, restores the original lg:h-10 lg:w-10 at lg+", () => {
-    // The label is now dynamic (Expand/Collapse) and the button exposes aria-expanded.
+  it("assistant (sparkles) trigger is an IconButton, so it inherits the 44px/40px contract", () => {
+    const idx = APP_SHELL.indexOf('label="Open AI assistant"');
+    expect(idx).toBeGreaterThan(-1);
+    const assistantBtn = APP_SHELL.slice(idx - 300, idx + 300);
+    expect(assistantBtn).toMatch(/<IconButton/);
+    expect(assistantBtn).toMatch(/aria-pressed=\{assistantOpen\}/);
+  });
+
+  it("sidebar collapse toggle is an IconButton with a dynamic label and aria-expanded", () => {
+    // The label is dynamic (Expand/Collapse) and the button exposes aria-expanded.
     const idx = APP_SHELL.indexOf('"Collapse sidebar"');
     expect(idx).toBeGreaterThan(-1);
-    const collapseBtn = APP_SHELL.slice(idx - 500, idx + 300);
-    expect(collapseBtn).toMatch(/h-11 w-11/);
-    expect(collapseBtn).toMatch(/lg:h-10 lg:w-10/);
+    const collapseBtn = APP_SHELL.slice(idx - 400, idx + 300);
+    expect(collapseBtn).toMatch(/<IconButton/);
+    expect(collapseBtn).toMatch(/hidden lg:grid/);
     expect(collapseBtn).toMatch(/aria-expanded=\{!collapsed\}/);
     expect(collapseBtn).toMatch(/"Expand sidebar"/);
   });
@@ -208,13 +214,31 @@ describe("right-push-panel.tsx / modal.tsx — shared sheet hooks", () => {
     expect(MODAL.slice(modalCloseIdx - 200, modalCloseIdx + 80)).toMatch(/h-11 w-11/);
   });
 
-  it("right-push-panel keeps the ≥lg push-column contract unchanged (right-0, no border-t, lg width class applied)", () => {
-    expect(RIGHT_PUSH_PANEL).toMatch(/lg:inset-y-0 lg:right-0/);
+  it("right-push-panel keeps the ≥lg push-column contract (right-0, no border-t, lg width class applied)", () => {
+    expect(RIGHT_PUSH_PANEL).toMatch(/lg:top-0 lg:bottom-0 lg:right-0/);
     expect(RIGHT_PUSH_PANEL).toMatch(/lg:rounded-none/);
   });
 
+  it("right-push-panel is viewport-height-bound at lg+: top AND bottom pinned, never auto (the cut-off Save button bug)", () => {
+    // `lg:top-auto lg:bottom-auto` used to override inset-y-0, so the fixed panel
+    // was only as tall as its content and its scrolling body never scrolled.
+    expect(RIGHT_PUSH_PANEL).not.toMatch(/lg:top-auto/);
+    expect(RIGHT_PUSH_PANEL).not.toMatch(/lg:bottom-auto/);
+    expect(RIGHT_PUSH_PANEL).toMatch(/lg:top-0 lg:bottom-0/);
+    // the body keeps min-h-0 flex-1 overflow-auto so the footer stays pinned
+    expect(RIGHT_PUSH_PANEL).toMatch(/min-h-0 flex-1 overflow-auto/);
+  });
+
+  it("right-push-panel is inert + invisible while closed (no focusable controls under aria-hidden)", () => {
+    expect(RIGHT_PUSH_PANEL).toMatch(/inert=\{!open\}/);
+    expect(RIGHT_PUSH_PANEL).toMatch(/aria-hidden=\{!open\}/); // kept: the e2e open/closed signal
+    expect(RIGHT_PUSH_PANEL).toMatch(/"invisible /);
+    expect(RIGHT_PUSH_PANEL).not.toMatch(/shadow-2xl/);
+    expect(RIGHT_PUSH_PANEL).not.toMatch(/backdrop-blur/);
+  });
+
   it("right-push-panel renders a bottom sheet (top radius) between md and lg", () => {
-    expect(RIGHT_PUSH_PANEL).toMatch(/md:rounded-t-2xl/);
+    expect(RIGHT_PUSH_PANEL).toMatch(/md:rounded-t-xl/);
   });
 
   it("both support an optional sticky footer slot", () => {
@@ -275,6 +299,10 @@ describe("data-list.tsx — DataList", () => {
     expect(DATA_LIST).toMatch(/hidden overflow-x-auto md:block/);
     expect(DATA_LIST).toMatch(/<table/);
     expect(DATA_LIST).toMatch(/divide-y divide-border-subtle md:hidden/);
+  });
+
+  it("card titles clamp to two lines rather than truncating to one", () => {
+    expect(DATA_LIST).toMatch(/line-clamp-2 break-words text-sm font-medium text-ink/);
   });
 
   it("shows a chevron on cards only when the row is clickable (onRowClick or href)", () => {

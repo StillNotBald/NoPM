@@ -11,8 +11,10 @@ import { cn } from "@/lib/cn";
  * - `label` is the full accessible name ("Task X, 3 Mar 2026 to 14 Mar 2026,
  *   critical path, slipped 4 days"); build it with `describeBar`.
  * - `href` -> a real link; `onActivate` -> a button that fires on Enter and
- *   Space exactly as a click does; neither -> a focusable, labelled image so
- *   keyboard and screen-reader users can still reach and hear every bar.
+ *   Space exactly as a click does; neither -> a labelled image. It is NOT a tab
+ *   stop: a mark with no action is not interactive, and 20+ of them made
+ *   keyboard users tab through every bar. Screen readers still hear each one
+ *   (aria-label) and get the same rows from the paired <TimelineTable>.
  * - `pattern` conveys status without colour: solid (done), none (in
  *   progress), dashed (not started), striped (canceled).
  * - Position/size come in via `style`; the visible focus ring is the shared
@@ -98,7 +100,7 @@ export function TimelineBar({
     );
   }
   return (
-    <div role="img" tabIndex={0} aria-label={label} title={label} className={cls} style={st}>
+    <div role="img" aria-label={label} title={label} className={cls} style={st}>
       {children}
     </div>
   );

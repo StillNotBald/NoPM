@@ -1,4 +1,8 @@
+import { Lock } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
+import { WEEK_LOCK_REASON, type WeekLock } from "./week-lock";
 
 /**
  * Weekly timesheet grid (L-30) — one row per distinct task/project
@@ -7,15 +11,20 @@ import { cn } from "@/lib/cn";
  * every ?member=/?week= navigation, same idiom as the sprints page's
  * ?sprint= selector.
  *
- * R-63 table idiom: overflow-x-auto + min-w wrapper, sticky first column
- * (the row label needs to stay visible while scrolling through 7 day
- * columns on narrow viewports), exact `px-5 py-3` cell pair to inherit the
- * .density-compact coupling (globals.css:175-225).
+ * Built on the register table primitives (THead / TH / TD + ScrollTable) so
+ * it shares the product's one table recipe and density tokens; the table
+ * scrolls inside its own region and keeps the row label column sticky so a
+ * row stays identifiable while scrolling through the 7 day columns.
  *
  * "0" vs "—" is deliberate (locked in the task spec): a day with a real
  * zero-hour entry (unusual but valid) renders "0"; a day with NO entry at
  * all renders "—" — a report reader must be able to tell "logged nothing"
  * apart from "logged, zero hours".
+ *
+ * A week whose timesheet is submitted (awaiting a decision) or approved is
+ * FROZEN by the API: its time entries cannot be added or removed. `lock` says
+ * so in one line above the grid; the Log time form disables itself for the same
+ * weeks (see week-lock.ts).
  *
  * Mobile pass (R-94, F5): below `md` the 9-column grid (task/project + 7
  * days + total) is unreadable at phone widths even with horizontal scroll,
@@ -43,12 +52,26 @@ function fmtHours(n: number): string {
 
 const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** Week total + capacity, with the over state spelled out (colour is never the only signal). */
+function WeekTotal({ weekTotal, capacityHoursPerWeek }: { weekTotal: number; capacityHoursPerWeek: number | null }) {
+  const over = capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek;
+  return (
+    <span className={cn("whitespace-nowrap", over ? "text-warning-ink" : "text-ink")}>
+      {fmtHours(weekTotal)}
+      {capacityHoursPerWeek != null && (
+        <span className="ml-1 font-normal text-ink-muted">/ {fmtHours(capacityHoursPerWeek)}h cap</span>
+      )}
+      {over && <span className="ml-1.5 font-medium">over</span>}
+    </span>
+  );
+}
+
 export function WeekGrid({
   weekDates,
   rows,
   capacityHoursPerWeek,
   emptyMessage,
-  locked = false,
+  lock = null,
 }: {
   /** Exactly 7 ISO dates, Monday first. */
   weekDates: string[];
@@ -56,18 +79,21 @@ export function WeekGrid({
   capacityHoursPerWeek: number | null;
   emptyMessage: string;
   /**
-   * L-32/R-76: true when this week has an APPROVED timesheet_submission —
-   * time entries in it reject create/delete (route guard + DB backstop
-   * trigger, migration 20260815000040) until the submission is reopened.
-   * Purely informational here (the grid has no inline edit/delete controls
-   * to disable) — the caption below just tells the viewer WHY a write would
-   * fail if they tried one elsewhere (e.g. the Log time form).
+   * Why this week is frozen, or null when it can be edited. "approved" is the
+   * period-close lock (L-32/R-76); "under_review" is a submitted sheet awaiting
+   * its decision (a reopened sheet is open for amendment, so it is null). The
+   * grid itself has no inline edit controls — this is the reason the viewer
+   * sees, and the same reason the Log time form gives when it disables itself.
    */
-  locked?: boolean;
+  lock?: WeekLock;
 }) {
-  const lockedCaption = locked ? (
-    <p className="border-b border-border-subtle bg-warning-subtle px-5 py-2 text-xs font-medium text-warning">
-      Week approved — locked. Time entries in this week can&apos;t be added or removed until the submission is reopened.
+  const lockedCaption = lock ? (
+    <p
+      role="status"
+      className="flex items-center gap-2 border-b border-border-subtle bg-warning/10 px-5 py-2 text-xs font-medium text-warning-ink"
+    >
+      <Lock size={13} aria-hidden className="shrink-0" />
+      {WEEK_LOCK_REASON[lock]}
     </p>
   ) : null;
 
@@ -121,88 +147,67 @@ export function WeekGrid({
         })}
         <li className="flex items-center justify-between gap-2 bg-sunken px-4 py-3 text-sm font-medium">
           <span className="text-ink">Week total</span>
-          <span
-            className={cn(
-              "font-mono tabular-nums",
-              capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning" : "text-ink",
-            )}
-          >
-            {fmtHours(weekTotal)}
-            {capacityHoursPerWeek != null && (
-              <span className="ml-1 font-normal text-ink-muted">/ {fmtHours(capacityHoursPerWeek)}h cap</span>
-            )}
+          <span className="font-mono tabular-nums">
+            <WeekTotal weekTotal={weekTotal} capacityHoursPerWeek={capacityHoursPerWeek} />
           </span>
         </li>
       </ul>
 
       {/* ≥md: full grid */}
-      <div className="hidden overflow-x-auto md:block">
-      <table className="w-full min-w-[760px] text-sm">
-        <thead>
-          <tr className="border-b border-border-subtle bg-sunken text-left">
-            <th className="sticky left-0 z-10 bg-sunken px-5 py-3 text-xs font-medium text-ink-muted uppercase tracking-wide">
-              Task / Project
-            </th>
-            {weekDates.map((date, i) => (
-              <th
-                key={date}
-                className="px-5 py-3 text-right text-xs font-medium text-ink-muted uppercase tracking-wide"
-              >
-                <span className="block">{DAY_LABELS[i]}</span>
-                <span className="block font-mono text-xs normal-case text-ink-muted/80">
-                  {date.slice(5)}
-                </span>
-              </th>
-            ))}
-            <th className="px-5 py-3 text-right text-xs font-medium text-ink-muted uppercase tracking-wide">
-              Total
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border-subtle">
-          {rows.map((row) => {
-            const rowTotal = weekDates.reduce((sum, date) => sum + (row.hoursByDate[date] ?? 0), 0);
-            return (
-              <tr key={row.key} className="hover:bg-sunken transition-colors duration-100">
-                <td className="sticky left-0 z-10 bg-surface px-5 py-3 max-w-[220px] truncate text-ink">
-                  {row.label}
-                </td>
-                {weekDates.map((date) => (
-                  <td key={date} className="px-5 py-3 text-right font-mono tabular-nums text-ink-secondary">
-                    {row.loggedDates.has(date) ? fmtHours(row.hoursByDate[date] ?? 0) : (
-                      <span className="text-ink-muted">—</span>
-                    )}
-                  </td>
-                ))}
-                <td className="px-5 py-3 text-right font-mono font-medium tabular-nums text-ink">
-                  {fmtHours(rowTotal)}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-border-subtle bg-sunken font-medium">
-            <td className="sticky left-0 z-10 bg-sunken px-5 py-3 text-ink">Day total</td>
-            {columnTotals.map((total, i) => (
-              <td key={weekDates[i]} className="px-5 py-3 text-right font-mono tabular-nums text-ink">
-                {fmtHours(total)}
-              </td>
-            ))}
-            <td
-              className={cn(
-                "px-5 py-3 text-right font-mono tabular-nums",
-                capacityHoursPerWeek != null && weekTotal > capacityHoursPerWeek ? "text-warning" : "text-ink",
-              )}
-            >
-              {fmtHours(weekTotal)}
-              {capacityHoursPerWeek != null && (
-                <span className="ml-1 font-normal text-ink-muted">/ {fmtHours(capacityHoursPerWeek)}h cap</span>
-              )}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+      <div className="hidden md:block">
+        <ScrollTable bare label="Week grid">
+          <THead>
+            <TR>
+              <TH className="sticky left-0 z-10 bg-sunken">Task / Project</TH>
+              {weekDates.map((date, i) => (
+                <TH key={date} align="right">
+                  <span className="block">{DAY_LABELS[i]}</span>
+                  <span className="block normal-case">{date.slice(5)}</span>
+                </TH>
+              ))}
+              <TH align="right">Total</TH>
+            </TR>
+          </THead>
+          <tbody>
+            {rows.map((row) => {
+              const rowTotal = weekDates.reduce((sum, date) => sum + (row.hoursByDate[date] ?? 0), 0);
+              return (
+                <TR key={row.key} className="transition-colors duration-100 hover:bg-sunken">
+                  <TD className="sticky left-0 z-10 bg-surface">
+                    <span className="block max-w-[14rem] truncate" title={row.label}>
+                      {row.label}
+                    </span>
+                  </TD>
+                  {weekDates.map((date) => (
+                    <TD key={date} align="right" numeric className="whitespace-nowrap text-ink-secondary">
+                      {row.loggedDates.has(date) ? (
+                        fmtHours(row.hoursByDate[date] ?? 0)
+                      ) : (
+                        <span className="text-ink-muted">—</span>
+                      )}
+                    </TD>
+                  ))}
+                  <TD align="right" numeric className="whitespace-nowrap font-medium">
+                    {fmtHours(rowTotal)}
+                  </TD>
+                </TR>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <TR className="border-t border-border-subtle bg-sunken font-medium">
+              <TD className="sticky left-0 z-10 bg-sunken">Day total</TD>
+              {columnTotals.map((total, i) => (
+                <TD key={weekDates[i]} align="right" numeric className="whitespace-nowrap">
+                  {fmtHours(total)}
+                </TD>
+              ))}
+              <TD align="right" numeric>
+                <WeekTotal weekTotal={weekTotal} capacityHoursPerWeek={capacityHoursPerWeek} />
+              </TD>
+            </TR>
+          </tfoot>
+        </ScrollTable>
       </div>
     </>
   );

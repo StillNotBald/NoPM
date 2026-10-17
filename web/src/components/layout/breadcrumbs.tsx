@@ -52,45 +52,50 @@ export function Breadcrumbs() {
   // Nothing to show (e.g. bare /dashboard)
   if (crumbs.length === 0) return null;
 
+  // Crumb links get a ~41px-tall hit area (the before: pseudo-element) on a 17px
+  // label without growing the 36px bar.
   return (
     <nav
       aria-label="Breadcrumb"
-      className="flex h-9 shrink-0 items-center gap-1 border-b border-border-subtle bg-canvas/80 px-3 backdrop-blur-xl sm:px-4"
+      className="flex h-9 shrink-0 items-center border-b border-border-subtle bg-canvas px-3 sm:px-4"
     >
-      {crumbs.map((crumb, i) => {
-        const isLast = i === crumbs.length - 1;
-        return (
-          <span key={i} className="flex items-center gap-1">
-            {i > 0 && (
-              <ChevronRight
-                size={12}
-                className="shrink-0 text-ink-muted"
-                aria-hidden
-              />
-            )}
-            {crumb.href && !isLast ? (
-              <Link
-                href={crumb.href}
-                className={cn(
-                  "font-mono text-[11px] text-ink-muted transition-colors hover:text-ink",
-                  i === 0 && "text-accent hover:text-accent/80",
-                )}
-              >
-                {crumb.label}
-              </Link>
-            ) : (
-              <span
-                className={cn(
-                  "font-mono text-[11px]",
-                  isLast ? "text-ink-secondary" : "text-ink-muted",
-                )}
-              >
-                {crumb.label}
-              </span>
-            )}
-          </span>
-        );
-      })}
+      <ol className="flex min-w-0 items-center gap-1">
+        {crumbs.map((crumb, i) => {
+          const isLast = i === crumbs.length - 1;
+          return (
+            <li key={i} className="flex items-center gap-1">
+              {i > 0 && (
+                <ChevronRight
+                  size={12}
+                  className="shrink-0 text-ink-muted"
+                  aria-hidden
+                />
+              )}
+              {crumb.href && !isLast ? (
+                <Link
+                  href={crumb.href}
+                  className={cn(
+                    "focus-ring relative rounded-sm font-mono text-[11px] text-ink-muted transition-colors hover:text-ink before:absolute before:inset-x-0 before:-inset-y-3 before:content-['']",
+                    i === 0 && "text-accent hover:text-accent/80",
+                  )}
+                >
+                  {crumb.label}
+                </Link>
+              ) : (
+                <span
+                  aria-current={isLast ? "page" : undefined}
+                  className={cn(
+                    "font-mono text-[11px]",
+                    isLast ? "text-ink-secondary" : "text-ink-muted",
+                  )}
+                >
+                  {crumb.label}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
     </nav>
   );
 }

@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { createRiskSchema } from "@/app/api/risks/_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { nextRefId } from "@/lib/ref-id";
 import { parseSort, orderOptions } from "@/lib/api/sort";
 import { RISK_SORT_FIELDS, parseRiskFilters } from "@/app/api/risks/_query";
@@ -97,6 +98,11 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: input.owner_id, field: "owner_id" },
+  ]);
 
   const refId = await nextRefId(db, actor.workspaceId, "risks", "R");
 

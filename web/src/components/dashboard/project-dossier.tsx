@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { apiGet } from "@/lib/api-client";
 import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Spinner } from "@/components/ui/spinner";
 import { EntityLink } from "@/components/ui/entity-link";
 import { ragLabel, ragTone } from "@/lib/status";
+import { isOpenIssue, isOpenRisk } from "@/lib/insight/open-status";
+import { formatByPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 // ── shapes (lenient — the dossier degrades gracefully if a field is absent) ──
 export interface DossierProject {
@@ -28,9 +32,14 @@ const STATUS_TONE: Record<string, "neutral" | "info" | "success" | "warning" | "
   not_started: "neutral", on_track: "success", at_risk: "warning", delayed: "danger", completed: "success",
 };
 
-function fmt(iso?: string | null) {
-  return iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—";
-}
+type ModuleKey = "detail" | "milestones" | "risks" | "issues" | "audit";
+const MODULE_LABEL: Record<ModuleKey, string> = {
+  detail: "project details",
+  milestones: "milestones",
+  risks: "risks",
+  issues: "issues",
+  audit: "change history",
+};
 function ago(iso: string) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 90) return "just now";
@@ -47,6 +56,41 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </div>
   );
 }
+/**
+ * One dossier module's body. "Loading", "couldn't load" and "none" are three
+ * different answers: a failed risks request must never read as "None open".
+ */
+function ModuleBody({
+  module,
+  loading,
+  failed,
+  onRetry,
+  children,
+}: {
+  module: ModuleKey;
+  loading: boolean;
+  failed: boolean;
+  onRetry: () => void;
+  children: ReactNode;
+}) {
+  if (loading) return <p className="text-sm text-ink-muted">Loading…</p>;
+  if (failed) {
+    return (
+      <p role="alert" className="text-sm text-danger-ink">
+        Couldn&apos;t load {MODULE_LABEL[module]}.{" "}
+        <button
+          type="button"
+          onClick={onRetry}
+          className="focus-ring rounded font-medium underline underline-offset-2"
+        >
+          Retry
+        </button>
+      </p>
+    );
+  }
+  return <>{children}</>;
+}
+
 function Module({ title, count, children }: { title: string; count?: number; children: ReactNode }) {
   return (
     <section className="space-y-2 border-t border-border-subtle pt-3.5">
@@ -62,7 +106,12 @@ function Module({ title, count, children }: { title: string; count?: number; chi
 }
 
 export function ProjectDossier({ project, openR, openI }: { project: DossierProject; openR: number; openI: number }) {
+  const pref = useDateDisplayPref();
+  const fmt = (iso?: string | null) => (iso ? formatByPref(iso, pref).absolute : "—");
+
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState<ReadonlySet<ModuleKey>>(new Set());
   const [detail, setDetail] = useState<Detail | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [risks, setRisks] = useState<RiskLite[]>([]);
@@ -80,15 +129,28 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
       apiGet<AuditRow[]>(`/api/audit?target_type=project&target_id=${id}&limit=8`),
     ]).then((res) => {
       if (cancel) return;
+      const keys: ModuleKey[] = ["detail", "milestones", "risks", "issues", "audit"];
+      setFailed(new Set(keys.filter((_, i) => res[i].status === "rejected")));
       if (res[0].status === "fulfilled" && res[0].value) setDetail(res[0].value);
       if (res[1].status === "fulfilled") setMilestones((res[1].value ?? []).slice(0, 8));
-      if (res[2].status === "fulfilled") setRisks((res[2].value ?? []).filter((r) => r.status === "open" || r.status === "mitigating"));
-      if (res[3].status === "fulfilled") setIssues((res[3].value ?? []).filter((i) => i.status === "open" || i.status === "in_progress"));
+      if (res[2].status === "fulfilled") setRisks((res[2].value ?? []).filter((r) => isOpenRisk(r.status)));
+      if (res[3].status === "fulfilled") setIssues((res[3].value ?? []).filter((i) => isOpenIssue(i.status)));
       if (res[4].status === "fulfilled") setAudit(res[4].value ?? []);
       setLoading(false);
     });
     return () => { cancel = true; };
-  }, [project.id]);
+  }, [project.id, attempt]);
+
+  const retry = () => {
+    setLoading(true);
+    setAttempt((n) => n + 1);
+  };
+  const body = (module: ModuleKey, children: ReactNode) => (
+    <ModuleBody module={module} loading={loading} failed={failed.has(module)} onRetry={retry}>
+      {children}
+    </ModuleBody>
+  );
+  const countOf = (module: ModuleKey, n: number) => (loading || failed.has(module) ? undefined : n);
 
   const pct = Math.min(100, Math.max(0, project.completion_pct ?? 0));
   const slip =
@@ -116,6 +178,14 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
       </div>
 
       <Module title="Status">
+        {!loading && failed.has("detail") && (
+          <p role="alert" className="text-sm text-danger-ink">
+            Couldn&apos;t load project details.{" "}
+            <button type="button" onClick={retry} className="focus-ring rounded font-medium underline underline-offset-2">
+              Retry
+            </button>
+          </p>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Phase"><span className="capitalize">{detail?.phase ?? "—"}</span></Field>
           <Field label="Currency"><span className="font-mono text-xs">{detail?.currency ?? "—"}</span></Field>
@@ -123,20 +193,20 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
           <Field label="Target">
             <span className="tabular-nums">{fmt(detail?.target_date ?? project.target_date)}</span>
             {slip && (
-              <span className="ml-1 text-[11px] text-danger">(baseline {fmt(detail?.baseline_target_date)})</span>
+              <span className="ml-1 text-[11px] text-danger-ink">(baseline {fmt(detail?.baseline_target_date)})</span>
             )}
           </Field>
           <Field label="Open risks">
-            <span className={openR > 0 ? "font-medium text-danger tabular-nums" : "text-ink-muted"}>{openR}</span>
+            <span className={openR > 0 ? "font-medium text-danger-ink tabular-nums" : "text-ink-muted"}>{openR}</span>
           </Field>
           <Field label="Open issues">
-            <span className={openI > 0 ? "font-medium text-warning tabular-nums" : "text-ink-muted"}>{openI}</span>
+            <span className={openI > 0 ? "font-medium text-warning-ink tabular-nums" : "text-ink-muted"}>{openI}</span>
           </Field>
         </div>
       </Module>
 
-      <Module title="Milestones" count={milestones.length}>
-        {milestones.length === 0 ? (
+      <Module title="Milestones" count={countOf("milestones", milestones.length)}>
+        {body("milestones", milestones.length === 0 ? (
           <p className="text-sm text-ink-muted">No milestones.</p>
         ) : (
           <ul className="space-y-1.5">
@@ -144,15 +214,15 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
               <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
                 <span className="min-w-0 flex-1 truncate text-ink">{m.name}</span>
                 <Badge size="sm" tone={STATUS_TONE[m.status] ?? "neutral"}>{m.status.replace(/_/g, " ")}</Badge>
-                <span className="w-16 shrink-0 text-right text-xs tabular-nums text-ink-muted">{fmt(m.target_date)}</span>
+                <span className="w-24 shrink-0 text-right text-xs tabular-nums text-ink-muted">{fmt(m.target_date)}</span>
               </li>
             ))}
           </ul>
-        )}
+        ))}
       </Module>
 
-      <Module title="Open risks" count={risks.length}>
-        {risks.length === 0 ? (
+      <Module title="Open risks" count={countOf("risks", risks.length)}>
+        {body("risks", risks.length === 0 ? (
           <p className="text-sm text-ink-muted">None open.</p>
         ) : (
           <ul className="space-y-1.5">
@@ -165,11 +235,11 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
               </li>
             ))}
           </ul>
-        )}
+        ))}
       </Module>
 
-      <Module title="Open issues" count={issues.length}>
-        {issues.length === 0 ? (
+      <Module title="Open issues" count={countOf("issues", issues.length)}>
+        {body("issues", issues.length === 0 ? (
           <p className="text-sm text-ink-muted">None open.</p>
         ) : (
           <ul className="space-y-1.5">
@@ -182,11 +252,11 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
               </li>
             ))}
           </ul>
-        )}
+        ))}
       </Module>
 
-      <Module title="Recent change history" count={audit.length}>
-        {audit.length === 0 ? (
+      <Module title="Recent change history" count={countOf("audit", audit.length)}>
+        {body("audit", audit.length === 0 ? (
           <p className="text-sm text-ink-muted">No recorded changes.</p>
         ) : (
           <ul className="space-y-1.5">
@@ -200,16 +270,16 @@ export function ProjectDossier({ project, openR, openI }: { project: DossierProj
               </li>
             ))}
           </ul>
-        )}
+        ))}
       </Module>
 
       <div className="flex items-center justify-between border-t border-border-subtle pt-3">
-        <a
+        <Link
           href={`/projects/${project.id}`}
-          className="text-sm font-medium text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+          className="focus-ring rounded text-sm font-medium text-accent hover:underline"
         >
           Open full project →
-        </a>
+        </Link>
         {loading && <Spinner size="sm" />}
       </div>
     </div>

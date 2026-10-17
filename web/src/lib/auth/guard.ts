@@ -27,6 +27,21 @@ export type Actor = {
   channel?: AuditChannel;
   /** Per-request correlation id (X-Request-Id, echoed on the response). */
   requestId?: string;
+  /**
+   * The HUMAN behind this actor (a profiles.id), used by every four-eyes
+   * comparison (2026-10-16, principal-aware four-eyes). Session users: their
+   * own id. Bearer PATs: the token's `api_tokens.created_by`. Connector
+   * actions (e.g. a Lark button click): the verified linked profile. Null
+   * only for legacy tokens with no recorded creator — those can never
+   * approve (fail-closed).
+   */
+  principalId?: string | null;
+  /** Set when the action arrived through an integration connector. */
+  viaConnectorId?: string;
+  /** The platform's event / callback id (non-repudiation, idempotency). */
+  externalEventId?: string;
+  /** The platform's user reference, e.g. "lark:<tenant_key>:<open_id>". */
+  externalActorRef?: string;
 };
 
 /**
@@ -84,11 +99,14 @@ async function assertMfaSatisfied(uid: string): Promise<void> {
   }
 }
 
+/** Do not rewrite api_tokens.last_used_at more often than this. */
+const LAST_USED_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
+
 async function verifyBearer(raw: string): Promise<Actor> {
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("api_tokens")
-    .select("id, workspace_id, name, scopes, revoked, expires_at")
+    .select("id, workspace_id, name, scopes, revoked, expires_at, created_by, last_used_at")
     .eq("token_hash", hashToken(raw))
     .maybeSingle();
 
@@ -98,11 +116,22 @@ async function verifyBearer(raw: string): Promise<Actor> {
     throw new AuthError("API token has expired");
   }
 
-  // fire-and-forget last_used_at
-  void admin
-    .from("api_tokens")
-    .update({ last_used_at: new Date().toISOString() })
-    .eq("id", data.id);
+  // Fire-and-forget last_used_at. supabase-js builders are lazy thenables:
+  // nothing is sent until `.then()` is called, so a bare `void builder` never
+  // wrote (the Tokens page always said "never"). Skip the write while the
+  // stored value is under TOUCH_INTERVAL_MS old, so a busy agent does not
+  // turn every request into an extra UPDATE.
+  const lastUsed = data.last_used_at ? Date.parse(data.last_used_at) : NaN;
+  if (!Number.isFinite(lastUsed) || Date.now() - lastUsed >= LAST_USED_TOUCH_INTERVAL_MS) {
+    admin
+      .from("api_tokens")
+      .update({ last_used_at: new Date().toISOString() })
+      .eq("id", data.id)
+      .then(
+        () => {},
+        () => {},
+      );
+  }
 
   return {
     type: "token",
@@ -111,6 +140,12 @@ async function verifyBearer(raw: string): Promise<Actor> {
     label: data.name,
     workspaceId: data.workspace_id,
     scopes: data.scopes ?? [],
+    // The human who minted this token (api_tokens.created_by). Four-eyes
+    // compares HUMANS, never actor ids: a person's token is that person, so
+    // it can never approve what the person (or another of their tokens)
+    // raised. NULL for legacy tokens with no recorded creator — those can
+    // never approve (fail-closed, enforced in @/lib/governance/decide).
+    principalId: data.created_by ?? null,
   };
 }
 
@@ -134,6 +169,8 @@ async function verifySession(): Promise<Actor> {
     label: profile.display_name || profile.email || user.email || user.id,
     workspaceId: profile.workspace_id,
     role: profile.role,
+    // A signed-in person is their own principal.
+    principalId: user.id,
   };
 }
 

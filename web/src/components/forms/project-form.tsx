@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { cloneElement, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
@@ -51,24 +51,149 @@ export interface Project {
 }
 
 // ── Shared field helpers ──────────────────────────────────────────────────────
+//
+// Prefer <Field> over a bare FieldLabel: it wires label → control (`htmlFor`/`id`
+// via useId), `aria-invalid` and `aria-describedby` → the inline error, so every
+// form control has an accessible name and an announced error. FieldLabel and
+// FieldError stay exported (with optional `htmlFor` / `id`) for callers that lay
+// out a control by hand.
 export function FieldLabel({
   children,
   required,
+  htmlFor,
+  id,
 }: {
   children: React.ReactNode;
   required?: boolean;
+  /** id of the control this label names. */
+  htmlFor?: string;
+  /** For `aria-labelledby` on a group of controls this label names. */
+  id?: string;
 }) {
   return (
-    <label className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+    <label
+      id={id}
+      htmlFor={htmlFor}
+      className="mb-0.5 block text-[11px] font-semibold uppercase tracking-wider text-ink-muted"
+    >
       {children}
-      {required && <span className="ml-0.5 text-danger">*</span>}
+      {required && (
+        <span className="ml-0.5 text-danger-ink" aria-hidden>
+          *
+        </span>
+      )}
     </label>
   );
 }
 
-export function FieldError({ message }: { message?: string }) {
+export function FieldError({ message, id }: { message?: string; id?: string }) {
   if (!message) return null;
-  return <p className="mt-0.5 text-[11px] text-danger">{message}</p>;
+  return (
+    <p id={id} role="alert" className="mt-0.5 text-xs text-danger-ink">
+      {message}
+    </p>
+  );
+}
+
+/** Top-of-form error banner; announced to assistive tech when it appears. */
+export function FormError({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return (
+    <div role="alert" className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
+      {message}
+    </div>
+  );
+}
+
+type ControlA11yProps = {
+  id?: string;
+  "aria-invalid"?: React.AriaAttributes["aria-invalid"];
+  "aria-describedby"?: string;
+  "aria-required"?: React.AriaAttributes["aria-required"];
+};
+
+/**
+ * Label + control + hint + error, wired together. The single child must be a
+ * form control that forwards `id` and aria props to its native element
+ * (Input, SelectInput, TextareaInput all do). An `id` already on the child is
+ * kept, so the label can still target a control the caller identifies itself.
+ */
+export function Field({
+  label,
+  required,
+  error,
+  hint,
+  className,
+  children,
+}: {
+  label: React.ReactNode;
+  required?: boolean;
+  error?: string;
+  hint?: React.ReactNode;
+  className?: string;
+  children: React.ReactElement<ControlA11yProps>;
+}) {
+  const autoId = useId();
+  const id = children.props.id ?? autoId;
+  const errorId = error ? `${id}-error` : undefined;
+  const hintId = hint ? `${id}-hint` : undefined;
+  const describedBy =
+    [children.props["aria-describedby"], hintId, errorId].filter(Boolean).join(" ") || undefined;
+  return (
+    <div className={className}>
+      <FieldLabel htmlFor={id} required={required}>
+        {label}
+      </FieldLabel>
+      {cloneElement(children, {
+        id,
+        "aria-invalid": error ? true : children.props["aria-invalid"],
+        "aria-describedby": describedBy,
+        "aria-required": required ? true : children.props["aria-required"],
+      })}
+      {hint && (
+        <p id={hintId} className="mt-0.5 text-xs text-ink-muted">
+          {hint}
+        </p>
+      )}
+      <FieldError id={errorId} message={error} />
+    </div>
+  );
+}
+
+/**
+ * The borderless, prominent first field of a create/edit form. Its visible
+ * "label" is the placeholder, so the accessible name comes from `label`
+ * (aria-label); the error is tied to the input like any other field.
+ */
+export function TitleField({
+  label,
+  error,
+  className,
+  id: idProp,
+  ...props
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, "aria-label"> & {
+  label: string;
+  error?: string;
+}) {
+  const autoId = useId();
+  const id = idProp ?? autoId;
+  const errorId = error ? `${id}-error` : undefined;
+  return (
+    <div>
+      <Input
+        id={id}
+        aria-label={label}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={errorId}
+        className={cn(
+          "rounded-none border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted focus-visible:border-border-strong",
+          className,
+        )}
+        {...props}
+      />
+      <FieldError id={errorId} message={error} />
+    </div>
+  );
 }
 
 export function SelectInput({
@@ -79,7 +204,7 @@ export function SelectInput({
     <select
       className={cn(
         "h-11 sm:h-10 w-full rounded-md border border-border-subtle bg-canvas px-2.5 text-base sm:text-sm text-ink",
-        "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+        "focus-ring focus-visible:border-accent",
         "disabled:opacity-50",
         className,
       )}
@@ -96,8 +221,7 @@ export function TextareaInput({
     <textarea
       className={cn(
         "min-h-[72px] w-full rounded-md border border-border-subtle bg-canvas px-3 py-2 text-base sm:text-sm text-ink",
-        "placeholder:text-ink-muted focus:outline-none",
-        "focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
+        "placeholder:text-ink-muted focus-ring focus-visible:border-accent",
         "disabled:opacity-50",
         className,
       )}
@@ -174,7 +298,7 @@ export function ProjectForm({
 
     // Client-side validation — immediate feedback before the network round-trip.
     const clientResult = validateFields([
-      { key: "name", value: name, message: "Project name is required" },
+      { key: "name", value: name.trim(), message: "Project name is required" },
     ]);
     if (!clientResult.ok) {
       setFieldErrors(clientResult.errors);
@@ -251,54 +375,43 @@ export function ProjectForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Title — the only visually prominent field */}
-      <div>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Project name"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.name} />
-      </div>
+      <TitleField
+        label="Project name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Project name"
+        required
+        error={fieldErrors.name}
+      />
 
       {/* Section: Identity */}
       <FormSection title="Identity">
         <FormGrid>
           {/* Code */}
-          <div>
-            <FieldLabel>Code</FieldLabel>
+          <Field label="Code" error={fieldErrors.code}>
             <Input
               value={code}
               onChange={(e) => setCode(e.target.value)}
               placeholder="PROJ-001"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.code} />
-          </div>
+          </Field>
 
           {/* Program */}
-          <div>
-            <FieldLabel>Program</FieldLabel>
+          <Field label="Program" error={fieldErrors.program}>
             <Input
               value={program}
               onChange={(e) => setProgram(e.target.value)}
               placeholder="e.g. Digital Transformation"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.program} />
-          </div>
+          </Field>
 
           {/* Phase */}
-          <div>
-            <FieldLabel>Phase</FieldLabel>
+          <Field label="Phase" error={fieldErrors.phase}>
             <SelectInput
               value={phase}
               onChange={(e) => setPhase(e.target.value as ProjectPhase)}
@@ -309,12 +422,10 @@ export function ProjectForm({
               <option value="monitoring">Monitoring</option>
               <option value="closing">Closing</option>
             </SelectInput>
-            <FieldError message={fieldErrors.phase} />
-          </div>
+          </Field>
 
           {/* Currency */}
-          <div>
-            <FieldLabel>Currency</FieldLabel>
+          <Field label="Currency" error={fieldErrors.currency}>
             <SelectInput
               value={currency}
               onChange={(e) => setCurrency(e.target.value)}
@@ -325,8 +436,7 @@ export function ProjectForm({
               <option value="GBP">GBP</option>
               <option value="AUD">AUD</option>
             </SelectInput>
-            <FieldError message={fieldErrors.currency} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -334,8 +444,7 @@ export function ProjectForm({
       <FormSection title="Status & Schedule">
         <FormGrid>
           {/* RAG Status */}
-          <div>
-            <FieldLabel>RAG Status</FieldLabel>
+          <Field label="RAG Status" error={fieldErrors.rag_status}>
             <SelectInput
               value={ragStatus}
               onChange={(e) => setRagStatus(e.target.value as Project["rag_status"])}
@@ -346,59 +455,50 @@ export function ProjectForm({
               <option value="red">Red</option>
               <option value="complete">Complete</option>
             </SelectInput>
-            <FieldError message={fieldErrors.rag_status} />
-          </div>
+          </Field>
 
           {/* Placeholder to keep grid aligned */}
           <div />
 
           {/* Start Date */}
-          <div>
-            <FieldLabel>Start Date</FieldLabel>
+          <Field label="Start Date" error={fieldErrors.start_date}>
             <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.start_date} />
-          </div>
+          </Field>
 
           {/* Target Date */}
-          <div>
-            <FieldLabel>Target Date</FieldLabel>
+          <Field label="Target Date" error={fieldErrors.target_date}>
             <Input
               type="date"
               value={targetDate}
               onChange={(e) => setTargetDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.target_date} />
-          </div>
+          </Field>
 
           {/* Baseline Start Date */}
-          <div>
-            <FieldLabel>Baseline Start</FieldLabel>
+          <Field label="Baseline Start" error={fieldErrors.baseline_start_date}>
             <Input
               type="date"
               value={baselineStartDate}
               onChange={(e) => setBaselineStartDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.baseline_start_date} />
-          </div>
+          </Field>
 
           {/* Baseline Target Date */}
-          <div>
-            <FieldLabel>Baseline Target</FieldLabel>
+          <Field label="Baseline Target" error={fieldErrors.baseline_target_date}>
             <Input
               type="date"
               value={baselineTargetDate}
               onChange={(e) => setBaselineTargetDate(e.target.value)}
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.baseline_target_date} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -406,72 +506,60 @@ export function ProjectForm({
       <FormSection title="Ownership">
         <FormGrid>
           {/* Sponsor */}
-          <div>
-            <FieldLabel>Sponsor</FieldLabel>
+          <Field label="Sponsor" error={fieldErrors.sponsor}>
             <Input
               value={sponsor}
               onChange={(e) => setSponsor(e.target.value)}
               placeholder="e.g. Jane Doe, CFO"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.sponsor} />
-          </div>
+          </Field>
 
           {/* Project Manager */}
-          <div>
-            <FieldLabel>Project Manager</FieldLabel>
+          <Field label="Project Manager" error={fieldErrors.project_manager}>
             <Input
               value={projectManager}
               onChange={(e) => setProjectManager(e.target.value)}
               placeholder="e.g. Wei Jie Tan"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.project_manager} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
       {/* Section: Charter — long-form narrative fields */}
       <FormSection title="Charter">
-        <div>
-          <FieldLabel>Objective</FieldLabel>
+        <Field label="Objective" error={fieldErrors.objective}>
           <TextareaInput
             value={objective}
             onChange={(e) => setObjective(e.target.value)}
             placeholder="Project purpose / objective"
           />
-          <FieldError message={fieldErrors.objective} />
-        </div>
+        </Field>
 
-        <div>
-          <FieldLabel>Business Case</FieldLabel>
+        <Field label="Business Case" error={fieldErrors.business_case}>
           <TextareaInput
             value={businessCase}
             onChange={(e) => setBusinessCase(e.target.value)}
             placeholder="Business case / justification"
           />
-          <FieldError message={fieldErrors.business_case} />
-        </div>
+        </Field>
 
-        <div>
-          <FieldLabel>Scope Summary</FieldLabel>
+        <Field label="Scope Summary" error={fieldErrors.scope_summary}>
           <TextareaInput
             value={scopeSummary}
             onChange={(e) => setScopeSummary(e.target.value)}
             placeholder="High-level scope"
           />
-          <FieldError message={fieldErrors.scope_summary} />
-        </div>
+        </Field>
 
-        <div>
-          <FieldLabel>Health Commentary</FieldLabel>
+        <Field label="Health Commentary" error={fieldErrors.health_commentary}>
           <TextareaInput
             value={healthCommentary}
             onChange={(e) => setHealthCommentary(e.target.value)}
             placeholder='RAG narrative — one-line "why is it amber?"'
           />
-          <FieldError message={fieldErrors.health_commentary} />
-        </div>
+        </Field>
       </FormSection>
 
       {/* Actions */}
@@ -479,7 +567,7 @@ export function ProjectForm({
         <Button type="button" variant="ghost" onClick={inspector.close} disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           Cancel
         </Button>
-        <Button type="submit" variant="primary" disabled={saving || !name.trim()} className="w-full sm:w-auto h-11 sm:h-10">
+        <Button type="submit" variant="primary" disabled={saving} className="w-full sm:w-auto h-11 sm:h-10">
           {saving ? (
             <>
               <Spinner size="sm" className="mr-2" />

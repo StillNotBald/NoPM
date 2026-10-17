@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { updateProgramSchema } from "../_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
       })),
     );
   }
+
+  // Cross-tenant guard: owner_id is a resource_member of THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: parsed.data.owner_id, field: "owner_id" },
+  ]);
 
   const now = new Date().toISOString();
   const { data: after, error: updateError } = await db

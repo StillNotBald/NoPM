@@ -71,8 +71,10 @@ Under `--json`, the raw error body (including `current_updated_at`) is printed i
 ```bash
 nopm approvals                               # list pending deletion requests
 nopm approvals --status all                  # all statuses
-nopm approve <requestId>                     # CHECKER (must be a different token with task:delete:approve)
+nopm approve <requestId>                     # CHECKER (must be a different person with task:delete:approve; a token counts as the human who created it)
 nopm approve reject <requestId> [--reason <why>]
+nopm review                                  # everything waiting on a person: deletions, change requests, timesheets, rebaselines — and whether YOU may decide each
+nopm review --kind timesheet,change_request  # narrow by kind (read-only; deciding stays with the commands above / the console)
 ```
 
 ## Audit log & discovery
@@ -113,7 +115,7 @@ cli/
   nopm.mjs              dispatcher — dynamic-import commands/<group>.mjs; central --help/--version
   lib/
     api.mjs             loadConfig/saveConfig/api/out/parseFlags/die (CliError, --curl dry-run)
-  commands/             24 command groups, one file each (describe + usage + run)
+  commands/             27 command groups, one file each (describe + usage + run)
   test/
     cli.test.mjs        contract tests with a stubbed ctx.api — no network
 ```

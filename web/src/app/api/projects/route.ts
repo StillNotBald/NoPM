@@ -3,6 +3,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { createProjectSchema } from "./_schema";
 
 export const runtime = "nodejs";
@@ -65,11 +66,25 @@ export const POST = route(async ({ actor, request }) => {
 
   const db = createAdminClient();
 
+  // owner_id must be a member of THIS workspace: a foreign id would push the
+  // project's notifications (change requests, approvals) into another tenant.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: parsed.data.owner_id, field: "owner_id" },
+  ]);
+
+  // A project is never BORN locked: locking snapshots the baselines and is
+  // audited, and only POST /projects/:id/lock does that. Lock state is stripped
+  // from the body (locked_at / locked_by were never in the schema), exactly as
+  // PATCH does — otherwise `is_locked: true` here made a project frozen before
+  // it had any baseline to freeze.
+  const fields = { ...parsed.data };
+  delete fields.is_locked;
+
   const now = new Date().toISOString();
   const { data: row, error } = await db
     .from("projects")
     .insert({
-      ...parsed.data,
+      ...fields,
       workspace_id: actor.workspaceId,
       updated_at: now,
     })

@@ -15,8 +15,8 @@ The differentiator is **institutional governance built into the data layer**: an
 | Surface | Where | What it gives an agent |
 |---|---|---|
 | **REST API** | 82 documented endpoints, [OpenAPI 3.1](https://stillnotbald.com/api/openapi.json) + [llms.txt](https://stillnotbald.com/llms.txt) (both spec-coverage drift-tested) | Everything — every mutation audited, scopes enforced per request |
-| **`nopm` CLI** | [`cli/`](cli/) — zero dependencies, contract-tested | 26 command groups, `--json` machine output, `--curl` dry-run |
-| **MCP server** | [`web/mcp/`](web/mcp/) + root [`.mcp.json`](.mcp.json) | 24 tools over stdio and Streamable HTTP; schemas lock-tested against the API's Zod validators |
+| **`nopm` CLI** | [`cli/`](cli/) — zero dependencies, contract-tested | 27 command groups, `--json` machine output, `--curl` dry-run |
+| **MCP server** | [`web/mcp/`](web/mcp/) + root [`.mcp.json`](.mcp.json) | 25 tools over stdio and Streamable HTTP; schemas lock-tested against the API's Zod validators |
 
 The in-app **BYOK assistant** uses the same registry as the MCP server: your own OpenAI/Anthropic/Google/OpenRouter key (AES-256-GCM at rest) drives NoPM through an ephemeral scoped token — audited as a token actor, structurally unable to hold an approve/admin scope.
 
@@ -33,6 +33,7 @@ The in-app **BYOK assistant** uses the same registry as the MCP server: your own
 | Learn the console UI (operator / admin / agent surfaces) | [`user-manual/README.md`](user-manual/README.md) |
 | Drive it from a terminal | [`cli/README.md`](cli/README.md) |
 | Connect an MCP client | [`web/mcp/README.md`](web/mcp/README.md) |
+| Connect Lark or Feishu, or subscribe a calendar to milestones | [`docs/guide/07-lark-integration.md`](docs/guide/07-lark-integration.md) for Lark/Feishu setup; the calendar feed is a revocable secret URL |
 | Check project health | `npm run health` (RAG dashboard, no network) |
 
 ## Layout

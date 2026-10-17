@@ -29,6 +29,25 @@ export type AssistantResult = {
   usedDemoKey: boolean;
 };
 
+/**
+ * Build the HTTP call for a tool WITHOUT ever throwing. The registry refuses
+ * arguments that cannot be placed in a request path safely (a non-UUID id, a
+ * path-splicing value: ToolArgError from mcp/tools.mjs). Model output is
+ * untrusted, so that refusal must reach the model as an ordinary failed tool
+ * result it can correct, never abort the whole turn (the `finally` would revoke
+ * the token, but the user would lose the reply and every earlier action).
+ */
+export function buildToolCall(
+  spec: (typeof TOOLS)[number],
+  args: Record<string, unknown>,
+): { ok: true; path: string; method: string; body?: unknown } | { ok: false; message: string } {
+  try {
+    return { ok: true, ...spec.toRequest(args) };
+  } catch (err) {
+    return { ok: false, message: `Bad arguments: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 const DEMO_LIMIT = 20;
 const DEMO_WINDOW_SECS = 60 * 60; // 1 hour
 
@@ -144,6 +163,17 @@ function summarize(toolName: string, args: Record<string, unknown>, result: unkn
     case "list_clashes": return `Listed ${(r?.total as number | undefined) ?? "?"} clashes`;
     case "list_resources": return `Listed ${(r?.total as number | undefined) ?? "?"} resources`;
     case "query_audit": return `Found ${(r?.total as number | undefined) ?? "?"} audit entries`;
+    case "list_pending_approvals": {
+      // No "M you can decide" count on purpose: the ephemeral token never holds an
+      // approve/decide scope, so every item's can_decide is false for the assistant
+      // even when the signed-in person may decide it in the console. Say what is
+      // verifiably true instead — the total, and whether some kinds were unreadable.
+      const total = r?.total as number | undefined;
+      const hidden = Array.isArray(r?.hidden_kinds) ? (r?.hidden_kinds as unknown[]).length : 0;
+      const count = total === undefined ? "?" : String(total);
+      const noun = total === 1 ? "pending approval" : "pending approvals";
+      return `${count} ${noun}${hidden > 0 ? ` (${hidden} kind${hidden === 1 ? "" : "s"} not visible to the assistant)` : ""}`;
+    }
     default: return `${toolName} completed`;
   }
 }
@@ -254,7 +284,13 @@ export async function runAssistant(opts: {
           continue;
         }
 
-        const { path, method, body } = spec.toRequest(tc.args);
+        const built = buildToolCall(spec, tc.args);
+        if (!built.ok) {
+          toolResults.push({ role: "tool", content: JSON.stringify({ error: built.message }), tool_call_id: tc.id });
+          actions.push({ tool: tc.name, args: tc.args, ok: false, summary: built.message });
+          continue;
+        }
+        const { path, method, body } = built;
         const url = `${origin}${path}`;
 
         let responseData: unknown = null;
@@ -432,7 +468,13 @@ export async function runAssistantStream(opts: {
           continue;
         }
 
-        const { path, method, body } = spec.toRequest(tc.args);
+        const built = buildToolCall(spec, tc.args);
+        if (!built.ok) {
+          toolResults.push({ role: "tool", content: JSON.stringify({ error: built.message }), tool_call_id: tc.id });
+          actions.push({ tool: tc.name, args: tc.args, ok: false, summary: built.message });
+          continue;
+        }
+        const { path, method, body } = built;
         const url = `${origin}${path}`;
 
         let responseData: unknown = null;

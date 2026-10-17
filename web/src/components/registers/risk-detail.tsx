@@ -71,14 +71,6 @@ const IMPACT_AREA_LABELS: Record<string, string> = {
   compliance: "Compliance",
 };
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 // ── RiskDetailRow — a labelled field row ──────────────────────────────────────
 
@@ -109,10 +101,13 @@ export interface RiskDetailProps {
   };
   projectName?: string;
   ownerName?: string;
+  /** Same appearance preference the register list honours; absolute when omitted. */
+  dateDisplayPref?: DateDisplayPref;
 }
 
-export function RiskDetail({ risk, projectName, ownerName }: RiskDetailProps) {
+export function RiskDetail({ risk, projectName, ownerName, dateDisplayPref = "absolute" }: RiskDetailProps) {
   const inspector = useInspector();
+  const formatDate = (iso: string | null | undefined) => formatByPref(iso, dateDisplayPref).text;
 
   const score = riskScore(risk.probability_pct ?? null, risk.impact_score ?? null);
   const band = exposureBand(score);
@@ -138,12 +133,12 @@ export function RiskDetail({ risk, projectName, ownerName }: RiskDetailProps) {
         <div className="flex shrink-0 items-center gap-1">
           <Link
             href={`/trust?target_type=risk&target_id=${risk.id}`}
-            className="inline-flex h-9 items-center gap-1 rounded-md px-2 text-xs text-ink-secondary hover:bg-sunken hover:text-ink"
+            className="focus-ring inline-flex h-11 items-center gap-1 rounded-md px-2 text-xs text-ink-secondary hover:bg-sunken hover:text-ink sm:h-9"
           >
             <History size={13} />
             History
           </Link>
-          <Button variant="ghost" onClick={openEdit} className="h-9 px-3 text-xs">
+          <Button variant="ghost" onClick={openEdit} className="h-11 px-3 text-xs sm:h-9">
             Edit
           </Button>
         </div>
@@ -287,6 +282,7 @@ export function RiskDataList({
         risk={risk}
         projectName={risk.project_id ? (projectMap[risk.project_id] ?? undefined) : undefined}
         ownerName={ownerName(risk.owner_id)}
+        dateDisplayPref={dateDisplayPref}
       />,
       risk.reference_id ? `Risk ${risk.reference_id}` : "Risk Detail",
     );

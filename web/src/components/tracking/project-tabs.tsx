@@ -7,9 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import { useInspector } from "@/components/layout/app-shell";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/api-client";
+import { ragLabel, ragTone } from "@/lib/status";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
+import { countOpenIssues, countOpenRisks, isOpenRisk } from "@/lib/insight/open-status";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 import { ActivityTable, type Task as RichTask } from "@/components/tracking/activity-table";
 import { TaskDetailPanel } from "@/components/tracking/detail-panel";
 import { GanttChart, type TaskDependency } from "@/components/tracking/gantt";
@@ -133,26 +138,6 @@ interface ResourceMemberRow {
 
 type BadgeTone = "neutral" | "accent" | "info" | "success" | "warning" | "danger";
 
-function ragTone(s: Project["rag_status"]): BadgeTone {
-  switch (s) {
-    case "green":    return "success";
-    case "amber":    return "warning";
-    case "red":      return "danger";
-    case "complete": return "success";
-    default:         return "info";
-  }
-}
-
-function ragLabel(s: Project["rag_status"]): string {
-  switch (s) {
-    case "not_started": return "In progress";
-    case "red":         return "Delayed";
-    case "amber":       return "At risk";
-    case "green":       return "On track";
-    case "complete":    return "Complete";
-  }
-}
-
 function riskStatusTone(s: Risk["status"]): BadgeTone {
   switch (s) {
     case "closed":     return "success";
@@ -171,11 +156,9 @@ function issueStatusTone(s: Issue["status"]): BadgeTone {
   }
 }
 
-function fmtDate(d: string | null): string {
-  if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", {
-    month: "short", day: "numeric", year: "numeric",
-  });
+/** Absolute date through the shared formatter, so this tab agrees with the rest of the app. */
+function fmtDate(d: string | null, pref: DateDisplayPref): string {
+  return d ? formatByPref(d, pref).absolute : "—";
 }
 
 // ── Overview helpers ──────────────────────────────────────────────────────────
@@ -218,10 +201,10 @@ function MiniChip({
   const bg: Record<BadgeTone, string> = {
     neutral: "bg-sunken text-ink-secondary",
     accent:  "bg-accent/10 text-accent",
-    info:    "bg-info/10 text-info",
-    success: "bg-success/10 text-success",
-    warning: "bg-warning/10 text-warning",
-    danger:  "bg-danger/10 text-danger",
+    info:    "bg-info/10 text-info-ink",
+    success: "bg-success/10 text-success-ink",
+    warning: "bg-warning/10 text-warning-ink",
+    danger:  "bg-danger/10 text-danger-ink",
   };
   return (
     <span
@@ -245,6 +228,7 @@ function OverviewTab({
   risks,
   issues,
   members,
+  membersReady,
 }: {
   project: Project;
   milestones: Milestone[];
@@ -252,7 +236,11 @@ function OverviewTab({
   risks: Risk[];
   issues: Issue[];
   members: Record<string, string>;
+  /** False until /api/resources answers: names are not known yet, so don't print ids. */
+  membersReady: boolean;
 }) {
+  const pref = useDateDisplayPref();
+
   // ── Derived data ───────────────────────────────────────────────────────────
 
   const pct = Math.round(project.completion_pct);
@@ -280,16 +268,14 @@ function OverviewTab({
   };
 
   // Risk posture — open only (open + mitigating)
-  const openRisksAll = risks.filter((r) => r.status === "open" || r.status === "mitigating");
+  const openRisksAll = risks.filter((r) => isOpenRisk(r.status));
   const riskBySeverity = {
     critical: openRisksAll.filter((r) => r.severity === "critical").length,
     high:     openRisksAll.filter((r) => r.severity === "high").length,
     medium:   openRisksAll.filter((r) => r.severity === "medium").length,
     low:      openRisksAll.filter((r) => r.severity === "low").length,
   };
-  const openIssues = issues.filter(
-    (i) => i.status === "open" || i.status === "in_progress"
-  ).length;
+  const openIssues = countOpenIssues(issues);
 
   // Schedule
   const today = new Date();
@@ -322,7 +308,8 @@ function OverviewTab({
     .sort((a, b) => b[1] - a[1])
     .map(([id, count]) => ({
       id,
-      name: members[id] ?? (id.length > 8 ? id.slice(0, 8) : id),
+      // a name or nothing: an eight-character id fragment is not a person
+      name: members[id] ?? "Unknown member",
       count,
     }));
 
@@ -443,19 +430,19 @@ function OverviewTab({
           </p>
           {openRisksAll.length === 0 && openIssues === 0 ? (
             <div className="flex items-center gap-2 mt-0.5">
-              <CheckCircle2 size={14} className="text-success" />
-              <span className="text-xs text-success font-medium">No open risks or issues</span>
+              <CheckCircle2 size={14} className="text-success-ink" />
+              <span className="text-xs text-success-ink font-medium">No open risks or issues</span>
             </div>
           ) : (
             <div className="flex flex-wrap gap-1.5 mt-0.5">
               {riskBySeverity.critical > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger-ink">
                   <span className="font-mono tabular-nums font-semibold">{riskBySeverity.critical}</span>
-                  <span className="text-danger/80 font-normal">critical</span>
+                  <span className="text-danger-ink/80 font-normal">critical</span>
                 </span>
               )}
               {riskBySeverity.high > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-sev-high/30 bg-sev-high/10 px-2.5 py-1 text-xs font-medium text-sev-high">
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-sev-high/30 bg-sev-high/10 px-2.5 py-1 text-xs font-medium text-sev-high-ink">
                   <span className="font-mono tabular-nums font-semibold">{riskBySeverity.high}</span>
                   <span className="opacity-80 font-normal">high</span>
                 </span>
@@ -486,7 +473,7 @@ function OverviewTab({
                     Target:
                   </span>
                   <span className="font-mono text-xs font-medium text-ink tabular-nums">
-                    {fmtDate(project.target_date)}
+                    {fmtDate(project.target_date, pref)}
                   </span>
                   {daysRemaining !== null && project.rag_status !== "complete" && (
                     <Badge
@@ -502,16 +489,16 @@ function OverviewTab({
                 </div>
                 {overdueTasks > 0 && (
                   <div className="flex items-center gap-1.5">
-                    <Clock size={12} className="text-danger shrink-0" />
-                    <span className="text-xs text-danger font-medium tabular-nums">
+                    <Clock size={12} className="text-danger-ink shrink-0" />
+                    <span className="text-xs text-danger-ink font-medium tabular-nums">
                       {overdueTasks} overdue {overdueTasks === 1 ? "task" : "tasks"}
                     </span>
                   </div>
                 )}
                 {overdueTasks === 0 && (
                   <div className="flex items-center gap-1.5">
-                    <CheckCircle2 size={12} className="text-success shrink-0" />
-                    <span className="text-xs text-success font-medium">
+                    <CheckCircle2 size={12} className="text-success-ink shrink-0" />
+                    <span className="text-xs text-success-ink font-medium">
                       No overdue tasks
                     </span>
                   </div>
@@ -534,6 +521,11 @@ function OverviewTab({
             </span>
           </CardHeader>
           <CardBody className="p-0">
+            {!membersReady ? (
+              <p className="px-5 py-3 text-sm text-ink-muted" role="status">
+                Loading team…
+              </p>
+            ) : (
             <div className="divide-y divide-border-subtle">
               {teamRows.map(({ id, name, count }) => (
                 <div
@@ -553,6 +545,7 @@ function OverviewTab({
                 </div>
               ))}
             </div>
+            )}
           </CardBody>
         </Card>
       )}
@@ -564,6 +557,43 @@ function OverviewTab({
 
 function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
   const inspector = useInspector();
+  const pref = useDateDisplayPref();
+
+  const openRisk = (r: Risk) =>
+    inspector.open(
+      <RiskDetail risk={r} projectName={project.name} />,
+      r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
+    );
+
+  // Phone (<md) cards: the 560px table cut Severity to "H" and hid Status/Due.
+  const cardColumns: DataListColumn<Risk>[] = [
+    {
+      key: "title",
+      header: "Title",
+      primary: true,
+      cell: (r) => (
+        <>
+          {r.reference_id && (
+            <span className="mr-1.5 font-mono text-2xs font-normal text-ink-muted">{r.reference_id}</span>
+          )}
+          {r.title}
+        </>
+      ),
+    },
+    { key: "severity", header: "Severity", badge: true, cell: (r) => <Severity level={r.severity} /> },
+    {
+      key: "status",
+      header: "Status",
+      badge: true,
+      cell: (r) => (
+        <Badge size="sm" tone={riskStatusTone(r.status)} className="capitalize">
+          {r.status}
+        </Badge>
+      ),
+    },
+    { key: "likelihood", header: "Likelihood", cell: (r) => <span className="capitalize">{r.likelihood}</span> },
+    { key: "due", header: "Due", cell: (r) => <span className="tabular-nums">{fmtDate(r.due_date, pref)}</span> },
+  ];
 
   return (
     <div className="space-y-4">
@@ -601,7 +631,15 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface">
+        <>
+        <DataList
+          className="rounded-lg border border-border-subtle bg-surface md:hidden"
+          columns={cardColumns}
+          rows={risks}
+          rowKey={(r) => r.id}
+          onRowClick={openRisk}
+        />
+        <div className="hidden overflow-x-auto rounded-lg border border-border-subtle bg-surface md:block">
           <table className="w-full min-w-[560px] text-sm border-collapse">
             <thead>
               <tr className="border-b border-border-subtle bg-sunken/60">
@@ -620,12 +658,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                     "transition-colors hover:bg-sunken/40 cursor-pointer focus-within:bg-sunken/40",
                     i < risks.length - 1 && "border-b border-border-subtle"
                   )}
-                  onClick={() =>
-                    inspector.open(
-                      <RiskDetail risk={r} projectName={project.name} />,
-                      r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
-                    )
-                  }
+                  onClick={() => openRisk(r)}
                 >
                   <td className="py-3 px-4 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
@@ -639,10 +672,7 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                         className="focus-ring rounded-sm text-left font-medium text-ink truncate hover:underline"
                         onClick={(e) => {
                           e.stopPropagation();
-                          inspector.open(
-                            <RiskDetail risk={r} projectName={project.name} />,
-                            r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
-                          );
+                          openRisk(r);
                         }}
                       >
                         {r.title}
@@ -661,12 +691,13 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                   <td className="py-3 px-4">
                     <Badge size="sm" tone={riskStatusTone(r.status)} className="capitalize">{r.status}</Badge>
                   </td>
-                  <td className="py-3 px-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap">{fmtDate(r.due_date)}</td>
+                  <td className="py-3 px-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap">{fmtDate(r.due_date, pref)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -676,6 +707,41 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
 
 function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
   const inspector = useInspector();
+  const pref = useDateDisplayPref();
+
+  const openIssue = (iss: Issue) =>
+    inspector.open(
+      <IssueDetail issue={iss} projectName={project.name} />,
+      iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
+    );
+
+  const cardColumns: DataListColumn<Issue>[] = [
+    {
+      key: "title",
+      header: "Title",
+      primary: true,
+      cell: (iss) => (
+        <>
+          {iss.reference_id && (
+            <span className="mr-1.5 font-mono text-2xs font-normal text-ink-muted">{iss.reference_id}</span>
+          )}
+          {iss.title}
+        </>
+      ),
+    },
+    { key: "priority", header: "Priority", badge: true, cell: (iss) => <Severity level={iss.priority} /> },
+    {
+      key: "status",
+      header: "Status",
+      badge: true,
+      cell: (iss) => (
+        <Badge size="sm" tone={issueStatusTone(iss.status)} className="capitalize">
+          {iss.status.replace("_", " ")}
+        </Badge>
+      ),
+    },
+    { key: "due", header: "Due", cell: (iss) => <span className="tabular-nums">{fmtDate(iss.due_date, pref)}</span> },
+  ];
 
   return (
     <div className="space-y-4">
@@ -713,7 +779,15 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
           )}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface">
+        <>
+        <DataList
+          className="rounded-lg border border-border-subtle bg-surface md:hidden"
+          columns={cardColumns}
+          rows={issues}
+          rowKey={(iss) => iss.id}
+          onRowClick={openIssue}
+        />
+        <div className="hidden overflow-x-auto rounded-lg border border-border-subtle bg-surface md:block">
           <table className="w-full min-w-[480px] text-sm border-collapse">
             <thead>
               <tr className="border-b border-border-subtle bg-sunken/60">
@@ -731,12 +805,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                     "transition-colors hover:bg-sunken/40 cursor-pointer focus-within:bg-sunken/40",
                     i < issues.length - 1 && "border-b border-border-subtle"
                   )}
-                  onClick={() =>
-                    inspector.open(
-                      <IssueDetail issue={iss} projectName={project.name} />,
-                      iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
-                    )
-                  }
+                  onClick={() => openIssue(iss)}
                 >
                   <td className="py-3 px-4 min-w-0">
                     <div className="flex items-center gap-2 min-w-0">
@@ -750,10 +819,7 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                         className="focus-ring rounded-sm text-left font-medium text-ink truncate hover:underline"
                         onClick={(e) => {
                           e.stopPropagation();
-                          inspector.open(
-                            <IssueDetail issue={iss} projectName={project.name} />,
-                            iss.reference_id ? `Issue ${iss.reference_id}` : "Issue Detail",
-                          );
+                          openIssue(iss);
                         }}
                       >
                         {iss.title}
@@ -768,12 +834,13 @@ function IssuesTab({ project, issues }: { project: Project; issues: Issue[] }) {
                       {iss.status.replace("_", " ")}
                     </Badge>
                   </td>
-                  <td className="py-3 px-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap">{fmtDate(iss.due_date)}</td>
+                  <td className="py-3 px-4 text-xs text-ink-secondary tabular-nums whitespace-nowrap">{fmtDate(iss.due_date, pref)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
@@ -926,12 +993,12 @@ export function ProjectTabs({
               {tab.label}
               {tab.id === "risks" && risks.length > 0 && (
                 <Badge tone="warning" size="sm" className="ml-1.5 tabular-nums">
-                  {risks.filter((r) => r.status === "open" || r.status === "mitigating").length}
+                  {countOpenRisks(risks)}
                 </Badge>
               )}
               {tab.id === "issues" && issues.length > 0 && (
                 <Badge tone="danger" size="sm" className="ml-1.5 tabular-nums">
-                  {issues.filter((i) => i.status === "open" || i.status === "in_progress").length}
+                  {countOpenIssues(issues)}
                 </Badge>
               )}
             </button>
@@ -959,6 +1026,7 @@ export function ProjectTabs({
           risks={risks}
           issues={issues}
           members={members}
+          membersReady={membersReady}
         />
       )}
       {active === "activity" && (
@@ -968,6 +1036,7 @@ export function ProjectTabs({
           tasks={tasks}
           isLocked={project.is_locked}
           members={members}
+          membersReady={membersReady}
           actualHoursByTask={actualHoursByTask}
         />
       )}

@@ -19,6 +19,7 @@ import {
   computeChildRag,
   type ProgramRollupChildInput,
 } from "@/lib/insight/program-rollup";
+import { isOpenRisk } from "@/lib/insight/open-status";
 
 export const metadata = { title: "Portfolio" };
 
@@ -217,7 +218,7 @@ export default async function PortfolioPage({
       r.project_id &&
       projectIdSet.has(r.project_id) &&
       (r.severity === "high" || r.severity === "critical") &&
-      (r.status === "open" || r.status === "mitigating"),
+      isOpenRisk(r.status),
   ).length;
 
   function rollupInputFor(p: ProjectRow): ProgramRollupChildInput {
@@ -277,6 +278,24 @@ export default async function PortfolioPage({
     ...(ungroupedGroup ? [ungroupedGroup] : []),
   ];
 
+  // One program definition for the whole page: the program groups actually
+  // drawn below (real programs + legacy text labels, not the "Ungrouped"
+  // bucket). It used to count only rows in `programs`, so a workspace with two
+  // legacy program groups read "0 programs" above them.
+  const programCount = programGroups.length + legacyGroups.length;
+  const programCountLabel = `${programCount} program${programCount !== 1 ? "s" : ""}`;
+  const isFiltered = Boolean(programFilter || ragFilter);
+
+  // Every group's roadmap plots on the SAME time axis (earliest to latest date
+  // across the visible projects), so groups line up when read down the page.
+  const spanDates = [
+    ...projects.flatMap((p) => [p.start_date, p.target_date]),
+    ...milestones.flatMap((m) => [m.target_date, m.baseline_target_date]),
+  ]
+    .filter((d): d is string => !!d)
+    .sort();
+  const axisSpan = { from: spanDates[0] ?? null, to: spanDates[spanDates.length - 1] ?? null };
+
   const ragCount = { green: 0, complete: 0, amber: 0, red: 0 };
   for (const p of projects) {
     if (p.rag_status in ragCount) ragCount[p.rag_status as keyof typeof ragCount]++;
@@ -298,7 +317,7 @@ export default async function PortfolioPage({
           room to breathe. */}
       <PageHeader
         title="Portfolio Roadmap"
-        exports={<ExportBoardPack />}
+        exports={<ExportBoardPack filtered={isFiltered} />}
         action={<NewProgramButton />}
         secondaryActions={[
           <span
@@ -306,9 +325,7 @@ export default async function PortfolioPage({
             className="whitespace-nowrap font-mono text-xs text-ink-muted tabular-nums"
           >
             {projects.length} project{projects.length !== 1 ? "s" : ""}
-            {programs.length > 0
-              ? ` · ${programs.length} program${programs.length !== 1 ? "s" : ""}`
-              : ""}
+            {programCount > 0 ? ` · ${programCountLabel}` : ""}
           </span>,
         ]}
       />
@@ -324,7 +341,7 @@ export default async function PortfolioPage({
         <KpiTile
           label="Projects"
           value={projects.length}
-          sub={`${programs.length} program${programs.length !== 1 ? "s" : ""}`}
+          sub={programCountLabel}
         />
         <KpiTile
           label="Health mix"
@@ -361,7 +378,7 @@ export default async function PortfolioPage({
       </div>
 
       {allGroups.length === 0 ? (
-        <PortfolioRoadmap projects={[]} milestones={[]} />
+        <PortfolioRoadmap projects={[]} milestones={[]} filtered={isFiltered} />
       ) : (
         allGroups.map((group) => (
           <section
@@ -386,7 +403,11 @@ export default async function PortfolioPage({
             )}
 
             {group.projects.length > 0 && (
-              <PortfolioRoadmap projects={group.projects} milestones={milestonesFor(group)} />
+              <PortfolioRoadmap
+                projects={group.projects}
+                milestones={milestonesFor(group)}
+                axisSpan={axisSpan}
+              />
             )}
           </section>
         ))

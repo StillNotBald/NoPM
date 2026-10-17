@@ -8,9 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
+import type { DecideState } from "@/components/governance/four-eyes-note";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
-import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
+import {
+  RAISE_TIME_STATUSES,
+  createChangeRequestSchema,
+  updateChangeRequestSchema,
+} from "@/app/api/change-requests/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
@@ -47,9 +52,94 @@ export interface ChangeRequest {
   target_date: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Whether the signed-in viewer may decide this request, worked out on the
+   * server (lib/review/four-eyes). Derived, never stored; absent on rows that
+   * did not come through the change-control page.
+   */
+  decide?: DecideState;
 }
 
 type Project = { id: string; name: string };
+
+// ── Create vs edit contract (pure, unit-tested) ───────────────────────────────
+//
+// The two modes talk to two different endpoints with two different schemas, so
+// the form validates each against the schema its endpoint actually uses:
+//
+//   create  POST /api/projects/:id/change-requests  -> createChangeRequestSchema
+//           `status` may only be a raise-time status (raised | under_review);
+//           anything else is a 422 because a terminal status needs a decider.
+//   edit    PATCH /api/change-requests/:id          -> updateChangeRequestSchema
+//           has NO `status` field. A status only ever moves through the audited
+//           four-eyes decision flow, so an edit never sends one — which is also
+//           what lets an already approved / rejected request be edited at all.
+
+export type ChangeFormMode = "create" | "edit";
+
+/** The statuses a change request can be raised in, in the order the form offers them. */
+export type RaiseStatus = (typeof RAISE_TIME_STATUSES)[number];
+export const RAISE_STATUS_OPTIONS: readonly RaiseStatus[] = RAISE_TIME_STATUSES;
+
+export const STATUS_LABEL: Record<CRStatus, string> = {
+  raised: "Raised",
+  under_review: "Under Review",
+  approved: "Approved",
+  rejected: "Rejected",
+  deferred: "Deferred",
+  implemented: "Implemented",
+};
+
+export interface ChangeFormValues {
+  title: string;
+  description: string;
+  category: CRCategory;
+  priority: CRPriority;
+  /** Only meaningful on create; an edit never sends it. */
+  status: CRStatus;
+  impactSummary: string;
+  impactScheduleDays: string;
+  impactCost: string;
+  targetDate: string;
+}
+
+/** The request body for the mode: `status` on create only. */
+export function buildChangePayload(mode: ChangeFormMode, v: ChangeFormValues): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    title: v.title.trim(),
+    description: v.description.trim() || null,
+    category: v.category,
+    priority: v.priority,
+    impact_summary: v.impactSummary.trim() || null,
+    impact_schedule_days: v.impactScheduleDays !== "" ? Number(v.impactScheduleDays) : null,
+    impact_cost: v.impactCost !== "" ? Number(v.impactCost) : null,
+    target_date: v.targetDate || null,
+  };
+  if (mode === "create") body.status = v.status;
+  return body;
+}
+
+export type ChangeFormValidation =
+  | { ok: true; payload: Record<string, unknown> }
+  | { ok: false; errors: Record<string, string> };
+
+/**
+ * Validates with the schema the mode's endpoint uses (first issue per field
+ * wins), so the client never rejects what the server would accept, or the
+ * reverse.
+ */
+export function validateChangeForm(mode: ChangeFormMode, v: ChangeFormValues): ChangeFormValidation {
+  const payload = buildChangePayload(mode, v);
+  const schema = mode === "create" ? createChangeRequestSchema : updateChangeRequestSchema;
+  const result = schema.safeParse(payload);
+  if (result.success) return { ok: true, payload };
+  const errors: Record<string, string> = {};
+  for (const issue of result.error.issues) {
+    const field = String(issue.path[0] ?? "form");
+    if (!errors[field]) errors[field] = issue.message;
+  }
+  return { ok: false, errors };
+}
 
 // ── ChangeForm ────────────────────────────────────────────────────────────────
 
@@ -72,7 +162,8 @@ export function ChangeForm({
   );
   const [category, setCategory] = useState<CRCategory>(changeRequest?.category ?? "scope");
   const [priority, setPriority] = useState<CRPriority>(changeRequest?.priority ?? "medium");
-  const [status, setStatus] = useState<CRStatus>(changeRequest?.status ?? "raised");
+  // Raise-time status, create only. An edit shows the current status read-only.
+  const [status, setStatus] = useState<RaiseStatus>("raised");
   const [impactSummary, setImpactSummary] = useState(changeRequest?.impact_summary ?? "");
   const [showImpact, setShowImpact] = useState(
     !!(changeRequest?.impact_summary && changeRequest.impact_summary.trim().length > 0),
@@ -105,42 +196,28 @@ export function ChangeForm({
     setTopError(null);
     setFieldErrors({});
 
-    // Client-side validation — reuse the server schema's safeParse for
-    // immediate inline errors before the network round-trip.
-    const clientResult = createChangeRequestSchema.safeParse({
-      title: title.trim(),
-      description: description.trim() || null,
+    // Client-side validation — the same schema the mode's endpoint uses, for
+    // immediate inline errors before the network round-trip (see the create vs
+    // edit contract above: an edit is validated against the update schema and
+    // never carries `status`).
+    const result = validateChangeForm(changeRequest ? "edit" : "create", {
+      title,
+      description,
       category,
       priority,
       status,
-      impact_summary: impactSummary.trim() || null,
-      impact_schedule_days: impactScheduleDays !== "" ? Number(impactScheduleDays) : null,
-      impact_cost: impactCost !== "" ? Number(impactCost) : null,
-      target_date: targetDate || null,
+      impactSummary,
+      impactScheduleDays,
+      impactCost,
+      targetDate,
     });
-    if (!clientResult.success) {
-      const map: Record<string, string> = {};
-      for (const issue of clientResult.error.issues) {
-        const field = issue.path[0] as string;
-        if (!map[field]) map[field] = issue.message;
-      }
-      setFieldErrors(map);
+    if (!result.ok) {
+      setFieldErrors(result.errors);
       return;
     }
+    const payload = result.payload;
 
     setSaving(true);
-
-    const payload = {
-      title: title.trim(),
-      description: description.trim() || null,
-      category,
-      priority,
-      status,
-      impact_summary: impactSummary.trim() || null,
-      impact_schedule_days: impactScheduleDays !== "" ? Number(impactScheduleDays) : null,
-      impact_cost: impactCost !== "" ? Number(impactCost) : null,
-      target_date: targetDate || null,
-    };
 
     try {
       if (changeRequest) {
@@ -164,7 +241,7 @@ export function ChangeForm({
       main={
         <form onSubmit={handleSubmit} className="space-y-5">
           {topError && (
-            <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
+            <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger-ink">
               {topError}
             </div>
           )}
@@ -234,20 +311,32 @@ export function ChangeForm({
                 <FieldError message={fieldErrors.priority} />
               </div>
 
-              {/* Status */}
+              {/* Status — a request can only be RAISED as raised / under review; every
+                  later status comes from a decision, so an edit shows it read-only. */}
               <div>
                 <FieldLabel>Status</FieldLabel>
-                <SelectInput
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value as CRStatus)}
-                >
-                  <option value="raised">Raised</option>
-                  <option value="under_review">Under Review</option>
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="deferred">Deferred</option>
-                  <option value="implemented">Implemented</option>
-                </SelectInput>
+                {changeRequest ? (
+                  <>
+                    <p className="flex h-11 items-center text-sm text-ink sm:h-10">
+                      {STATUS_LABEL[changeRequest.status]}
+                    </p>
+                    <p className="text-2xs text-ink-muted">
+                      Status changes through an approval decision, not this form.
+                    </p>
+                  </>
+                ) : (
+                  <SelectInput
+                    aria-label="Status"
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value as RaiseStatus)}
+                  >
+                    {RAISE_STATUS_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {STATUS_LABEL[s]}
+                      </option>
+                    ))}
+                  </SelectInput>
+                )}
                 <FieldError message={fieldErrors.status} />
               </div>
 

@@ -64,7 +64,17 @@ async function callReadTool(
     throw new Error(`fallback: refusing to call non-read-only tool "${name}"`);
   }
 
-  const { path, method } = spec.toRequest(args);
+  // A refused argument (ToolArgError: a non-UUID id, a path-splicing value) is a
+  // failed tool call, never an exception that aborts the whole fallback reply.
+  let built: { path: string; method: string };
+  try {
+    built = spec.toRequest(args);
+  } catch (argErr) {
+    const message = `Bad arguments: ${argErr instanceof Error ? argErr.message : String(argErr)}`;
+    actions.push({ tool: name, args, ok: false, summary: `${name} failed (fallback): ${message}` });
+    return { ok: false, data: { error: message } };
+  }
+  const { path, method } = built;
   let data: unknown = null;
   let ok = false;
 

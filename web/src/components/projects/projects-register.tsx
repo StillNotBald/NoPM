@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { NewProjectButton } from "@/components/forms/new-project-button";
 import { type FilterFieldConfig } from "@/components/registers/use-list-controls";
@@ -29,13 +30,13 @@ export interface ProjectRow {
 
 const SEARCH_FIELD: FilterFieldConfig = { key: "q", label: "Search", type: "text", placeholder: "Project name…" };
 
-const RAG_OPTIONS = [
-  { value: "not_started", label: "Not started" },
-  { value: "green", label: "Green" },
-  { value: "amber", label: "Amber" },
-  { value: "red", label: "Red" },
-  { value: "complete", label: "Complete" },
-];
+// Labels come from ragLabel so the filter says exactly what the row pills say
+// (it used to offer Green / Amber / Red / Not started against pills reading
+// On track / At risk / Delayed / In progress).
+const RAG_OPTIONS = (["not_started", "green", "amber", "red", "complete"] as const).map((value) => ({
+  value,
+  label: ragLabel(value),
+}));
 
 const PHASE_OPTIONS = [
   { value: "initiation", label: "Initiation" },
@@ -62,6 +63,71 @@ const DEFAULT_COLUMNS = ["code", "name", "program", "rag_status", "completion_pc
 const SORTABLE = new Set(["name", "code", "rag_status", "phase", "completion_pct", "target_date"]);
 
 const MUTED = <span className="text-ink-muted">—</span>;
+
+/**
+ * Phone (<md) cards. The 880px table put RAG, completion and target date off
+ * the right edge of a 390px screen; a card keeps status first and the two
+ * numbers a manager scans underneath.
+ */
+function phoneColumns(pref: DateDisplayPref): DataListColumn<ProjectRow>[] {
+  return [
+    {
+      key: "name",
+      header: "Project",
+      primary: true,
+      cell: (p) => (
+        <>
+          {p.code && <span className="mr-1.5 font-mono text-xs font-normal text-ink-muted">{p.code}</span>}
+          {p.name}
+        </>
+      ),
+    },
+    {
+      key: "rag_status",
+      header: "RAG",
+      badge: true,
+      cell: (p) => (
+        <Badge size="sm" tone={ragTone(p.rag_status as RagStatus)}>
+          {ragLabel(p.rag_status as RagStatus)}
+        </Badge>
+      ),
+    },
+    {
+      key: "lifecycle",
+      header: "Lifecycle",
+      badge: true,
+      cell: (p) =>
+        p.is_locked ? (
+          <Badge size="sm" tone="warning">
+            Locked
+          </Badge>
+        ) : null,
+    },
+    {
+      key: "completion_pct",
+      header: "Completion",
+      cell: (p) => <span className="tabular-nums">{Math.round(p.completion_pct ?? 0)}%</span>,
+    },
+    {
+      key: "target_date",
+      header: "Target",
+      cell: (p) => {
+        if (!p.target_date) return "—";
+        const f = formatByPref(p.target_date, pref);
+        return (
+          <time dateTime={f.title} title={f.absolute} className="font-mono tabular-nums">
+            {f.text}
+          </time>
+        );
+      },
+    },
+    {
+      key: "program",
+      header: "Program",
+      cell: (p) => p.program ?? "—",
+    },
+  ];
+}
 
 export function ProjectsRegister({
   rows,
@@ -118,7 +184,15 @@ export function ProjectsRegister({
           )}
         </div>
       ) : (
-        <Table>
+        <>
+        <DataList
+          className="rounded-lg border border-border-subtle bg-surface md:hidden"
+          columns={phoneColumns(dateDisplayPref)}
+          rows={rows}
+          rowKey={(p) => p.id}
+          href={(p) => `/projects/${p.id}`}
+        />
+        <Table wrapperClassName="hidden md:block">
           <THead>
             <TR>
               {cols.map((c) => {
@@ -134,7 +208,7 @@ export function ProjectsRegister({
                       <button
                         type="button"
                         onClick={() => toggleSort(c.key)}
-                        className="focus-ring inline-flex items-center gap-1 uppercase"
+                        className="focus-ring inline-flex items-center gap-1 py-1 uppercase"
                       >
                         {c.label}
                         {active && (sort!.direction === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
@@ -157,6 +231,7 @@ export function ProjectsRegister({
             ))}
           </tbody>
         </Table>
+        </>
       )}
 
       {rows.length > 0 && (

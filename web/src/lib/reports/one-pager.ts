@@ -248,7 +248,7 @@ export function generateOnePager(): void {
   doc.setFont("helvetica", "normal");
   const codeLines = [
     { text: "$ nopm tasks rm task_8f3a --reason \"superseded\"", color: [200, 200, 200] as [number, number, number] },
-    { text: "  ⏸  pending four-eyes approval (different token required)", color: [139, 139, 144] as [number, number, number] },
+    { text: "  ⏸  pending four-eyes approval (a different person required)", color: [139, 139, 144] as [number, number, number] },
     { text: "$ nopm approve req_2c91   →   ✓ committed · 1 immutable audit row written", color: [96, 205, 255] as [number, number, number] },
   ];
   codeLines.forEach(({ text, color }, i) => {

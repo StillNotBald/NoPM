@@ -8,12 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import {
-  FieldLabel,
-  FieldError,
-  SelectInput,
-  TextareaInput,
-} from "@/components/forms/project-form";
+import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { createDocumentSchema } from "@/app/api/documents/_schema";
 
 // ── Local Document type (decoupled from docs-data files) ──────────────────────
@@ -189,29 +184,22 @@ export function DocumentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Title — prominent */}
-      <div>
-        <Input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Document title"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.title} />
-      </div>
+      <TitleField
+        label="Document title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Document title"
+        required
+        error={fieldErrors.title}
+      />
 
       {/* Compact properties grid */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 pt-1">
         {/* Doc Type */}
-        <div>
-          <FieldLabel>Type</FieldLabel>
+        <Field label="Type" error={fieldErrors.doc_type}>
           <SelectInput
             value={docType}
             onChange={(e) => setDocType(e.target.value as DocType)}
@@ -222,12 +210,10 @@ export function DocumentForm({
               </option>
             ))}
           </SelectInput>
-          <FieldError message={fieldErrors.doc_type} />
-        </div>
+        </Field>
 
         {/* Status */}
-        <div>
-          <FieldLabel>Status</FieldLabel>
+        <Field label="Status" error={fieldErrors.status}>
           <SelectInput
             value={status}
             onChange={(e) => setStatus(e.target.value as DocStatus)}
@@ -238,12 +224,10 @@ export function DocumentForm({
               </option>
             ))}
           </SelectInput>
-          <FieldError message={fieldErrors.status} />
-        </div>
+        </Field>
 
         {/* Folder */}
-        <div>
-          <FieldLabel>Folder</FieldLabel>
+        <Field label="Folder" error={fieldErrors.folder}>
           <Input
             list="folder-suggestions"
             value={folder}
@@ -251,18 +235,16 @@ export function DocumentForm({
             placeholder="e.g. Charter, RAID"
             className="h-11 sm:h-10 text-base sm:text-sm"
           />
-          <datalist id="folder-suggestions">
-            {FOLDER_SUGGESTIONS.map((f) => (
-              <option key={f} value={f} />
-            ))}
-          </datalist>
-          <FieldError message={fieldErrors.folder} />
-        </div>
+        </Field>
+        <datalist id="folder-suggestions">
+          {FOLDER_SUGGESTIONS.map((f) => (
+            <option key={f} value={f} />
+          ))}
+        </datalist>
 
         {/* Project (optional) */}
         {projects && projects.length > 0 && (
-          <div>
-            <FieldLabel>Project</FieldLabel>
+          <Field label="Project" error={fieldErrors.project_id}>
             <SelectInput
               value={projectId}
               onChange={(e) => setProjectId(e.target.value)}
@@ -274,14 +256,12 @@ export function DocumentForm({
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.project_id} />
-          </div>
+          </Field>
         )}
       </div>
 
       {/* External URL */}
-      <div>
-        <FieldLabel>External Link</FieldLabel>
+      <Field label="External Link" error={fieldErrors.external_url}>
         <Input
           type="url"
           value={externalUrl}
@@ -289,26 +269,23 @@ export function DocumentForm({
           placeholder="https://docs.google.com/…"
           className="h-11 sm:h-10 text-base sm:text-sm"
         />
-        <FieldError message={fieldErrors.external_url} />
-      </div>
+      </Field>
 
       {/* Summary — progressive disclosure */}
       {showSummary ? (
-        <div>
-          <FieldLabel>Summary</FieldLabel>
+        <Field label="Summary" error={fieldErrors.summary}>
           <TextareaInput
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
             placeholder="One-paragraph summary of this document…"
             rows={2}
           />
-          <FieldError message={fieldErrors.summary} />
-        </div>
+        </Field>
       ) : (
         <button
           type="button"
           onClick={() => setShowSummary(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+          className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
         >
           + Add summary
         </button>
@@ -316,8 +293,7 @@ export function DocumentForm({
 
       {/* Body — progressive disclosure */}
       {showBody ? (
-        <div>
-          <FieldLabel>Body (Markdown)</FieldLabel>
+        <Field label="Body (Markdown)" error={fieldErrors.body}>
           <TextareaInput
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -325,13 +301,12 @@ export function DocumentForm({
             rows={8}
             className="font-mono text-sm"
           />
-          <FieldError message={fieldErrors.body} />
-        </div>
+        </Field>
       ) : (
         <button
           type="button"
           onClick={() => setShowBody(true)}
-          className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+          className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
         >
           + Add body content
         </button>
@@ -351,7 +326,7 @@ export function DocumentForm({
         <Button
           type="submit"
           variant="primary"
-          disabled={saving || !title.trim()}
+          disabled={saving}
           className="w-full sm:w-auto h-11 sm:h-10"
         >
           {saving ? (

@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
+import { selectClass } from "@/components/registers/filter-bar";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
+import { cn } from "@/lib/cn";
 import { ChevronRight, Plus } from "lucide-react";
 import { FolderTree, type FolderTreeSelection } from "./folder-tree";
 import { DocumentViewer } from "./document-viewer";
@@ -43,15 +47,6 @@ const DOC_TYPE_LABELS: Record<DocType, string> = {
   other: "Other",
 };
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface DocumentsClientProps {
@@ -61,6 +56,8 @@ interface DocumentsClientProps {
   ownerMap: Record<string, string>;
   /** false for viewer-role callers — see risks/page.tsx (L-46). */
   canWrite?: boolean;
+  /** Appearance preference (absolute | relative), as the other registers honour it. */
+  dateDisplayPref?: DateDisplayPref;
 }
 
 // ── DocumentsClient ───────────────────────────────────────────────────────────
@@ -71,9 +68,12 @@ export function DocumentsClient({
   projectMap,
   ownerMap,
   canWrite = true,
+  dateDisplayPref = "absolute",
 }: DocumentsClientProps) {
   const inspector = useInspector();
   const searchParams = useSearchParams();
+  const folderSelectId = useId();
+  const formatDate = (iso: string | null | undefined) => formatByPref(iso, dateDisplayPref).text;
 
   const [selection, setSelection] = useState<FolderTreeSelection>({
     folder: null,
@@ -92,6 +92,7 @@ export function DocumentsClient({
         projectName={doc.project_id ? (projectMap[doc.project_id] ?? undefined) : undefined}
         ownerName={doc.owner_id ? (ownerMap[doc.owner_id] ?? undefined) : undefined}
         projects={projects}
+        dateDisplayPref={dateDisplayPref}
       />,
       doc.reference_id ? `Doc ${doc.reference_id}` : "Document",
     );
@@ -128,80 +129,23 @@ export function DocumentsClient({
         projectName={doc.project_id ? (projectMap[doc.project_id] ?? undefined) : undefined}
         ownerName={ownerName(doc.owner_id)}
         projects={projects}
+        dateDisplayPref={dateDisplayPref}
       />,
       doc.reference_id ? `Doc ${doc.reference_id}` : "Document",
     );
   }
 
-  // Column order mirrors the ≥md table exactly; the <md card uses a fully
-  // custom renderCard (below) so the summary preview and Updated date stay
-  // visible on phones instead of being dropped as ordinary secondary fields.
-  const columns: DataListColumn<Document>[] = [
-    {
-      key: "ref",
-      header: "Ref",
-      cell: (doc) =>
-        doc.reference_id ? (
-          <span className="font-mono text-xs bg-sunken border border-border-subtle rounded px-1.5 py-0.5 text-ink-muted">
-            {doc.reference_id}
-          </span>
-        ) : (
-          <span className="text-ink-muted">—</span>
-        ),
-    },
-    {
-      key: "title",
-      header: "Title",
-      primary: true,
-      cell: (doc) => (
-        <>
-          <span className="font-medium text-ink">{doc.title}</span>
-          {doc.summary && (
-            <p className="mt-0.5 max-w-[28ch] truncate text-xs text-ink-muted">{doc.summary}</p>
-          )}
-        </>
-      ),
-    },
-    {
-      key: "type",
-      header: "Type",
-      cell: (doc) => (
-        <span className="text-ink-secondary">{DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}</span>
-      ),
-    },
-    {
-      key: "status",
-      header: "Status",
-      badge: true,
-      cell: (doc) => (
-        <Badge tone={statusTone(doc.status as DocStatus)}>
-          {STATUS_LABELS[doc.status as DocStatus] ?? doc.status}
-        </Badge>
-      ),
-    },
-    {
-      key: "project",
-      header: "Project",
-      cell: (doc) => (
-        <span className="text-ink-secondary">{doc.project_id ? (projectMap[doc.project_id] ?? "—") : "—"}</span>
-      ),
-    },
-    {
-      key: "updated",
-      header: "Updated",
-      cell: (doc) => (
-        <span className="text-ink-secondary tabular-nums">{formatDate(doc.updated_at)}</span>
-      ),
-    },
-  ];
+  const folders = [...new Set(documents.map((d) => d.folder))].sort((x, y) => x.localeCompare(y));
 
+  // <md card: the summary preview and Updated date stay visible on phones
+  // instead of being dropped as ordinary secondary fields.
   function renderDocCard(doc: Document) {
     return (
       <div className="flex min-h-[44px] items-center gap-3 px-4 py-3">
         <div className="min-w-0 flex-1 space-y-1.5">
           <div className="flex items-center gap-1.5">
             {doc.reference_id && (
-              <span className="shrink-0 font-mono text-2xs bg-sunken border border-border-subtle rounded px-1 py-0.5 text-ink-muted">
+              <span className="shrink-0 whitespace-nowrap font-mono text-2xs bg-sunken border border-border-subtle rounded px-1 py-0.5 text-ink-muted">
                 {doc.reference_id}
               </span>
             )}
@@ -242,36 +186,121 @@ export function DocumentsClient({
 
       {/* ── Main list ────────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between gap-3 border-b border-border-subtle px-4 py-3 md:hidden">
-          {/* Mobile: show active folder chip */}
-          {selection.folder ? (
-            <button
-              type="button"
-              onClick={() => setSelection({ folder: null, docType: null })}
-              className="text-xs text-ink-muted hover:text-ink"
+        {/* Phone folder picker: the tree sidebar is md+ only. The page header
+            already carries "New Document", so there is no second New here. */}
+        {folders.length > 0 && (
+          <div className="flex items-center gap-2 border-b border-border-subtle px-4 py-3 md:hidden">
+            <label
+              htmlFor={folderSelectId}
+              className="text-[11px] font-medium uppercase tracking-wide text-ink-muted"
             >
-              ← {selection.folder}
-            </button>
-          ) : (
-            <span className="text-xs text-ink-muted">All documents</span>
-          )}
-          <Button variant="primary" className="h-9 px-3 text-xs" onClick={openNew}>
-            <Plus size={14} className="mr-1" />
-            New
-          </Button>
-        </div>
+              Folder
+            </label>
+            <select
+              id={folderSelectId}
+              value={selection.folder ?? ""}
+              onChange={(e) => setSelection({ folder: e.target.value || null, docType: null })}
+              className={cn(selectClass, "min-w-0 flex-1")}
+            >
+              <option value="">All documents</option>
+              {folders.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
-        {/* Document list — table ≥md, cards <md (F5) */}
+        {/* Document list: table at md+, cards below (F5) */}
         {filtered.length > 0 ? (
-          <DataList
-            columns={columns}
-            rows={filtered}
-            rowKey={(doc) => doc.id}
-            onRowClick={openDocument}
-            renderCard={renderDocCard}
-            tableClassName="min-w-[600px]"
-          />
+          <>
+            <div className="hidden md:block">
+              <ScrollTable bare label="Documents">
+                <THead>
+                  <TR>
+                    <TH>Ref / Type</TH>
+                    <TH>Title</TH>
+                    <TH>Status</TH>
+                    <TH>Project</TH>
+                    <TH>Updated</TH>
+                  </TR>
+                </THead>
+                <tbody>
+                  {filtered.map((doc) => (
+                    <TR
+                      key={doc.id}
+                      onClick={() => openDocument(doc)}
+                      className="cursor-pointer transition-colors duration-100 hover:bg-sunken"
+                    >
+                      {/* Type sits under the ref: a separate column pushed the table past the ~750px list column at 1280 */}
+                      <TD className="whitespace-nowrap">
+                        <div className="flex flex-col items-start gap-0.5">
+                          {doc.reference_id ? (
+                            <span className="whitespace-nowrap rounded border border-border-subtle bg-sunken px-1.5 py-0.5 font-mono text-xs text-ink-muted">
+                              {doc.reference_id}
+                            </span>
+                          ) : (
+                            <span className="text-ink-muted">—</span>
+                          )}
+                          <span className="text-xs text-ink-secondary">
+                            {DOC_TYPE_LABELS[doc.doc_type as DocType] ?? doc.doc_type}
+                          </span>
+                        </div>
+                      </TD>
+                      <TD>
+                        {/* The row click is a mouse convenience; this button is the keyboard / screen-reader way in. */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openDocument(doc);
+                          }}
+                          title={doc.title}
+                          className="focus-ring block max-w-[13rem] truncate rounded text-left font-medium text-ink hover:text-accent"
+                        >
+                          {doc.title}
+                        </button>
+                        {doc.summary && (
+                          <p className="mt-0.5 max-w-[13rem] truncate text-xs text-ink-muted">{doc.summary}</p>
+                        )}
+                      </TD>
+                      <TD className="whitespace-nowrap">
+                        <Badge tone={statusTone(doc.status as DocStatus)}>
+                          {STATUS_LABELS[doc.status as DocStatus] ?? doc.status}
+                        </Badge>
+                      </TD>
+                      <TD className="text-ink-secondary">
+                        <span
+                          className="block max-w-[8rem] truncate"
+                          title={doc.project_id ? projectMap[doc.project_id] : undefined}
+                        >
+                          {doc.project_id ? (projectMap[doc.project_id] ?? "—") : "—"}
+                        </span>
+                      </TD>
+                      <TD className="whitespace-nowrap tabular-nums text-ink-secondary">
+                        {formatDate(doc.updated_at)}
+                      </TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </ScrollTable>
+            </div>
+
+            <ul className="divide-y divide-border-subtle md:hidden">
+              {filtered.map((doc) => (
+                <li key={doc.id}>
+                  <button
+                    type="button"
+                    onClick={() => openDocument(doc)}
+                    className="focus-ring block w-full text-left"
+                  >
+                    {renderDocCard(doc)}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
         ) : documents.length === 0 ? (
           <EmptyState
             purpose="Documents hold the durable artifacts of the project — charters, plans, RAID logs, status reports — versioned and linked back to the project they belong to."
@@ -286,9 +315,14 @@ export function DocumentsClient({
             docsLabel="See governance in the Trust Center"
           />
         ) : (
-          <p className="px-5 py-16 text-center text-sm text-ink-muted">
-            No documents match the selected filter.
-          </p>
+          <EmptyState
+            purpose="No documents match the selected filter."
+            action={
+              <Button variant="secondary" size="sm" onClick={() => setSelection({ folder: null, docType: null })}>
+                Show all documents
+              </Button>
+            }
+          />
         )}
       </div>
     </div>

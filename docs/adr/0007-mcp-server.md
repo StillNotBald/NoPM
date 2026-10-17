@@ -27,6 +27,6 @@ Same governance posture as the stdio server, just per-request instead of per-pro
 - A request with no `Authorization` header at all is rejected with 401 before touching any tool logic. A present-but-invalid/expired/under-scoped token is **not** pre-validated by this route — it flows through to the REST API exactly like the stdio server, and any resulting `{ error }` (401/403/422) is surfaced as a normal tool result, never swallowed.
 - Stateless mode (`sessionIdGenerator: undefined`) — a fresh `Server` + transport is built per HTTP request, matching Vercel's serverless execution model; nothing about a caller's identity is held in memory across requests.
 
-Verified end-to-end against a local dev server: `initialize` handshake, `tools/list` (24 tools), `tools/call list_projects` (live data via a real PAT), and a bare unauthenticated POST returning 401 — see `web/scripts/mcp-http-smoke.mjs`.
+Verified end-to-end against a local dev server: `initialize` handshake, `tools/list` (25 tools), `tools/call list_projects` (live data via a real PAT), and a bare unauthenticated POST returning 401 — see `web/scripts/mcp-http-smoke.mjs`.
 
 Not done as part of this update: OAuth for the connector (some MCP clients require it to auto-discover a remote server rather than accepting a static bearer header) and CORS (not needed for the claude.ai server-to-server call pattern this was verified against).

@@ -26,7 +26,7 @@
 ## Postconditions
 
 - One `issue.create` audit row on creation; one `issue.update` per PATCH; one `issue.delete` on delete.
-- No Review Queue surfacing rule specific to issues was found; unlike risks, issues do not automatically enter `/review` by severity `[UNVERIFIED]` — `web/src/lib/review/gather.ts`'s documented sources are deletion requests, rebaselines, documents in review, high/critical risks, and open clashes, with no issues source listed.
+- Issues never enter the Review Queue. `web/src/lib/review/gather.ts` builds `/review` from deletion requests, rebaselines, change requests (`under_review`), timesheet submissions (`submitted`), documents (`in_review`), high/critical risks, and unresolved clashes; there is no issues source.
 
 ## Reporting and evidence
 
@@ -37,9 +37,9 @@
 ## Traceability
 
 - R-IDs: R-14 (Issue register), R-81 (external reference seam), R-70 (role-aware empty states).
-- Key files: `web/src/app/api/issues/route.ts`, `web/src/app/api/issues/[id]/route.ts`, `web/src/app/api/issues/_schema.ts`, `web/src/components/registers/issue-detail.tsx`, `web/src/app/(console)/issues/page.tsx`.
+- Key files: `web/src/app/api/projects/[id]/issues/route.ts` (list + create), `web/src/app/api/issues/[id]/route.ts`, `web/src/app/api/issues/_query.ts`, `web/src/app/api/issues/_schema.ts`, `web/src/components/registers/issue-detail.tsx`, `web/src/app/(console)/issues/page.tsx`.
 - Tests: `[UNVERIFIED]` no issue-specific test file was read directly.
 
 ## Open questions
 
-- `[UNVERIFIED]` Whether issues ever surface in the Review Queue under any condition; the documented `gather.ts` source list does not include an issue-severity rule the way it does for risks.
+- None outstanding for the flow itself.

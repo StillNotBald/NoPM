@@ -9,6 +9,18 @@
 
 export const MS_PER_DAY = 86_400_000;
 
+/**
+ * Today as a local-calendar ISO date ("YYYY-MM-DD"). `now` is injectable so
+ * callers and tests never depend on the wall clock; call it per request or per
+ * render, never at module scope.
+ */
+export function todayIso(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function startOfDay(iso: string): Date {
   const d = new Date(iso);
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());

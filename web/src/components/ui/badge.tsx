@@ -1,18 +1,21 @@
 import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/cn";
 
-type Tone = "neutral" | "accent" | "info" | "success" | "warning" | "danger";
+type Tone = "neutral" | "accent" | "info" | "success" | "warning" | "sev-high" | "danger" | "change";
 type Size = "sm" | "md";
 
 // semantic pills: 15% tint + ink token (darker than the fill hue so the text
-// clears 4.5:1 on its own tint; see --*-ink in globals.css)
+// clears 4.5:1 on its own tint; see --*-ink in globals.css). `accent` is the
+// one solid fill — brand/attention counts, never a status.
 const tones: Record<Tone, string> = {
   neutral: "bg-sunken text-ink-secondary",
   accent: "bg-accent text-accent-ink",
   info: "bg-info/15 text-info-ink",
   success: "bg-success/15 text-success-ink",
   warning: "bg-warning/15 text-warning-ink",
+  "sev-high": "bg-sev-high/15 text-sev-high-ink",
   danger: "bg-danger/15 text-danger-ink",
+  change: "bg-change/15 text-change-ink",
 };
 
 // sm = tight inline use in dense rows; md = default standalone pill

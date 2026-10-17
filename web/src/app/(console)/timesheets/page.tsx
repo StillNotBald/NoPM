@@ -2,15 +2,18 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
+import { QueryError } from "@/components/ui/query-error";
 import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { SelectInput } from "@/components/forms/project-form";
+import { Field, SelectInput } from "@/components/forms/project-form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { WeekGrid, type WeekGridRow } from "@/components/timesheets/week-grid";
 import { ReportFilters } from "@/components/timesheets/report-filters";
 import { LogTimeForm } from "@/components/timesheets/log-time-form";
 import { TimesheetSubmitPanel } from "@/components/timesheets/submit-panel";
+import { lockForWeek, type LockSubmission, type WeekLock } from "@/components/timesheets/week-lock";
 
 export const metadata = { title: "Timesheets" };
 
@@ -104,11 +107,7 @@ export default async function TimesheetsPage({
     .order("name");
 
   if (membersError) {
-    return (
-      <div className="px-4 py-5 sm:px-6 lg:px-8">
-        <p className="text-sm text-danger">Failed to load resource members.</p>
-      </div>
-    );
+    return <QueryError what="resource members" message={membersError.message} />;
   }
 
   const allMembers = (allMembersRaw ?? []) as MemberOption[];
@@ -132,16 +131,30 @@ export default async function TimesheetsPage({
   // read via the RLS-scoped session client (house read policy, no write
   // policy — writes only happen through the audited API routes).
   let submissionStatus: "submitted" | "approved" | "rejected" | null = null;
+  let submissionReopened = false;
+  // The week is FROZEN (the API refuses time-entry writes, 422 period_locked /
+  // timesheet_locked) while a covering submission is approved, or submitted and
+  // not reopened. Same rule as lib/governance/period-lock.ts, read here so the
+  // grid and the Log time form can say so before anyone tries to write.
+  let weekLock: WeekLock = null;
   if (selectedMemberId) {
     const { data: latestSubmission } = await db
       .from("timesheet_submissions")
-      .select("status")
+      .select("status, reopened_at")
       .eq("member_id", selectedMemberId)
       .eq("period_start", weekStart)
       .order("submitted_at", { ascending: false })
       .limit(1)
       .maybeSingle();
     submissionStatus = (latestSubmission?.status as typeof submissionStatus) ?? null;
+    submissionReopened = !!latestSubmission?.reopened_at;
+
+    const { data: openSubmissions } = await db
+      .from("timesheet_submissions")
+      .select("period_start, period_end, status, reopened_at")
+      .eq("member_id", selectedMemberId)
+      .in("status", ["submitted", "approved"]);
+    weekLock = lockForWeek(dates, (openSubmissions ?? []) as LockSubmission[]);
   }
 
   let gridRows: WeekGridRow[] = [];
@@ -190,8 +203,8 @@ export default async function TimesheetsPage({
   }
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8 space-y-6">
-      <div className="mx-auto max-w-6xl space-y-6">
+    <PageContainer width="wide" className="space-y-6">
+      <div className="space-y-6">
         <PageHeader title="Timesheets" />
 
         {allMembers.length === 0 ? (
@@ -233,12 +246,12 @@ export default async function TimesheetsPage({
                   periodStart={weekStart}
                   canWrite={canWrite}
                   initialStatus={submissionStatus}
+                  reopened={submissionReopened}
                 />
               </CardHeader>
               <CardBody pad="none" className="border-b border-border-subtle p-4">
                 <form action="/timesheets" method="get" className="flex flex-wrap items-end gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium uppercase tracking-wide text-ink-muted">Member</label>
+                  <Field label="Member">
                     <SelectInput name="member" defaultValue={selectedMemberId ?? ""} className="sm:w-56">
                       {allMembers.map((m) => (
                         <option key={m.id} value={m.id}>
@@ -246,13 +259,10 @@ export default async function TimesheetsPage({
                         </option>
                       ))}
                     </SelectInput>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-medium uppercase tracking-wide text-ink-muted">
-                      Week of (Monday)
-                    </label>
+                  </Field>
+                  <Field label="Week of (Monday)">
                     <Input type="date" name="week" defaultValue={weekStart} className="sm:w-44" />
-                  </div>
+                  </Field>
                   <Button type="submit" variant="secondary" size="sm" className="h-11 sm:h-9">
                     View
                   </Button>
@@ -277,7 +287,7 @@ export default async function TimesheetsPage({
                   weekDates={dates}
                   rows={gridRows}
                   capacityHoursPerWeek={selectedMember?.capacity_hours_per_week ?? null}
-                  locked={submissionStatus === "approved"}
+                  lock={weekLock}
                   emptyMessage={
                     selectedMember
                       ? `No time logged for ${selectedMember.name} in the week of ${weekStart}.`
@@ -298,6 +308,6 @@ export default async function TimesheetsPage({
           </>
         )}
       </div>
-    </div>
+    </PageContainer>
   );
 }

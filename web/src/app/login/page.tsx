@@ -1,14 +1,14 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/client";
 import { Card, CardBody } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DemoLoginButton } from "@/components/demo-login-button";
-import { cn } from "@/lib/cn";
+import { Wordmark } from "@/components/marketing/wordmark";
+import { demoLoginErrorMessage } from "./login-errors";
 
 type LoginStep = "credentials" | "mfa";
 
@@ -39,7 +39,7 @@ export default function LoginPage() {
 }
 
 function LoginFormSkeleton() {
-  return <div className="flex min-h-screen items-center justify-center bg-canvas px-4" />;
+  return <main className="flex min-h-screen items-center justify-center bg-canvas px-4" />;
 }
 
 function LoginForm() {
@@ -56,6 +56,20 @@ function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // ?error=<code> from POST /api/auth/demo-login (the landing page's one-click
+  // demo). Shown as an alert with a way out; hidden once the visitor starts a
+  // manual sign-in so the two messages never stack.
+  const demoError = demoLoginErrorMessage(searchParams.get("error"));
+  const [showDemoError, setShowDemoError] = useState(true);
+  const demoErrorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // The page just loaded with a failure on it: put focus on the message so
+    // a screen reader announces it and a keyboard user starts next to the fix.
+    if (demoError) demoErrorRef.current?.focus();
+    // Mount-only on purpose: the code comes from the URL and never changes here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // R-91 — MFA challenge step. `?step=mfa` is the deep link the (console)
   // layout redirects to when a session exists but hasn't been challenged
@@ -89,9 +103,13 @@ function LoginForm() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setShowDemoError(false);
     setLoading(true);
 
     try {
+      // Loaded on submit, not on page load: the primary path (the demo button)
+      // is a native form post and never needs the Supabase client bundle.
+      const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
       const { error: authError } = await supabase.auth.signInWithPassword({
         email,
@@ -125,15 +143,39 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-4 py-8">
       <div className="w-full max-w-sm">
         {/* Wordmark */}
-        <div className="mb-8 text-center">
-          <Link href="/" className="text-2xl font-semibold tracking-tight text-ink">
-            No<span className="text-accent">PM</span>
-          </Link>
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Wordmark size="lg" />
           <p className="mt-1 text-sm text-ink-muted">The governance layer your existing tools skip</p>
         </div>
+
+        {demoError && showDemoError && (
+          <div
+            ref={demoErrorRef}
+            role="alert"
+            tabIndex={-1}
+            className="mb-4 rounded-md border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger-ink outline-none"
+          >
+            <p>{demoError}</p>
+            <p className="mt-1 flex flex-wrap gap-x-5">
+              <button
+                type="button"
+                onClick={() => document.getElementById("email")?.focus()}
+                className="inline-flex min-h-11 items-center font-medium underline underline-offset-2 focus-ring"
+              >
+                Sign in with your own account
+              </button>
+              <Link
+                href="/case-study"
+                className="inline-flex min-h-11 items-center font-medium underline underline-offset-2 focus-ring"
+              >
+                Read the case study
+              </Link>
+            </p>
+          </div>
+        )}
 
         <Card className="mb-4">
           <CardBody className="p-6 text-center">
@@ -143,8 +185,7 @@ function LoginForm() {
             </p>
             <div className="mt-4 flex justify-center">
               <DemoLoginButton
-                className="w-full px-5 py-2.5"
-                label="Try the shared live demo →"
+                block
                 caption="Shared account, reseeded regularly. Do not enter real data."
               />
             </div>
@@ -175,6 +216,8 @@ function LoginForm() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "login-error" : undefined}
                 />
               </div>
 
@@ -186,16 +229,21 @@ function LoginForm() {
                   id="password"
                   type="password"
                   autoComplete="current-password"
-                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   disabled={loading}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "login-error" : undefined}
                 />
               </div>
 
               {error && (
-                <p className={cn("rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger")}>
+                <p
+                  id="login-error"
+                  role="alert"
+                  className="rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger-ink"
+                >
                   {error}
                 </p>
               )}
@@ -217,7 +265,7 @@ function LoginForm() {
           </CardBody>
         </Card>
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -254,12 +302,10 @@ function MfaChallengeForm({ onSuccess }: { onSuccess: () => void }) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-canvas px-4">
+    <main className="flex min-h-screen items-center justify-center bg-canvas px-4 py-8">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <Link href="/" className="text-2xl font-semibold tracking-tight text-ink">
-            No<span className="text-accent">PM</span>
-          </Link>
+        <div className="mb-8 flex flex-col items-center text-center">
+          <Wordmark size="lg" />
           <p className="mt-1 text-sm text-ink-muted">Two-factor verification</p>
         </div>
 
@@ -289,11 +335,17 @@ function MfaChallengeForm({ onSuccess }: { onSuccess: () => void }) {
                   required
                   autoFocus
                   disabled={submitting}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "mfa-error" : undefined}
                 />
               </div>
 
               {error && (
-                <p className={cn("rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger")}>
+                <p
+                  id="mfa-error"
+                  role="alert"
+                  className="rounded-md border border-danger/20 bg-danger/10 px-3 py-2 text-sm text-danger-ink"
+                >
                   {error}
                 </p>
               )}
@@ -305,7 +357,7 @@ function MfaChallengeForm({ onSuccess }: { onSuccess: () => void }) {
 
             <button
               type="button"
-              className="mt-5 flex min-h-[44px] w-full items-center justify-center text-center text-xs text-accent hover:underline"
+              className="mt-5 flex min-h-[44px] w-full items-center justify-center text-center text-xs text-accent hover:underline focus-ring"
               onClick={() => {
                 setUseBackupCode((v) => !v);
                 setCode("");
@@ -317,6 +369,6 @@ function MfaChallengeForm({ onSuccess }: { onSuccess: () => void }) {
           </CardBody>
         </Card>
       </div>
-    </div>
+    </main>
   );
 }

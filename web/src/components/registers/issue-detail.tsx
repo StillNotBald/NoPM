@@ -23,7 +23,7 @@ function statusTone(s: IssueStatus) {
 }
 
 function statusLabel(s: IssueStatus) {
-  if (s === "in_progress") return "In Progress";
+  if (s === "in_progress") return "In progress"; // same casing the register list uses
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
@@ -39,15 +39,6 @@ const ISSUE_CATEGORY_LABELS: Record<IssueCategory, string> = {
   third_party_vendor: "Third-Party / Vendor",
   environmental_external: "Environmental / External",
 };
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
 
 // ── DetailRow ─────────────────────────────────────────────────────────────────
 
@@ -76,10 +67,13 @@ export interface IssueDetailProps {
     reference_id?: string | null;
   };
   projectName?: string;
+  /** Same appearance preference the register list honours; absolute when omitted. */
+  dateDisplayPref?: DateDisplayPref;
 }
 
-export function IssueDetail({ issue, projectName }: IssueDetailProps) {
+export function IssueDetail({ issue, projectName, dateDisplayPref = "absolute" }: IssueDetailProps) {
   const inspector = useInspector();
+  const formatDate = (iso: string | null | undefined) => formatByPref(iso, dateDisplayPref).text;
 
   function openEdit() {
     inspector.open(
@@ -105,12 +99,12 @@ export function IssueDetail({ issue, projectName }: IssueDetailProps) {
         <div className="flex shrink-0 items-center gap-1">
           <Link
             href={`/trust?target_type=issue&target_id=${issue.id}`}
-            className="inline-flex h-9 items-center gap-1 rounded-md px-2 text-xs text-ink-secondary hover:bg-sunken hover:text-ink"
+            className="focus-ring inline-flex h-11 items-center gap-1 rounded-md px-2 text-xs text-ink-secondary hover:bg-sunken hover:text-ink sm:h-9"
           >
             <History size={13} />
             History
           </Link>
-          <Button variant="ghost" onClick={openEdit} className="h-9 px-3 text-xs">
+          <Button variant="ghost" onClick={openEdit} className="h-11 px-3 text-xs sm:h-9">
             Edit
           </Button>
         </div>
@@ -210,6 +204,7 @@ export function IssueDataList({
       <IssueDetail
         issue={issue}
         projectName={issue.project_id ? (projectMap[issue.project_id] ?? undefined) : undefined}
+        dateDisplayPref={dateDisplayPref}
       />,
       issue.reference_id ? `Issue ${issue.reference_id}` : "Issue Detail",
     );

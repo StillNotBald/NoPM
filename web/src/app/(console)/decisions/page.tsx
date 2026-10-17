@@ -67,7 +67,7 @@ export default async function DecisionsPage({
         />
 
         {canWrite && (
-          <QueueCallout count={proposed.length} noun="proposed decision" href="/decisions?status=proposed" actionLabel="Show proposed" className="mb-0">
+          <QueueCallout count={proposed.length} noun="proposed decision" href="/decisions?status=proposed" actionLabel="Show proposed">
             Oldest waiting {oldestDays === 0 ? "today" : `${oldestDays} day${oldestDays === 1 ? "" : "s"}`}
           </QueueCallout>
         )}

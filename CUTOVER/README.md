@@ -27,6 +27,7 @@ A real cutover walks every checkpoint in the table below from NOT STARTED to DON
 | [04-BACKUP-RESTORE.md](04-BACKUP-RESTORE.md) | A `supabase db dump` (or a named PITR timestamp) exists from **before** this cutover's migrations, and a restore drill has been run at least once with its evidence filed under `testing-log/`. | see file footer |
 | [05-GO-NO-GO.md](05-GO-NO-GO.md) | All six hard gates (HG-1..HG-6) are GO or waived-with-a-committed-date, and the overall decision row is signed. | see file footer |
 | [06-DRY-RUN-RECORDS.md](06-DRY-RUN-RECORDS.md) | At least one dry run of the deploy procedure (or a `nopm --curl` dry-run of any cutover-adjacent write) has a dated record filed under `testing-log/`. | see file footer |
+| [07-LARK-WAVE-ROLLOUT.md](07-LARK-WAVE-ROLLOUT.md) | Release-specific, only for the build that carries migrations 0045–0054: pre-check gates passed, the migrations were applied in one transaction (`migrate.mjs --atomic`), the post-check is all `ok`, and the new build was promoted only after that. SQL lives in [`sql/lark-wave/`](sql/lark-wave/). | see file footer |
 
 Each linked file carries its own owner + optional client-witness signature block at the bottom — this table does not duplicate those signatures, only points at them.
 
@@ -36,7 +37,7 @@ Each linked file carries its own owner + optional client-witness signature block
 2. [06-DRY-RUN-RECORDS.md](06-DRY-RUN-RECORDS.md) — rehearse first, on a non-production target.
 3. [04-BACKUP-RESTORE.md](04-BACKUP-RESTORE.md) — take the backup, before touching anything live.
 4. [05-GO-NO-GO.md](05-GO-NO-GO.md) — walk all six gates.
-5. [02-DEPLOY.md](02-DEPLOY.md) — migrate, then deploy, then verify.
+5. [02-DEPLOY.md](02-DEPLOY.md) — migrate, then deploy, then verify. For the build that carries migrations 0045–0054, follow [07-LARK-WAVE-ROLLOUT.md](07-LARK-WAVE-ROLLOUT.md) instead of the plain deploy step: its order and window shape differ.
 6. [03-ROLLBACK.md](03-ROLLBACK.md) — keep open in a tab. You hope not to need it.
 
 ## What this folder is not

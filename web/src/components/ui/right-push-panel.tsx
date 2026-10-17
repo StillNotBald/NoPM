@@ -11,14 +11,20 @@
  *    bottom-sheet (top radius) between md and lg. Body scroll is locked and
  *    the app shell is marked `inert` while open (useBodyScrollLock /
  *    useInertShell) — background content is unreachable, not just covered.
- *  - Escape closes; focus moves to the close button on open and returns to
- *    the opener on close (useReturnFocus). No focus-trap — Tab may leave the
- *    panel at lg+, where it isn't modal.
+ *  - Escape closes the top-most overlay (useEscapeClose); focus moves to the
+ *    close button on open and returns to the opener on close, or to <main>
+ *    when the opener is gone (useReturnFocus). No focus-trap — Tab may leave
+ *    the panel at lg+, where it isn't modal.
+ *  - While CLOSED the panel is `inert` + `invisible`: nothing in it is
+ *    focusable or announced, and its shadow no longer bleeds into the
+ *    viewport edge. (`aria-hidden` stays as the e2e open/closed signal.)
+ *  - At lg+ it is exactly viewport-height (`lg:top-0 lg:bottom-0`): the body
+ *    scrolls and the footer stays pinned, however tall the form is.
  *  - Expand/collapse toggle is shown when onToggleExpand is provided.
  */
 
-import React, { useEffect, type ReactNode } from "react";
-import { useBodyScrollLock, useInertShell, useReturnFocus } from "@/lib/hooks/use-sheet";
+import React, { type ReactNode } from "react";
+import { useBodyScrollLock, useEscapeClose, useInertShell, useReturnFocus } from "@/lib/hooks/use-sheet";
 
 // ── Public margin helpers ─────────────────────────────────────────────────────
 
@@ -66,19 +72,7 @@ export function RightPushPanel({
   useBodyScrollLock(open);
   useInertShell(open);
   useReturnFocus(open, closeBtnRef, returnFocusRef);
-
-  // Escape closes.
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  useEscapeClose(open, onClose);
 
   // Width / position — expanded fills the full viewport width at lg+; below
   // lg the panel is always full-width (full-screen or bottom-sheet).
@@ -89,7 +83,7 @@ export function RightPushPanel({
       {/* Backdrop below lg (full-screen sheet / bottom-sheet) — no backdrop at lg+ (push-column). */}
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/30 lg:hidden"
           onClick={onClose}
           aria-hidden="true"
         />
@@ -100,19 +94,23 @@ export function RightPushPanel({
         aria-modal={false}
         aria-label={title}
         aria-hidden={!open}
+        inert={!open}
         className={[
           "fixed z-50 flex flex-col",
-          "bg-surface shadow-2xl",
-          "transition-all duration-300",
+          "bg-surface shadow-lg",
+          // `translate` slides (Tailwind v4 translate-* sets the translate
+          // property, not transform); visibility flips at once when opening
+          // (so the close button can take focus) and after the slide when closing.
+          "[transition-property:translate,visibility] [transition-duration:300ms,0s] ease-out",
           // <md: full-screen sheet
           "inset-0 border-0",
           // md–lg: bottom sheet with top radius
-          "md:inset-x-0 md:inset-y-auto md:top-auto md:bottom-0 md:max-h-[88vh] md:rounded-t-2xl md:border-t md:border-border-subtle",
-          // ≥lg: right push-column (unchanged)
-          "lg:inset-y-0 lg:right-0 lg:left-auto lg:top-auto lg:bottom-auto lg:max-h-none lg:rounded-none lg:border-l lg:border-t-0 lg:border-border-subtle",
+          "md:inset-x-0 md:inset-y-auto md:top-auto md:bottom-0 md:max-h-[88vh] md:rounded-t-xl md:border-t md:border-border-subtle",
+          // ≥lg: right push-column, viewport-height-bound (top AND bottom pinned)
+          "lg:top-0 lg:bottom-0 lg:right-0 lg:left-auto lg:max-h-none lg:rounded-none lg:border-l lg:border-t-0 lg:border-border-subtle",
           open
-            ? "translate-x-0 translate-y-0"
-            : "translate-y-full pointer-events-none lg:translate-y-0 lg:translate-x-full",
+            ? "visible translate-x-0 translate-y-0 [transition-delay:0s,0s]"
+            : "invisible translate-y-full [transition-delay:0s,300ms] lg:translate-y-0 lg:translate-x-full",
           sizeClasses,
         ].join(" ")}
       >
@@ -130,7 +128,7 @@ export function RightPushPanel({
                 onClick={onToggleExpand}
                 aria-label={expanded ? "Collapse panel" : "Expand panel"}
                 aria-pressed={expanded}
-                className="hidden h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid"
+                className="focus-ring hidden h-8 w-8 place-items-center rounded-md text-ink-secondary hover:bg-sunken lg:grid"
               >
                 <svg
                   className="h-4 w-4"
@@ -163,7 +161,7 @@ export function RightPushPanel({
               type="button"
               onClick={onClose}
               aria-label="Close panel"
-              className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+              className="focus-ring grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
             >
               <svg
                 className="h-5 w-5"
@@ -186,7 +184,8 @@ export function RightPushPanel({
         {/* ── Body ────────────────────────────────────────────────────────────── */}
         <div
           className={[
-            "min-h-0 flex-1 overflow-auto p-4",
+            // scroll-pb: a focused field is scrolled clear of a pinned form-actions bar
+            "min-h-0 flex-1 overflow-auto p-4 scroll-pb-24",
             footer ? "" : "pb-[max(1rem,env(safe-area-inset-bottom))]",
           ].join(" ")}
         >

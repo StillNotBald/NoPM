@@ -25,6 +25,15 @@ import { useInspector } from "@/components/layout/app-shell";
 import { TaskDetailPanel } from "@/components/tracking/detail-panel";
 import type { Milestone, Task as RichTask } from "@/components/tracking/activity-table";
 import { useMediaQuery, QUERY_MD_UP } from "@/lib/hooks/use-media-query";
+import { useToast } from "@/components/ui/toast";
+import {
+  expireSaved,
+  failureMessage,
+  persistMove,
+  withMove,
+  type MoveState,
+  type MoveStates,
+} from "./move-state";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +81,7 @@ const COLUMN_TITLES: Record<TaskStatusType, string> = {
 
 interface TaskCardProps {
   task: Task;
-  movedNote: boolean;
+  moveState: MoveState | null;
   isLocked: boolean;
   /** Touch drag on a scrollable phone column is unreliable next to a tap-to-
    *  open gesture, so drag is desktop-only; phones get tap-to-open instead. */
@@ -80,7 +89,7 @@ interface TaskCardProps {
   onOpen?: () => void;
 }
 
-function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardProps) {
+function TaskCard({ task, moveState, isLocked, dragEnabled, onOpen }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -88,7 +97,9 @@ function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardPr
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id, disabled: isLocked || !dragEnabled });
+    // a card whose move is still being saved can't be moved again: a second
+    // optimistic move would race the first and could not be reverted cleanly
+  } = useSortable({ id: task.id, disabled: isLocked || !dragEnabled || moveState === "saving" });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -112,12 +123,24 @@ function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardPr
       onClick={onOpen}
       role={onOpen ? "button" : undefined}
       tabIndex={onOpen ? 0 : undefined}
+      aria-busy={moveState === "saving" || undefined}
       onKeyDown={
         onOpen
           ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
+              // Enter opens the task. Space is left to dnd-kit's keyboard sensor
+              // (when dragging is on) so a keyboard user can still pick a card
+              // up: the explicit handler used to replace dnd-kit's, which made
+              // keyboard dragging impossible on every board that opens tasks.
+              if (e.key === "Enter") {
                 e.preventDefault();
                 onOpen();
+              } else if (e.key === " ") {
+                if (isLocked || !dragEnabled) {
+                  e.preventDefault();
+                  onOpen();
+                } else {
+                  (listeners as { onKeyDown?: (ev: React.KeyboardEvent) => void } | undefined)?.onKeyDown?.(e);
+                }
               }
             }
           : undefined
@@ -149,15 +172,18 @@ function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardPr
           <span
             className={cn(
               "text-xs font-medium tabular-nums",
-              isStale ? "text-warning" : "text-ink-muted",
+              isStale ? "text-warning-ink" : "text-ink-muted",
             )}
             title={statusAgeSince === "created" ? "Never moved — age since created" : "Days in current status"}
           >
             {statusAgeDays}d{statusAgeSince === "created" ? " since created" : ""}
           </span>
         )}
-        {movedNote && (
-          <span className="text-xs text-success font-medium">
+        {moveState === "saving" && (
+          <span className="text-xs text-ink-muted font-medium">saving…</span>
+        )}
+        {moveState === "saved" && (
+          <span className="text-xs text-success-ink font-medium">
             moved — audited ✓
           </span>
         )}
@@ -171,13 +197,13 @@ function TaskCard({ task, movedNote, isLocked, dragEnabled, onOpen }: TaskCardPr
 interface ColumnProps {
   status: TaskStatusType;
   tasks: Task[];
-  movedIds: Set<string>;
+  moveStates: MoveStates;
   isLocked: boolean;
   dragEnabled: boolean;
   onOpenTask?: (task: Task) => void;
 }
 
-function KanbanColumn({ status, tasks, movedIds, isLocked, dragEnabled, onOpenTask }: ColumnProps) {
+function KanbanColumn({ status, tasks, moveStates, isLocked, dragEnabled, onOpenTask }: ColumnProps) {
   const ids = tasks.map((t) => t.id);
   const { setNodeRef } = useDroppable({ id: "col:" + status });
 
@@ -211,7 +237,7 @@ function KanbanColumn({ status, tasks, movedIds, isLocked, dragEnabled, onOpenTa
               <TaskCard
                 key={task.id}
                 task={task}
-                movedNote={movedIds.has(task.id)}
+                moveState={moveStates.get(task.id) ?? null}
                 isLocked={isLocked}
                 dragEnabled={dragEnabled}
                 onOpen={onOpenTask ? () => onOpenTask(task) : undefined}
@@ -239,8 +265,17 @@ export function KanbanBoard({
   members,
 }: KanbanBoardProps) {
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
-  // Tracks task IDs that recently moved (show inline confirmation)
-  const [recentlyMoved, setRecentlyMoved] = useState<Set<string>>(new Set());
+  // Per-card move state. "saving" while the PATCH is in flight; "saved" (the
+  // "moved — audited" note) ONLY after the API answered 2xx; removed on
+  // failure, when the card is also put back.
+  const [moveStates, setMoveStates] = useState<MoveStates>(new Map());
+  // Polite live-region text so screen-reader users hear the outcome of a move.
+  const [announcement, setAnnouncement] = useState("");
+  const toast = useToast();
+
+  const setMove = useCallback((id: string, state: MoveState | null) => {
+    setMoveStates((prev) => withMove(prev, id, state));
+  }, []);
 
   const inspector = useInspector();
   // Touch drag on a scrollable phone column fights the snap-scroll gesture,
@@ -297,50 +332,54 @@ export function KanbanBoard({
       const draggedTask = tasks.find((t) => t.id === active.id);
       if (!draggedTask || draggedTask.status_type === newStatus) return;
 
-      // Optimistic update
-      const prevTasks = tasks;
+      // Optimistic move: the card jumps to the new column right away, marked
+      // "saving…". It is only called audited once the server says so.
+      const taskId = active.id as string;
+      const fromStatus = draggedTask.status_type;
       const updatedTasks = tasks.map((t) =>
-        t.id === active.id ? { ...t, status_type: newStatus } : t,
+        t.id === taskId ? { ...t, status_type: newStatus } : t,
       );
       setTasks(updatedTasks);
+      setMove(taskId, "saving");
+      setAnnouncement(`Moving ${draggedTask.name} to ${COLUMN_TITLES[newStatus]}…`);
 
-      // Show "moved — audited ✓" note
-      const taskId = active.id as string;
-      setRecentlyMoved((prev) => new Set([...prev, taskId]));
-      setTimeout(() => {
-        setRecentlyMoved((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
-      }, 3500);
-
-      // Persist via REST API
-      try {
-        const res = await fetch(`/api/tasks/${taskId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status_type: newStatus }),
-        });
-        if (!res.ok) throw new Error("patch failed");
-      } catch {
-        // Revert on error
-        setTasks(prevTasks);
-        setRecentlyMoved((prev) => {
-          const next = new Set(prev);
-          next.delete(taskId);
-          return next;
-        });
+      // Persist via REST API. persistMove never throws: a refusal (lock, scope,
+      // rule) and a dead network both come back as { ok: false, reason }.
+      const result = await persistMove(taskId, newStatus);
+      if (result.ok) {
+        setMove(taskId, "saved");
+        setAnnouncement(`Moved ${draggedTask.name} to ${COLUMN_TITLES[newStatus]}. Change recorded in the audit log.`);
+        setTimeout(() => setMoveStates((prev) => expireSaved(prev, taskId)), 3500);
+        return;
       }
+
+      // Put THIS card back (not a snapshot of the whole board, which would also
+      // undo any other card moved while this save was in flight) and say why,
+      // instead of silently snapping it home.
+      setTasks((cur) => cur.map((t) => (t.id === taskId ? { ...t, status_type: fromStatus } : t)));
+      setMove(taskId, null);
+      const message = failureMessage({
+        name: draggedTask.name,
+        toTitle: COLUMN_TITLES[newStatus],
+        fromTitle: COLUMN_TITLES[fromStatus],
+        reason: result.reason,
+      });
+      setAnnouncement(message);
+      toast.error(message, { duration: 8000 });
     },
-    [tasks],
+    [tasks, setMove, toast],
   );
 
   return (
     <div className="space-y-3">
+      {/* Outcome of the last move, for screen readers (the toast covers failures visually) */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+
       {/* Locked banner */}
       {isLocked && (
-        <div className="rounded-md border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning">
+        <div className="rounded-md border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning-ink">
           Timeline locked — changes require a rebaseline.
         </div>
       )}
@@ -363,7 +402,7 @@ export function KanbanBoard({
               key={status}
               status={status}
               tasks={byStatus(status)}
-              movedIds={recentlyMoved}
+              moveStates={moveStates}
               isLocked={isLocked}
               dragEnabled={isDesktop}
               onOpenTask={openTask}
@@ -374,7 +413,7 @@ export function KanbanBoard({
 
       {tasks.length === 0 && !isLocked && (
         <p className="py-8 text-center text-sm text-ink-muted">
-          No tasks yet for this project.
+          No tasks yet for this project. Add one on the Activity tab and it will appear in its column here.
         </p>
       )}
     </div>

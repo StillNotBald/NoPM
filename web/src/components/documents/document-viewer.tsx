@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { HistoryTimeline } from "@/components/tracking/history-timeline";
+import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { DocumentForm, type Document, type DocStatus, type DocType } from "./document-form";
 import { FileUpload } from "./file-upload";
 
@@ -65,13 +66,9 @@ function TextValue({ value }: { value: string | null | undefined }) {
   return <span className="whitespace-pre-wrap">{value}</span>;
 }
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+/** Only web and mail links are rendered as links; anything else (javascript:, data:, ...) stays inert text. */
+function isSafeHref(url: string): boolean {
+  return /^(https?:|mailto:)/i.test(url.trim());
 }
 
 // ── Simple Markdown renderer (no external deps) ───────────────────────────────
@@ -98,10 +95,14 @@ function parseInline(text: string): React.ReactNode {
       );
     } else if (match[5] !== undefined && match[6] !== undefined) {
       parts.push(
-        <a key={match.index} href={match[6]} target="_blank" rel="noopener noreferrer"
-          className="text-accent underline underline-offset-2">
-          {match[5]}
-        </a>,
+        isSafeHref(match[6]) ? (
+          <a key={match.index} href={match[6]} target="_blank" rel="noopener noreferrer"
+            className="text-accent underline underline-offset-2">
+            {match[5]}
+          </a>
+        ) : (
+          <span key={match.index}>{match[5]}</span>
+        ),
       );
     }
     last = match.index + match[0].length;
@@ -138,21 +139,21 @@ function renderMarkdown(md: string): React.ReactNode {
     // Heading ### h3
     const h3 = line.match(/^### (.+)/);
     if (h3) {
-      nodes.push(<h3 key={`h3-${i}`} className="mt-3 text-sm font-semibold text-ink">{parseInline(h3[1])}</h3>);
+      nodes.push(<h5 key={`h3-${i}`} className="mt-3 text-sm font-semibold text-ink">{parseInline(h3[1])}</h5>);
       i++; continue;
     }
 
     // Heading ## h2
     const h2 = line.match(/^## (.+)/);
     if (h2) {
-      nodes.push(<h2 key={`h2-${i}`} className="mt-4 text-base font-semibold text-ink">{parseInline(h2[1])}</h2>);
+      nodes.push(<h4 key={`h2-${i}`} className="mt-4 text-base font-semibold text-ink">{parseInline(h2[1])}</h4>);
       i++; continue;
     }
 
     // Heading # h1
     const h1 = line.match(/^# (.+)/);
     if (h1) {
-      nodes.push(<h1 key={`h1-${i}`} className="mt-4 text-lg font-bold text-ink">{parseInline(h1[1])}</h1>);
+      nodes.push(<h3 key={`h1-${i}`} className="mt-4 text-lg font-bold text-ink">{parseInline(h1[1])}</h3>);
       i++; continue;
     }
 
@@ -228,12 +229,14 @@ function FileSection({
   onChanged: () => void;
 }) {
   const [removing, setRemoving] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
   const hasFile = !!document.storage_path;
   const fileUrl = `/api/documents/${document.id}/file`;
 
   async function handleRemove() {
+    setConfirmingRemove(false);
     setRemoveError(null);
     setRemoving(true);
     try {
@@ -328,14 +331,35 @@ function FileSection({
 
           {/* Remove + Replace controls */}
           <div className="flex flex-wrap items-center gap-2">
+            {confirmingRemove ? (
+              // Removing a file deletes it from storage, so it takes a second, deliberate click.
+              <span className="inline-flex flex-wrap items-center gap-1 text-xs text-ink">
+                Remove this file?
+                <button
+                  type="button"
+                  autoFocus
+                  onClick={handleRemove}
+                  className="focus-ring min-h-[44px] rounded px-2 font-medium text-danger-ink hover:bg-sunken sm:min-h-8"
+                >
+                  Remove
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRemove(false)}
+                  className="focus-ring min-h-[44px] rounded px-2 text-ink-secondary hover:bg-sunken sm:min-h-8"
+                >
+                  Keep
+                </button>
+              </span>
+            ) : (
             <button
               type="button"
-              onClick={handleRemove}
+              onClick={() => setConfirmingRemove(true)}
               disabled={removing}
-              className="inline-flex items-center gap-1 text-xs text-danger hover:opacity-80 transition-opacity duration-150 disabled:opacity-50"
+              className="focus-ring inline-flex min-h-[44px] items-center gap-1 rounded px-1 text-xs text-danger-ink transition-opacity duration-150 hover:opacity-80 disabled:opacity-50 sm:min-h-8"
             >
               {removing ? (
-                <Spinner size="sm" className="text-danger" />
+                <Spinner size="sm" className="text-danger-ink" />
               ) : (
                 <svg
                   width="12"
@@ -357,6 +381,7 @@ function FileSection({
               )}
               {removing ? "Removing…" : "Remove file"}
             </button>
+            )}
 
             <span className="text-ink-muted text-xs">·</span>
 
@@ -365,7 +390,9 @@ function FileSection({
           </div>
 
           {removeError && (
-            <p className="text-xs text-danger">{removeError}</p>
+            <p role="alert" className="text-xs text-danger-ink">
+              {removeError}
+            </p>
           )}
         </div>
       ) : (
@@ -383,6 +410,8 @@ export interface DocumentViewerProps {
   projectName?: string;
   ownerName?: string;
   projects?: { id: string; name: string }[];
+  /** Same appearance preference the register list honours; absolute when omitted. */
+  dateDisplayPref?: DateDisplayPref;
 }
 
 export function DocumentViewer({
@@ -390,9 +419,11 @@ export function DocumentViewer({
   projectName,
   ownerName,
   projects,
+  dateDisplayPref = "absolute",
 }: DocumentViewerProps) {
   const inspector = useInspector();
   const router = useRouter();
+  const formatDate = (iso: string | null | undefined) => formatByPref(iso, dateDisplayPref).text;
 
   function openEdit() {
     inspector.open(
@@ -419,7 +450,7 @@ export function DocumentViewer({
             {document.title}
           </h2>
         </div>
-        <Button variant="ghost" onClick={openEdit} className="shrink-0 h-9 px-3 text-xs">
+        <Button variant="ghost" onClick={openEdit} className="h-11 shrink-0 px-3 text-xs sm:h-9">
           Edit
         </Button>
       </div>
@@ -467,14 +498,18 @@ export function DocumentViewer({
 
         {document.external_url && (
           <DetailRow label="External Link">
-            <a
-              href={document.external_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-accent underline underline-offset-2 break-all text-sm"
-            >
-              {document.external_url}
-            </a>
+            {isSafeHref(document.external_url) ? (
+              <a
+                href={document.external_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-accent underline underline-offset-2 break-all text-sm"
+              >
+                {document.external_url}
+              </a>
+            ) : (
+              <span className="break-all text-sm">{document.external_url}</span>
+            )}
           </DetailRow>
         )}
       </div>

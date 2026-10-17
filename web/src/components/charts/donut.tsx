@@ -10,6 +10,8 @@
  *   children  Optional centre slot (label / number)
  */
 
+import { computeDonutArcs } from "./donut-arcs";
+
 type Segment = {
   label: string;
   value: number;
@@ -30,20 +32,9 @@ export function DonutChart({ segments, size = 120, thickness = 18, children }: D
   const cy = size / 2;
   const circumference = 2 * Math.PI * r;
 
-  // Build arc paths from segment values
-  const positiveSegs = segments.filter((seg) => seg.value > 0);
-  const gap = total > 0 && positiveSegs.length > 1 ? 1.5 : 0;
-  const arcs = positiveSegs.reduce<{ seg: Segment; offset: number; dash: number }[]>(
-    (acc, seg) => {
-      const pct = total > 0 ? seg.value / total : 0;
-      const cumulativePct = acc.reduce((s, a) => s + (total > 0 ? a.seg.value / total : 0), 0);
-      const offset = circumference * (1 - cumulativePct);
-      const dash = circumference * pct;
-      acc.push({ seg, offset, dash: dash - gap });
-      return acc;
-    },
-    [],
-  );
+  // Slice geometry lives in donut-arcs.ts (unit-tested): each slice is a full
+  // circle painted with one dash of its own length, shifted to its start.
+  const arcs = computeDonutArcs(segments, circumference);
 
   if (total === 0) {
     // Empty state: grey ring
@@ -89,7 +80,7 @@ export function DonutChart({ segments, size = 120, thickness = 18, children }: D
           strokeWidth={thickness}
         />
         {/* Segments */}
-        {arcs.map(({ seg, offset, dash }) => (
+        {arcs.map(({ seg, dasharray, dashoffset }) => (
           <circle
             key={seg.label}
             cx={cx}
@@ -98,8 +89,8 @@ export function DonutChart({ segments, size = 120, thickness = 18, children }: D
             fill="none"
             stroke={seg.color}
             strokeWidth={thickness}
-            strokeDasharray={`${dash} ${circumference}`}
-            strokeDashoffset={offset}
+            strokeDasharray={dasharray}
+            strokeDashoffset={dashoffset}
             strokeLinecap="butt"
           />
         ))}

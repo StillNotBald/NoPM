@@ -2,7 +2,8 @@
 
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import { Badge } from "@/components/ui/badge";
-import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
 import { PacingBar } from "@/components/budget/pacing-bar";
 import { cn } from "@/lib/cn";
 
@@ -49,25 +50,25 @@ export function EvmTable({ rows }: { rows: EvmTableRow[] }) {
       key: "cpi",
       header: "CPI",
       align: "right",
-      cell: (r) => <span className={cn("font-medium tabular-nums", r.cpiToneClass)}>{r.cpiDisplay}</span>,
+      cell: (r) => <span className={cn("font-mono font-medium tabular-nums", r.cpiToneClass)}>{r.cpiDisplay}</span>,
     },
     {
       key: "spi",
       header: "SPI",
       align: "right",
-      cell: (r) => <span className={cn("font-medium tabular-nums", r.spiToneClass)}>{r.spiDisplay}</span>,
+      cell: (r) => <span className={cn("font-mono font-medium tabular-nums", r.spiToneClass)}>{r.spiDisplay}</span>,
     },
     {
       key: "eac",
       header: "EAC",
       align: "right",
-      cell: (r) => <span className="tabular-nums text-ink-secondary">{r.eacDisplay}</span>,
+      cell: (r) => <span className="whitespace-nowrap font-mono tabular-nums text-ink-secondary">{r.eacDisplay}</span>,
     },
     {
       key: "vac",
       header: "VAC",
       align: "right",
-      cell: (r) => <span className={cn("font-medium tabular-nums", r.vacToneClass)}>{r.vacDisplay}</span>,
+      cell: (r) => <span className={cn("whitespace-nowrap font-mono font-medium tabular-nums", r.vacToneClass)}>{r.vacDisplay}</span>,
     },
   ];
 
@@ -132,6 +133,8 @@ export interface BudgetTableRow {
 }
 
 export interface BudgetTotals {
+  /** Shown once on the totals line; the figures below are numbers only. */
+  currency: string;
   plannedDisplay: string;
   committedDisplay: string;
   actualDisplay: string;
@@ -186,7 +189,9 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
         ))}
         {totals && (
           <li className="flex flex-col gap-1.5 bg-sunken px-4 py-3">
-            <span className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">Totals</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-secondary">
+              Totals · {totals.currency}
+            </span>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
               <div>
                 <span className="block text-ink-muted">Planned</span>
@@ -225,7 +230,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
 
       {/* >=md (and print): DataTable primitives */}
       <div className="hidden md:block print:block">
-        <Table bare className="min-w-[760px] print:min-w-0">
+        <ScrollTable bare label="Project budgets" className="print:min-w-0">
           <THead>
             <TR>
               <TH>Project</TH>
@@ -233,20 +238,21 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
               <TH align="right">Committed</TH>
               <TH align="right">Actual</TH>
               <TH align="right">Variance</TH>
-              <TH className="min-w-[260px]">Burn vs progress</TH>
+              <TH>Burn vs progress</TH>
             </TR>
           </THead>
           <tbody>
             {rows.map((r) => (
               <TR key={r.projectId} className="hover:bg-sunken transition-colors duration-100 print:break-inside-avoid">
+                {/* wraps (no nowrap): the name column takes whatever the money columns leave, so the table fits without clipping or truncating names */}
                 <TD>
                   <span className="font-medium text-ink">{r.projectName}</span>
-                  <span className="ml-2 text-xs text-ink-muted">{r.currency}</span>
+                  <span className="ml-1.5 whitespace-nowrap font-mono text-xs text-ink-muted">{r.currency}</span>
                 </TD>
-                <TD align="right" numeric className="text-ink-secondary">{r.plannedDisplay}</TD>
-                <TD align="right" numeric className="text-ink-secondary">{r.committedDisplay}</TD>
-                <TD align="right" numeric>{r.actualDisplay}</TD>
-                <TD align="right" numeric className="font-medium">
+                <TD align="right" numeric className="whitespace-nowrap text-ink-secondary">{r.plannedDisplay}</TD>
+                <TD align="right" numeric className="whitespace-nowrap text-ink-secondary">{r.committedDisplay}</TD>
+                <TD align="right" numeric className="whitespace-nowrap">{r.actualDisplay}</TD>
+                <TD align="right" numeric className="whitespace-nowrap font-medium">
                   {r.varianceDisplay === null ? (
                     <span className="text-ink-muted">—</span>
                   ) : (
@@ -256,7 +262,7 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
                   )}
                 </TD>
                 <TD>
-                  <PacingBar burnPct={r.burnPct} expectedPct={r.completionPct} hasPlan={r.hasPlan} />
+                  <PacingBar burnPct={r.burnPct} expectedPct={r.completionPct} hasPlan={r.hasPlan} stacked />
                 </TD>
               </TR>
             ))}
@@ -264,24 +270,26 @@ export function BudgetTable({ rows, totals }: { rows: BudgetTableRow[]; totals: 
           {totals && (
             <tfoot>
               <TR className="border-t-2 border-border-subtle bg-sunken font-semibold print:break-inside-avoid">
-                <TD className="text-xs uppercase tracking-wide text-ink-secondary">Totals</TD>
-                <TD align="right" numeric>{totals.plannedDisplay}</TD>
-                <TD align="right" numeric>{totals.committedDisplay}</TD>
-                <TD align="right" numeric>{totals.actualDisplay}</TD>
+                <TD className="whitespace-nowrap text-xs uppercase tracking-wide text-ink-secondary">
+                  Totals · {totals.currency}
+                </TD>
+                <TD align="right" numeric className="whitespace-nowrap">{totals.plannedDisplay}</TD>
+                <TD align="right" numeric className="whitespace-nowrap">{totals.committedDisplay}</TD>
+                <TD align="right" numeric className="whitespace-nowrap">{totals.actualDisplay}</TD>
                 <TD
                   align="right"
                   numeric
-                  className={totals.varianceIsNegative ? "text-danger-ink" : "text-success-ink"}
+                  className={totals.varianceIsNegative ? "whitespace-nowrap text-danger-ink" : "whitespace-nowrap text-success-ink"}
                 >
                   {totals.varianceDisplay}
                 </TD>
                 <TD>
-                  <PacingBar burnPct={totals.burnPct} expectedPct={totals.completionPct} />
+                  <PacingBar burnPct={totals.burnPct} expectedPct={totals.completionPct} stacked />
                 </TD>
               </TR>
             </tfoot>
           )}
-        </Table>
+        </ScrollTable>
       </div>
     </>
   );

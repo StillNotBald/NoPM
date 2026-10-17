@@ -351,9 +351,14 @@ const insertSubmission = async ({ member, periodStart, rows, status, submittedBy
     hours_total: sumHours(rows), entry_count: rows.length,
     status, submitted_by: submittedByProfile.id, submitted_by_type: "user",
     submitted_by_label: submittedByProfile.display_name, submitted_at: submittedAt,
+    // 0045 (principal-aware four-eyes): the HUMAN on each side. For a "user"
+    // actor that is simply the profile id; ts_principal_distinct requires the
+    // decider to differ from the submitter.
+    submitted_principal_id: submittedByProfile.id,
     decided_by: decided?.by.id ?? null,
     decided_by_type: decided ? "user" : null,
     decided_by_label: decided?.by.display_name ?? null,
+    decided_principal_id: decided?.by.id ?? null,
     decided_at: decided?.at ?? null,
     decision_rationale: decided?.rationale ?? null,
   };

@@ -95,3 +95,67 @@ export function weekStartCols(minDay: number, totalDays: number): number[] {
   });
   return cols;
 }
+
+/**
+ * px per day so `totalDays` exactly fill `viewportPx` (the "Fit" view),
+ * clamped so a very long range stays legible and a very short one is not
+ * stretched into blocks. Unmeasured / degenerate input returns `fallback`.
+ */
+export function fitDayWidth(
+  viewportPx: number,
+  totalDays: number,
+  opts: { min?: number; max?: number; fallback?: number } = {},
+): number {
+  const { min = 1, max = 40, fallback = 14 } = opts;
+  if (!(viewportPx > 0) || !(totalDays > 0)) return fallback;
+  return Math.min(Math.max(viewportPx / totalDays, min), max);
+}
+
+/**
+ * `scrollLeft` that opens a time-axis view on today instead of on the data's
+ * first date: today sits `leadDays` (at least a fifth of the window) from the
+ * left edge, so recent history is visible and the near future fills the rest.
+ * Clamped to the scrollable range. `todayX` is today's x within the content.
+ */
+export function scrollLeftForToday(
+  todayX: number,
+  viewportPx: number,
+  contentPx: number,
+  dayW: number,
+  leadDays = 14,
+): number {
+  const lead = Math.max(leadDays * dayW, viewportPx * 0.2);
+  const max = Math.max(contentPx - viewportPx, 0);
+  return Math.min(Math.max(todayX - lead, 0), max);
+}
+
+const MONTH_ABBR = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * First-of-month ISO dates inside [startIso, endIso] (both "YYYY-MM-DD"), each
+ * with a short label: "Jul", or "Jan 2027" for January and for the first mark
+ * so the year is always on screen. Pure calendar arithmetic (no Date, no
+ * locale), so the labels cannot change with the runtime's ICU data.
+ */
+export function monthMarks(startIso: string, endIso: string): Array<{ iso: string; label: string }> {
+  const [sy, sm, sd] = startIso.split("-").map(Number);
+  if (!Number.isFinite(sy) || !Number.isFinite(sm) || !Number.isFinite(sd) || endIso < startIso) return [];
+  let y = sy;
+  let m = sd > 1 ? sm + 1 : sm; // the first month START inside the range
+  if (m > 12) {
+    m = 1;
+    y += 1;
+  }
+  const marks: Array<{ iso: string; label: string }> = [];
+  for (;;) {
+    const iso = `${y}-${String(m).padStart(2, "0")}-01`;
+    if (iso > endIso) break;
+    marks.push({ iso, label: `${MONTH_ABBR[m - 1]}${marks.length === 0 || m === 1 ? ` ${y}` : ""}` });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      y += 1;
+    }
+  }
+  return marks;
+}

@@ -102,6 +102,7 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `list_resources` | GET /api/resources | `resource:read` |
 | `search_workspace` | GET /api/search | `project:read` |
 | `query_audit` | GET /api/audit | `audit:read` |
+| `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `time:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
 
 ### Recommended minimum scopes for a read-only agent
 
@@ -125,11 +126,13 @@ risk:write  issue:write
 
 - **Capabilities are bounded by the PAT scopes.** A `project:read`-only token cannot create projects. The server surfaces `{ "error": "..." }` (including 403 scope errors) as the tool result so governance failures are visible — they are never silently swallowed.
 
+- **A tool can only reach its own endpoint.** Tool arguments are model-controlled text, so every id that goes into a request path (`project_id`, `task_id`, `milestone_id`, `risk_id`, `issue_id`) must be a UUID and is percent-encoded; anything else (`../unlock`, `<uuid>/../tokens`, `<uuid>?x=`) is refused with a `Bad arguments: <field> must be a UUID` tool result BEFORE any request is made. As a second layer, every built request is checked against the shape of its own tool's route (same method, same path segments, no encoded or dotted segments), so a tool cannot be steered onto a route that is not a tool, such as `POST /api/projects/:id/unlock`. `page` / `limit` are encoded and can only be query values. Locked by `src/lib/assistant/tools-path-safety.test.ts`.
+
 - **Every write produces an immutable audit log row.** You can inspect the trail at any time with the `query_audit` tool.
 
 - **Every write is tagged with its declared client.** Both transports send `X-NoPM-Client: mcp`, so the resulting audit_log rows carry `channel: mcp` (R-82, filterable via `GET /audit?channel=mcp`) — provenance only, never an authorization input; token identity stays authoritative.
 
-- **Task deletion AND project deletion are maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`; `request_project_deletion` calls `DELETE /api/projects/:id`. Both create a `deletion_request` (`status=pending`, `target_type=task` or `target_type=project`) and return 202 Accepted — the target is NOT deleted. A second, different token with the scope matching the request's `target_type` (`task:delete:approve` for tasks, `project:delete:approve` for projects) must call `POST /api/deletion-requests/:id/approve`, which dispatches by `target_type` to the matching commit path. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side for both entity types; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly. Maker-checker is owner-locked to PROJECTS ONLY beyond tasks — milestones/risks/issues stay single-step hard deletes and are not part of this flow.
+- **Task deletion AND project deletion are maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`; `request_project_deletion` calls `DELETE /api/projects/:id`. Both create a `deletion_request` (`status=pending`, `target_type=task` or `target_type=project`) and return 202 Accepted — the target is NOT deleted. A different person (a token counts as the human who created it, so a second token minted by the requester does not count) with the scope matching the request's `target_type` (`task:delete:approve` for tasks, `project:delete:approve` for projects) must call `POST /api/deletion-requests/:id/approve`, which dispatches by `target_type` to the matching commit path. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side for both entity types; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly. Maker-checker is owner-locked to PROJECTS ONLY beyond tasks — milestones/risks/issues stay single-step hard deletes and are not part of this flow.
 
 ---
 

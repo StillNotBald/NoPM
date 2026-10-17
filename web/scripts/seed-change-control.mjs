@@ -235,11 +235,16 @@ const crRows = [
 // R-83: every row is raised/decided by a real profile (a "user" actor) —
 // backfill the actor-typed pair alongside the legacy profile-id columns so
 // this seed matches what the API writes from 0043 on.
+// 0045 (principal-aware four-eyes): the HUMAN on each side is recorded too.
+// For a "user" actor the principal is simply the profile id; the CHECK
+// cr_principal_distinct requires decider <> requester.
 for (const cr of crRows) {
   cr.requested_by_type = "user";
   cr.requested_by_id = cr.requested_by;
+  cr.requested_principal_id = cr.requested_by;
   cr.decided_by_type = cr.decided_by ? "user" : null;
   cr.decided_by_id = cr.decided_by;
+  cr.decided_principal_id = cr.decided_by;
 }
 
 for (const cr of crRows) {

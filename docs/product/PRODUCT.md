@@ -29,7 +29,7 @@ NoPM does not ask a team to give up Jira, Slack, or Teams. It is the governed re
 ## Operating Context
 
 - Live at stillnotbald.com (Vercel + Cloudflare; Supabase Postgres/Auth/RLS).
-- Cold visitors enter via the landing's "Try the live demo" (≤2 clicks, seeded workspace, shared viewer identity — per-visit fresh assistant chats, no cross-visitor persistence).
+- Cold visitors enter via the landing's "Try the live demo" (≤2 clicks, seeded workspace, shared manager identity — per-visit fresh assistant chats, no cross-visitor persistence).
 - Operators work in the console (dashboard, Kanban, Gantt, registers, Trust Center); agents work over HTTP with PATs.
 - The repo itself is a public exhibit: requirements register + RTM, sprint-log receipts, ADRs, generated proof metrics, checked-in governance gates.
 

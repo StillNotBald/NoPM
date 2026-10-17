@@ -4,8 +4,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
-import { assertHasEntriesToSubmit, assertNoOpenDuplicate } from "@/lib/governance/timesheet-decision";
+import { NotFoundError, ScopeError } from "@/lib/api/errors";
+import {
+  assertHasEntriesToSubmit,
+  assertNoOpenDuplicate,
+  summariseEntries,
+  TIMESHEET_ENTRY_COLUMNS,
+  timesheetContentDigest,
+  type TimesheetEntryRow,
+} from "@/lib/governance/timesheet-decision";
+import {
+  announceRequested,
+  requireMakerPrincipal,
+  resubmitReopenedTimesheet,
+  timesheetEvent,
+} from "@/lib/governance/decide";
 import { createTimesheetSubmissionSchema, TIMESHEET_STATUSES } from "./_schema";
 
 export const runtime = "nodejs";
@@ -16,6 +29,38 @@ function addDaysIso(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Who may submit a member's week (red-team N2). Submitting FREEZES the week
+ * (the entries cannot change while the sheet is under review), so "any
+ * non-viewer may submit anyone's" let one person lock a colleague out of their
+ * own time entries. Allowed: the member themselves — the person whose profile is
+ * linked to the resource row, whether acting directly or through a token they
+ * minted — or an admin / manager acting for them. Everyone else: 403
+ * `not_your_timesheet`. A member row with no linked profile can be submitted
+ * for by an admin / manager only.
+ */
+async function assertMayActForMember(
+  db: ReturnType<typeof createAdminClient>,
+  workspaceId: string,
+  principal: string,
+  member: { profile_id?: string | null },
+): Promise<void> {
+  if (member.profile_id && member.profile_id === principal) return;
+
+  const { data: profile } = await db
+    .from("profiles")
+    .select("role")
+    .eq("id", principal)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+  if (profile && (profile.role === "admin" || profile.role === "manager")) return;
+
+  throw new ScopeError(
+    "You can submit only your own timesheet; a manager or admin can submit one on a team member's behalf.",
+    "not_your_timesheet",
+  );
 }
 
 /**
@@ -84,12 +129,19 @@ export const GET = route(async ({ actor, request }) => {
 
 /**
  * POST /api/timesheet-submissions — submit a weekly timesheet for a member
- * (time:submit). Snapshots hours_total/entry_count from time_entries in
- * [period_start, period_start + 6] at submit time (never recomputed
- * afterwards — mirrors the sprint snapshot precedent, migration 0037).
+ * (time:submit). Snapshots hours_total/entry_count — and a content digest of
+ * the entries — from time_entries in [period_start, period_start + 6] at
+ * submit time (never recomputed afterwards — mirrors the sprint snapshot
+ * precedent, migration 0037). The approval step is bound to that snapshot
+ * (422 `timesheet_changed` if the entries no longer match) and the week's
+ * entries are frozen while the sheet is under review (R1/H2).
+ *
+ * A token with no recorded owner can't submit (403 `no_principal`): the
+ * submitter's human is what four-eyes compares the approver against (R1/H3).
  */
 export const POST = route(async ({ actor, request }) => {
   requireScope(actor, "time:submit");
+  const submitterPrincipal = requireMakerPrincipal(actor);
 
   const body = await safeJson(request);
   const parsed = createTimesheetSubmissionSchema.safeParse(body);
@@ -105,11 +157,12 @@ export const POST = route(async ({ actor, request }) => {
   // Verify the member exists and belongs to this workspace.
   const { data: member } = await db
     .from("resource_members")
-    .select("id, name")
+    .select("id, name, profile_id")
     .eq("id", parsed.data.member_id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
   if (!member) throw new NotFoundError("Resource member not found");
+  await assertMayActForMember(db, actor.workspaceId, submitterPrincipal, member);
 
   const periodStart = parsed.data.period_start;
   const periodEnd = addDaysIso(periodStart, 6);
@@ -117,30 +170,34 @@ export const POST = route(async ({ actor, request }) => {
   // Clean 422 pre-check (DB uniq_open_timesheet index is the backstop).
   const { data: existing } = await db
     .from("timesheet_submissions")
-    .select("id, status")
+    .select("id, status, reopened_at")
     .eq("member_id", parsed.data.member_id)
     .eq("period_start", periodStart)
     .in("status", ["submitted", "approved"])
     .maybeSingle();
+  // A REOPENED sheet (an approver unlocked it so the member could amend their
+  // entries) is resubmitted in place: fresh snapshot + digest, so it can be
+  // approved again. Any other open sheet is the duplicate 422.
+  if (existing?.status === "submitted" && existing.reopened_at) {
+    return created(await resubmitReopenedTimesheet(actor, existing.id));
+  }
   assertNoOpenDuplicate(existing);
 
   // Snapshot hours_total + entry_count from time_entries in the period.
   const { data: entries, error: entriesError } = await db
     .from("time_entries")
-    .select("hours")
+    .select(TIMESHEET_ENTRY_COLUMNS)
     .eq("member_id", parsed.data.member_id)
     .eq("workspace_id", actor.workspaceId)
     .gte("entry_date", periodStart)
     .lte("entry_date", periodEnd);
   if (entriesError) throw entriesError;
 
-  const rows = entries ?? [];
+  const rows = (entries ?? []) as TimesheetEntryRow[];
   assertHasEntriesToSubmit(rows.length);
 
-  const hoursTotal = rows.reduce((sum: number, e: { hours: number | string | null }) => {
-    const h = typeof e.hours === "string" ? Number(e.hours) : (e.hours ?? 0);
-    return sum + (Number.isFinite(h) ? h : 0);
-  }, 0);
+  const { hoursTotal } = summariseEntries(rows);
+  const contentDigest = timesheetContentDigest(rows);
 
   const { data: row, error } = await db
     .from("timesheet_submissions")
@@ -151,14 +208,23 @@ export const POST = route(async ({ actor, request }) => {
       period_end: periodEnd,
       hours_total: hoursTotal,
       entry_count: rows.length,
+      content_digest: contentDigest,
       status: "submitted",
       submitted_by: actor.id,
       submitted_by_type: actor.type,
       submitted_by_label: actor.label,
+      // The HUMAN behind the submitter (the user, or the token's creator) —
+      // four-eyes compares this, not the actor id.
+      submitted_principal_id: submitterPrincipal,
     })
     .select()
     .single();
 
+  // Two concurrent submits both pass the pre-check above; the partial unique
+  // index uniq_open_timesheet lets one win and refuses the other (23505) —
+  // answer with the pre-check's 422 instead of a raw 500 (assertNoOpenDuplicate
+  // throws for any row it is handed, so the code and message stay in one place).
+  if (error?.code === "23505") assertNoOpenDuplicate({ status: "submitted" });
   if (error) throw error;
 
   await writeAudit({
@@ -182,6 +248,10 @@ export const POST = route(async ({ actor, request }) => {
       payload: { timesheetSubmissionId: row.id, href: "/timesheets" },
     }),
   );
+
+  // Tell the integration hub (chat approval cards) — never throws, runs after
+  // the submission and its audit row are committed.
+  announceRequested(await timesheetEvent(db, actor.workspaceId, row, member.name));
 
   return created(row);
 });

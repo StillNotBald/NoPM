@@ -38,7 +38,7 @@
 
 - The Settings page's Invites card shows every invite's derived status.
 - The `/start` checklist and the dashboard's Governance Tour (R-77) both give a demo visitor or new admin a guided path through the same governed surfaces this catalogue documents, rather than a separate "demo mode."
-- Diagram: [`invite-onboarding-flow.html`](../processes/invite-onboarding-flow.html) is planned in this same work item; it did not exist on disk at the time this catalogue was written.
+- Diagram: [`invite-onboarding-flow.html`](../processes/invite-onboarding-flow.html).
 
 ## Traceability
 
@@ -49,4 +49,3 @@
 ## Open questions
 
 - `[UNVERIFIED]` Exact audit action strings written inside `nopm_accept_invite`.
-- The `invite-onboarding.html` diagram gap is flagged in the report.

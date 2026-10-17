@@ -6,7 +6,6 @@
  *   width="wide"    -> max-w-[1400px] (boards, timelines, wide tables)
  *
  * Carries the standard responsive gutters (px-4 sm:px-6 lg:px-8).
- * Not yet adopted by pages.
  */
 import type { HTMLAttributes } from "react";
 import { cn } from "@/lib/cn";

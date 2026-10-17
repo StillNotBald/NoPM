@@ -9,7 +9,8 @@ import { Severity } from "@/components/ui/severity";
 import { EntityLink } from "@/components/ui/entity-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
-import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
+import { THead, TH, TR, TD } from "@/components/ui/data-table";
+import { ScrollTable } from "@/components/registers/scroll-table";
 import { RiskDetail, type RiskListRow } from "@/components/registers/risk-detail";
 import { useRegisterToolbar, RegisterToolbar } from "@/components/registers/register-toolbar";
 import { type FilterFieldConfig } from "@/components/registers/use-list-controls";
@@ -57,7 +58,10 @@ const ALL_COLUMNS: readonly ColumnDef[] = [
   { key: "due_date", label: "Due" },
 ];
 
-const DEFAULT_COLUMNS = ["ref", "title", "project", "severity", "score", "strategy", "status", "owner", "due_date"];
+// Seven columns fit the ~974px content column at 1280 with the sidebar open;
+// Score and Strategy stay one click away in the Columns chooser (the heatmap
+// above already carries exposure).
+const DEFAULT_COLUMNS = ["ref", "title", "project", "severity", "status", "owner", "due_date"];
 
 const GROUP_BY_OPTIONS: readonly GroupByOption[] = [
   { value: "severity", label: "Severity" },
@@ -143,6 +147,7 @@ export function RiskRegister({
         risk={r}
         projectName={r.project_id ? projectMap[r.project_id] : undefined}
         ownerName={ownerName(r.owner_id)}
+        dateDisplayPref={dateDisplayPref}
       />,
       r.reference_id ? `Risk ${r.reference_id}` : "Risk Detail",
     );
@@ -163,14 +168,15 @@ export function RiskRegister({
           <button
             type="button"
             onClick={() => openRisk(r)}
-            className="focus-ring block max-w-[260px] truncate rounded text-left font-medium text-ink hover:text-accent"
+            title={r.title}
+            className="focus-ring block max-w-[15rem] truncate rounded text-left font-medium text-ink hover:text-accent"
           >
             {r.title}
           </button>
         );
       case "project":
         return r.project_id ? (
-          <span className="block min-w-0 max-w-[160px]">
+          <span className="block min-w-0 max-w-[9.5rem]">
             <EntityLink kind="project" id={r.project_id} muted>
               {projectMap[r.project_id] ?? "-"}
             </EntityLink>
@@ -184,7 +190,7 @@ export function RiskRegister({
         const score = riskScore(r.probability_pct ?? null, r.impact_score ?? null);
         const band = exposureBand(score);
         return score != null && band ? (
-          <span className="inline-flex items-center gap-2">
+          <span className="inline-flex items-center gap-2 whitespace-nowrap">
             <Severity level={band} />
             <span className="font-mono text-xs tabular-nums text-ink-muted">{score}/5</span>
           </span>
@@ -207,11 +213,11 @@ export function RiskRegister({
           </Badge>
         );
       case "owner":
-        return <span className="text-xs text-ink-secondary">{ownerName(r.owner_id)}</span>;
+        return <span className="whitespace-nowrap text-xs text-ink-secondary">{ownerName(r.owner_id)}</span>;
       case "due_date": {
         const due = formatByPref(r.due_date, dateDisplayPref);
         return (
-          <span className="text-xs tabular-nums text-ink-secondary" title={due.title}>
+          <span className="whitespace-nowrap text-xs tabular-nums text-ink-secondary" title={due.title}>
             {due.text}
           </span>
         );
@@ -246,8 +252,29 @@ export function RiskRegister({
 
   const mobileColumns: DataListColumn<RiskListRow>[] = [
     { key: "title", header: "Title", primary: true, cell: (r) => <span className="font-medium text-ink">{r.title}</span> },
-    { key: "severity", header: "Severity", badge: true, cell: (r) => cell("severity", r) },
-    { key: "score", header: "Score", badge: true, cell: (r) => cell("score", r) },
+    // Two heat dots on one card need words, or "Low" and "Medium 2/5" read as contradictions.
+    {
+      key: "severity",
+      header: "Severity",
+      badge: true,
+      cell: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-xs text-ink-muted">Severity</span>
+          {cell("severity", r)}
+        </span>
+      ),
+    },
+    {
+      key: "score",
+      header: "Score",
+      badge: true,
+      cell: (r) => (
+        <span className="inline-flex items-center gap-1.5">
+          <span className="text-xs text-ink-muted">Score</span>
+          {cell("score", r)}
+        </span>
+      ),
+    },
     { key: "status", header: "Status", badge: true, cell: (r) => cell("status", r) },
     { key: "owner", header: "Owner", cell: (r) => cell("owner", r) },
     { key: "due_date", header: "Due", cell: (r) => cell("due_date", r) },
@@ -280,7 +307,7 @@ export function RiskRegister({
       ) : (
         <>
           <div className="hidden md:block">
-            <Table>
+            <ScrollTable label="Risk register">
               <THead>
                 <TR>
                   {visibleColumns.map((col) => {
@@ -304,9 +331,9 @@ export function RiskRegister({
                             {col.label}
                             {active &&
                               (sort!.direction === "asc" ? (
-                                <ArrowUp className="h-3.5 w-3.5" aria-hidden />
+                                <ArrowUp className="h-3 w-3" aria-hidden />
                               ) : (
-                                <ArrowDown className="h-3.5 w-3.5" aria-hidden />
+                                <ArrowDown className="h-3 w-3" aria-hidden />
                               ))}
                           </button>
                         ) : (
@@ -323,14 +350,16 @@ export function RiskRegister({
                     {g.rows.map((r) => (
                       <TR key={r.id} className="hover:bg-sunken">
                         {visibleColumns.map((col) => (
-                          <TD key={col.key}>{cell(col.key, r)}</TD>
+                          <TD key={col.key} className="whitespace-nowrap">
+                            {cell(col.key, r)}
+                          </TD>
                         ))}
                       </TR>
                     ))}
                   </GroupRows>
                 ))}
               </tbody>
-            </Table>
+            </ScrollTable>
             <p className="mt-2 text-xs text-ink-muted">
               {risks.length} risk{risks.length === 1 ? "" : "s"}
             </p>
@@ -359,11 +388,11 @@ function GroupRows({
   return (
     <>
       {label !== "" && (
-        <tr className="bg-sunken/60">
-          <td colSpan={span} className="px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-ink-muted">
+        <TR className="bg-sunken/60">
+          <TD colSpan={span} className="text-xs font-medium uppercase tracking-wide text-ink-muted">
             {label} / {count}
-          </td>
-        </tr>
+          </TD>
+        </TR>
       )}
       {children}
     </>

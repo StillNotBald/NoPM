@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useId, useRef, useState, useCallback, type FocusEvent } from "react";
 import { Bell, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/cn";
-import { useBodyScrollLock, useInertShell, useReturnFocus } from "@/lib/hooks/use-sheet";
+import { IconButton } from "@/components/ui/icon-button";
+import { Portal } from "@/components/ui/portal";
+import { QUERY_LG_UP, useMediaQuery } from "@/lib/hooks/use-media-query";
+import { useDialog, useEscapeClose, useReturnFocus } from "@/lib/hooks/use-sheet";
 import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 // @supabase/ssr + supabase-js are loaded lazily inside the realtime effect
 // below (not at module scope) so they leave the shared shell's initial chunk —
@@ -76,16 +79,41 @@ export function NotificationBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const mobileCloseBtnRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
+  const panelId = useId();
 
-  // F1/F2 — the mobile sheet used to have no lock/inert and no close button
-  // (backdrop-tap only). Scoped to below lg by the hooks themselves; the
-  // desktop popover (no backdrop) is unaffected.
-  useBodyScrollLock(open);
-  useInertShell(open);
-  useReturnFocus(open, mobileCloseBtnRef, buttonRef);
+  // ONE tray is mounted at a time. At lg+ it is a non-modal popover anchored
+  // under the bell; below lg it is a modal bottom sheet. (Both used to be
+  // mounted with one `display:none`, so the sheet's close button existed twice.)
+  const isDesktop = useMediaQuery(QUERY_LG_UP);
+  const sheetOpen = open && !isDesktop;
+  const popoverOpen = open && isDesktop;
+
+  const closeTray = useCallback(() => setOpen(false), []);
+
+  // Mobile sheet = modal dialog: Escape, Tab trap, scroll lock, shell inert
+  // (it renders through <Portal>, outside [data-app-shell], so it does not
+  // inert itself), focus onto Close and back to the bell on close.
+  useDialog({
+    open: sheetOpen,
+    onClose: closeTray,
+    containerRef: sheetRef,
+    initialFocusRef: mobileCloseBtnRef,
+    openerRef: buttonRef,
+    sheet: true,
+  });
+
+  // Desktop popover = non-modal: Escape closes, focus moves into it on open and
+  // returns to the bell; focus leaving it (Tab) or a press outside closes it.
+  useEscapeClose(popoverOpen, closeTray);
+  useReturnFocus(popoverOpen, popoverRef, buttonRef);
+  function onPopoverBlur(e: FocusEvent<HTMLDivElement>) {
+    const next = e.relatedTarget as Node | null;
+    if (next && !popoverRef.current?.contains(next) && !buttonRef.current?.contains(next)) setOpen(false);
+  }
 
   // ── Fetch unread count only (lightweight) ─────────────────────────────────
   const fetchCount = useCallback(async () => {
@@ -223,9 +251,9 @@ export function NotificationBell() {
     };
   }, []); // mount/unmount only
 
-  // Close on click outside (desktop popover)
+  // Close on a press outside the desktop popover (the sheet has its own backdrop)
   useEffect(() => {
-    if (!open) return;
+    if (!popoverOpen) return;
     function handleClick(e: MouseEvent) {
       if (
         popoverRef.current &&
@@ -238,17 +266,7 @@ export function NotificationBell() {
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [open]);
+  }, [popoverOpen]);
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
@@ -285,11 +303,14 @@ export function NotificationBell() {
   return (
     <div className="relative">
       {/* Bell button */}
-      <button
+      <IconButton
         ref={buttonRef}
         onClick={() => setOpen((v) => !v)}
-        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
-        className="relative grid h-10 w-10 place-items-center rounded-md text-ink-secondary hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ""}`}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? panelId : undefined}
+        className="relative"
       >
         <Bell size={18} />
         {unreadCount > 0 && (
@@ -303,47 +324,45 @@ export function NotificationBell() {
             {unreadCount > 99 ? "99+" : unreadCount}
           </span>
         )}
-      </button>
+      </IconButton>
 
-      {/* ── Desktop popover ─────────────────────────────────────────────────── */}
-      {open && (
-        <>
-          {/* Mobile backdrop / bottom-sheet */}
-          <div
-            className="fixed inset-0 z-40 lg:hidden"
-            onClick={() => setOpen(false)}
-            aria-hidden
+      {/* ── Desktop popover (lg+, non-modal) ────────────────────────────────── */}
+      {popoverOpen && (
+        <div
+          id={panelId}
+          ref={popoverRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="false"
+          aria-label="Notifications"
+          onBlur={onPopoverBlur}
+          className="absolute right-0 top-12 z-50 w-80 overflow-hidden rounded-xl border border-border-subtle bg-canvas shadow-lg focus:outline-none"
+        >
+          <PopoverContent
+            notifications={notifications}
+            loading={loading}
+            onMarkRead={markRead}
+            onMarkAllRead={markAllRead}
           />
-          <div
-            ref={popoverRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Notifications"
-            className={cn(
-              // desktop: absolute popover anchored right of button
-              "absolute right-0 top-12 z-50 w-80",
-              "hidden lg:block",
-              "rounded-xl border border-border-subtle bg-canvas shadow-lg",
-              "overflow-hidden",
-            )}
-          >
-            <PopoverContent
-              notifications={notifications}
-              loading={loading}
-              onMarkRead={markRead}
-              onMarkAllRead={markAllRead}
-            />
-          </div>
+        </div>
+      )}
 
-          {/* Mobile: bottom sheet */}
+      {/* ── Mobile / tablet bottom sheet (<lg, modal) ───────────────────────── */}
+      {sheetOpen && (
+        <Portal>
+          <div data-shell-chrome className="fixed inset-0 z-40 bg-black/30" onClick={closeTray} />
           <div
+            id={panelId}
+            ref={sheetRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
             aria-label="Notifications"
+            data-shell-chrome
             className={cn(
-              "fixed inset-x-0 bottom-0 z-50 lg:hidden",
-              "rounded-t-2xl border-t border-border-subtle bg-canvas shadow-lg",
-              "flex max-h-[75dvh] flex-col overflow-hidden",
+              "fixed inset-x-0 bottom-0 z-50",
+              "rounded-t-xl border-t border-border-subtle bg-canvas shadow-lg",
+              "flex max-h-[75dvh] flex-col overflow-hidden focus:outline-none",
             )}
           >
             <div className="relative shrink-0">
@@ -351,9 +370,9 @@ export function NotificationBell() {
               <button
                 ref={mobileCloseBtnRef}
                 type="button"
-                onClick={() => setOpen(false)}
+                onClick={closeTray}
                 aria-label="Close notifications"
-                className="absolute right-1 top-1 grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+                className="focus-ring absolute right-1 top-1 grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
               >
                 <X size={18} />
               </button>
@@ -364,10 +383,11 @@ export function NotificationBell() {
                 loading={loading}
                 onMarkRead={markRead}
                 onMarkAllRead={markAllRead}
+                headerClassName="pr-14"
               />
             </div>
           </div>
-        </>
+        </Portal>
       )}
     </div>
   );
@@ -380,25 +400,29 @@ function PopoverContent({
   loading,
   onMarkRead,
   onMarkAllRead,
+  headerClassName,
 }: {
   notifications: Notification[];
   loading: boolean;
   onMarkRead: (n: Notification) => void;
   onMarkAllRead: () => void;
+  /** Extra classes for the header row (the phone sheet reserves room for its Close button). */
+  headerClassName?: string;
 }) {
   const hasUnread = notifications.some((n) => !n.read);
 
   return (
     <div className="flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
+      <div className={cn("flex items-center justify-between border-b border-border-subtle px-4 py-3", headerClassName)}>
         <span className="font-mono text-xs font-semibold uppercase tracking-wider text-ink-muted">
           Notifications
         </span>
         {hasUnread && (
           <button
+            type="button"
             onClick={onMarkAllRead}
-            className="font-mono text-xs text-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+            className="focus-ring -my-3 flex min-h-11 items-center rounded-sm px-2 font-mono text-xs text-accent hover:underline lg:my-0 lg:min-h-0"
           >
             Mark all read
           </button>
@@ -408,7 +432,7 @@ function PopoverContent({
       {/* List */}
       <div className="max-h-[60vh] overflow-y-auto lg:max-h-[400px]">
         {loading ? (
-          <div className="flex items-center justify-center py-10">
+          <div role="status" className="flex items-center justify-center py-10">
             <span className="font-mono text-xs text-ink-muted">loading...</span>
           </div>
         ) : notifications.length === 0 ? (
@@ -437,9 +461,10 @@ function NotificationRow({
   return (
     <li>
       <button
+        type="button"
         onClick={onClick}
         className={cn(
-          "w-full border-b border-border-subtle px-4 py-3 text-left transition-colors hover:bg-sunken focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/40",
+          "focus-ring-inset w-full border-b border-border-subtle px-4 py-3 text-left transition-colors hover:bg-sunken",
           "last:border-b-0",
         )}
       >

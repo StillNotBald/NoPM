@@ -13,15 +13,19 @@ export const describe = "List, create, inspect, update, decide, or delete change
 export const usage = [
   "nopm changes ls --project <id>                                list change requests for a project",
   "nopm changes get <id>                                         fetch a single change request",
-  "nopm changes create --project <id> --title <t>  [--category <c>] [--priority <p>] [--description <d>]",
-  "nopm changes update <id> [--title <t>] [--category <c>] [--priority <p>] [--status <s>]",
-  "nopm changes decide <id> --decision approve|reject|defer --rationale <r>",
+  "nopm changes create --project <id> --title <t>  [--category <c>] [--priority <p>] [--status <s>] [--description <d>]",
+  "nopm changes update <id> [--title <t>] [--category <c>] [--priority <p>] [--description <d>]",
+  "nopm changes decide <id> --decision approve|reject|defer --rationale <r>   (the only way to change status past raised/under_review)",
   "nopm changes rm <id>                                          delete a change request",
   "  category: scope | schedule | cost | quality | resource | other",
   "  priority: low | medium | high | critical",
-  "  status:   raised | under_review | approved | rejected | deferred | implemented",
+  "  status:   raised | under_review (create only; approve, reject and defer go through `nopm changes decide`)",
   "  flags: --page <n>  --limit <n>  --json",
 ];
+
+// The only statuses a change request can be RAISED in (createChangeRequestSchema).
+// Every other status is a four-eyes decision: `nopm changes decide`.
+const RAISE_STATUSES = ["raised", "under_review"];
 
 const LIST_COLS = ["id", "reference_id", "title", "category", "priority", "status", "project_id"];
 const ROW_COLS  = [
@@ -58,6 +62,9 @@ export async function run(rest, ctx) {
       const projectId = f.project;
       if (!projectId) ctx.die("usage: nopm changes create --project <id> --title <t>");
       if (!f.title)   ctx.die("--title is required");
+      if (f.status && !RAISE_STATUSES.includes(f.status)) {
+        ctx.die(`--status must be ${RAISE_STATUSES.join(" or ")} when raising a change request; approve, reject or defer it with: nopm changes decide <id> --decision approve|reject|defer --rationale <r>`);
+      }
       const body = {
         title: f.title,
         ...(f.category    && { category:    f.category }),
@@ -78,17 +85,19 @@ export async function run(rest, ctx) {
     case "update": {
       const id = arg || f.id;
       if (!id) ctx.die("usage: nopm changes update <id> [flags]");
+      if (f.status) {
+        ctx.die("update cannot change a status; approve, reject or defer it with: nopm changes decide <id> --decision approve|reject|defer --rationale <r>");
+      }
       const body = {};
       if (f.title)       body.title       = f.title;
       if (f.category)    body.category    = f.category;
       if (f.priority)    body.priority    = f.priority;
-      if (f.status)      body.status      = f.status;
       if (f.description) body.description = f.description;
       if (f.impact)      body.impact_summary = f.impact;
       if (f.days != null && f.days !== true) body.impact_schedule_days = Number(f.days);
       if (f.cost != null && f.cost !== true) body.impact_cost = Number(f.cost);
       if (f.target)      body.target_date = f.target;
-      if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --title, --status, --priority, etc.");
+      if (!Object.keys(body).length) ctx.die("No update fields supplied. Use --title, --priority, --category, --description, etc.");
       const { data } = await ctx.api("PATCH", `/api/change-requests/${id}`, body);
       console.log("✓ updated change request", id);
       ctx.out(data, ctx, ROW_COLS);

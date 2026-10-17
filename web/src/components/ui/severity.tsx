@@ -21,10 +21,10 @@ export type SeverityLevel =
 
 // Heat ramp — only the dot carries colour.
 const dotColour: Record<SeverityLevel, string> = {
-  critical: "text-danger",          // red
-  urgent: "text-danger",            // red (priority equivalent of critical)
-  high: "text-sev-high",            // clear orange
-  medium: "text-warning",           // amber
+  critical: "text-danger-ink",          // red
+  urgent: "text-danger-ink",            // red (priority equivalent of critical)
+  high: "text-sev-high-ink",            // clear orange
+  medium: "text-warning-ink",           // amber
   low: "text-ink-muted",            // grey
 };
 

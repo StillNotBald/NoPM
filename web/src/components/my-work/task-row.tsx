@@ -4,6 +4,8 @@ import { Badge } from "@/components/ui/badge";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
 import { EntityLink } from "@/components/ui/entity-link";
+import { formatByPref } from "@/lib/format/dates";
+import { useDateDisplayPref } from "@/lib/theme/use-appearance";
 
 export interface MyTask {
   id: string;
@@ -25,21 +27,14 @@ function statusTone(st: string) {
   return "neutral" as const;
 }
 
-function formatDate(iso: string | null) {
-  if (!iso) return null;
-  return new Date(iso).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 export function TaskRow({ task }: { task: MyTask }) {
+  const pref = useDateDisplayPref();
+  const due = task.due_date ? formatByPref(task.due_date, pref) : null;
   return (
     <div className="flex flex-col gap-2 rounded-md px-3 py-2.5 text-sm transition-colors hover:bg-sunken sm:flex-row sm:items-center sm:gap-3 sm:py-2">
       {/* Name row — its own line so five trailing chips never squeeze it to
           a couple of characters (the same fix as my-tasks/task-list.tsx). */}
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-h-11 min-w-0 items-center gap-3 sm:min-h-0">
         {/* Overdue dot */}
         <span
           className={cn(
@@ -54,7 +49,7 @@ export function TaskRow({ task }: { task: MyTask }) {
           kind="task"
           id={task.id}
           projectId={task.project_id}
-          className="min-w-0 flex-1 font-medium"
+          className="min-w-0 flex-1 self-stretch font-medium"
         >
           {task.name}
         </EntityLink>
@@ -81,14 +76,15 @@ export function TaskRow({ task }: { task: MyTask }) {
         {/* Due date */}
         {task.due_date && (
           <span
+            title={due?.absolute}
             className={cn(
               "shrink-0 whitespace-nowrap font-mono text-xs tabular-nums",
-              task.isOverdue ? "font-medium text-danger" : "text-ink-muted",
+              task.isOverdue ? "font-medium text-danger-ink" : "text-ink-muted",
             )}
           >
-            {formatDate(task.due_date)}
+            {due?.text}
             {task.isOverdue && (
-              <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-2xs text-danger">
+              <span className="ml-1.5 rounded-full bg-danger/10 px-1 py-0.5 text-2xs text-danger-ink">
                 overdue
               </span>
             )}

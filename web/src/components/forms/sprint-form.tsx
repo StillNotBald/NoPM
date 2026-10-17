@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiGet, type ApiError } from "@/lib/api-client";
 import { validateFields } from "@/lib/forms/validate";
-import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 
 /** Minimal project shape for the project picker — mirrors program-form's owner picker. */
@@ -62,7 +62,7 @@ export function SprintForm({ defaultProjectId }: { defaultProjectId?: string }) 
 
     const clientResult = validateFields([
       { key: "project_id", value: projectId, message: "Project is required" },
-      { key: "name", value: name, message: "Sprint name is required" },
+      { key: "name", value: name.trim(), message: "Sprint name is required" },
       { key: "start_date", value: startDate, message: "Start date is required" },
       { key: "end_date", value: endDate, message: "End date is required" },
     ]);
@@ -93,25 +93,20 @@ export function SprintForm({ defaultProjectId }: { defaultProjectId?: string }) 
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">{topError}</div>
-      )}
+      <FormError message={topError} />
 
-      <div>
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Sprint name"
-          required
-          className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-        />
-        <FieldError message={fieldErrors.name} />
-      </div>
+      <TitleField
+        label="Sprint name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Sprint name"
+        required
+        error={fieldErrors.name}
+      />
 
       <FormSection title="Sprint">
         <FormGrid>
-          <div>
-            <FieldLabel required>Project</FieldLabel>
+          <Field label="Project" required error={fieldErrors.project_id}>
             <SelectInput value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">— Select a project —</option>
               {projects.map((p) => (
@@ -120,41 +115,35 @@ export function SprintForm({ defaultProjectId }: { defaultProjectId?: string }) 
                 </option>
               ))}
             </SelectInput>
-            <FieldError message={fieldErrors.project_id} />
-          </div>
+          </Field>
           <div />
-          <div>
-            <FieldLabel required>Start date</FieldLabel>
+          <Field label="Start date" required error={fieldErrors.start_date}>
             <Input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               required
             />
-            <FieldError message={fieldErrors.start_date} />
-          </div>
-          <div>
-            <FieldLabel required>End date</FieldLabel>
+          </Field>
+          <Field label="End date" required error={fieldErrors.end_date}>
             <Input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               required
             />
-            <FieldError message={fieldErrors.end_date} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
-      <FormSection title="Goal">
-        <div>
+      <FormSection>
+        <Field label="Goal" error={fieldErrors.goal}>
           <TextareaInput
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
             placeholder="What this sprint is aiming to deliver"
           />
-          <FieldError message={fieldErrors.goal} />
-        </div>
+        </Field>
       </FormSection>
 
       <FormActions>
@@ -170,7 +159,7 @@ export function SprintForm({ defaultProjectId }: { defaultProjectId?: string }) 
         <Button
           type="submit"
           variant="primary"
-          disabled={saving || !name.trim() || !projectId || !startDate || !endDate}
+          disabled={saving}
           className="w-full sm:w-auto h-11 sm:h-10"
         >
           {saving ? (

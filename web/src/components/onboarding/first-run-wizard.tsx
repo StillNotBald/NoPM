@@ -9,7 +9,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, type ApiError } from "@/lib/api-client";
 import { FieldError } from "@/components/forms/project-form";
-import { usePreferences } from "@/lib/prefs/use-preferences";
+import { useSeededPreferences } from "@/components/onboarding/use-seeded-preferences";
+import type { PrefsSeed } from "@/lib/onboarding/seed";
 import {
   clampStep,
   shouldShowWizard,
@@ -41,10 +42,13 @@ import {
 
 type CreatedProject = { id: string; code: string; name: string };
 
-export function FirstRunWizard() {
+export function FirstRunWizard({ seed }: { seed?: PrefsSeed | null } = {}) {
   const router = useRouter();
   const toast = useToast();
-  const prefs = usePreferences();
+  // `seed` = the viewer's wizard state as the server read it, so the wizard (or
+  // its collapsed "connect an agent" line) is in the first paint instead of
+  // arriving after the preferences GET.
+  const prefs = useSeededPreferences(seed);
 
   // Derived straight from the shared prefs store (R-78) rather than local
   // state — `prefs.update()` merges optimistically and re-renders every
@@ -72,7 +76,7 @@ export function FirstRunWizard() {
   // no-ops the PUT for it (local-only, fresh per visit) so this is just a
   // merge into the shared config.
   function persist(next: typeof onboarding) {
-    void prefs.update({ onboarding: next });
+    prefs.update({ onboarding: next });
   }
 
   function dismiss() {
@@ -170,7 +174,7 @@ export function FirstRunWizard() {
           type="button"
           onClick={dismiss}
           aria-label="Dismiss setup guide"
-          className="rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink"
+          className="focus-ring rounded-md p-1 text-ink-muted hover:bg-sunken hover:text-ink"
         >
           <X size={14} />
         </button>
@@ -178,7 +182,7 @@ export function FirstRunWizard() {
 
       <div className="space-y-4 px-4 py-5">
         {topError && (
-          <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{topError}</div>
+          <div className="rounded-md bg-danger/10 px-3 py-2 text-xs text-danger-ink">{topError}</div>
         )}
 
         {step === 1 && (

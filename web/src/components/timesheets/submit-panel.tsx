@@ -27,11 +27,14 @@ export function TimesheetSubmitPanel({
   periodStart,
   canWrite,
   initialStatus,
+  reopened = false,
 }: {
   memberId: string | null;
   periodStart: string;
   canWrite: boolean;
   initialStatus: TimesheetStatus;
+  /** The sheet was reopened for amendment: still "submitted", but its entries can be edited. */
+  reopened?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -41,7 +44,10 @@ export function TimesheetSubmitPanel({
   if (!memberId) return null;
 
   if (status) {
-    const meta = STATUS_BADGE[status];
+    const meta =
+      status === "submitted" && reopened
+        ? { tone: "info" as const, label: "Reopened — open for amendment" }
+        : STATUS_BADGE[status];
     return (
       <span className="flex shrink-0 items-center gap-1.5">
         <Badge tone={meta.tone}>{meta.label}</Badge>

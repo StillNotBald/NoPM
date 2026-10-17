@@ -8,10 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, type ApiError } from "@/lib/api-client";
-import {
-  FieldLabel,
-  FieldError,
-} from "@/components/forms/project-form";
+import { Field, FormError, TitleField } from "@/components/forms/project-form";
 import {
   FormSection,
   FormGrid,
@@ -48,7 +45,7 @@ export function ResourceForm() {
     setFieldErrors({});
 
     const clientResult = validateFields([
-      { key: "name", value: name, message: "Name is required" },
+      { key: "name", value: name.trim(), message: "Name is required" },
     ]);
     if (!clientResult.ok) {
       setFieldErrors(clientResult.errors);
@@ -80,40 +77,31 @@ export function ResourceForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {topError && (
-        <div className="rounded-md bg-danger/10 px-3 py-2.5 text-sm text-danger">
-          {topError}
-        </div>
-      )}
+      <FormError message={topError} />
 
       {/* Identity */}
       <FormSection title="Identity">
         {/* Name — prominent title-style */}
-        <div>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Full name"
-            required
-            className="border-0 border-b border-border-subtle bg-transparent px-0 text-lg font-medium text-ink placeholder:text-ink-muted/60 rounded-none focus-visible:ring-0 focus-visible:border-border-strong"
-          />
-          <FieldError message={fieldErrors.name} />
-        </div>
+        <TitleField
+          label="Full name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Full name"
+          required
+          error={fieldErrors.name}
+        />
 
         <FormGrid cols={2}>
-          <div>
-            <FieldLabel>Role / Title</FieldLabel>
+          <Field label="Role / Title" error={fieldErrors.role_title}>
             <Input
               value={roleTitle}
               onChange={(e) => setRoleTitle(e.target.value)}
               placeholder="e.g. Senior Engineer"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.role_title} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Email</FieldLabel>
+          <Field label="Email" error={fieldErrors.email}>
             <Input
               type="email"
               value={email}
@@ -121,16 +109,14 @@ export function ResourceForm() {
               placeholder="name@company.com"
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
-            <FieldError message={fieldErrors.email} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
       {/* Capacity & cost */}
       <FormSection title="Capacity & Cost">
         <FormGrid cols={2}>
-          <div>
-            <FieldLabel>Cost Rate / hr</FieldLabel>
+          <Field label="Cost Rate / hr" error={fieldErrors.cost_rate}>
             <Input
               type="number"
               min={0}
@@ -140,11 +126,9 @@ export function ResourceForm() {
               placeholder="e.g. 120.00"
               className="h-11 sm:h-10 text-base sm:text-sm tabular-nums"
             />
-            <FieldError message={fieldErrors.cost_rate} />
-          </div>
+          </Field>
 
-          <div>
-            <FieldLabel>Capacity h / wk</FieldLabel>
+          <Field label="Capacity h / wk" error={fieldErrors.capacity_hours_per_week}>
             <Input
               type="number"
               min={0}
@@ -155,8 +139,7 @@ export function ResourceForm() {
               placeholder="e.g. 40"
               className="h-11 sm:h-10 text-base sm:text-sm tabular-nums"
             />
-            <FieldError message={fieldErrors.capacity_hours_per_week} />
-          </div>
+          </Field>
         </FormGrid>
       </FormSection>
 
@@ -173,7 +156,7 @@ export function ResourceForm() {
         <Button
           type="submit"
           variant="primary"
-          disabled={saving || !name.trim()}
+          disabled={saving}
           className="w-full sm:w-auto h-11 sm:h-10"
         >
           {saving ? (

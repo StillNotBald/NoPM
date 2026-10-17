@@ -29,7 +29,7 @@
 - **Allocation read fails during detection** → `detectOverAllocation` returns `false` without touching the `clashes` table; the allocation write itself still succeeds (detection is best-effort, not transactional with the allocation insert).
 - **Missing `resource:write` on allocation, or `clash:write` on manual clash write** → `403`.
 - **Invalid clash payload** → `422` with field-level messages.
-- **Unresolved clash ages in the Review Queue** — any clash not in `resolved`/`closed` status surfaces in `/review`, oldest first (R-38).
+- **Unresolved clash ages in the Review Queue** — any clash not in `resolved` status surfaces in `/review`, oldest first (R-38).
 
 ## Postconditions
 

@@ -8,9 +8,10 @@ import { writeAudit } from "@/lib/audit/write";
 import { updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
   assertProjectUnlocked,
+  changedScheduleShapeFields,
   SCHEDULE_SHAPE_MILESTONE_FIELDS,
-  touchesScheduleShape,
 } from "@/lib/governance/lock";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -63,13 +64,21 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const input = parsed.data;
 
+  // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: input.owner_id, field: "owner_id" },
+  ]);
+
   // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
   // the caller doesn't send it (today's last-write-wins, unchanged).
   checkOptimisticConcurrency(existing.updated_at, input.expected_updated_at);
 
-  // Schedule-shape changes (target/baseline dates) are blocked while the
-  // parent project is locked; status/completion/owner/etc stay live.
-  if (touchesScheduleShape(input, SCHEDULE_SHAPE_MILESTONE_FIELDS)) {
+  // Schedule-shape CHANGES (target/baseline dates) are blocked while the
+  // parent project is locked; status/completion/owner/etc stay live. Only a real
+  // value change counts — the DB trigger (0028) and the project route compare
+  // values too, so a form that echoes the whole record back is not blocked.
+  const frozenFields = changedScheduleShapeFields(input, existing, SCHEDULE_SHAPE_MILESTONE_FIELDS);
+  if (frozenFields.length > 0) {
     await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
       writeAudit({
         workspaceId: actor.workspaceId,
@@ -78,7 +87,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
         targetType: "milestone",
         targetId: params.id,
         before: null,
-        after: { reason: "project_locked", project_id: existing.project_id },
+        after: { reason: "project_locked", project_id: existing.project_id, fields: frozenFields },
       }),
     );
   }

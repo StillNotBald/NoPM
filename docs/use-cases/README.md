@@ -8,12 +8,12 @@ This catalogue reverse-engineers NoPM's behavior into a set of use cases, writte
 |---|---|---|
 | **Admin** | A signed-in user with `profiles.role = admin`. | At the API-guard layer (`web/src/lib/auth/guard.ts`), admin, manager, and member are currently enforced identically as full-write; there is no granular admin-vs-manager split yet (`user-manual/admin/01-workspace-admin.md`). Admin is the role that mints/revokes tokens, sends invites, and is the de facto workspace owner. |
 | **Project Manager** | A signed-in user with `role = manager` or `member` doing day-to-day delivery work: creating projects, planning tasks, raising risks and change requests. | Same write permissions as admin at this build's enforcement level; the label describes function, not a distinct permission tier. |
-| **Approver / second pair of eyes** | Any actor, human or token, holding the specific decision scope for a governed action (`task:delete:approve`, `project:delete:approve`, `change:decide`, `time:approve`, `rebaseline:approve`) who is not the actor that made the original request. | The database enforces requester != decider on every one of these flows; this is not a role, it is a runtime relationship between two actors. |
+| **Approver / second pair of eyes** | Any actor, human or token, holding the specific decision scope for a governed action (`task:delete:approve`, `project:delete:approve`, `change:decide`, `time:approve`, `rebaseline:approve`) who is a different **person** from the requester. A token counts as the person who minted it. Approval scopes are granted by exact name; a `<resource>:*` wildcard never grants them. | The database enforces that requester and decider are different people on every one of these flows; this is not a role, it is a runtime relationship between two people. |
 | **Team member** | A signed-in user with `role = member` doing assigned work: moving Kanban cards, logging time, updating task fields. | |
 | **Finance / PMO** | A consumer of budget, variance, and board-pack reporting. | Not a distinct role in the schema; anyone with `budget:read` (console access or a scoped token) can act as this actor. |
-| **Viewer** | A signed-in user with `role = viewer`. | Strictly read-only: `requireScope` rejects any non-read action for a viewer with `403`, regardless of which endpoint. The public demo login is a viewer. |
+| **Viewer** | A signed-in user with `role = viewer`. | Strictly read-only: `requireScope` rejects any non-read action for a viewer with `403`, regardless of which endpoint. The public demo login is a manager, not a viewer (`web/scripts/seed-members.mjs` promotes it), so the demo can decide other people's work but not its own. |
 | **AI agent via token** | An MCP client, the `nopm` CLI, or the BYOK assistant, all driving the REST API through a scoped `npm_` Bearer PAT (or, for the assistant, a fresh ephemeral token minted per turn). | Bounded strictly by whatever scopes the token holds; never trusted beyond that regardless of surface. |
-| **Self-hoster / operator** | A person standing up or maintaining a non-managed instance of NoPM (migrations, backups, disaster recovery). | This role is documentation-only today: no docker-compose or self-host installer ships in this repo (`docs/SELF_HOSTING.md`, ADR 0010). |
+| **Self-hoster / operator** | A person standing up or maintaining a non-managed instance of NoPM (migrations, backups, disaster recovery). | The app layer ships (`docker-compose.yml`, `web/Dockerfile`, `npm run setup`, R-88). Running your own Supabase stack in place of the managed one is documentation only (`docs/SELF_HOSTING.md`, ADR 0010). |
 
 ## How to read the catalogue
 
@@ -45,6 +45,10 @@ Each use case is one file, `UC-NN-<slug>.md`, with a fixed structure: Goal, Acto
 | [UC-20](UC-20-notification-center-and-my-work.md) | Notification center and My Work | Team member / Approver | easier reporting | Notifications, My Work | R-27, R-37, R-41 | — |
 | [UC-21](UC-21-saved-views-and-navigation-modes.md) | Saved views and navigation modes | Project Manager / Team member | frontend flexibility | Registers, Navigation | R-72, R-43, R-78, R-69 | — |
 | [UC-22](UC-22-self-host-setup-and-dr-runbook.md) | Self-host setup and disaster-recovery runbook | Self-hoster / Operator | (operational, see note) | Infra / Ops | see file | — |
+| [UC-23](UC-23-approve-from-lark.md) | Approve a four-eyes request from Lark | Approver | governance | Integrations, Review Queue | see file | — |
+| [UC-24](UC-24-link-lark-account.md) | Link a Lark account | Team member / Approver | governance | Integrations, Identity | see file | — |
+| [UC-25](UC-25-lark-weekly-digest.md) | Lark weekly digest | Admin / Project Manager | easier reporting | Integrations, Notifications | see file | — |
+| [UC-26](UC-26-calendar-feed-subscription.md) | Subscribe to the milestone calendar feed | Team member / Project Manager | presentable multi-project | Calendar, Milestones | see file | — |
 
 \* Diagram exists on disk today under this exact filename.
 

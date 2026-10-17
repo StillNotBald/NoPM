@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useId, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,16 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { PageHeader } from "@/components/ui/page-header";
+import { PageContainer } from "@/components/ui/page-container";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { useModal } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
+import { FourEyesNote } from "@/components/governance/four-eyes-note";
+import { ShowOncePanel } from "@/components/governance/show-once-panel";
+import { ConfirmDialog, CopyButton, CopyValue, Field, InlineAlert } from "@/components/integrations/shared";
 import { cn } from "@/lib/cn";
+import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
 import { useRequireSession } from "@/lib/auth/use-require-session";
 import { AGENT_PRESET_SCOPES, scopeChoices } from "@/lib/auth/scopes";
 
@@ -89,7 +96,10 @@ function formatRelative(iso: string | null): string {
 
 export default function TokensPage() {
   const router = useRouter();
+  const toast = useToast();
+  const modal = useModal();
   const sessionStatus = useRequireSession();
+  const uid = useId();
 
   // --- role gate (L-46) — API tokens are admin/manager-only server-side
   // (see requireTokenAdmin() in api/tokens/route.ts); a viewer or plain
@@ -101,12 +111,9 @@ export default function TokensPage() {
   useEffect(() => {
     if (sessionStatus !== "authenticated") return;
     let cancelled = false;
-    fetch("/api/me")
-      .then((r) => r.json())
-      .then((json) => {
-        if (cancelled) return;
-         
-        setRole(json?.data?.role ?? null);
+    apiGet<{ role?: string | null } | null>("/api/me")
+      .then((me) => {
+        if (!cancelled) setRole(me?.role ?? null);
       })
       .catch(() => {
         if (!cancelled) setRole(null);
@@ -121,30 +128,23 @@ export default function TokensPage() {
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
 
-  // --- revoke state ---
-  const [revoking, setRevoking] = useState<string | null>(null);
-
   // --- mint form state ---
   const [mintName, setMintName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<Set<Scope>>(new Set());
   const [minting, setMinting] = useState(false);
   const [mintError, setMintError] = useState<string | null>(null);
   const [newToken, setNewToken] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   // --- connect-your-agent card (L-49) ---
   const [agentTab, setAgentTab] = useState<AgentTab>("pat");
   const [agentTokenName, setAgentTokenName] = useState("AI agent");
-  const [mcpCopied, setMcpCopied] = useState(false);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const loadTokens = useCallback(async () => {
     setListLoading(true);
     setListError(null);
     try {
-      const res = await fetch("/api/tokens");
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to load tokens");
-      setTokens(json.data ?? []);
+      setTokens((await apiGet<ApiToken[] | null>("/api/tokens")) ?? []);
     } catch (e) {
       setListError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -187,14 +187,8 @@ export default function TokensPage() {
       setMintError(null);
       setNewToken(null);
       try {
-        const res = await fetch("/api/tokens", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: name.trim(), scopes }),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error ?? "Failed to create token");
-        setNewToken(json.data?.token ?? null);
+        const created = await apiPost<{ token?: string } | null>("/api/tokens", { name: name.trim(), scopes });
+        setNewToken(created?.token ?? null);
         await loadTokens();
         router.refresh();
         return true;
@@ -222,28 +216,44 @@ export default function TokensPage() {
     await mintToken(agentTokenName, [...AGENT_PRESET_SCOPES]);
   };
 
-  const handleRevoke = async (id: string) => {
-    setRevoking(id);
-    try {
-      const res = await fetch(`/api/tokens/${id}`, { method: "DELETE" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Failed to revoke token");
-      await loadTokens();
-      router.refresh();
-    } catch {
-      // surface inline — for now, just reload
-      await loadTokens();
-    } finally {
-      setRevoking(null);
-    }
+  // Revoking an agent's credential is irreversible and takes effect at once, so
+  // it asks first (listing what happens) and keeps the dialog open with the
+  // API's message if the call fails — never a silent no-op.
+  const askRevoke = (token: ApiToken) => {
+    modal.open(
+      <ConfirmDialog
+        heading={`Revoke “${token.name}”?`}
+        confirmLabel="Revoke token"
+        failureFallback="Could not revoke the token."
+        onConfirm={async () => {
+          await apiDelete(`/api/tokens/${token.id}`);
+          toast.success("Token revoked.");
+          await loadTokens();
+          router.refresh();
+        }}
+      >
+        <ul className="list-disc space-y-1 pl-5">
+          <li>Anything using this token (an agent, script or MCP client) stops working straight away.</li>
+          <li>What it already did stays in the Trust Center.</li>
+          <li>A revoked token can&apos;t be restored. Mint a new one if you need access again.</li>
+        </ul>
+      </ConfirmDialog>,
+      { title: "Revoke API token", size: "sm" },
+    );
   };
 
-  const handleCopy = async () => {
-    if (!newToken) return;
-    await navigator.clipboard.writeText(newToken);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  function onTabKeyDown(e: React.KeyboardEvent, idx: number) {
+    const last = AGENT_TABS.length - 1;
+    let target = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") target = idx === last ? 0 : idx + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") target = idx === 0 ? last : idx - 1;
+    else if (e.key === "Home") target = 0;
+    else if (e.key === "End") target = last;
+    if (target < 0) return;
+    e.preventDefault();
+    setAgentTab(AGENT_TABS[target].key);
+    tabRefs.current[target]?.focus();
+  }
 
   // >=md table columns for the token list (DataList) — visually identical
   // to the hand-rolled <table> this replaced. The <md card is fully custom
@@ -293,11 +303,11 @@ export default function TokensPage() {
           <Button
             variant="ghost"
             size="sm"
-            className="text-danger hover:bg-danger/10"
-            disabled={revoking === t.id}
-            onClick={() => handleRevoke(t.id)}
+            className="text-danger-ink hover:bg-danger/10"
+            aria-label={`Revoke ${t.name}`}
+            onClick={() => askRevoke(t)}
           >
-            {revoking === t.id ? <Spinner size="sm" /> : "Revoke"}
+            Revoke
           </Button>
         ) : null,
     },
@@ -313,11 +323,11 @@ export default function TokensPage() {
   // state before we know the real role.
   if (role === undefined) {
     return (
-      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <div className="mx-auto flex max-w-4xl items-center justify-center py-16">
+      <PageContainer width="narrow">
+        <div className="flex items-center justify-center py-16" role="status">
           <Spinner />
         </div>
-      </div>
+      </PageContainer>
     );
   }
 
@@ -326,39 +336,32 @@ export default function TokensPage() {
   // just 403 against GET/POST /api/tokens).
   if (!canManageTokens) {
     return (
-      <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-        <div className="mx-auto max-w-4xl space-y-8">
-          <PageHeader title="API Tokens" />
-          <Card>
-            <EmptyState
-              purpose="API tokens let an external agent or CI job call NoPM's governed API. Minting and revoking tokens is restricted to admins and managers so the audit trail always ties a token back to an accountable owner."
-              canWrite={false}
-            />
-          </Card>
-        </div>
-      </div>
+      <PageContainer width="narrow" className="space-y-6">
+        <PageHeader title="API Tokens" />
+        <Card>
+          <EmptyState
+            purpose="API tokens let an external agent or CI job call NoPM's governed API. Minting and revoking tokens is restricted to admins and managers so the audit trail always ties a token back to an accountable owner."
+            canWrite={false}
+          />
+        </Card>
+      </PageContainer>
     );
   }
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:px-8">
-      <div className="mx-auto max-w-4xl space-y-8">
+    <PageContainer width="narrow" className="space-y-6">
       <PageHeader title="API Tokens" />
 
-      {/* Active token one-time reveal */}
+      {/* One-time reveal. Takes focus and scrolls itself into view (the mint
+          forms can be a long way down the page, esp. on a phone). */}
       {newToken && (
-        <div className="rounded-lg border border-border-subtle bg-sunken p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-ink">Your new token</p>
-            <Badge tone="warning">Shown once — copy it now.</Badge>
-          </div>
-          <code className="block w-full break-all rounded-md bg-canvas border border-border-subtle px-3 py-2 text-sm font-mono text-ink">
-            {newToken}
-          </code>
-          <Button variant="secondary" size="sm" className="h-11 w-full sm:h-9 sm:w-auto" onClick={handleCopy}>
-            {copied ? "Copied!" : "Copy token"}
-          </Button>
-        </div>
+        <ShowOncePanel
+          heading="Your new token"
+          onDismiss={() => setNewToken(null)}
+          returnFocusTo={() => document.getElementById(`${uid}-existing`)}
+        >
+          <CopyValue label="Token" value={newToken} subject="token" />
+        </ShowOncePanel>
       )}
 
       {/* Connect your agent (L-49) — three paths into the governed API. */}
@@ -373,19 +376,26 @@ export default function TokensPage() {
         </CardHeader>
         <CardBody className="space-y-5">
           <div role="tablist" aria-label="Connect your agent" className="flex flex-wrap gap-1.5">
-            {AGENT_TABS.map((tab) => {
+            {AGENT_TABS.map((tab, i) => {
               const isActive = agentTab === tab.key;
               return (
                 <button
                   key={tab.key}
+                  ref={(el) => {
+                    tabRefs.current[i] = el;
+                  }}
+                  id={`${uid}-tab-${tab.key}`}
                   role="tab"
                   aria-selected={isActive}
+                  aria-controls={`${uid}-panel-${tab.key}`}
+                  tabIndex={isActive ? 0 : -1}
                   type="button"
                   onClick={() => setAgentTab(tab.key)}
+                  onKeyDown={(e) => onTabKeyDown(e, i)}
                   className={cn(
-                    "min-h-[44px] rounded-md border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
+                    "focus-ring min-h-[44px] rounded-md border px-3 py-1.5 text-xs font-medium transition-colors sm:min-h-0",
                     isActive
-                      ? "border-border-strong bg-canvas text-ink shadow-sm"
+                      ? "border-border-strong bg-canvas text-ink"
                       : "border-border-subtle bg-surface text-ink-secondary hover:bg-sunken hover:text-ink",
                   )}
                 >
@@ -396,7 +406,12 @@ export default function TokensPage() {
           </div>
 
           {agentTab === "pat" && (
-            <div className="space-y-3">
+            <div
+              role="tabpanel"
+              id={`${uid}-panel-pat`}
+              aria-labelledby={`${uid}-tab-pat`}
+              className="space-y-3"
+            >
               <p className="text-sm text-ink-secondary">
                 Mint a token pre-scoped to least privilege: it can read every
                 register and edit/move tasks, but it can never request or
@@ -421,6 +436,7 @@ export default function TokensPage() {
                 <Button
                   variant="primary"
                   size="md"
+                  className="h-11 w-full sm:h-10 sm:w-auto"
                   onClick={handleMintAgentPreset}
                   disabled={minting || !agentTokenName.trim()}
                 >
@@ -433,9 +449,7 @@ export default function TokensPage() {
                   )}
                 </Button>
               </div>
-              {mintError && (
-                <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{mintError}</p>
-              )}
+              {mintError && <InlineAlert>{mintError}</InlineAlert>}
               <p className="text-xs text-ink-muted">
                 Shown once — copy it into your agent&apos;s environment right away.
               </p>
@@ -443,7 +457,12 @@ export default function TokensPage() {
           )}
 
           {agentTab === "mcp" && (
-            <div className="space-y-3">
+            <div
+              role="tabpanel"
+              id={`${uid}-panel-mcp`}
+              aria-labelledby={`${uid}-tab-mcp`}
+              className="space-y-3"
+            >
               <p className="text-sm text-ink-secondary">
                 NoPM ships a native MCP server (<code className="font-mono text-xs">web/mcp/server.mjs</code>) —
                 any MCP client can drive it once you mint a PAT above. Paste
@@ -451,23 +470,10 @@ export default function TokensPage() {
                 equivalent config) and set <code className="font-mono text-xs">NOPM_TOKEN</code> to the token
                 you just minted.
               </p>
-              <div className="relative">
-                <pre className="overflow-x-auto rounded-md bg-canvas border border-border-subtle px-3 py-3 text-xs font-mono text-ink whitespace-pre">
-                  {MCP_CONFIG_JSON}
-                </pre>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="absolute right-2 top-2"
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(MCP_CONFIG_JSON);
-                    setMcpCopied(true);
-                    setTimeout(() => setMcpCopied(false), 2000);
-                  }}
-                >
-                  {mcpCopied ? "Copied!" : "Copy config"}
-                </Button>
-              </div>
+              <pre className="overflow-x-auto rounded-md bg-canvas border border-border-subtle px-3 py-3 text-xs font-mono text-ink whitespace-pre">
+                {MCP_CONFIG_JSON}
+              </pre>
+              <CopyButton value={MCP_CONFIG_JSON} subject="MCP config" label="Copy config" />
               <p className="text-xs text-ink-muted">
                 Full setup + governance guarantees: <code className="font-mono text-xs">web/mcp/README.md</code>.
               </p>
@@ -475,7 +481,12 @@ export default function TokensPage() {
           )}
 
           {agentTab === "byok" && (
-            <div className="space-y-3">
+            <div
+              role="tabpanel"
+              id={`${uid}-panel-byok`}
+              aria-labelledby={`${uid}-tab-byok`}
+              className="space-y-3"
+            >
               <p className="text-sm text-ink-secondary">
                 Prefer chatting instead of scripting? Open the AI assistant
                 (the <span className="inline-flex items-center gap-1 font-medium text-ink">✦ Sparkles</span> icon
@@ -496,15 +507,22 @@ export default function TokensPage() {
       {/* Token list */}
       <Card>
         <CardHeader>
-          <CardTitle>Existing tokens</CardTitle>
+          <CardTitle id={`${uid}-existing`} tabIndex={-1} className="focus:outline-none">
+            Existing tokens
+          </CardTitle>
         </CardHeader>
         <CardBody className="p-0">
           {listLoading ? (
-            <div className="flex items-center justify-center py-10">
+            <div className="flex items-center justify-center py-10" role="status">
               <Spinner />
             </div>
           ) : listError ? (
-            <p className="px-5 py-6 text-sm text-danger">{listError}</p>
+            <div className="space-y-3 px-5 py-6">
+              <InlineAlert>{listError}</InlineAlert>
+              <Button variant="secondary" size="sm" className="h-11 w-full sm:h-8 sm:w-auto" onClick={loadTokens}>
+                Try again
+              </Button>
+            </div>
           ) : (
             <DataList<ApiToken>
               columns={tokenColumns}
@@ -539,11 +557,11 @@ export default function TokensPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-11 w-full text-danger hover:bg-danger/10"
-                          disabled={revoking === tok.id}
-                          onClick={() => handleRevoke(tok.id)}
+                          className="h-11 w-full text-danger-ink hover:bg-danger/10"
+                          aria-label={`Revoke ${tok.name}`}
+                          onClick={() => askRevoke(tok)}
                         >
-                          {revoking === tok.id ? <Spinner size="sm" /> : "Revoke"}
+                          Revoke
                         </Button>
                       </div>
                     )}
@@ -566,110 +584,121 @@ export default function TokensPage() {
         <CardHeader>
           <CardTitle>Mint a token</CardTitle>
         </CardHeader>
-        <CardBody className="space-y-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
-              Token name
-            </label>
-            <Input
-              placeholder="e.g. ci-risk-scanner"
-              value={mintName}
-              onChange={(e) => setMintName(e.target.value)}
-              disabled={minting}
-              className="h-11 sm:h-10 text-base sm:text-sm"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-ink-secondary uppercase tracking-wide">
-              Scopes
-            </p>
-
-            {/* <md (phone): one-handed collapsible groups by resource, so the
-                full ~30-scope list isn't one long scroll of checkboxes. */}
-            <div className="space-y-2 md:hidden">
-              {groupScopesByResource(ALL_SCOPES).map((g) => {
-                const selectedCount = g.scopes.filter((s) => selectedScopes.has(s)).length;
-                return (
-                  <details key={g.resource} className="group rounded-md border border-border-subtle bg-surface">
-                    <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 marker:hidden [&::-webkit-details-marker]:hidden">
-                      <span className="text-sm font-medium text-ink capitalize">
-                        {g.resource.replace(/_/g, " ")}
-                      </span>
-                      <span className="flex shrink-0 items-center gap-2">
-                        {selectedCount > 0 && (
-                          <span className="rounded-full bg-accent/15 px-1.5 py-0.5 font-mono text-2xs font-medium text-accent">
-                            {selectedCount}
-                          </span>
-                        )}
-                        <ChevronDown size={16} className="text-ink-muted transition-transform group-open:rotate-180" />
-                      </span>
-                    </summary>
-                    <div className="space-y-1 border-t border-border-subtle px-3 py-2">
-                      {g.scopes.map((scope) => (
-                        <label
-                          key={scope}
-                          className="flex min-h-[44px] items-center gap-2 cursor-pointer"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={selectedScopes.has(scope)}
-                            onChange={() => toggleScope(scope)}
-                            disabled={minting}
-                            className="h-4 w-4 rounded border-border-subtle accent-accent cursor-pointer shrink-0"
-                          />
-                          <span className="text-sm text-ink font-mono">{scope}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </details>
-                );
-              })}
-            </div>
-
-            {/* >=md (desktop/tablet): unchanged flat grid. */}
-            <div className="hidden md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-2 lg:grid-cols-3">
-              {ALL_SCOPES.map((scope) => (
-                <label
-                  key={scope}
-                  className="flex items-center gap-2 cursor-pointer group"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedScopes.has(scope)}
-                    onChange={() => toggleScope(scope)}
-                    disabled={minting}
-                    className="h-4 w-4 rounded border-border-subtle accent-accent cursor-pointer shrink-0"
-                  />
-                  <span className="text-sm text-ink font-mono group-hover:text-accent transition-colors">
-                    {scope}
-                  </span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {mintError && (
-            <p className="rounded-md bg-danger/15 px-3 py-2 text-sm text-danger">{mintError}</p>
-          )}
-
-          <Button
-            variant="primary"
-            size="md"
-            onClick={handleMint}
-            disabled={minting || !mintName.trim() || selectedScopes.size === 0}
+        <CardBody>
+          <form
+            className="space-y-5"
+            noValidate
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleMint();
+            }}
           >
-            {minting ? (
-              <>
-                <Spinner size="sm" className="mr-2" /> Minting…
-              </>
-            ) : (
-              "Mint token"
-            )}
-          </Button>
+            <Field id={`${uid}-mint-name`} label="Token name">
+              {(a11y) => (
+                <Input
+                  {...a11y}
+                  placeholder="e.g. ci-risk-scanner"
+                  value={mintName}
+                  onChange={(e) => setMintName(e.target.value)}
+                  disabled={minting}
+                  autoComplete="off"
+                  className="h-11 sm:h-10 text-base sm:text-sm"
+                />
+              )}
+            </Field>
+
+            <fieldset className="min-w-0 space-y-2">
+              <legend className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                Scopes
+              </legend>
+
+              {/* <md (phone): one-handed collapsible groups by resource, so the
+                  full ~30-scope list isn't one long scroll of checkboxes. */}
+              <div className="space-y-2 md:hidden">
+                {groupScopesByResource(ALL_SCOPES).map((g) => {
+                  const selectedCount = g.scopes.filter((s) => selectedScopes.has(s)).length;
+                  return (
+                    <details key={g.resource} className="group rounded-md border border-border-subtle bg-surface">
+                      <summary className="focus-ring flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-2 rounded-md px-3 py-2 marker:hidden [&::-webkit-details-marker]:hidden">
+                        <span className="text-sm font-medium text-ink capitalize">
+                          {g.resource.replace(/_/g, " ")}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {selectedCount > 0 && (
+                            <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono text-2xs font-medium text-accent-ink">
+                              <span className="sr-only">{selectedCount} selected</span>
+                              <span aria-hidden="true">{selectedCount}</span>
+                            </span>
+                          )}
+                          <ChevronDown
+                            size={16}
+                            aria-hidden="true"
+                            className="text-ink-muted transition-transform group-open:rotate-180"
+                          />
+                        </span>
+                      </summary>
+                      <div className="space-y-1 border-t border-border-subtle px-3 py-2">
+                        {g.scopes.map((scope) => (
+                          <label
+                            key={scope}
+                            className="flex min-h-[44px] items-center gap-2 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selectedScopes.has(scope)}
+                              onChange={() => toggleScope(scope)}
+                              disabled={minting}
+                              className="h-4 w-4 rounded border-border-subtle accent-accent cursor-pointer shrink-0"
+                            />
+                            <span className="text-sm text-ink font-mono">{scope}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+
+              {/* >=md (desktop/tablet): unchanged flat grid. */}
+              <div className="hidden md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-2 lg:grid-cols-3">
+                {ALL_SCOPES.map((scope) => (
+                  <label key={scope} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedScopes.has(scope)}
+                      onChange={() => toggleScope(scope)}
+                      disabled={minting}
+                      className="h-4 w-4 rounded border-border-subtle accent-accent cursor-pointer shrink-0"
+                    />
+                    <span className="text-sm text-ink font-mono">{scope}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* Whoever mints a token should learn the consequence at mint time. */}
+            <FourEyesNote variant="quiet" />
+
+            {mintError && <InlineAlert>{mintError}</InlineAlert>}
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="md"
+              className="h-11 w-full sm:h-10 sm:w-auto"
+              disabled={minting || !mintName.trim() || selectedScopes.size === 0}
+            >
+              {minting ? (
+                <>
+                  <Spinner size="sm" className="mr-2" /> Minting…
+                </>
+              ) : (
+                "Mint token"
+              )}
+            </Button>
+          </form>
         </CardBody>
       </Card>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

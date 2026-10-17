@@ -6,6 +6,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { createMilestoneSchema } from "@/app/api/milestones/_schema";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -89,6 +90,11 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+
+  // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: input.owner_id, field: "owner_id" },
+  ]);
 
   const { data: row, error } = await db
     .from("milestones")

@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
           supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
         }),
       },
+      {
+        // The ICS calendar feed's URL path IS its bearer secret (calendar apps
+        // can't send headers), so it must never leave in a Referer. Listed
+        // AFTER the app-wide set: when two entries set the same key on a path,
+        // Next.js keeps the last one.
+        source: "/api/calendar/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

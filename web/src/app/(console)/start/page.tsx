@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { FolderKanban, ShieldCheck, Bot } from "lucide-react";
 import { StartChecklist } from "@/components/onboarding/start-checklist";
 import { QuickstartSnippet } from "@/components/onboarding/quickstart-snippet";
+import { readOnboardingSeed } from "@/lib/onboarding/seed-server";
 import { docUrlFor } from "@/lib/onboarding/hints";
 
 /**
@@ -39,6 +40,7 @@ export default async function StartPage() {
     membersCountResult,
     viewerProfileResult,
     firstProjectResult,
+    onboardingSeed,
   ] = await Promise.all([
     db.from("projects").select("id", { count: "exact", head: true }),
     db.from("tasks").select("id", { count: "exact", head: true }),
@@ -47,6 +49,9 @@ export default async function StartPage() {
     db.from("profiles").select("id", { count: "exact", head: true }),
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     db.from("projects").select("id").order("created_at", { ascending: true }).limit(1),
+    // whether the checklist is dismissed / which steps were visited, read on the
+    // server so the card is in the first paint (React-cache()d, no extra query)
+    readOnboardingSeed(),
   ]);
 
   const role = viewerProfileResult.data?.role ?? "member";
@@ -83,6 +88,7 @@ export default async function StartPage() {
         members={membersCountResult.count ?? 0}
         role={role}
         firstProjectHref={firstProjectId ? `/projects/${firstProjectId}` : undefined}
+        seed={onboardingSeed}
       />
 
       <Card>

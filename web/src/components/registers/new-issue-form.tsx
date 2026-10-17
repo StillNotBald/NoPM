@@ -7,14 +7,25 @@ import { IssueForm } from "@/components/forms/issue-form";
 
 type Project = { id: string; name: string };
 
-/** Header action: opens the "New Issue" form in the right push-panel. */
-export function NewIssueButton({ projects }: { projects: Project[] }) {
+/**
+ * Header action: opens the "New Issue" form in the right push-panel.
+ *
+ * The form carries its own required Project picker; `defaultProjectId`
+ * preselects the register's active project filter (ignored if it isn't one of
+ * `projects`).
+ */
+export function NewIssueButton({
+  projects,
+  defaultProjectId,
+}: {
+  projects: Project[];
+  defaultProjectId?: string;
+}) {
   const inspector = useInspector();
 
   function openNew() {
-    const projectId = projects[0]?.id ?? "";
     inspector.open(
-      <IssueForm projectId={projectId} />,
+      <IssueForm projectId={defaultProjectId ?? ""} projects={projects} />,
       "New Issue",
     );
   }

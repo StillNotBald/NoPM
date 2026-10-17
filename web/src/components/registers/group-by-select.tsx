@@ -1,12 +1,12 @@
 "use client";
 
+import { useId } from "react";
 import { cn } from "@/lib/cn";
+import { selectClass } from "@/components/registers/filter-bar";
 
 export type GroupByOption = { value: string; label: string };
 
-/** Group-by selector (L-09). Same select styling as FilterBar's own <select> —
- * kept local rather than exported from filter-bar.tsx so this stays a
- * register-toolbar control, not a filter. */
+/** Group-by selector (L-09). Shares FilterBar's select styling so the toolbar row lines up. */
 export function GroupBySelect({
   options,
   value,
@@ -18,16 +18,17 @@ export function GroupBySelect({
   onChange: (value: string | null) => void;
   className?: string;
 }) {
+  const id = useId();
   return (
     <div className={cn("flex flex-col gap-1", className)}>
-      <label className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">Group by</label>
+      <label htmlFor={id} className="text-[11px] font-medium uppercase tracking-wide text-ink-muted">
+        Group by
+      </label>
       <select
+        id={id}
         value={value ?? ""}
         onChange={(e) => onChange(e.target.value || null)}
-        className={cn(
-          "h-11 sm:h-9 min-w-[9rem] rounded-md border border-border-subtle bg-canvas px-2.5 text-base text-ink sm:text-sm",
-          "focus:outline-none focus-visible:border-border-strong focus-visible:ring-2 focus-visible:ring-accent/30",
-        )}
+        className={selectClass}
       >
         <option value="">None</option>
         {options.map((o) => (

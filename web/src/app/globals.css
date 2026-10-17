@@ -33,6 +33,8 @@
   --success-ink: #166534; /* ~6.5:1 */
   --warning-ink: #92400e; /* ~6.2:1 */
   --danger-ink: #b42318; /* ~5.7:1 */
+  --sev-high-ink: #9a3412; /* ~7.3:1 on white (orange #ea580c is 3.6:1) */
+  --change-ink: #5b21b6; /* ~8.6:1 */
   --danger-hover: #c93b40; /* danger button hover (white text >=4.6:1) */
   --danger-solid: #d13438; /* danger button fill, white text ~4.9:1 */
   /* Terminal window (ui/terminal-card.tsx): always dark, so these are set once
@@ -77,6 +79,8 @@
   --success-ink: #56d364;
   --warning-ink: #f0b84a;
   --danger-ink: #ff7b72;
+  --sev-high-ink: #ffa657;
+  --change-ink: #d2a8ff;
   --danger-hover: #ff6a62;
   --danger-solid: #da3633; /* white text ~4.9:1 */
   color-scheme: dark;
@@ -114,6 +118,8 @@
     --success-ink: #56d364;
     --warning-ink: #f0b84a;
     --danger-ink: #ff7b72;
+    --sev-high-ink: #ffa657;
+    --change-ink: #d2a8ff;
     --danger-hover: #ff6a62;
     --danger-solid: #da3633; /* white text ~4.9:1 */
     color-scheme: dark;
@@ -143,6 +149,8 @@
   --color-success-ink: var(--success-ink);
   --color-warning-ink: var(--warning-ink);
   --color-danger-ink: var(--danger-ink);
+  --color-sev-high-ink: var(--sev-high-ink);
+  --color-change-ink: var(--change-ink);
   --color-danger-hover: var(--danger-hover);
   --color-danger-solid: var(--danger-solid);
   --color-terminal-surface: var(--terminal-surface);
@@ -175,8 +183,12 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
 }
 
-* {
-  border-color: var(--border-subtle);
+/* Layered so every Tailwind border-colour utility can override it: an
+   unlayered rule beats ALL v4 utilities (the old sidebar-accent / grey-edge bug). */
+@layer base {
+  * {
+    border-color: var(--border-subtle);
+  }
 }
 
 body {
@@ -220,6 +232,16 @@ body {
   .rise-2,
   .rise-3 {
     animation: none;
+  }
+  /* Panels, the sidebar width and the inspector push-margin animate through
+     transition-*: settle them instantly (opacity/visibility still flip, so a
+     closing panel is hidden at once rather than after the slide). Spinners
+     keep rotating: they are the only signal that work is in progress. */
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
   }
 }
 
@@ -289,20 +311,13 @@ body {
    ───────────────────────────────────────────────────────────── */
 
 /* F8: one type token replacing scattered text-[8px]/[9px]/[10px] literals.
-   11px on phones (still legible at arm's length) is the floor; text-xs
-   (12px) is untouched everywhere else. Written as plain (unlayered) CSS so
-   it wins over the @utility declaration's own layer at the sm breakpoint —
-   unlayered rules always beat `@layer utilities` regardless of source
-   order, per the CSS cascade layers spec. */
+   11px at every width is the label floor (DESIGN.md Typography); text-xs
+   (12px) is untouched everywhere else. It used to drop to 10px at sm+, which
+   made desktop pills, table headers and kbd hints the smallest text in the
+   product. */
 @utility text-2xs {
   font-size: 11px;
   line-height: 1rem;
-}
-
-@media (min-width: 640px) {
-  .text-2xs {
-    font-size: 10px;
-  }
 }
 
 /* F3/F4: guarantees a form control never overflows its row and floors at
@@ -324,11 +339,20 @@ body {
 
 /* One focus-ring strength everywhere: solid 2px accent (>=3:1 on both
    themes) with a 2px offset. Apply via the `focus-ring` utility; do not pair
-   with `focus:outline-none` (this only paints on :focus-visible). */
+   with `focus:outline-none` or `ring-*` (this only paints on :focus-visible).
+   `focus-ring-inset` draws the same ring INSIDE the box, for rows and cells
+   whose container clips overflow (popover lists, table rows, menu items). */
 @utility focus-ring {
   &:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+}
+
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
 }
 

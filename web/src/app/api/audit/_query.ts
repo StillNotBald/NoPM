@@ -30,8 +30,8 @@ export type AuditFilters = {
   order?: "asc" | "desc";
 };
 
-/** The only channel values the DB check constraint accepts (R-82). */
-const VALID_CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant"]);
+/** The only channel values the DB check constraint accepts (R-82; "lark" added by 0046). */
+const VALID_CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant", "lark"]);
 
 const VALID_ORDERS = new Set(["asc", "desc"]);
 
@@ -47,7 +47,7 @@ export function parseAuditFilters(searchParams: URLSearchParams): AuditFilters {
   const actorId = searchParams.get("actor_id");
   if (actorId) filters.actor_id = actorId;
   const channel = searchParams.get("channel");
-  // Validated against the five known channels — an unrecognized value is
+  // Validated against the known channels — an unrecognized value is
   // ignored rather than passed through to a .eq() that would just return
   // zero rows silently.
   if (channel && VALID_CHANNELS.has(channel)) filters.channel = channel;

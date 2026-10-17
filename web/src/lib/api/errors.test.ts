@@ -15,6 +15,8 @@ import {
   NotFoundError,
   RuleError,
   RateLimitError,
+  FieldsError,
+  invalidInputError,
   toErrorResponse,
 } from "./errors";
 
@@ -116,6 +118,20 @@ describe("toErrorResponse — ApiError mapping", () => {
     expect(body).toEqual({ error: "Locked", code: "project_locked" });
   });
 
+  it("FieldsError -> 422 with { error, code, fields } (the validationError shape plus a code)", async () => {
+    const fields = [{ field: "owner_id", message: "owner_id was not found in this workspace" }];
+    const e = new FieldsError("Referenced record not found in this workspace", fields, "invalid_reference");
+    expect(e).toBeInstanceOf(ApiError);
+    const res = toErrorResponse(e);
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      error: "Referenced record not found in this workspace",
+      code: "invalid_reference",
+      fields,
+    });
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
   it("never logs a handled ApiError to the server console", () => {
     toErrorResponse(new NotFoundError("Task not found"));
     expect(console.error).not.toHaveBeenCalled();
@@ -171,5 +187,48 @@ describe("toErrorResponse — unknown throwables", () => {
     class DbError extends Error {}
     const body = await toErrorResponse(new DbError("relation audit_log does not exist")).json();
     expect(body.error).toBe("Internal server error");
+  });
+});
+
+describe("invalidInputError — malformed ids and values are the caller's, not a 500 (V1 R1-Low)", () => {
+  const uuidMsg = (v: string) => `invalid input syntax for type uuid: "${v}"`;
+
+  it("a PostgREST error object (SQLSTATE 22P02) for a PATH param -> 404 not_found, without echoing the value", () => {
+    const err = invalidInputError({ code: "22P02", message: uuidMsg("not-a-uuid") }, ["not-a-uuid"]);
+    expect(err).toBeInstanceOf(NotFoundError);
+    expect([err?.status, err?.code, err?.message]).toEqual([404, "not_found", "Not found"]);
+  });
+
+  it("routes that re-wrap the error as new Error(message) lose the code: the message is matched too", () => {
+    const err = invalidInputError(new Error(uuidMsg("123")), ["123"]);
+    expect([err?.status, err?.code]).toEqual([404, "not_found"]);
+  });
+
+  it("an empty / NUL path value (Postgres quotes it as \"\") is still a path id", () => {
+    expect(invalidInputError(new Error(uuidMsg("")), [String.fromCharCode(0)])?.status).toBe(404);
+  });
+
+  it("a value that is NOT a path param (query filter, body field) -> 422 validation_failed", () => {
+    for (const pathValues of [[], ["11111111-1111-4111-8111-111111111111"]]) {
+      const err = invalidInputError({ code: "22P02", message: uuidMsg("not-a-uuid") }, pathValues);
+      expect([err?.status, err?.code]).toEqual([422, "validation_failed"]);
+      expect(err?.message).not.toContain("not-a-uuid");
+    }
+  });
+
+  it("bad enum / number values are 22P02 too -> 422", () => {
+    expect(invalidInputError({ code: "22P02", message: 'invalid input value for enum task_status: "zzz"' })?.status).toBe(422);
+    expect(invalidInputError(new Error('invalid input syntax for type integer: "abc"'))?.status).toBe(422);
+    expect(invalidInputError({ code: "22P02" })?.status).toBe(422);
+  });
+
+  it("everything else is left to the normal mapping", () => {
+    expect(invalidInputError(new Error("connection refused"))).toBeNull();
+    expect(invalidInputError({ code: "23505", message: "duplicate key value" })).toBeNull();
+    expect(invalidInputError({ code: "P0010", message: "PROJECT_LOCKED" })).toBeNull();
+    expect(invalidInputError("22P02")).toBeNull();
+    expect(invalidInputError(null)).toBeNull();
+    // already a typed error: untouched
+    expect(invalidInputError(new RuleError("invalid input syntax for type uuid"))).toBeNull();
   });
 });

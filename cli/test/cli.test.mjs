@@ -263,6 +263,57 @@ test("approve without an id dies", async () => {
   assert.equal(ctx.calls.length, 0);
 });
 
+// ── changes command contracts (status is a four-eyes decision) ──────────────
+
+test("changes create: --status accepts only raised|under_review", async () => {
+  const changes = await import("../commands/changes.mjs");
+  for (const status of ["raised", "under_review"]) {
+    const ctx = makeCtx({ _: ["create"], project: "proj_1", title: "Add SSO", status }, { data: { id: "cr_1", reference_id: "CR-1" } });
+    await changes.run([], ctx);
+    assert.deepEqual(ctx.calls, [
+      { method: "POST", path: "/api/projects/proj_1/change-requests", body: { title: "Add SSO", status } },
+    ]);
+  }
+});
+
+test("changes create: a decided status dies BEFORE the API call and points at `changes decide`", async () => {
+  const changes = await import("../commands/changes.mjs");
+  for (const status of ["approved", "rejected", "deferred", "implemented"]) {
+    const ctx = makeCtx({ _: ["create"], project: "proj_1", title: "Add SSO", status });
+    await expectDies(() => changes.run([], ctx), /raised or under_review[\s\S]*nopm changes decide/);
+    assert.equal(ctx.calls.length, 0, `--status ${status} must not reach the API`);
+  }
+});
+
+test("changes update: --status dies BEFORE the API call and points at `changes decide`", async () => {
+  const changes = await import("../commands/changes.mjs");
+  const ctx = makeCtx({ _: ["update", "cr_1"], status: "approved", title: "x" });
+  await expectDies(() => changes.run([], ctx), /nopm changes decide/);
+  assert.equal(ctx.calls.length, 0);
+});
+
+test("changes update: other fields still PATCH, and the body never carries a status", async () => {
+  const changes = await import("../commands/changes.mjs");
+  const ctx = makeCtx({ _: ["update", "cr_1"], title: "Renamed", priority: "high" }, { data: { id: "cr_1" } });
+  await changes.run([], ctx);
+  assert.deepEqual(ctx.calls, [
+    { method: "PATCH", path: "/api/change-requests/cr_1", body: { title: "Renamed", priority: "high" } },
+  ]);
+});
+
+test("changes help: update no longer lists --status, create lists only raised|under_review, decide is named", async () => {
+  const changes = await import("../commands/changes.mjs");
+  const lines = changes.usage;
+  const update = lines.find((l) => l.startsWith("nopm changes update"));
+  assert.ok(update && !update.includes("--status"), "update must not advertise --status");
+  const create = lines.find((l) => l.startsWith("nopm changes create"));
+  assert.ok(create?.includes("--status"));
+  const legend = lines.find((l) => l.trim().startsWith("status:"));
+  assert.match(legend, /raised \| under_review/);
+  assert.doesNotMatch(legend, /approved|rejected|deferred|implemented/);
+  assert.match(legend, /nopm changes decide/);
+});
+
 // ── optimistic concurrency (R-90) — --expected-updated-at ───────────────────
 
 test("projects update sends expected_updated_at when the flag is supplied", async () => {

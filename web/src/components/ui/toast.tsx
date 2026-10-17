@@ -4,6 +4,8 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -16,7 +18,7 @@ import { cn } from "@/lib/cn";
 type ToastVariant = "success" | "error" | "info";
 
 interface ToastOptions {
-  /** Override the auto-dismiss duration in ms. Default 3500. */
+  /** Override the auto-dismiss duration in ms. Default 3500; errors default to 8000. */
   duration?: number;
 }
 
@@ -33,6 +35,12 @@ interface ToastAPI {
   info(message: string, opts?: ToastOptions): void;
 }
 
+/** One announcement for the persistent live regions; `id` forces a re-announce of identical text. */
+interface Announcement {
+  id: string;
+  text: string;
+}
+
 // ── Context ──────────────────────────────────────────────────────────────────
 
 const ToastCtx = createContext<ToastAPI>({
@@ -43,13 +51,16 @@ const ToastCtx = createContext<ToastAPI>({
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+const DEFAULT_DURATION = 3500;
+// Errors carry the recovery step; give people time to read them (WCAG 2.2.1).
+const ERROR_DURATION = 8000;
+// After a hover/focus pause, never resume with less than this left.
+const MIN_RESUME = 1500;
+
 const variantStyles: Record<ToastVariant, string> = {
-  success:
-    "bg-surface border-success/30 text-ink [--icon-color:theme(colors.success)]",
-  error:
-    "bg-surface border-danger/30 text-ink [--icon-color:theme(colors.danger)]",
-  info:
-    "bg-surface border-info/30 text-ink [--icon-color:theme(colors.info)]",
+  success: "bg-surface border-success/30 text-ink",
+  error: "bg-surface border-danger/30 text-ink",
+  info: "bg-surface border-info/30 text-ink",
 };
 
 const variantIcon: Record<ToastVariant, ReactNode> = {
@@ -60,7 +71,7 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden
-      className="shrink-0 text-success"
+      className="shrink-0 text-success-ink"
     >
       <path
         d="M13.5 4.5L6.5 11.5L2.5 7.5"
@@ -78,7 +89,7 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden
-      className="shrink-0 text-danger"
+      className="shrink-0 text-danger-ink"
     >
       <path
         d="M12 4L4 12M4 4l8 8"
@@ -95,7 +106,7 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden
-      className="shrink-0 text-info"
+      className="shrink-0 text-info-ink"
     >
       <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.75" />
       <path
@@ -110,6 +121,12 @@ const variantIcon: Record<ToastVariant, ReactNode> = {
 
 // ── Single toast item ────────────────────────────────────────────────────────
 
+/**
+ * Visual tile only. Screen readers hear the message through the persistent
+ * live regions in <Toaster> (a live region that is inserted together with its
+ * content is often not announced). The auto-dismiss timer pauses while the
+ * pointer is over the tile or keyboard focus is inside it.
+ */
 function ToastTile({
   item,
   onDismiss,
@@ -117,44 +134,38 @@ function ToastTile({
   item: ToastItem;
   onDismiss: (id: string) => void;
 }) {
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [paused, setPaused] = useState(false);
+  const remaining = useRef(item.duration);
 
-  const dismiss = useCallback(() => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    onDismiss(item.id);
-  }, [item.id, onDismiss]);
-
-  // Start the auto-dismiss timer via a layout effect equivalent on mount.
-  // Using a ref-based callback avoids stale closures.
-  const startTimer = useCallback(
-    (el: HTMLElement | null) => {
-      if (!el) return;
-      timerRef.current = setTimeout(dismiss, item.duration);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [item.id],
-  );
+  useEffect(() => {
+    if (paused) return;
+    const startedAt = Date.now();
+    const timer = setTimeout(() => onDismiss(item.id), remaining.current);
+    return () => {
+      clearTimeout(timer);
+      remaining.current = Math.max(MIN_RESUME, remaining.current - (Date.now() - startedAt));
+    };
+  }, [paused, item.id, onDismiss]);
 
   return (
     <div
-      ref={startTimer}
-      role="status"
-      // polite for success/info, assertive for error
-      aria-live={item.variant === "error" ? "assertive" : "polite"}
-      aria-atomic="true"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocus={() => setPaused(true)}
+      onBlur={() => setPaused(false)}
       className={cn(
         "pointer-events-auto flex w-full max-w-xs items-start gap-3 rounded-lg border px-4 py-3",
-        "shadow-md backdrop-blur-sm",
-        "animate-in slide-in-from-bottom-4 fade-in duration-200",
+        "shadow-md",
         variantStyles[item.variant],
       )}
     >
       <span className="mt-px">{variantIcon[item.variant]}</span>
       <p className="min-w-0 flex-1 text-sm leading-snug">{item.message}</p>
       <button
-        onClick={dismiss}
+        type="button"
+        onClick={() => onDismiss(item.id)}
         aria-label="Dismiss notification"
-        className="ml-auto shrink-0 rounded p-0.5 text-ink-muted hover:bg-sunken hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+        className="focus-ring -my-3 -mr-3 ml-auto grid h-11 w-11 shrink-0 place-items-center rounded-md text-ink-muted hover:bg-sunken hover:text-ink sm:-my-1.5 sm:-mr-2 sm:h-8 sm:w-8"
       >
         <X size={13} />
       </button>
@@ -164,11 +175,19 @@ function ToastTile({
 
 // ── Toaster stack ────────────────────────────────────────────────────────────
 
-function Toaster({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id: string) => void }) {
-  if (items.length === 0) return null;
+function Toaster({
+  items,
+  polite,
+  assertive,
+  onDismiss,
+}: {
+  items: ToastItem[];
+  polite: Announcement | null;
+  assertive: Announcement | null;
+  onDismiss: (id: string) => void;
+}) {
   return (
     <div
-      aria-label="Notifications"
       className={cn(
         // bottom-right on desktop, bottom-center on mobile.
         // Below lg the bottom tab bar (BottomNav) + iOS home-indicator safe
@@ -182,6 +201,14 @@ function Toaster({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id: str
         "max-sm:right-0 max-sm:left-0 max-sm:items-center max-sm:px-4",
       )}
     >
+      {/* Persistent live regions: always mounted so the first announcement is
+          not lost; the span key makes a repeated message announce again. */}
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
+        {polite && <span key={polite.id}>{polite.text}</span>}
+      </div>
+      <div role="alert" aria-live="assertive" aria-atomic="true" className="sr-only">
+        {assertive && <span key={assertive.id}>{assertive.text}</span>}
+      </div>
       {items.map((item) => (
         <ToastTile key={item.id} item={item} onDismiss={onDismiss} />
       ))}
@@ -196,6 +223,8 @@ function Toaster({ items, onDismiss }: { items: ToastItem[]; onDismiss: (id: str
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([]);
+  const [polite, setPolite] = useState<Announcement | null>(null);
+  const [assertive, setAssertive] = useState<Announcement | null>(null);
   // Use a counter ref for stable IDs without re-render cost.
   const counter = useRef(0);
 
@@ -205,19 +234,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const push = useCallback((message: string, variant: ToastVariant, opts?: ToastOptions) => {
     const id = `toast-${++counter.current}`;
-    setItems((prev) => [...prev, { id, message, variant, duration: opts?.duration ?? 3500 }]);
+    const duration = opts?.duration ?? (variant === "error" ? ERROR_DURATION : DEFAULT_DURATION);
+    setItems((prev) => [...prev, { id, message, variant, duration }]);
+    const announcement = { id, text: message };
+    if (variant === "error") setAssertive(announcement);
+    else setPolite(announcement);
   }, []);
 
-  const api: ToastAPI = {
-    success: (msg, opts) => push(msg, "success", opts),
-    error: (msg, opts) => push(msg, "error", opts),
-    info: (msg, opts) => push(msg, "info", opts),
-  };
+  // Stable identity: every consumer of useToast() (27 files) otherwise
+  // re-renders whenever the toast list changes.
+  const api = useMemo<ToastAPI>(
+    () => ({
+      success: (msg, opts) => push(msg, "success", opts),
+      error: (msg, opts) => push(msg, "error", opts),
+      info: (msg, opts) => push(msg, "info", opts),
+    }),
+    [push],
+  );
 
   return (
     <ToastCtx.Provider value={api}>
       {children}
-      <Toaster items={items} onDismiss={dismiss} />
+      <Toaster items={items} polite={polite} assertive={assertive} onDismiss={dismiss} />
     </ToastCtx.Provider>
   );
 }

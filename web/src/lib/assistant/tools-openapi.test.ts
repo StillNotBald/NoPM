@@ -77,6 +77,7 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   list_resources:       {},
   search_workspace:     { query: "kanban" },
   query_audit:          {},
+  list_pending_approvals: {},
 };
 
 // Typed view of the spec paths for easier narrowing
@@ -239,5 +240,17 @@ describe("Sanity — TOOL_SCOPES is well-formed", () => {
   it("has no duplicate entries", () => {
     const unique = new Set(toolScopesArray);
     expect(unique.size).toBe(toolScopesArray.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// query_audit — the channel filter lists every channel the API accepts
+// ---------------------------------------------------------------------------
+
+describe("query_audit channel filter", () => {
+  it("accepts all six audit channels, including the server-derived 'lark' (CR-gov P2-3)", () => {
+    const tool = TOOLS.find((t) => t.definition.name === "query_audit");
+    const props = (tool?.definition.parameters as { properties: Record<string, { enum?: string[] }> }).properties;
+    expect(props.channel.enum).toEqual(["ui", "api", "cli", "mcp", "assistant", "lark"]);
   });
 });

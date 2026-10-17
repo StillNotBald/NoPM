@@ -10,7 +10,7 @@
 
 ## Main flow
 
-1. (Optional) Create a program to group related projects. UI: none in-console for creation beyond the Portfolio page's rollup view; use `POST /api/programs` (scope `program:write`) or `nopm` (no dedicated CLI group confirmed `[UNVERIFIED]`). Body: `name` required, plus optional `code`, `owner_id` (must be a `resource_members` id, not a `profiles` id), `rag_status`.
+1. (Optional) Create a program to group related projects. UI: `/portfolio` → **New Program** button (`web/src/components/forms/new-program-button.tsx`, which opens `program-form.tsx`); or `POST /api/programs` (scope `program:write`); or `nopm` (no dedicated CLI group confirmed `[UNVERIFIED]`). Body: `name` required, plus optional `code`, `owner_id` (must be a `resource_members` id, not a `profiles` id), `rag_status`.
 2. Create the project. UI: `/projects` → "New Project" button, opening a form (`web/src/components/forms/project-form.tsx`) with Name, Code, Program, Phase, Currency, RAG Status, Start Date, Target Date, Baseline Start, Baseline Target, Sponsor, Project Manager, Objective, Business Case, Scope Summary, Health Commentary. This posts to `POST /api/projects` (scope `project:write`). `code` (1-32 chars, unique short identifier, e.g. `NBC-H`) and `name` are required; `rag_status` must be one of `not_started|red|amber|green|complete`; `phase` one of `initiation|planning|execution|monitoring|closing`; dates `YYYY-MM-DD`; `currency` a 3-letter ISO code.
 3. CLI equivalent: `nopm projects create --name "Network Modernisation" --code NBC-H [--program <p>] [--rag green] [--phase planning] [--start 2025-01-01] [--target 2025-12-31]`.
 4. MCP equivalent: `create_project` tool, scope `project:write`.
@@ -40,10 +40,9 @@
 ## Traceability
 
 - R-IDs: R-06 (workspace RLS isolation), R-10 (Projects CRUD), R-71 (Programs).
-- Key files: `web/src/app/api/projects/route.ts`, `web/src/app/api/projects/_schema.ts`, `web/src/app/api/programs/route.ts`, `web/src/app/api/programs/_schema.ts`, `web/src/components/forms/project-form.tsx`, `web/src/lib/insight/program-rollup.ts`, `web/src/components/portfolio/program-rollup-card.tsx`, `web/src/app/(console)/portfolio/page.tsx`.
+- Key files: `web/src/app/api/projects/route.ts`, `web/src/app/api/projects/_schema.ts`, `web/src/app/api/programs/route.ts`, `web/src/app/api/programs/_schema.ts`, `web/src/components/forms/project-form.tsx`, `web/src/components/forms/program-form.tsx`, `web/src/components/forms/new-program-button.tsx`, `web/src/lib/insight/program-rollup.ts`, `web/src/components/portfolio/program-rollup-card.tsx`, `web/src/app/(console)/portfolio/page.tsx`.
 - Tests: scope registry validation and RLS-isolation invariants are covered under R-60's governance-invariant vitest suite (`web/src/lib/auth/scopes.test.ts` and the admin-client workspace-isolation guard test), not a use-case-specific test file.
 
 ## Open questions
 
 - `[UNVERIFIED]` Whether the `nopm` CLI has a dedicated `programs` command group; `cli/README.md`'s quoted list of module command groups does not explicitly name "programs" alongside risks/issues/clashes/resources/etc.
-- `[UNVERIFIED]` The exact console entry point (if any) for creating a program from the UI beyond what the Portfolio rollup card implies; this was not directly confirmed against a "New Program" button component.

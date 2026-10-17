@@ -7,6 +7,7 @@ import { readSignedInPreferences } from "@/lib/theme/server-prefs";
 import { requiresMfaChallengeFailClosed } from "@/lib/auth/mfa";
 import { createClient } from "@/lib/supabase/server";
 import { getPendingCounts, type PendingCounts } from "@/lib/governance/pending-counts";
+import { readOnboardingSeed } from "@/lib/onboarding/seed-server";
 
 /**
  * Governance badge counts for the nav, scoped to the signed-in actor's own
@@ -63,10 +64,17 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
 
   const pendingCounts = await loadPendingCounts();
 
+  // The viewer's onboarding state, resolved on the server (reuses the cached
+  // preferences read above, no extra query) so the page-hint strip is in the
+  // first paint instead of popping in after the preferences GET.
+  const onboardingSeed = await readOnboardingSeed();
+
   return (
     <ModalProvider>
       {/* ToastProvider is mounted inside AppShell (wraps the inspector + all console content). */}
-      <AppShell initialNavMode={initialNavMode} pendingCounts={pendingCounts}>{children}</AppShell>
+      <AppShell initialNavMode={initialNavMode} pendingCounts={pendingCounts} onboardingSeed={onboardingSeed}>
+        {children}
+      </AppShell>
     </ModalProvider>
   );
 }

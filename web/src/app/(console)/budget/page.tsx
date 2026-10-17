@@ -51,11 +51,15 @@ interface BudgetRow {
   evm: EvmResult;
 }
 
-function fmt(amount: number, currency: string): string {
-  return `${currency} ${amount.toLocaleString("en-US", {
+function fmtNum(amount: number): string {
+  return amount.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  });
+}
+
+function fmt(amount: number, currency: string): string {
+  return `${currency} ${fmtNum(amount)}`;
 }
 
 function fmtVariance(variance: number, currency: string): React.ReactNode {
@@ -111,7 +115,7 @@ export default async function BudgetPage() {
 
   if (projectIds.length === 0) {
     return (
-      <PageContainer className="space-y-6">
+      <PageContainer width="wide" className="space-y-6">
         <div className="space-y-6">
           <PageHeader title="Budget" />
           <Card>
@@ -266,16 +270,18 @@ export default async function BudgetPage() {
     }
   }
 
+  // Figures only: each row names its currency once (beside the project), so the
+  // number columns stay narrow enough for the register to fit without scrolling.
   const budgetTableRows: BudgetTableRow[] = rows.map((row) => {
     return {
       projectId: row.projectId,
       projectName: row.projectName,
       currency: row.currency,
-      plannedDisplay: fmt(row.planned, row.currency),
-      committedDisplay: fmt(row.committed, row.currency),
-      actualDisplay: fmt(row.actual, row.currency),
+      plannedDisplay: fmtNum(row.planned),
+      committedDisplay: fmtNum(row.committed),
+      actualDisplay: fmtNum(row.actual),
       varianceDisplay:
-        row.planned === 0 ? null : `${row.variance < 0 ? "-" : "+"}${fmt(Math.abs(row.variance), row.currency)}`,
+        row.planned === 0 ? null : `${row.variance < 0 ? "-" : "+"}${fmtNum(Math.abs(row.variance))}`,
       varianceIsNegative: row.variance < 0,
       burnPct: row.burnPct,
       completionPct: row.completionPct,
@@ -295,7 +301,7 @@ export default async function BudgetPage() {
   ]);
 
   return (
-    <PageContainer className="space-y-6">
+    <PageContainer width="wide" className="space-y-6">
       <div className="space-y-6">
       <PageHeader
         title="Budget"
@@ -383,10 +389,11 @@ export default async function BudgetPage() {
           totals={
             allSameCurrency && rows.length > 1
               ? {
-                  plannedDisplay: fmt(totalPlanned, totalCurrency),
-                  committedDisplay: fmt(totalCommitted, totalCurrency),
-                  actualDisplay: fmt(totalActual, totalCurrency),
-                  varianceDisplay: `${totalVariance < 0 ? "-" : "+"}${fmt(Math.abs(totalVariance), totalCurrency)}`,
+                  currency: totalCurrency,
+                  plannedDisplay: fmtNum(totalPlanned),
+                  committedDisplay: fmtNum(totalCommitted),
+                  actualDisplay: fmtNum(totalActual),
+                  varianceDisplay: `${totalVariance < 0 ? "-" : "+"}${fmtNum(Math.abs(totalVariance))}`,
                   varianceIsNegative: totalVariance < 0,
                   burnPct: totalBurnPct,
                   completionPct: totalCompletionPct,

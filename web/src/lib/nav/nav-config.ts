@@ -20,6 +20,7 @@ import {
   Eye,
   ShieldCheck,
   KeyRound,
+  Plug,
   Lock,
   Rocket,
   Settings,
@@ -64,6 +65,7 @@ export const ROUTE_LABELS: Record<string, string> = {
   approvals: "Approvals",
   trust: "Trust Center",
   tokens: "Tokens",
+  integrations: "Integrations",
   // Routes that are reachable but not sidebar items.
   start: "Getting started",
   settings: "Settings",
@@ -86,10 +88,12 @@ function item(href: string, icon: LucideIcon): NavItem {
 }
 
 /**
- * The full console sidebar — 22 items across 6 sections, one unique icon
+ * The full console sidebar — 23 items across 6 sections, one unique icon
  * each (the bottom nav and command palette derive from this list too).
  * Regrouped for the UI/UX overhaul (Wave 6): Personal / Portfolio / Work /
  * Registers / Capacity / Governance. No route added or removed.
+ * 2026-10-16: "Integrations" (Lark connector, account link, calendar feed)
+ * joins Governance after Tokens — both are how outside tools reach NoPM.
  *
  * Sprint 1 (2026-09-06): "Baselines" lives in Governance (nav home for the
  * lock → rebaseline → sign-off → apply flow); "Email previews" is a header
@@ -131,6 +135,7 @@ export const NAV_SECTIONS: NavSection[] = [
       item("/approvals", ClipboardCheck),
       item("/trust", ShieldCheck),
       item("/tokens", KeyRound),
+      item("/integrations", Plug),
     ],
   },
 ];

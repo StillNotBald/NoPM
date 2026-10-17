@@ -148,7 +148,7 @@ export default async function ResourcesPage() {
   });
 
   return (
-    <PageContainer className="space-y-6">
+    <PageContainer width="wide" className="space-y-6">
       <div className="space-y-6">
         <PageHeader
           title="Resources"

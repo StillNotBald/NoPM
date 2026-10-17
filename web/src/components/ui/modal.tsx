@@ -1,9 +1,25 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { useBodyScrollLock, useInertShell, useReturnFocus } from "@/lib/hooks/use-sheet";
+import {
+  useBodyScrollLock,
+  useEscapeClose,
+  useFocusTrap,
+  useInertShell,
+  useReturnFocus,
+} from "@/lib/hooks/use-sheet";
 
 type ModalOpts = {
   title?: string;
@@ -31,22 +47,31 @@ const sizes: Record<NonNullable<ModalOpts["size"]>, string> = {
 /**
  * Stacked, responsive modal host (bottom-sheet on mobile, centered card on
  * desktop). Body scroll is locked and the app shell marked `inert` below lg
- * while any modal is open (useBodyScrollLock / useInertShell — F1); Escape
- * closes the top-most modal; focus moves to the close button on open (and
- * again whenever a new modal is pushed on top) and returns to the opener
- * once the whole stack empties (useReturnFocus).
+ * while any modal is open (useBodyScrollLock / useInertShell — F1); at EVERY
+ * width Tab is trapped inside the dialog (useFocusTrap), Escape closes the
+ * top-most overlay only (useEscapeClose), focus moves to the close button on
+ * open (and again whenever a new modal is pushed on top) and returns to the
+ * opener once the whole stack empties (useReturnFocus).
  */
 export function ModalProvider({ children }: { children: ReactNode }) {
   const [stack, setStack] = useState<ModalEntry[]>([]);
-  const open = (node: ReactNode, opts: ModalOpts = {}) =>
-    setStack((s) => [...s, { node, opts }]);
-  const close = () => setStack((s) => s.slice(0, -1));
+  const open = useCallback(
+    (node: ReactNode, opts: ModalOpts = {}) => setStack((s) => [...s, { node, opts }]),
+    [],
+  );
+  const close = useCallback(() => setStack((s) => s.slice(0, -1)), []);
+  // Stable identity: every useModal() consumer would otherwise re-render on any stack change.
+  const api = useMemo(() => ({ open, close }), [open, close]);
   const top = stack[stack.length - 1];
   const isOpen = stack.length > 0;
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
 
   useBodyScrollLock(isOpen);
   useInertShell(isOpen);
+  useEscapeClose(isOpen, close);
+  useFocusTrap(dialogRef, isOpen);
   useReturnFocus(isOpen, closeBtnRef);
 
   // Refocus the close button whenever the visible top-most modal changes
@@ -58,40 +83,39 @@ export function ModalProvider({ children }: { children: ReactNode }) {
     return () => cancelAnimationFrame(id);
   }, [isOpen, stack.length]);
 
-  // Escape closes the top-most modal.
-  useEffect(() => {
-    if (!isOpen) return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    }
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen]);
+  const title = top?.opts.title;
 
   return (
-    <ModalCtx.Provider value={{ open, close }}>
+    <ModalCtx.Provider value={api}>
       {children}
       {top && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4">
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={close} />
+          <div className="absolute inset-0 bg-black/30" onClick={close} />
           <div
+            ref={dialogRef}
+            tabIndex={-1}
             role="dialog"
             aria-modal="true"
-            aria-label={top.opts.title ?? "Dialog"}
+            aria-labelledby={title ? titleId : undefined}
+            aria-label={title ? undefined : "Dialog"}
             className={cn(
-              "relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-lg sm:rounded-2xl",
+              "relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-xl bg-surface shadow-lg focus:outline-none sm:rounded-xl",
               sizes[top.opts.size ?? "md"],
             )}
           >
             <div className="flex h-14 shrink-0 items-center justify-between border-b border-border-subtle px-5 pt-[env(safe-area-inset-top)]">
-              <h2 className="text-base font-semibold text-ink">{top.opts.title ?? ""}</h2>
+              {title ? (
+                <h2 id={titleId} className="text-base font-semibold text-ink">
+                  {title}
+                </h2>
+              ) : (
+                <span />
+              )}
               <button
                 ref={closeBtnRef}
+                type="button"
                 onClick={close}
-                className="grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
+                className="focus-ring grid h-11 w-11 place-items-center rounded-md text-ink-secondary hover:bg-sunken"
                 aria-label="Close"
               >
                 <X size={20} />

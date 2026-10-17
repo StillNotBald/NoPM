@@ -9,7 +9,9 @@ export type NotificationType =
   | "approval.approved"
   | "approval.rejected"
   | "risk.escalated"
-  | "clash.detected";
+  | "clash.detected"
+  /** Your Lark account link was replaced by a newer link code (Integration Hub). */
+  | "integration.link_replaced";
 
 export type NotifyInput = {
   workspaceId: string;
@@ -30,7 +32,23 @@ export async function notify(input: NotifyInput): Promise<void> {
 
   try {
     const db = createAdminClient();
-    const rows = input.recipientIds.map((recipientId) => ({
+    // Only ever notify members of THIS workspace: a recipient id can come from
+    // a client-supplied field (e.g. an owner_id), and a notification row is
+    // readable by its recipient, so an unchecked id would let one tenant drop
+    // messages into another tenant's inbox. Fail-soft like the rest of notify().
+    const { data: members, error: memberError } = await db
+      .from("profiles")
+      .select("id")
+      .eq("workspace_id", input.workspaceId)
+      .in("id", [...new Set(input.recipientIds)]);
+    if (memberError) {
+      console.error("[notify] recipient lookup error:", memberError.message);
+      return;
+    }
+    const allowed = new Set((members ?? []).map((m: { id: string }) => m.id));
+    const recipientIds = [...new Set(input.recipientIds)].filter((id) => allowed.has(id));
+    if (recipientIds.length === 0) return;
+    const rows = recipientIds.map((recipientId) => ({
       workspace_id: input.workspaceId,
       recipient_id: recipientId,
       type: input.type,

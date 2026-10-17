@@ -4,6 +4,7 @@ import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createResourceSchema } from "./_schema";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
 
@@ -49,6 +50,12 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
+
+  // Cross-tenant guard: the linked login (profile) must belong to THIS workspace.
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "profiles", id: parsed.data.profile_id, field: "profile_id" },
+  ]);
+
   const { data: row, error } = await db
     .from("resource_members")
     .insert({

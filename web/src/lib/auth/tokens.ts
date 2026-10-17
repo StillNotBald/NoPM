@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { PRIVILEGED_SCOPES } from "@/lib/auth/scopes";
 
 /**
  * Scoped Personal Access Tokens (PATs). The raw token is shown ONCE at
@@ -25,9 +26,18 @@ export function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-/** A token grants `required` if it holds it exactly, holds `resource:*`, or `*`. */
+const PRIVILEGED: ReadonlySet<string> = new Set(PRIVILEGED_SCOPES);
+
+/**
+ * A token grants `required` if it holds it exactly, holds `resource:*`, or `*`
+ * — EXCEPT that wildcards never grant a PRIVILEGED scope (approve / decide
+ * verbs, see PRIVILEGED_SCOPES in ./scopes): those must be held by exact name.
+ * Closes the "a `task:*` token can approve its own deletion request" path.
+ */
 export function hasScope(granted: string[], required: string): boolean {
-  if (granted.includes("*") || granted.includes(required)) return true;
+  if (granted.includes(required)) return true;
+  if (PRIVILEGED.has(required)) return false;
+  if (granted.includes("*")) return true;
   const resource = required.split(":")[0];
   return granted.includes(`${resource}:*`);
 }

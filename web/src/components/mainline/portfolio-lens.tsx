@@ -1,21 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ragLabel, ragTone } from "@/lib/status";
 import { cn } from "@/lib/cn";
 import { dateToX, laneIndexByProject } from "@/lib/mainline/layout";
 import type { TLGraph, TLNode } from "@/lib/timeline/gather";
-import { describeBar, fmtDate, toDay } from "@/lib/timeline";
+import { describeBar, fitDayWidth, fmtDate, monthMarks, toDay } from "@/lib/timeline";
 import { TimelineBar } from "@/components/timeline/timeline-bar";
 import { TimelineTable } from "@/components/timeline/timeline-table";
+import { TimelineControls } from "@/components/timeline/timeline-controls";
+import { useElementWidth, useOpenOnToday } from "@/components/timeline/use-timeline-viewport";
 import { useDateDisplayPref } from "@/lib/theme/use-appearance";
+import { useMediaQuery } from "@/lib/hooks/use-media-query";
 
 const LANE_H = 56;
+const HEADER_H = 48; // two rows: SteerCo gates + Today on top, month labels below
 const PX_PER_DAY = 5;
 const MIN_WIDTH = 720;
+const LABEL_W_WIDE = 256; // sm:w-64
+const LABEL_W_PHONE = 208; // w-52
+const LABEL_W_COLLAPSED = 40; // w-10
 const LABEL_MAX_W = 90; // matches the label's max-w-[90px]
 const LABEL_GAP = 6;
 const CHAR_W = 6.4; // text-xs mono-ish average advance, used to estimate label width
@@ -53,9 +61,21 @@ function dayCount(startIso: string, endIso: string): number {
  * deep-link to its real page (EntityLink-style href already resolved by
  * gatherTimeline). SteerCo gates + Today render as workspace-wide gridlines
  * (they aren't scoped to a single project lane).
+ *
+ * Opens scrolled to today (the axis is months wide and the data starts well
+ * before it), with a "Today" jump and a "Fit" view that squeezes the whole
+ * range into the window.
  */
 export function PortfolioLens({ graph }: { graph: TLGraph }) {
   const pref = useDateDisplayPref();
+  const [fit, setFit] = useState(false);
+  const [labelsCollapsed, setLabelsCollapsed] = useState(false);
+  const wide = useMediaQuery("(min-width: 640px)", true);
+  const labelPx = labelsCollapsed ? LABEL_W_COLLAPSED : wide ? LABEL_W_WIDE : LABEL_W_PHONE;
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const windowPx = useElementWidth(scrollRef);
+
   const laneNodes = useMemo(
     () => graph.nodes.filter((n): n is TLNode => n.kind === "milestone" || n.kind === "task"),
     [graph.nodes],
@@ -63,8 +83,28 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
 
   const lanes = useMemo(() => laneIndexByProject(graph.projects.map((p) => p.id)), [graph.projects]);
 
-  const width = Math.max(MIN_WIDTH, dayCount(graph.axis.start, graph.axis.end) * PX_PER_DAY);
+  const days = dayCount(graph.axis.start, graph.axis.end);
+  const fitted = fit && windowPx > 0;
+  const width = fitted
+    ? Math.max(Math.floor(windowPx - labelPx), 200)
+    : Math.max(MIN_WIDTH, days * PX_PER_DAY);
   const height = graph.projects.length * LANE_H;
+  // effective px per day, for the lead-in distance when opening on today
+  const pxPerDay = fitted ? fitDayWidth(width, days, { min: 0.25, max: 24, fallback: PX_PER_DAY }) : width / days;
+
+  const todayX = dateToX(graph.axis.today, graph.axis.start, graph.axis.end, width);
+  const todayVisible = graph.axis.today >= graph.axis.start && graph.axis.today <= graph.axis.end;
+
+  const { scrollToToday } = useOpenOnToday({
+    scrollRef,
+    todayX: todayVisible ? todayX : null,
+    contentPx: labelPx + width,
+    dayW: pxPerDay,
+    insetPx: labelPx,
+    // `wide` is in the key because on a phone it flips after mount (the media
+    // query resolves client-side) and the label column changes width with it
+    resetKey: `${fit}:${wide}`,
+  });
 
   const byProject = useMemo(() => {
     const map = new Map<string, TLNode[]>();
@@ -77,8 +117,7 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
     return map;
   }, [laneNodes]);
 
-  const todayX = dateToX(graph.axis.today, graph.axis.start, graph.axis.end, width);
-  const todayVisible = graph.axis.today >= graph.axis.start && graph.axis.today <= graph.axis.end;
+  const months = useMemo(() => monthMarks(graph.axis.start, graph.axis.end), [graph.axis.start, graph.axis.end]);
 
   if (graph.projects.length === 0) {
     return (
@@ -88,49 +127,89 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-x-auto rounded-xl border border-border-subtle bg-surface shadow-sm">
-        <div className="flex" style={{ minWidth: 280 + width }}>
+      <TimelineControls
+        onToday={scrollToToday}
+        todayAvailable={todayVisible}
+        fit={fit}
+        onFitChange={setFit}
+        className="justify-end"
+      />
+      <div ref={scrollRef} className="overflow-x-auto rounded-lg border border-border-subtle bg-surface">
+        <div className="flex" style={{ minWidth: labelPx + width }}>
           {/* Sticky project label column */}
-          <div className="shrink-0 sticky left-0 z-20 w-52 sm:w-64 border-r border-border-subtle bg-surface">
-            <div className="flex items-center border-b border-border-subtle bg-sunken/60 px-3" style={{ height: 40 }}>
-              <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted select-none">
-                Project
-              </span>
+          <div
+            className="shrink-0 sticky left-0 z-20 border-r border-border-subtle bg-surface"
+            style={{ width: labelPx }}
+          >
+            <div
+              className="flex items-center justify-between border-b border-border-subtle bg-sunken px-3"
+              style={{ height: HEADER_H }}
+            >
+              {!labelsCollapsed && (
+                <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted select-none">
+                  Project
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setLabelsCollapsed((c) => !c)}
+                className="focus-ring relative ml-auto rounded-md p-1 text-ink-muted hover:bg-canvas hover:text-ink before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
+                aria-label={labelsCollapsed ? "Expand project names" : "Collapse project names"}
+                aria-expanded={!labelsCollapsed}
+              >
+                {labelsCollapsed ? <ChevronRight size={13} aria-hidden /> : <ChevronLeft size={13} aria-hidden />}
+              </button>
             </div>
             {graph.projects.map((p) => (
               <Link
                 key={p.id}
                 href={`/projects/${p.id}`}
-                className="flex items-center gap-2 border-b border-border-subtle px-3 hover:bg-sunken/40 transition-colors min-h-[44px]"
+                className="focus-ring flex items-center gap-2 border-b border-border-subtle px-3 hover:bg-sunken/40 transition-colors min-h-[44px]"
                 style={{ height: LANE_H }}
+                title={`${p.code} — ${p.name}, ${ragLabel(p.ragStatus)}`}
+                aria-label={labelsCollapsed ? `Open project ${p.code} ${p.name}, ${ragLabel(p.ragStatus)}` : undefined}
               >
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: p.color }} />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-ink">{p.code}</span>
-                  <span className="block truncate text-xs text-ink-muted">{p.name}</span>
-                </span>
-                <Badge size="sm" tone={ragTone(p.ragStatus)} className="shrink-0">
-                  {ragLabel(p.ragStatus)}
-                </Badge>
+                {!labelsCollapsed && (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[13px] font-medium text-ink">{p.code}</span>
+                      <span className="block truncate text-xs text-ink-muted">{p.name}</span>
+                    </span>
+                    <Badge size="sm" tone={ragTone(p.ragStatus)} className="shrink-0">
+                      {ragLabel(p.ragStatus)}
+                    </Badge>
+                  </>
+                )}
               </Link>
             ))}
           </div>
 
           {/* Scrollable axis + lanes */}
           <div className="relative flex-1" style={{ width, minWidth: width }}>
-            {/* Header: SteerCo gates */}
-            <div className="relative border-b border-border-subtle bg-sunken/60" style={{ height: 40 }}>
+            {/* Header: top row = SteerCo gates + Today, bottom row = months */}
+            <div className="relative border-b border-border-subtle bg-sunken" style={{ height: HEADER_H }}>
+              {months.map((mk) => (
+                <div
+                  key={mk.iso}
+                  className="absolute bottom-0 flex items-center pointer-events-none"
+                  style={{ left: dateToX(mk.iso, graph.axis.start, graph.axis.end, width), height: HEADER_H / 2 }}
+                >
+                  <div className="absolute inset-y-0 left-0 w-px bg-border-subtle" />
+                  <span className="ml-1 whitespace-nowrap font-mono text-2xs text-ink-muted select-none">{mk.label}</span>
+                </div>
+              ))}
               {graph.axis.steercoDates.map((d) => {
                 const x = dateToX(d, graph.axis.start, graph.axis.end, width);
                 return (
-                  <div key={d} className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: x }}>
+                  <div key={d} className="absolute top-0 flex items-center pointer-events-none" style={{ left: x, height: HEADER_H / 2 }}>
                     <div className="absolute top-0 bottom-0 w-px bg-warning/40" />
-                    <span className="ml-1 whitespace-nowrap text-xs font-medium text-warning">SteerCo</span>
+                    <span className="ml-1 whitespace-nowrap text-xs font-medium text-warning-ink">SteerCo</span>
                   </div>
                 );
               })}
               {todayVisible && (
-                <div className="absolute top-0 bottom-0 flex items-center pointer-events-none" style={{ left: todayX }}>
+                <div className="absolute top-0 flex items-center pointer-events-none" style={{ left: todayX, height: HEADER_H / 2 }}>
                   <div className="rounded-full bg-accent px-1.5 py-0.5">
                     <span className="text-xs font-bold text-accent-ink whitespace-nowrap select-none">Today</span>
                   </div>
@@ -138,8 +217,15 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
               )}
             </div>
 
-            {/* Background gridlines (steerco + today), full height */}
-            <div className="absolute inset-x-0 pointer-events-none" style={{ top: 40, bottom: 0 }}>
+            {/* Background gridlines (months, steerco, today), full height */}
+            <div className="absolute inset-x-0 pointer-events-none" style={{ top: HEADER_H, bottom: 0 }}>
+              {months.map((mk) => (
+                <div
+                  key={mk.iso}
+                  className="absolute top-0 bottom-0 w-px bg-border-subtle/60"
+                  style={{ left: dateToX(mk.iso, graph.axis.start, graph.axis.end, width) }}
+                />
+              ))}
               {graph.axis.steercoDates.map((d) => (
                 <div
                   key={d}
@@ -249,7 +335,7 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
         </div>
         <div className="flex items-center gap-1.5">
           <span className="h-2 w-px bg-warning/40" style={{ display: "inline-block" }} />
-          <span className="text-xs text-ink-muted">SteerCo gate</span>
+          <span className="text-xs text-ink-muted">SteerCo marker (quarter end)</span>
         </div>
       </div>
     </div>
