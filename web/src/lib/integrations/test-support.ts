@@ -206,6 +206,8 @@ export class FakeDb {
   log: { table: string; op: string }[] = [];
   private failures: FailRule[] = [];
   private seq = 0;
+  /** Simulates PostgREST's max_rows: a select never returns more than this many rows, whatever `limit` says. */
+  maxRows: number | null = null;
 
   seed(table: string, rows: Row[]): this {
     this.tables[table] = [...(this.tables[table] ?? []), ...rows.map((r) => ({ ...r }))];
@@ -386,6 +388,7 @@ class FakeQuery implements PromiseLike<Result> {
       let rows = this.matching();
       const total = rows.length;
       if (this.limitN !== null) rows = rows.slice(0, this.limitN);
+      if (db.maxRows !== null) rows = rows.slice(0, db.maxRows);
       if (this.head) return { data: null, error: null, count: total };
       const shaped = this.shape(rows);
       return this.wantCount ? { ...shaped, count: total } : shaped;

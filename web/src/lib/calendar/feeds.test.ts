@@ -10,6 +10,8 @@ import {
   feedUrl,
   feedWindowStart,
   generateFeedToken,
+  isFeedAdmin,
+  parseEnvInt,
   parseFeedSegment,
   publicBaseUrl,
 } from "./feeds";
@@ -179,5 +181,52 @@ describe("feedRateCheck", () => {
     expect(log).toHaveBeenCalled();
     expect(JSON.stringify(log.mock.calls)).not.toContain("203.0.113.7"); // the address is not logged
     log.mockRestore();
+  });
+});
+
+describe("parseEnvInt", () => {
+  it("takes a positive integer, trimmed", () => {
+    expect(parseEnvInt("30", 120)).toBe(30);
+    expect(parseEnvInt(" 45 ", 120)).toBe(45);
+  });
+
+  it("falls back for unset, empty, blank, non-numeric, fractional, zero and negative values", () => {
+    for (const bad of [undefined, "", "   ", "abc", "12abc", "1.5", "0", "-5", "1e3", "Infinity", "NaN"]) {
+      expect(parseEnvInt(bad, 120)).toBe(120);
+    }
+  });
+});
+
+describe("feed rate settings read from the environment", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("an empty NOPM_RATE_CAL_* setting keeps the default instead of becoming a cap of 0", async () => {
+    vi.stubEnv("NOPM_RATE_CAL_IP_PER_MIN", "");
+    vi.stubEnv("NOPM_RATE_CAL_PER_MIN", "");
+    vi.resetModules();
+    const fresh = await import("./feeds");
+    expect(fresh.FEED_RATE_PER_IP).toBe(120);
+    expect(fresh.FEED_RATE_PER_FEED).toBe(60);
+  });
+
+  it("a valid setting is honoured, a non-numeric one falls back", async () => {
+    vi.stubEnv("NOPM_RATE_CAL_IP_PER_MIN", "30");
+    vi.stubEnv("NOPM_RATE_CAL_PER_MIN", "lots");
+    vi.resetModules();
+    const fresh = await import("./feeds");
+    expect(fresh.FEED_RATE_PER_IP).toBe(30);
+    expect(fresh.FEED_RATE_PER_FEED).toBe(60);
+  });
+});
+
+describe("isFeedAdmin", () => {
+  it("is true for a signed-in admin only", () => {
+    expect(isFeedAdmin(userActor({ role: "admin" }))).toBe(true);
+    expect(isFeedAdmin(userActor({ role: "member" }))).toBe(false);
+    expect(isFeedAdmin(userActor({ role: "viewer" }))).toBe(false);
+    expect(isFeedAdmin(tokenActor({ role: "admin" }))).toBe(false);
   });
 });

@@ -227,9 +227,16 @@ export interface DecisionPanelProps {
    * approving content the approver never read.
    */
   expectedUpdatedAt?: string | null;
+  /**
+   * Called when the viewer chooses "Refresh" after a stale/already-decided
+   * refusal. The inspector content is a frozen snapshot, so `router.refresh()`
+   * alone never updates `expectedUpdatedAt`; callers must close the inspector
+   * (the way DecisionFlow does) so reopening it loads the current record.
+   */
+  onRefresh?: () => void;
 }
 
-export function DecisionPanel({ crId, onDecided, decide, expectedUpdatedAt }: DecisionPanelProps) {
+export function DecisionPanel({ crId, onDecided, decide, expectedUpdatedAt, onRefresh }: DecisionPanelProps) {
   const router = useRouter();
   const uid = useId();
   const [decision, setDecision] = useState<Decision | null>(null);
@@ -294,7 +301,8 @@ export function DecisionPanel({ crId, onDecided, decide, expectedUpdatedAt }: De
           onBack={() => setRefusal(null)}
           onRefresh={() => {
             setRefusal(null);
-            router.refresh();
+            if (onRefresh) onRefresh();
+            else router.refresh();
           }}
         />
       ) : (
@@ -398,6 +406,14 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
     inspector.close();
   }
 
+  // The inspector holds a frozen snapshot of this record, so after a stale
+  // (412) / already-decided refusal a refresh must close it: reopening loads
+  // the current row (and its updated_at) instead of retrying with the old one.
+  function handleRefreshRecord() {
+    inspector.close();
+    router.refresh();
+  }
+
   const canDecide = !decided && (cr.status === "raised" || cr.status === "under_review");
 
   return (
@@ -423,7 +439,13 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
 
       {/* Decision panel — only for actionable CRs */}
       {canDecide && (
-        <DecisionPanel crId={cr.id} onDecided={handleDecided} decide={cr.decide} expectedUpdatedAt={cr.updated_at} />
+        <DecisionPanel
+          crId={cr.id}
+          onDecided={handleDecided}
+          decide={cr.decide}
+          expectedUpdatedAt={cr.updated_at}
+          onRefresh={handleRefreshRecord}
+        />
       )}
     </div>
   );

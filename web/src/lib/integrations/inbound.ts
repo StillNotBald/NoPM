@@ -205,8 +205,11 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
     }
 
     // A failure that did not decide anything for a reason the recipient can
-    // fix (a transient error, a lock they can lift) must not burn the card.
-    if (outcome.status === "error" || outcome.status === "invalid") {
+    // fix (a transient error, a lock they can lift, a scope an admin grants
+    // afterwards) must not burn the card. "decided" and "already_decided" never
+    // reach this branch, so a successful decision's token stays spent and cannot
+    // be replayed; "self_approval" stays burnt too (no later tap can change it).
+    if (outcome.status === "error" || outcome.status === "invalid" || outcome.status === "forbidden") {
       await releaseToken(tokenId, workspaceId);
     }
     if (outcome.status === "error") {

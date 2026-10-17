@@ -91,10 +91,48 @@ export const POST = route(async ({ actor, params }) => {
     return { start: data?.baseline_start_date ?? null, target: data?.baseline_target_date ?? null };
   };
 
+  const storedBaseline = (value: unknown): ProjectBaseline | null => {
+    if (!value || typeof value !== "object") return null;
+    const v = value as { start?: unknown; target?: unknown };
+    const date = (x: unknown) => (typeof x === "string" ? x : null);
+    return { start: date(v.start), target: date(v.target) };
+  };
+
+  const captureBaselineBefore = async (): Promise<ProjectBaseline> => {
+    // A previous attempt already captured it: that is the real "before".
+    const existing = storedBaseline((rebaseline as { baseline_before?: unknown }).baseline_before);
+    if (existing) return existing;
+
+    const current = await readProjectBaseline();
+    // The column is write-once in the database (a trigger keeps the first
+    // value), so two racing applies cannot overwrite it with a moved baseline;
+    // the returned value is whichever was stored first.
+    const { data, error } = await db
+      .from("rebaselines")
+      .update({ baseline_before: current })
+      .eq("id", params.id)
+      .eq("workspace_id", actor.workspaceId)
+      .eq("status", "approved")
+      .select("baseline_before")
+      .maybeSingle();
+    if (error) {
+      // Not migrated yet (0057): fall back to the in-memory read, as before.
+      if (error.code === "42703" || error.code === "PGRST204") return current;
+      throw error;
+    }
+    return storedBaseline(data?.baseline_before) ?? current;
+  };
+
   let projectBaseline: { before: ProjectBaseline; after: ProjectBaseline } | null = null;
 
   if (projectId) {
-    const baselineBefore = await readProjectBaseline();
+    // The TRUE previous baseline is captured once, durably, BEFORE the snapshot
+    // moves it (rebaselines.baseline_before, migration 0057, write-once). A
+    // transient failure after the RPC (the CAS, the audit) leaves the
+    // rebaseline `approved`; the retry finds the stored value instead of
+    // re-reading a project baseline the first attempt already moved, so the
+    // audit never records before == after.
+    const baselineBefore = await captureBaselineBefore();
     const { error: snapshotErr } = await db.rpc("nopm_apply_rebaseline_snapshot", {
       p_project_id: projectId,
       p_workspace_id: actor.workspaceId,
@@ -108,7 +146,7 @@ export const POST = route(async ({ actor, params }) => {
   // Compare-and-set approved -> applied: two concurrent applies can't both win
   // (the rebaselines trigger of migration 0049 is the DB backstop). The loser
   // may have re-run the idempotent snapshot above; that changes nothing.
-  const { data: after, error: updateError } = await db
+  const { data: afterRow, error: updateError } = await db
     .from("rebaselines")
     .update({
       status: "applied",
@@ -121,9 +159,16 @@ export const POST = route(async ({ actor, params }) => {
     .maybeSingle();
 
   if (updateError) throw updateError;
-  if (!after) {
+  if (!afterRow) {
     throw new RuleError("This rebaseline has already been applied.", "already_applied");
   }
+
+  // baseline_before is bookkeeping for the audit trail (it is already in
+  // after.project_baseline.before); it is not part of the rebaseline's shape.
+  const { baseline_before: _keptInTrail, ...after } = afterRow;
+  void _keptInTrail;
+  const { baseline_before: _loaded, ...beforeRow } = rebaseline as Record<string, unknown>;
+  void _loaded;
 
   await writeAudit({
     workspaceId: actor.workspaceId,
@@ -131,7 +176,7 @@ export const POST = route(async ({ actor, params }) => {
     action: "rebaseline.apply",
     targetType: "rebaseline",
     targetId: params.id,
-    before: rebaseline,
+    before: beforeRow,
     after: projectBaseline ? { ...after, project_baseline: projectBaseline } : after,
   });
 

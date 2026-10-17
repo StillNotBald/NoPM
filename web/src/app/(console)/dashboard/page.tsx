@@ -112,10 +112,22 @@ export default async function DashboardPage({
   // is honest for all of them.
   const fetchedAt = new Date().toISOString();
 
-  const queryError = projectsResult.error ?? risksResult.error ?? issuesResult.error ?? clashesResult.error;
-  if (queryError) {
-    return <QueryError what="dashboard data" message={queryError.message} />;
+  // Only the projects read is fatal: every card is derived from the project
+  // set. A failed risks / issues / clashes read degrades just its own tile
+  // (shown as unavailable, not as a misleading 0) and the rest stays up.
+  if (projectsResult.error) {
+    return <QueryError what="dashboard data" message={projectsResult.error.message} />;
   }
+  const unavailable = {
+    risks: !!risksResult.error,
+    issues: !!issuesResult.error,
+    clashes: !!clashesResult.error,
+  };
+  const degraded = [
+    risksResult.error && { what: "risks", message: risksResult.error.message },
+    issuesResult.error && { what: "issues", message: issuesResult.error.message },
+    clashesResult.error && { what: "clashes", message: clashesResult.error.message },
+  ].filter((d): d is { what: string; message: string } => !!d);
 
   // Program labels: programs.name via program_id first, legacy text fallback.
   const programNameById = new Map<string, string>(
@@ -265,6 +277,11 @@ export default async function DashboardPage({
       {/* ── Dashboard-wide filter (L-15) ── */}
       <DashboardFilterBar programs={programOptions} projects={projectOptions} />
 
+      {/* A register that failed to load: say so (its counts are not zero, they are unknown). */}
+      {degraded.map((d) => (
+        <QueryError key={d.what} what={d.what} message={d.message} className="p-0" />
+      ))}
+
       {/* ── Health rollup KPI strip ── */}
       <HealthRollupCards
         totalProjects={totalProjects}
@@ -276,6 +293,7 @@ export default async function DashboardPage({
         issueCount={issueCount}
         clashCount={clashCount}
         overdueCount={overdueCount}
+        unavailable={unavailable}
         filterLabel={filterLabel}
         fetchedAt={fetchedAt}
       />

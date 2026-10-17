@@ -35,6 +35,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import type { ConnectorRow, LarkSecrets } from "@/lib/integrations/types";
+import { readCappedBody } from "@/lib/integrations/body";
 import { cardCallbackResponse } from "./cards";
 import { handleLarkPayload, type LarkHandlerContext, type LarkHandlerDeps, type LogLevel } from "./handlers";
 import { MAX_WEBHOOK_BODY_BYTES, verifyLarkRequest } from "./verify";
@@ -93,15 +94,18 @@ export async function handleLarkWebhook(request: NextRequest, rawConnectorId: st
     // Unknown, paused and revoked look exactly like a failed check: same body,
     // same work (the body is read and run through the verifier), no counter row
     // keyed by the id the caller picked.
-    const rawBody = await request.text();
-    if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BODY_BYTES) return json({ error: "Payload too large" }, 413);
+    const capped = await readCappedBody(request, MAX_WEBHOOK_BODY_BYTES);
+    if (!capped.ok) return json({ error: "Payload too large" }, 413);
+    const rawBody = capped.text;
     verifyLarkRequest({ rawBody, headers: request.headers, secrets: DECOY_SECRETS, now: wd.now });
     wd.log("warn", "lark webhook rejected", { reason: connector ? "inactive" : "unknown_connector" });
     return rejectUnauthenticated(wd, request, null);
   }
 
-  const rawBody = await request.text();
-  if (Buffer.byteLength(rawBody, "utf8") > MAX_WEBHOOK_BODY_BYTES) return json({ error: "Payload too large" }, 413);
+  // Capped stream read: a chunked body has no Content-Length, so the cap must hold while reading.
+  const capped = await readCappedBody(request, MAX_WEBHOOK_BODY_BYTES);
+  if (!capped.ok) return json({ error: "Payload too large" }, 413);
+  const rawBody = capped.text;
 
   let secrets: LarkSecrets;
   try {

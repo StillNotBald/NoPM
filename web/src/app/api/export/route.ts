@@ -10,6 +10,7 @@ import { RISK_SORT_FIELDS, parseRiskFilters } from "@/app/api/risks/_query";
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
 import { parseTimeEntryFilters } from "@/app/api/time-entries/_query";
 import { parseAuditFilters } from "@/app/api/audit/_query";
+import { parseExportDay, dayAfter } from "./_audit-range";
 
 export const runtime = "nodejs";
 
@@ -296,11 +297,23 @@ async function fetchAuditRows(sp: URLSearchParams, workspaceId: string, db: Db):
   // deliberately NOT supported here: it requires the row-lookup that only
   // the interactive /audit route performs.
   if (filters.since !== undefined) query = query.gte("created_at", filters.since);
+  // `from` / `to` (UTC calendar days, inclusive) — what the Trust Center date
+  // filter writes, so the downloaded file matches the on-screen view. `from` is
+  // a day-granular alias of `since` (both may be given; both narrow). Malformed
+  // days are dropped, same leniency as `since`.
+  const from = parseExportDay(sp.get("from"));
+  const to = parseExportDay(sp.get("to"));
+  if (from !== undefined) query = query.gte("created_at", `${from}T00:00:00Z`);
+  if (to !== undefined) query = query.lt("created_at", dayAfter(to));
   const { data, error, count } = await query
     .order("created_at", { ascending: filters.order === "asc" })
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
-  return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters };
+  return {
+    rows: (data ?? []) as Record<string, unknown>[],
+    total: count ?? (data ?? []).length,
+    filters: { ...filters, from, to },
+  };
 }
 
 async function fetchEntityRows(entity: Entity, url: URL, workspaceId: string, db: Db): Promise<FetchResult> {

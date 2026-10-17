@@ -172,6 +172,38 @@ describe("relay route — lookup and shape checks", () => {
     const res = await call(relayRequest(big));
     expect(res.status).toBe(413);
   });
+
+  function chunkedRelay(totalBytes: number, chunk = 4096): NextRequest {
+    const enc = new TextEncoder();
+    let left = totalBytes;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(c) {
+        if (left <= 0) return c.close();
+        const n = Math.min(chunk, left);
+        left -= n;
+        c.enqueue(enc.encode("x".repeat(n)));
+      },
+    });
+    return new NextRequest(`http://localhost/api/integrations/lark/${CONNECTOR_ID}/relay`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.7" },
+      body: stream,
+      duplex: "half",
+    });
+  }
+
+  it("413s a chunked body (no Content-Length) that exceeds the cap, without buffering it", async () => {
+    const req = chunkedRelay(5 * 1024 * 1024);
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await call(req);
+    expect(res.status).toBe(413);
+    expect((await res.json()).code).toBe("body_too_large");
+  });
+
+  it("a small chunked body is read and reaches signature verification (401, not 413)", async () => {
+    const res = await call(chunkedRelay(100));
+    expect(res.status).toBe(401);
+  });
 });
 
 describe("relay route — transport authentication", () => {

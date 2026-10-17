@@ -615,7 +615,22 @@ async function attemptDelivery(
         const ev = row.payload.event as ApprovalDecidedEvent | undefined;
         if (!ev || !row.parent_delivery_id) return fail(false, "Malformed decision update delivery");
         const parent = await loadParent(row);
-        if (!parent || parent.status === "superseded" || parent.status === "dead") {
+        // Same patch machinery, two bodies: the request was decided, or it was
+        // edited and a new card replaces this one.
+        const body =
+          row.payload.variant === "changed"
+            ? adapter.renderChangedUpdate(ev, { appUrl: appBaseUrl() })
+            : adapter.renderDecisionUpdate(ev, { appUrl: appBaseUrl() });
+        if (!parent) return { kind: "superseded", reason: "card was never delivered" };
+        if (parent.status === "superseded" || parent.status === "dead") {
+          // A parent that was SENT at least once and then settled as superseded/dead without ever
+          // recording a message id is ambiguous, not "never delivered": the send may have landed
+          // with its response lost (timeout, dropped connection), and the retry that followed then
+          // found the request already decided. The person may be holding a live card.
+          // Only a parent that provably never left (zero attempts) lets the update be dropped.
+          if (parent.attempts > 0 && !parent.external_message_id && parent.external_target) {
+            return recoverAmbiguousParent(row, parent, body, { adapter, connector, secrets, secretList, owns });
+          }
           return { kind: "superseded", reason: "card was never delivered" };
         }
         if (parent.status !== "sent" || !parent.external_message_id) {
@@ -626,12 +641,6 @@ async function attemptDelivery(
         if (parent.sent_at && ctx.clock().getTime() - Date.parse(parent.sent_at) > CARD_EDIT_WINDOW_MS) {
           return { kind: "superseded", reason: "card too old to edit" };
         }
-        // Same patch machinery, two bodies: the request was decided, or it was
-        // edited and a new card replaces this one.
-        const body =
-          row.payload.variant === "changed"
-            ? adapter.renderChangedUpdate(ev, { appUrl: appBaseUrl() })
-            : adapter.renderDecisionUpdate(ev, { appUrl: appBaseUrl() });
         if (!(await owns())) return { kind: "lost" };
         const res = toAttempt(await adapter.update(connector, secrets, parent.external_message_id, body), secretList);
         return res.kind === "sent" ? { kind: "sent", externalMessageId: parent.external_message_id } : res;
@@ -672,6 +681,54 @@ async function attemptDelivery(
   } catch (err) {
     return fail(true, sanitizeError(err, secretList));
   }
+}
+
+/**
+ * The parent card's send was attempted but never recorded a message id, and the
+ * card has since been superseded (or died). We cannot patch what we cannot
+ * address, so resolve the message id the platform holds: re-send under the
+ * PARENT's idempotency key (its delivery id, the key every attempt of that card
+ * used). The platform deduplicates by that key for an hour:
+ *  - the original DID land: the send returns the original message (live
+ *    buttons); we then patch it to the decided body, exactly as for a normal card;
+ *  - it did NOT land (or the window has passed): the send creates a message whose
+ *    content is already the decided body, so the patch that follows is a no-op
+ *    and the person is told the outcome rather than left with nothing.
+ * Either way no card with live buttons is left behind. A refusal that no retry can
+ * fix drops the update (the card is unreachable); a transient one retries it.
+ */
+async function recoverAmbiguousParent(
+  row: DeliveryRow,
+  parent: DeliveryRow,
+  body: Record<string, unknown>,
+  io: {
+    adapter: ConnectorAdapter;
+    connector: ConnectorRow;
+    secrets: LarkSecrets;
+    secretList: (string | null | undefined)[];
+    owns: () => Promise<boolean>;
+  },
+): Promise<Attempt> {
+  const { adapter, connector, secrets, secretList, owns } = io;
+  if (!(await owns())) return { kind: "lost" };
+  const sent = toAttempt(
+    await adapter.send(connector, secrets, {
+      receiveIdType: "open_id",
+      receiveId: parent.external_target as string,
+      body,
+      idempotencyKey: parent.id,
+    }),
+    secretList,
+  );
+  if (sent.kind === "failed") {
+    return sent.retryable ? sent : { kind: "superseded", reason: "card was never delivered" };
+  }
+  if (sent.kind !== "sent" || !sent.externalMessageId) {
+    return { kind: "failed", retryable: true, error: "Platform returned no message id for the card" };
+  }
+  if (!(await owns())) return { kind: "lost" };
+  const patched = toAttempt(await adapter.update(connector, secrets, sent.externalMessageId, body), secretList);
+  return patched.kind === "sent" ? { kind: "sent", externalMessageId: sent.externalMessageId } : patched;
 }
 
 function toAttempt(

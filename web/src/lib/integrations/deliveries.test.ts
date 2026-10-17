@@ -362,6 +362,66 @@ describe("drainDeliveries — other kinds", () => {
     expect(row(update.id).status).toBe("superseded");
   });
 
+  describe("a parent card whose send was attempted but never recorded a message id", () => {
+    /** Attempt 1 timed out (it may have landed), then the retry found the request decided: parent superseded. */
+    async function ambiguousParent(attempts = 1) {
+      const card = await queueCard();
+      Object.assign(row(card.id), { status: "superseded", attempts, last_error: "request already decided" });
+      return card;
+    }
+
+    it("is NOT dropped: the card may be live, so it is resolved by the parent's idempotency key and patched to the decided body", async () => {
+      const card = await ambiguousParent();
+      const update = await queueUpdate(card.id);
+      fake.state.sendResult = async () => ({ ok: true, externalMessageId: "om_original" }); // the platform dedups to the message that landed
+
+      const s = await drain({ ids: [update.id] });
+
+      expect(s).toMatchObject({ sent: 1, superseded: 0 });
+      expect(fake.calls.sends).toHaveLength(1);
+      expect(fake.calls.sends[0]).toMatchObject({ receiveId: "ou_max", idempotencyKey: card.id });
+      expect(fake.calls.updates).toEqual([{ externalMessageId: "om_original", body: { card: "decided", status: "approved" } }]);
+      expect(row(update.id)).toMatchObject({ status: "sent", external_message_id: "om_original" });
+    });
+
+    it("also covers a parent that died after its retries", async () => {
+      const card = await queueCard();
+      Object.assign(row(card.id), { status: "dead", attempts: 6, last_error: "timeout" });
+      const update = await queueUpdate(card.id);
+
+      await drain({ ids: [update.id] });
+
+      expect(fake.calls.updates).toHaveLength(1);
+      expect(row(update.id).status).toBe("sent");
+    });
+
+    it("is still dropped when the parent provably never left (zero attempts), with no platform call", async () => {
+      const card = await ambiguousParent(0);
+      const update = await queueUpdate(card.id);
+
+      await drain({ ids: [update.id] });
+
+      expect(row(update.id)).toMatchObject({ status: "superseded", last_error: "card was never delivered" });
+      expect(fake.calls.sends).toHaveLength(0);
+      expect(fake.calls.updates).toHaveLength(0);
+    });
+
+    it("retries the update when the platform is unreachable, and drops it on a refusal no retry can fix", async () => {
+      const card = await ambiguousParent();
+      const update = await queueUpdate(card.id);
+
+      fake.state.sendResult = async () => ({ ok: false, retryable: true, error: "timeout" });
+      await drain({ ids: [update.id] });
+      expect(row(update.id)).toMatchObject({ status: "retry", last_error: "timeout" });
+      expect(fake.calls.updates).toHaveLength(0);
+
+      fake.state.sendResult = async () => ({ ok: false, retryable: false, error: "user not found" });
+      vi.setSystemTime(new Date(Date.now() + 10 * MIN));
+      await drain({ ids: [update.id] });
+      expect(row(update.id).status).toBe("superseded");
+    });
+  });
+
   it("sends a digest to the group chat id", async () => {
     const data: DigestData = {
       workspaceName: "Acme PMO",

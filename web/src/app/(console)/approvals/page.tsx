@@ -13,6 +13,7 @@ import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
 import { describeDeletionTarget, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
 import { judgeDecision } from "@/lib/review/four-eyes";
+import { DECIDED_PAGE_SIZE, PENDING_CAP, pageWindow, parsePage } from "./_paging";
 
 export const metadata = { title: "Approvals" };
 
@@ -38,6 +39,10 @@ function formatDate(iso: string) {
     month: "short",
     day: "numeric",
   });
+}
+
+function decidedHref(page: number): string {
+  return page > 1 ? `/approvals?status=decided&page=${page}` : "/approvals?status=decided";
 }
 
 function shortId(id: string) {
@@ -90,9 +95,9 @@ function TargetSummary({
 export default async function ApprovalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; page?: string }>;
 }) {
-  const { status: statusParam } = await searchParams;
+  const { status: statusParam, page: pageParam } = await searchParams;
   const view = statusParam === "decided" ? "decided" : "pending";
 
   const db = await createClient();
@@ -101,21 +106,45 @@ export default async function ApprovalsPage({
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [requestsRes, { data: viewerProfile }, { data: projects }] = await Promise.all([
-    db.from("deletion_requests").select("*").order("created_at", { ascending: false }).limit(200),
+  // Pending and decided are queried separately: filtering a newest-first,
+  // capped list in JS dropped the oldest pending requests (the ones most
+  // overdue) once enough newer decided ones existed. Pending is the work queue
+  // (status filter in SQL, no paging); Decided is paged and counted exactly.
+  const [pendingRes, decidedCountRes, { data: viewerProfile }, { data: projects }] = await Promise.all([
+    db
+      .from("deletion_requests")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(PENDING_CAP),
+    db.from("deletion_requests").select("id", { count: "exact", head: true }).neq("status", "pending"),
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     db.from("projects").select("id, name"),
   ]);
-  const { data: requests, error } = requestsRes;
 
-  if (error) return <QueryError what="approval requests" message={error.message} />;
+  if (pendingRes.error) return <QueryError what="approval requests" message={pendingRes.error.message} />;
+  if (decidedCountRes.error) return <QueryError what="approval requests" message={decidedCountRes.error.message} />;
+
+  const decidedTotal = decidedCountRes.count ?? 0;
+  const win = pageWindow(parsePage(pageParam), decidedTotal);
+  let decided: DeletionRequest[] = [];
+  if (view === "decided" && decidedTotal > 0) {
+    const decidedRes = await db
+      .from("deletion_requests")
+      .select("*")
+      .neq("status", "pending")
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(win.from, win.to);
+    if (decidedRes.error) return <QueryError what="approval requests" message={decidedRes.error.message} />;
+    decided = (decidedRes.data ?? []) as DeletionRequest[];
+  }
 
   const viewer = { id: user.id, role: (viewerProfile?.role as string | null | undefined) ?? null };
   const projectName = new Map<string, string>((projects ?? []).map((p) => [p.id as string, p.name as string]));
 
-  const all = (requests ?? []) as DeletionRequest[];
-  const pending = all.filter((r) => r.status === "pending");
-  const decided = all.filter((r) => r.status !== "pending");
+  const pending = (pendingRes.data ?? []) as DeletionRequest[];
+  const pendingCapped = pending.length >= PENDING_CAP;
   const rows = view === "pending" ? pending : decided;
 
   // Four-eyes, decided the way the API decides: by person (a token counts as
@@ -156,7 +185,7 @@ export default async function ApprovalsPage({
         defaultValue="pending"
         options={[
           { value: "pending", label: "Pending", count: pending.length, attention: mine.length > 0 },
-          { value: "decided", label: "Decided", count: decided.length },
+          { value: "decided", label: "Decided", count: decidedTotal },
         ]}
       />
 
@@ -235,6 +264,45 @@ export default async function ApprovalsPage({
             ))}
           </ul>
         </>
+      )}
+
+      {view === "pending" && pendingCapped && (
+        <p className="text-xs text-ink-muted">
+          Showing the newest {PENDING_CAP} pending requests; older ones are not listed here.
+        </p>
+      )}
+
+      {view === "decided" && win.lastPage > 1 && (
+        <nav
+          aria-label="Decided requests pages"
+          className="flex items-center justify-between text-sm"
+        >
+          {win.page > 1 ? (
+            <a
+              href={decidedHref(win.page - 1)}
+              rel="prev"
+              className="focus-ring inline-flex min-h-[44px] items-center rounded-sm text-accent hover:underline sm:min-h-0"
+            >
+              &larr; Newer
+            </a>
+          ) : (
+            <span />
+          )}
+          <span className="text-xs text-ink-muted">
+            Page {win.page} of {win.lastPage} · {DECIDED_PAGE_SIZE} per page
+          </span>
+          {win.page < win.lastPage ? (
+            <a
+              href={decidedHref(win.page + 1)}
+              rel="next"
+              className="focus-ring inline-flex min-h-[44px] items-center rounded-sm text-accent hover:underline sm:min-h-0"
+            >
+              Older &rarr;
+            </a>
+          ) : (
+            <span />
+          )}
+        </nav>
       )}
     </PageContainer>
   );

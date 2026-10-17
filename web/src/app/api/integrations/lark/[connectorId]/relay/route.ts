@@ -4,6 +4,7 @@ import { ApiError, NotFoundError, RateLimitError } from "@/lib/api/errors";
 import { ipRateKey } from "@/lib/api/client-ip";
 import { validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { readCappedBody } from "@/lib/integrations/body";
 import { CONNECTOR_COLUMNS, normalizeConfig } from "@/lib/integrations/store";
 import type { ConnectorRow } from "@/lib/integrations/types";
 import { cardCallbackResponse } from "@/lib/integrations/lark/cards";
@@ -135,10 +136,12 @@ export const POST = route(
     // `config` is free-form jsonb: normalise so `mode` is never undefined.
     const found: ConnectorRow | null = row ? { ...row, config: normalizeConfig(row.config) } : null;
 
-    const rawBody = await request.text();
-    if (Buffer.byteLength(rawBody, "utf8") > RELAY_MAX_BODY_BYTES) {
+    // Capped stream read: a chunked body has no Content-Length, so the cap must hold while reading.
+    const capped = await readCappedBody(request, RELAY_MAX_BODY_BYTES);
+    if (!capped.ok) {
       throw new ApiError(413, "Relay body too large", RELAY_ERROR_CODES.tooLarge);
     }
+    const rawBody = capped.text;
 
     if (!found) {
       verifyRelaySignature({

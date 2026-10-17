@@ -367,6 +367,39 @@ describe("governance outcomes (decideApproval errors -> typed outcomes)", () => 
     expect(await handleApprovalAction(input())).toEqual({ status: "forbidden", message: "Viewers have read-only access" });
   });
 
+  it("a forbidden decision does NOT burn the card: once the scope is granted a later tap decides", async () => {
+    decideMock.mockRejectedValueOnce(new ScopeError("API token is missing required scope: task:delete:approve"));
+    const first = await handleApprovalAction(input({ externalEventId: "evt-forbidden" }));
+    expect(first.status).toBe("forbidden");
+    expect(token(RAW_TOKEN).used_at).toBeNull();
+
+    // the platform redelivering the SAME event replays the stored refusal and does not touch the card
+    expect((await handleApprovalAction(input({ externalEventId: "evt-forbidden" }))).status).toBe("forbidden");
+    expect(decideMock).toHaveBeenCalledTimes(1);
+    expect(token(RAW_TOKEN).used_at).toBeNull();
+
+    // scope granted: a new tap on the same card goes through
+    const later = await handleApprovalAction(input({ externalEventId: "evt-after-grant" }));
+    expect(later.status).toBe("decided");
+    expect(token(RAW_TOKEN).used_at).not.toBeNull();
+  });
+
+  it("a SUCCESSFUL decision still burns the card: a later tap or a replay cannot decide again", async () => {
+    expect((await handleApprovalAction(input({ externalEventId: "evt-ok" }))).status).toBe("decided");
+    expect(token(RAW_TOKEN).used_at).not.toBeNull();
+
+    const again = await handleApprovalAction(input({ externalEventId: "evt-ok-2" }));
+    expect(again.status).not.toBe("decided");
+    expect((await handleApprovalAction(input({ externalEventId: "evt-ok" }))).status).toBe("decided"); // stored outcome, not re-run
+    expect(decideMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("a self-approval refusal keeps the card spent (no later tap can change it)", async () => {
+    decideMock.mockRejectedValueOnce(new ScopeError("Self-approval is not allowed (four-eyes)", "forbidden_scope"));
+    expect((await handleApprovalAction(input({ externalEventId: "evt-self" }))).status).toBe("self_approval");
+    expect(token(RAW_TOKEN).used_at).not.toBeNull();
+  });
+
   it("already decided -> already_decided", async () => {
     decideMock.mockRejectedValueOnce(new RuleError("Request already decided"));
     expect(await handleApprovalAction(input())).toEqual({ status: "already_decided" });

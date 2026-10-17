@@ -22,15 +22,17 @@ import type { ConnectorRow, DeliveryRow } from "@/lib/integrations/types";
  * send each connector's weekly digest on its configured weekday, and prune old
  * bookkeeping rows.
  *
- * It is a SYSTEM job: it enumerates active connectors across workspaces once,
- * then every other query is scoped to that connector's workspace. Paused and
+ * It is a SYSTEM job: it enumerates active connectors across workspaces once
+ * (keyset-paged, so PostgREST's max_rows cap never hides the tail), then every other query is scoped to that connector's workspace. Paused and
  * revoked connectors are skipped entirely (the kill switch stops both
  * directions), so their queued rows stay untouched until resumed.
  *
  * It runs inside a serverless time limit (`maxDuration` in the route), so it is
  * built to finish, not to be killed:
- *  - phase 1 queues every connector's digest (database work only, no platform
- *    call), so being cut off later can never lose a week's digest;
+ *  - phase 1 queues connectors' digests (database work only, no platform call)
+ *    before any send, but it stops starting new connectors at the deadline too:
+ *    a digest it did not reach is not lost (a connector it skipped is recorded
+ *    as partial and goes first next tick, and `digestDue` catches up a missed day);
  *  - phase 2 drains connectors with bounded concurrency, oldest backlog first,
  *    and stops STARTING work at `CRON_DEADLINE_MS`; each platform call has its
  *    own timeout, and a connector job that overruns is abandoned, not awaited;
@@ -79,6 +81,14 @@ export const CRON_GRACE_MS = 12_000;
 export const CRON_CONCURRENCY = 3;
 export const CRON_DRAIN_LIMIT = 50;
 export const CRON_MAX_PASSES = 10;
+/** Rows per keyset page when enumerating connectors / cron state (below PostgREST's default max_rows of 1000). */
+export const CRON_PAGE_SIZE = 500;
+/** Connector ids per backlog lookup (they travel in the URL, so the list stays short). */
+const BACKLOG_CHUNK = 50;
+/** Share of the deadline the ordering lookups may use; past it the remaining connectors keep their id order. */
+const ORDERING_BUDGET = 0.25;
+/** Workspaces pruned at once. */
+const PRUNE_CONCURRENCY = 3;
 
 /** Retention (days). Only terminal rows are ever pruned; `audit_log` is never touched. */
 export const RETENTION = {
@@ -138,26 +148,27 @@ export async function runCron(
     elapsedMs: 0,
   };
 
-  const { data, error } = await db
-    .from("integration_connectors")
-    .select(CONNECTOR_COLUMNS)
-    .eq("kind", "lark")
-    .eq("status", "active");
-  if (error) throw error;
-  const found = ((data ?? []) as Record<string, unknown>[]).map(
-    (r) => ({ ...(r as unknown as ConnectorRow), config: normalizeConfig(r.config) }),
-  );
+  const found = await loadActiveConnectors(db);
   summary.connectors = found.length;
-  const connectors = await orderByBacklog(found, now);
+  const connectors = await orderConnectors(
+    found,
+    now,
+    started + Math.round((opts.deadlineMs ?? CRON_DEADLINE_MS) * ORDERING_BUDGET),
+  );
   const runs = new Map<string, ConnectorRun>(
     connectors.map((c) => [c.id, { drain: { ...EMPTY_DRAIN }, digest: "skipped", partial: false }]),
   );
 
-  // Phase 1: queue every digest (database work only). Cheap, so it is not
-  // deadline-gated: the week's digest exists as a queued row before any
-  // platform call can run out of time.
+  // Phase 1: queue digests (database work only, no platform call), bounded in
+  // concurrency and in time like every other phase. A connector it does not
+  // reach before the deadline is flagged partial and sorts to the front of the
+  // next tick; its digest is still owed then (today, or caught up by `digestDue`).
   const queuedDigest = new Map<string, string>();
   await mapPool(connectors, concurrency, async (connector) => {
+    if (Date.now() >= deadline) {
+      runs.get(connector.id)!.partial = true;
+      return;
+    }
     try {
       const plan = await queueWeeklyDigest(connector, now);
       if (plan.outcome === "queued") queuedDigest.set(connector.id, plan.deliveryId);
@@ -188,14 +199,21 @@ export async function runCron(
   });
 
   // Digest outcomes: the queued row is the truth, whoever drained it.
-  for (const connector of connectors) {
+  await mapPool(connectors, concurrency, async (connector) => {
     const run = runs.get(connector.id)!;
     mergeDrain(summary.deliveries, run.drain);
     if (run.drain.deadlineSkipped > 0) run.partial = true;
     const deliveryId = queuedDigest.get(connector.id);
-    if (deliveryId) run.digest = await digestOutcome(connector, deliveryId);
+    if (deliveryId) {
+      try {
+        run.digest = await digestOutcome(connector, deliveryId);
+      } catch (err) {
+        console.error("[integrations] cron digest outcome lookup failed:", sanitizeError(err));
+        run.digest = "failed";
+      }
+    }
     summary.digests[run.digest] += 1;
-  }
+  });
 
   // Phase 3: retention, only with time to spare.
   if (Date.now() < deadline) {
@@ -206,7 +224,13 @@ export async function runCron(
     }
   }
 
-  await Promise.all(connectors.map((c) => recordCronRun(c, runs.get(c.id)!)));
+  // Bookkeeping, bounded: a connector not recorded before the grace window ends keeps its older
+  // last_run_at, which only moves it earlier in the next tick's rotation.
+  const recordUntil = deadline + CRON_GRACE_MS + 3_000;
+  await mapPool(connectors, concurrency * 2, async (connector) => {
+    if (Date.now() >= recordUntil) return;
+    await recordCronRun(connector, runs.get(connector.id)!);
+  });
   summary.elapsedMs = Date.now() - started;
   return summary;
 }
@@ -242,40 +266,113 @@ async function raceTimeout(work: Promise<void>, ms: number): Promise<"done" | "t
   }
 }
 
-/**
- * Serve the connectors with the OLDEST due backlog first, so a connector that
- * keeps getting cut off by the deadline moves to the front of the next tick
- * instead of starving. Connectors with no backlog go last in their original
- * order. A failed lookup keeps the original order.
- */
-async function orderByBacklog(connectors: ConnectorRow[], now: Date): Promise<ConnectorRow[]> {
-  if (connectors.length < 2) return connectors;
-  try {
-    const db = createAdminClient();
-    const oldest = new Map<string, string>();
-    for (const c of connectors) {
+/** Every active Lark connector, keyset-paged by id so a result cap (PostgREST max_rows) can never hide the tail. */
+async function loadActiveConnectors(db: ReturnType<typeof createAdminClient>): Promise<ConnectorRow[]> {
+  const out: ConnectorRow[] = [];
+  let after: string | null = null;
+  for (;;) {
+    let query: Q = db
+      .from("integration_connectors")
+      .select(CONNECTOR_COLUMNS)
+      .eq("kind", "lark")
+      .eq("status", "active")
+      .order("id", { ascending: true })
+      .limit(CRON_PAGE_SIZE);
+    if (after) query = query.gt("id", after);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as Record<string, unknown>[];
+    // Stop only on an EMPTY page: a server that caps rows below CRON_PAGE_SIZE returns short pages mid-way.
+    if (rows.length === 0) break;
+    for (const r of rows) out.push({ ...(r as unknown as ConnectorRow), config: normalizeConfig(r.config) });
+    after = String(rows[rows.length - 1].id);
+  }
+  return out;
+}
+
+type CronStateRow = { last_run_at: string; partial: boolean };
+
+/** What earlier ticks recorded per connector (keyset-paged). Throws on a read error; the caller degrades. */
+async function loadCronState(): Promise<Map<string, CronStateRow>> {
+  const state = new Map<string, CronStateRow>();
+  const db = createAdminClient();
+  let after: string | null = null;
+  for (;;) {
+    let query: Q = db
+      .from("integration_cron_state")
+      .select("connector_id, last_run_at, last_summary")
+      .order("connector_id", { ascending: true })
+      .limit(CRON_PAGE_SIZE);
+    if (after) query = query.gt("connector_id", after);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as { connector_id: string; last_run_at: string; last_summary: { partial?: boolean } | null }[];
+    if (rows.length === 0) break;
+    for (const r of rows) state.set(r.connector_id, { last_run_at: r.last_run_at, partial: r.last_summary?.partial === true });
+    after = rows[rows.length - 1].connector_id;
+  }
+  return state;
+}
+
+/** Oldest due next_attempt_at per connector: one query per few connectors instead of one each. */
+async function loadOldestBacklog(connectors: ConnectorRow[], now: Date, until: number): Promise<Map<string, string>> {
+  const db = createAdminClient();
+  const oldest = new Map<string, string>();
+  const chunks: ConnectorRow[][] = [];
+  for (let i = 0; i < connectors.length; i += BACKLOG_CHUNK) chunks.push(connectors.slice(i, i + BACKLOG_CHUNK));
+  await mapPool(chunks, 4, async (chunk) => {
+    if (Date.now() >= until) return;
+    try {
       const { data, error } = await db
         .from("integration_deliveries")
-        .select("next_attempt_at")
-        .eq("workspace_id", c.workspace_id)
-        .eq("connector_id", c.id)
+        .select("connector_id, next_attempt_at")
+        .in("connector_id", chunk.map((c) => c.id))
         .in("status", ["pending", "retry"])
         .lte("next_attempt_at", now.toISOString())
         .order("next_attempt_at", { ascending: true })
-        .limit(1);
-      if (error) return connectors;
-      const first = ((data ?? []) as { next_attempt_at: string }[])[0];
-      if (first) oldest.set(c.id, first.next_attempt_at);
+        .limit(1000);
+      if (error) return;
+      for (const r of (data ?? []) as { connector_id: string; next_attempt_at: string }[]) {
+        if (!oldest.has(r.connector_id)) oldest.set(r.connector_id, r.next_attempt_at);
+      }
+    } catch {
+      // A failed lookup leaves these connectors unranked; they keep their rotation order.
     }
-    return [...connectors].sort((a, b) => {
-      const x = oldest.get(a.id);
-      const y = oldest.get(b.id);
-      if (x && y) return x < y ? -1 : x > y ? 1 : 0;
-      return x ? -1 : y ? 1 : 0;
-    });
-  } catch {
-    return connectors;
+  });
+  return oldest;
+}
+
+/**
+ * Decide who is served first, so no connector starves when a tick is cut short:
+ *  1. connectors with the OLDEST due backlog;
+ *  2. connectors the previous tick did not finish (flagged partial) or never recorded;
+ *  3. everyone else;
+ * the last two by last_run_at ascending (least recently visited first), ties by id.
+ * Because every tick stamps the connectors it reaches (`recordCronRun`) and flags the
+ * ones it cut short, the order ROTATES tick by tick and every connector is eventually
+ * at the front, with no extra storage. A lookup that fails or runs out of its time
+ * budget degrades to id order, which is still a complete order.
+ */
+async function orderConnectors(connectors: ConnectorRow[], now: Date, orderingUntil: number): Promise<ConnectorRow[]> {
+  if (connectors.length < 2) return connectors;
+  let oldest = new Map<string, string>();
+  let state = new Map<string, CronStateRow>();
+  oldest = await loadOldestBacklog(connectors, now, orderingUntil);
+  try {
+    if (Date.now() < orderingUntil) state = await loadCronState();
+  } catch (err) {
+    console.error("[integrations] cron state unavailable for ordering:", sanitizeError(err));
   }
+  const rank = (c: ConnectorRow) => (oldest.has(c.id) ? 0 : !state.get(c.id) || state.get(c.id)!.partial ? 1 : 2);
+  return [...connectors].sort((a, b) => {
+    const ra = rank(a);
+    const rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    const x = ra === 0 ? oldest.get(a.id)! : (state.get(a.id)?.last_run_at ?? "");
+    const y = ra === 0 ? oldest.get(b.id)! : (state.get(b.id)?.last_run_at ?? "");
+    if (x !== y) return x < y ? -1 : 1;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  });
 }
 
 /**
@@ -521,12 +618,28 @@ export async function pruneRetention(
   const db = createAdminClient();
   const out: PruneSummary = { deliveries: 0, action_tokens: 0, inbound_actions: 0 };
 
-  const { data, error } = await db.from("integration_connectors").select("workspace_id");
-  if (error) throw error;
-  const workspaces = new Set<string>([
-    ...active.map((c) => c.workspace_id),
-    ...((data ?? []) as { workspace_id: string }[]).map((r) => r.workspace_id),
-  ]);
+  // Every workspace that has ever had a connector (any status), keyset-paged so a result cap cannot hide the tail.
+  const seen = new Set<string>(active.map((c) => c.workspace_id));
+  let after: string | null = null;
+  for (;;) {
+    let query: Q = db
+      .from("integration_connectors")
+      .select("id, workspace_id")
+      .order("id", { ascending: true })
+      .limit(CRON_PAGE_SIZE);
+    if (after) query = query.gt("id", after);
+    const { data, error } = await query;
+    if (error) throw error;
+    const rows = (data ?? []) as { id: string; workspace_id: string }[];
+    if (rows.length === 0) break;
+    for (const r of rows) seen.add(r.workspace_id);
+    after = rows[rows.length - 1].id;
+  }
+  // Start somewhere different each day (seeded by the date): a tick cut short at the deadline would
+  // otherwise always prune the same head of the list and never reach the tail.
+  const sorted = [...seen].sort();
+  const start = sorted.length === 0 ? 0 : Math.floor(now.getTime() / DAY_MS) % sorted.length;
+  const workspaces = [...sorted.slice(start), ...sorted.slice(0, start)];
 
   const iso = (days: number) => new Date(now.getTime() - days * DAY_MS).toISOString();
   const deleteBatch = async (table: string, workspaceId: string, pick: (q: Q) => Q): Promise<number> => {
@@ -546,23 +659,27 @@ export async function pruneRetention(
     return (gone ?? []).length;
   };
 
-  for (const workspaceId of workspaces) {
-    if (Date.now() >= deadline) break;
+  await mapPool(workspaces, PRUNE_CONCURRENCY, async (workspaceId) => {
+    if (Date.now() >= deadline) return;
     try {
-      out.action_tokens += await deleteBatch("action_tokens", workspaceId, (q) =>
+      // Read the count only AFTER the await: workspaces run concurrently, so `out.x += await ...` would lose updates.
+      const tokens = await deleteBatch("action_tokens", workspaceId, (q) =>
         q.lt("expires_at", iso(RETENTION.tokensAfterExpiryDays)),
       );
-      out.deliveries += await deleteBatch("integration_deliveries", workspaceId, (q) =>
+      out.action_tokens += tokens;
+      const deliveries = await deleteBatch("integration_deliveries", workspaceId, (q) =>
         q.in("status", ["sent", "dead", "superseded"]).lt("created_at", iso(RETENTION.deliveriesDays)),
       );
-      out.inbound_actions += await deleteBatch("inbound_actions", workspaceId, (q) =>
+      out.deliveries += deliveries;
+      const inbound = await deleteBatch("inbound_actions", workspaceId, (q) =>
         q.not("outcome", "is", null).lt("received_at", iso(RETENTION.inboundDays)),
       );
+      out.inbound_actions += inbound;
     } catch (err) {
       // Retention is housekeeping: a failed table never fails the tick.
       console.error("[integrations] retention prune failed for a workspace:", sanitizeError(err));
     }
-  }
+  });
   return out;
 }
 

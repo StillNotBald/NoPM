@@ -57,7 +57,7 @@ function tokenActor(overrides: Partial<Actor> = {}): Actor {
     id: "tok_1",
     label: "agent",
     workspaceId: WS,
-    scopes: ["milestone:write", "milestone:read"],
+    scopes: ["milestone:write", "milestone:read", "project:read"],
     principalId: MEMBER,
     ...overrides,
   };
@@ -213,6 +213,19 @@ describe("POST /api/calendar-feeds", () => {
     expect(queriesOn(state.admin as FakeAdmin, "calendar_feeds")).toHaveLength(0);
   });
 
+  it("refuses a token holding milestone:write but not milestone:read or project:read: the feed exports both", async () => {
+    for (const scopes of [["milestone:write"], ["milestone:write", "milestone:read"], ["milestone:write", "project:read"]]) {
+      state.admin = createFakeAdmin();
+      requireAuthMock.mockResolvedValueOnce(tokenActor({ scopes }));
+
+      const res = await POST(postRequest({ name: "Launch feed" }), NO_PARAMS);
+
+      expect(res.status).toBe(403);
+      expect(queriesOn(state.admin as FakeAdmin, "calendar_feeds")).toHaveLength(0);
+    }
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
   it("owns a token-minted feed as the token's principal, not the token id", async () => {
     state.admin = createFakeAdmin({ calendar_feeds: [{ data: feedRow() }] });
     requireAuthMock.mockResolvedValueOnce(tokenActor());
@@ -303,5 +316,92 @@ describe("GET /api/calendar-feeds", () => {
 
     const [, listQuery] = queriesOn(state.admin as FakeAdmin, "calendar_feeds");
     expect(eqFilters(listQuery).created_by).toBe(OTHER_MEMBER);
+  });
+});
+
+describe("GET /api/calendar-feeds?scope=workspace", () => {
+  const ADMIN = "profile_admin";
+  const adminActor = () => userActor({ id: ADMIN, principalId: ADMIN, role: "admin" });
+
+  it("lets an admin list every member's feeds, with owner names and no token material", async () => {
+    state.admin = createFakeAdmin({
+      calendar_feeds: [
+        { count: 2 },
+        { data: [feedRow({ id: "cf_1", created_by: MEMBER }), feedRow({ id: "cf_2", created_by: OTHER_MEMBER })] },
+      ],
+      profiles: [
+        {
+          data: [
+            { id: MEMBER, display_name: "Mia Member" },
+            { id: OTHER_MEMBER, display_name: "Ola Departed" },
+          ],
+        },
+      ],
+    });
+    requireAuthMock.mockResolvedValueOnce(adminActor());
+
+    const res = await GET(getRequest("?scope=workspace"), NO_PARAMS);
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("token");
+    const body = JSON.parse(text) as { data: Array<Record<string, unknown>>; total: number };
+    expect(body.total).toBe(2);
+    expect(body.data.map((r) => [r.created_by, r.owner_name])).toEqual([
+      [MEMBER, "Mia Member"],
+      [OTHER_MEMBER, "Ola Departed"],
+    ]);
+
+    const [countQuery, listQuery] = queriesOn(state.admin as FakeAdmin, "calendar_feeds");
+    for (const query of [countQuery, listQuery]) {
+      expect(eqFilters(query)).toEqual({ workspace_id: WS });
+    }
+    expect(selectedColumns(listQuery)).not.toContain("token_hash");
+    const profileQuery = queriesOn(state.admin as FakeAdmin, "profiles")[0];
+    expect(selectedColumns(profileQuery)).toBe("id, display_name");
+  });
+
+  it("keeps a feed whose owner profile is gone (owner_name null) so it can still be revoked", async () => {
+    state.admin = createFakeAdmin({
+      calendar_feeds: [{ count: 1 }, { data: [feedRow({ created_by: OTHER_MEMBER })] }],
+      profiles: [{ data: [] }],
+    });
+    requireAuthMock.mockResolvedValueOnce(adminActor());
+
+    const res = await GET(getRequest("?scope=workspace"), NO_PARAMS);
+    const body = (await res.json()) as { data: Array<Record<string, unknown>> };
+
+    expect(body.data[0]).toMatchObject({ created_by: OTHER_MEMBER, owner_name: null });
+  });
+
+  it("refuses a non-admin member and a token, with no feed query", async () => {
+    for (const actor of [userActor(), tokenActor()]) {
+      state.admin = createFakeAdmin();
+      requireAuthMock.mockResolvedValueOnce(actor);
+
+      const res = await GET(getRequest("?scope=workspace"), NO_PARAMS);
+
+      expect(res.status).toBe(403);
+      expect(queriesOn(state.admin as FakeAdmin, "calendar_feeds")).toHaveLength(0);
+    }
+  });
+
+  it("an admin without ?scope still sees only their own feeds", async () => {
+    state.admin = createFakeAdmin({ calendar_feeds: [{ count: 0 }, { data: [] }] });
+    requireAuthMock.mockResolvedValueOnce(adminActor());
+
+    await GET(getRequest(), NO_PARAMS);
+
+    const [, listQuery] = queriesOn(state.admin as FakeAdmin, "calendar_feeds");
+    expect(eqFilters(listQuery)).toMatchObject({ created_by: ADMIN });
+  });
+
+  it("rejects an unknown scope value", async () => {
+    state.admin = createFakeAdmin();
+    requireAuthMock.mockResolvedValueOnce(adminActor());
+
+    const res = await GET(getRequest("?scope=everything"), NO_PARAMS);
+
+    expect(res.status).toBe(422);
   });
 });

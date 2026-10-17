@@ -329,9 +329,9 @@ describe("0054 file", () => {
   });
 
   it("redefines the count function with 0049's signature and attributes, and keeps it closed to anon / authenticated", () => {
-    expect(latestChildCountsDefinition().file).toBe(FILE_54);
+    expect(latestChildCountsDefinition(FILE_54).file).toBe(FILE_54);
     const fn49 = latestChildCountsDefinition(FILE).body;
-    const fn54 = latestChildCountsDefinition().body;
+    const fn54 = latestChildCountsDefinition(FILE_54).body;
     for (const attr of [/returns jsonb/i, /language plpgsql/i, /\bstable\b/i, /set search_path = public/i]) {
       expect(fn49, `0049 ${attr}`).toMatch(attr);
       expect(fn54, `0054 ${attr}`).toMatch(attr);
@@ -345,7 +345,7 @@ describe("0054 file", () => {
 
   it("keeps every key 0049 had and adds project_budget, clashes and calendar_feeds", () => {
     const keys49 = countedTables(latestChildCountsDefinition(FILE).body).map((c) => c.key);
-    const keys54 = countedTables(latestChildCountsDefinition().body).map((c) => c.key);
+    const keys54 = countedTables(latestChildCountsDefinition(FILE_54).body).map((c) => c.key);
     expect(keys54).toEqual(expect.arrayContaining(keys49));
     expect(keys54.filter((k) => !keys49.includes(k)).sort()).toEqual(["calendar_feeds", "clashes", "project_budget"]);
   });
@@ -440,7 +440,7 @@ describe("0055 file — the rebaseline snapshot also moves the project's own bas
     const definers = migrationFiles.filter((f) =>
       /create or replace function nopm_apply_rebaseline_snapshot\(/i.test(stripComments(readFileSync(join(migrationsDir, f), "utf8"))),
     );
-    expect(definers).toEqual([FILE_28, FILE_55]);
+    expect(definers.slice(0, 2)).toEqual([FILE_28, FILE_55]); // 0056 redefines it again (below)
   });
 
   it("keeps the 0028 signature, return type and attributes, so the build that is live keeps working against it", () => {
@@ -499,5 +499,160 @@ describe("0055 file — the rebaseline snapshot also moves the project's own bas
     expect(sql55).not.toMatch(/insert into audit_log/i);
     expect(sql55).not.toMatch(/function nopm_commit_(task|project)_deletion/i);
     expect([...sql55.matchAll(/create or replace function (\w+)\(/g)].map((m) => m[1])).toEqual(["nopm_apply_rebaseline_snapshot"]);
+  });
+});
+
+
+// ── 0056 ────────────────────────────────────────────────────────────────────
+
+describe("0056 file — review fixes", () => {
+  const FILE_56 = "20261017000056_review_fixes.sql";
+  const raw56 = readFileSync(join(migrationsDir, FILE_56), "utf8");
+  const sql56 = stripComments(raw56);
+  const fn = (name: string) => {
+    const start = sql56.search(new RegExp(`create or replace function ${name}\\(`, "i"));
+    if (start < 0) throw new Error(`${FILE_56} does not define ${name}`);
+    return sql56.slice(start, sql56.indexOf("\n$$;", start) + 4);
+  };
+  const norm = (t: string) => t.replace(/\s+/g, " ");
+
+  it("sorts after 0055 and never edits an applied migration (it only create-or-replaces)", () => {
+    expect(migrationFiles.indexOf(FILE_56)).toBeGreaterThan(migrationFiles.indexOf("20261017000055_project_baseline_trail.sql"));
+    expect(sql56).not.toMatch(/\bdrop\s+(table|column|policy)/i);
+    expect(sql56).not.toMatch(/\balter\s+table/i);
+  });
+
+  describe("1 — rebaseline apply never wipes a baseline date", () => {
+    const body = norm(fn("nopm_apply_rebaseline_snapshot"));
+    it("each baseline column coalesces its own live date with its current baseline", () => {
+      expect(body).toMatch(/baseline_start_date = coalesce\(start_date, baseline_start_date\)/);
+      expect(body).toMatch(/baseline_target_date = coalesce\(target_date, baseline_target_date\)/);
+      expect(body.slice(body.indexOf("update projects"))).not.toMatch(/baseline_(start|target)_date = (start|target)_date\b/);
+    });
+    it("keeps the bypass first, the milestone/task snapshot, and the 0055 grants", () => {
+      expect(body.indexOf("set_config('nopm.lock_bypass'")).toBeLessThan(body.indexOf("update projects"));
+      expect(body).toContain("update milestones set baseline_target_date = target_date");
+      expect(sql56).toMatch(/revoke execute on function nopm_apply_rebaseline_snapshot\(uuid, uuid\) from public, anon, authenticated/);
+      expect(sql56).toMatch(/grant\s+execute on function nopm_apply_rebaseline_snapshot\(uuid, uuid\) to service_role/);
+      expect(body).toMatch(/returns void language plpgsql set search_path = public/);
+      expect(body).not.toMatch(/security definer/i);
+    });
+  });
+
+  describe("2 — a deletion that deleted nothing is not committed (P0017 TARGET_GONE)", () => {
+    for (const [name, table] of [
+      ["nopm_commit_task_deletion", "tasks"],
+      ["nopm_commit_project_deletion", "projects"],
+    ] as const) {
+      it(`${name} raises P0017 when the delete removed 0 rows, BEFORE the commit and both audit rows`, () => {
+        const body = fn(name);
+        const del = body.search(new RegExp(`delete from ${table} where id = r\\.target_id`));
+        const diag = body.indexOf("get diagnostics v_deleted = row_count");
+        const raise = body.indexOf("raise exception 'TARGET_GONE");
+        const commit = body.indexOf("update deletion_requests set");
+        const firstAudit = body.indexOf("insert into audit_log");
+        expect(del).toBeGreaterThan(-1);
+        expect(diag).toBeGreaterThan(del);
+        expect(raise).toBeGreaterThan(diag);
+        expect(raise).toBeLessThan(commit);
+        expect(commit).toBeLessThan(firstAudit);
+        expect(body).toMatch(/if v_deleted = 0 then\s+raise exception 'TARGET_GONE[^']*'\s+using errcode = 'P0017'/);
+        expect(body).toMatch(/v_deleted\s+integer;/);
+      });
+      it(`${name} keeps the 0045 signature (12 params, principal first) and the service_role-only grants`, () => {
+        const body = fn(name);
+        const header = body.slice(0, body.indexOf("returns jsonb"));
+        expect(header).toMatch(/p_approver_principal_id\s+uuid,/);
+        expect(header).toMatch(/p_external_actor_ref\s+text default null\s*\)\s*$/i);
+        const sig = "uuid, uuid, text, uuid, text, uuid, text, text, text, uuid, text, text";
+        expect(sql56).toContain(`revoke execute on function ${name}(${sig}) from public, anon, authenticated;`);
+        expect(sql56).toMatch(new RegExp(`grant\\s+execute on function ${name}\\(${sig}\\) to service_role;`));
+      });
+    }
+    it("P0017 is raised exactly twice here and is not used by any earlier migration", () => {
+      expect([...sql56.matchAll(/errcode = 'P0017'/g)].length).toBe(2);
+      for (const file of migrationFiles.filter((f) => f < FILE_56)) {
+        expect(readFileSync(join(migrationsDir, file), "utf8"), file).not.toMatch(/P0017/);
+      }
+    });
+    it("the project RPC locks the project row FOR UPDATE before the cascade (count-before-lock race)", () => {
+      const body = norm(fn("nopm_commit_project_deletion"));
+      expect(body).toMatch(/select is_locked into v_locked from projects where id = r\.target_id and workspace_id = p_workspace_id for update;/);
+      expect(body.indexOf("for update;", body.indexOf("select is_locked"))).toBeLessThan(body.indexOf("delete from projects"));
+    });
+  });
+
+  describe("3 — the scope guard compares content, not only counts", () => {
+    const counts = fn("nopm_project_child_counts");
+    const trigger = fn("nopm_assert_project_children_unchanged");
+
+    it("still counts every table that cascades from projects, with the same signature and attributes", () => {
+      const cascading = tablesCascadingFromProjects();
+      const counted = new Set(countedTables(counts).map((c) => c.table));
+      expect([...cascading.keys()].filter((t) => !counted.has(t))).toEqual([]);
+      expect(latestChildCountsDefinition().file).toBe(FILE_56);
+      for (const attr of [/returns jsonb/i, /language plpgsql/i, /\bstable\b/i, /set search_path = public/i]) expect(counts).toMatch(attr);
+      expect(counts).not.toMatch(/security definer/i);
+      expect(sql56).toMatch(/revoke execute on function nopm_project_child_counts\(uuid\) from public, anon, authenticated/);
+      expect(sql56).toMatch(/grant\s+execute on function nopm_project_child_counts\(uuid\) to service_role/);
+    });
+
+    it("adds a _scope fingerprint: the project row's own fields + a digest of each child table's sorted ids", () => {
+      const body = norm(counts);
+      expect(body).toMatch(/'_scope', jsonb_build_object\( 'project',/);
+      // volatile roll-up columns must not void an approval
+      expect(body).toMatch(/to_jsonb\(p\) - 'completion_pct' - 'rag_status' - 'updated_at'/);
+      const ids = [...body.matchAll(/'(\w+)', \(select md5\(coalesce\(string_agg\((\w+)::text, ',' order by \2\), ''\)\) from (\w+) where/g)];
+      const cascading = tablesCascadingFromProjects();
+      expect(ids.map((m) => m[3]).sort()).toEqual([...cascading.keys()].sort());
+      for (const m of ids) expect(m[1], "digest key is the table name").toBe(m[3]);
+      // project_budget has no id column: its primary key is project_id
+      expect(body).toMatch(/string_agg\(project_id::text, ',' order by project_id\), ''\)\) from project_budget/);
+      // a clash digest covers either side, like its count
+      expect(body).toMatch(/from clashes where project_a_id = p_project_id or project_b_id = p_project_id\)/);
+    });
+
+    it("the trigger locks the project row BEFORE it counts, then compares the whole snapshot (or counts only for a legacy one)", () => {
+      const body = norm(trigger);
+      expect(body.indexOf("for update")).toBeGreaterThan(-1);
+      expect(body.indexOf("for update")).toBeLessThan(body.indexOf("nopm_project_child_counts(old.id)"));
+      expect(body).toMatch(/perform 1 from projects where id = old\.id for update;/);
+      expect(body).toMatch(/if not \(v_expected \? '_scope'\) then v_current := v_current - '_scope'; end if;/);
+      expect(body).toMatch(/if v_current is distinct from v_expected then raise exception 'CHILDREN_CHANGED/);
+      expect(body).toMatch(/errcode = 'P0016'/);
+      expect(trigger).toMatch(/security definer/i);
+      expect(sql56).toMatch(/revoke execute on function nopm_assert_project_children_unchanged\(\) from public, anon, authenticated/);
+      expect(sql56).toMatch(/grant\s+execute on function nopm_assert_project_children_unchanged\(\) to service_role/);
+    });
+
+    it("recreates the BEFORE DELETE trigger idempotently", () => {
+      expect(sql56).toMatch(
+        /drop trigger if exists trg_project_delete_scope on projects;\s+create trigger trg_project_delete_scope\s+before delete on projects\s+for each row execute function nopm_assert_project_children_unchanged\(\);/,
+      );
+    });
+
+    it("re-snapshots every pending project deletion so none is stranded count-only", () => {
+      expect(norm(sql56)).toMatch(
+        /update deletion_requests dr set before = coalesce\(dr\.before, '\{\}'::jsonb\) \|\| jsonb_build_object\('child_counts', nopm_project_child_counts\(dr\.target_id\)\) where dr\.target_type = 'project' and dr\.status = 'pending';/,
+      );
+      expect(CHILD_COUNTS_KEY).toBe("child_counts");
+    });
+  });
+
+  describe("4 — plain index under the set-null FK", () => {
+    it("indexes integration_deliveries(parent_delivery_id) without a predicate, idempotently", () => {
+      expect(norm(sql56)).toMatch(/create index if not exists \w+ on integration_deliveries \(parent_delivery_id\);/);
+    });
+    it("the FK is still ON DELETE SET NULL and the only other index on the column is partial (so this one is needed)", () => {
+      const hub = stripComments(readFileSync(join(migrationsDir, "20261016000046_integration_hub.sql"), "utf8"));
+      expect(hub).toMatch(/parent_delivery_id\s+uuid references integration_deliveries\(id\) on delete set null/);
+      expect(hub).toMatch(/on integration_deliveries\(parent_delivery_id\) where kind = 'decision_update'/);
+    });
+  });
+
+  it("adds no policy or write grant, and no audit insert beyond the two per commit RPC that 0045 had", () => {
+    expect(sql56).not.toMatch(/create\s+(or\s+replace\s+)?policy/i);
+    expect(sql56).not.toMatch(/grant\s+(all|insert|update|delete|truncate)/i);
+    expect([...sql56.matchAll(/insert into audit_log/g)].length).toBe(4);
   });
 });
