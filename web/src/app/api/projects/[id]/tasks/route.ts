@@ -7,6 +7,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
 export const runtime = "nodejs";
 
@@ -111,6 +112,15 @@ export const POST = route(async ({ actor, params, request }) => {
     if (!milestone) throw new NotFoundError("Milestone not found in this project");
   }
 
+  // D-WRK-12: a retry with the same Idempotency-Key returns the first task.
+  const idem = await withIdempotency(
+    {
+      workspaceId: actor.workspaceId,
+      actorId: actor.id,
+      key: readIdempotencyKey(request),
+      route: "POST /api/projects/:id/tasks",
+    },
+    async () => {
   const { data: row, error } = await db
     .from("tasks")
     .insert({
@@ -155,5 +165,9 @@ export const POST = route(async ({ actor, params, request }) => {
     after: row,
   });
 
-  return created(row);
+  return row;
+    },
+  );
+
+  return created(idem.result);
 });

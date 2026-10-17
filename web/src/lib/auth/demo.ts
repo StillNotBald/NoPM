@@ -24,6 +24,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Actor } from "@/lib/auth/guard";
 
+/** 403 body text for every route that is closed to the shared public demo login. */
+export const DEMO_RESTRICTED_MESSAGE = "Not available in the shared demo";
+
 export async function isDemoActor(actor: Actor): Promise<boolean> {
   // Session actors only — token (Bearer PAT) callers are never the shared
   // demo login.

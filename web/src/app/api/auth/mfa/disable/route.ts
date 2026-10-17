@@ -1,15 +1,27 @@
 import { cookies } from "next/headers";
 import { route } from "@/lib/api/handler";
-import { AuthError, NotFoundError } from "@/lib/api/errors";
+import { AuthError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { ok } from "@/lib/api/response";
+import { decrypt } from "@/lib/crypto";
+import { ok, safeJson, validationError } from "@/lib/api/response";
 import { MFA_COOKIE_NAME } from "@/lib/auth/mfa";
+import { consumeTotp, matchesBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
+import { disableMfaSchema } from "../_schema";
 
 export const runtime = "nodejs";
 
-// POST /api/auth/mfa/disable — disable MFA and clear TOTP secret + backup codes
-export const POST = route(async ({ actor }) => {
+/**
+ * POST /api/auth/mfa/disable — disable MFA and clear TOTP secret + backup codes.
+ *
+ * D-ACC-5: while two-step is ON, the body must carry `{ code }` — a current
+ * TOTP code or an unused backup code. A bare signed-in session (a stolen
+ * cookie, an unattended laptop) can no longer strip the second factor. A
+ * missing or wrong code is 422 and is audited (`auth.mfa.disable_failed`).
+ * A not-yet-confirmed enrollment (enabled = false) can be cancelled without a
+ * code, since nothing is protected yet.
+ */
+export const POST = route(async ({ actor, request }) => {
   if (actor.type !== "user") {
     throw new AuthError("MFA requires a user session");
   }
@@ -19,13 +31,40 @@ export const POST = route(async ({ actor }) => {
   // Fetch current state for audit before snapshot
   const { data: mfa, error: fetchError } = await db
     .from("user_mfa")
-    .select("enabled")
+    .select("enabled, totp_secret, backup_codes")
     .eq("user_id", actor.id)
     .maybeSingle();
 
   if (fetchError) throw fetchError;
   if (!mfa) {
     throw new NotFoundError("No MFA record found for this user.");
+  }
+
+  if (mfa.enabled) {
+    await spendMfaAttempt(db, actor.id);
+
+    const parsed = disableMfaSchema.safeParse(await safeJson(request));
+    if (!parsed.success) {
+      return validationError("A current two-step code or a backup code is required to turn two-step off", [
+        { field: "code", message: "enter a current code from your authenticator, or an unused backup code" },
+      ]);
+    }
+    const code = parsed.data.code;
+
+    const secret = mfa.totp_secret.split(".").length === 3 ? decrypt(mfa.totp_secret) : mfa.totp_secret;
+    const totp = secret ? await consumeTotp(db, actor.id, secret, code) : "invalid";
+    if (totp !== "ok" && !matchesBackupCode(code, mfa.backup_codes)) {
+      await writeAudit({
+        workspaceId: actor.workspaceId,
+        actor,
+        action: "auth.mfa.disable_failed",
+        targetType: "user_mfa",
+        targetId: actor.id,
+        before: null,
+        after: null,
+      });
+      throw new RuleError("Invalid code");
+    }
   }
 
   const { error: updateError } = await db
@@ -39,6 +78,7 @@ export const POST = route(async ({ actor }) => {
       // factor material without violating the column's NOT NULL constraint.
       totp_secret: "",
       backup_codes: null,
+      last_totp_step: null,
     })
     .eq("user_id", actor.id);
 

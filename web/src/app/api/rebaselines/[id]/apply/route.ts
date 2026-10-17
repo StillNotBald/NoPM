@@ -1,16 +1,14 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
+import { requireApprover } from "@/lib/auth/approver";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
 import { assertApplicable } from "@/lib/governance/rebaseline-lifecycle";
+import { auditRpcArgs, throwRebaselineRpcError } from "@/lib/governance/rebaseline-rpc";
 
 export const runtime = "nodejs";
-
-/** The project's own baseline dates, as the audit row records them. */
-type ProjectBaseline = { start: string | null; target: string | null };
 
 // POST /api/rebaselines/[id]/apply — apply an approved rebaseline (rebaseline:approve)
 export const POST = route(async ({ actor, params }) => {
@@ -18,6 +16,7 @@ export const POST = route(async ({ actor, params }) => {
   // Applying is the checker's act (same scope as sign-off): it needs a human
   // behind the actor, and that human must not be the requester.
   const principal = requirePrincipal(actor);
+  requireApprover(actor); // D-16: applying is the checker's act, admins and managers only
 
   const db = createAdminClient();
 
@@ -47,138 +46,28 @@ export const POST = route(async ({ actor, params }) => {
   // could be applied, and re-snapshot the baselines, again).
   assertApplicable(rebaseline.status);
 
-  // ── Re-baseline snapshot ───────────────────────────────────────────────────
-  // When a rebaseline is applied, the newly-approved dates become the new
-  // baseline: set baseline_* = current schedule dates for all milestones and
-  // tasks in the project.  This overwrites any existing baseline (intentional —
-  // the governance trail lives in audit_log, not in the column history).
-  //
-  // Guard: rebaseline.project_id must exist; if the shape ever changes this
-  // block is skipped gracefully so the apply itself is never blocked.
-  //
-  // Runs as a single RPC (nopm_apply_rebaseline_snapshot, migration 0028)
-  // rather than a loop of individual `.update()` calls: this project may be
-  // locked (that's the normal case — applying a rebaseline is how a locked
-  // project's dates legitimately change), and the DB-level lock backstop
-  // (migration 0028) enforces that on every task/milestone write. The RPC
-  // sets a transaction-local nopm.lock_bypass at its start, which only holds
-  // for the one transaction the RPC call opens — a loop of separate
-  // supabase-js calls would each open their own transaction and the bypass
-  // would not carry across them.
-  //
-  // It runs BEFORE the status flip: `applied` is terminal (the 0049 trigger
-  // refuses any further transition), so flipping first and failing in the
-  // snapshot used to strand a rebaseline that was "applied" with its baselines
-  // unchanged and no way to retry. The snapshot is idempotent (baseline :=
-  // current dates), so a failure here leaves the rebaseline `approved` and a
-  // retry simply runs it again.
-  //
-  // The same RPC also moves the PROJECT's own baseline dates (migration 0055).
-  // That is the one change here no child row shows, so the route reads the
-  // project baseline either side of the call and records both in the audit row
-  // (after.project_baseline): the History tab and the Trust Center stream then
-  // show exactly what the baseline was and what the apply made it.
-  const projectId: string | null = rebaseline.project_id ?? null;
-
-  const readProjectBaseline = async () => {
-    const { data, error } = await db
-      .from("projects")
-      .select("baseline_start_date, baseline_target_date")
-      .eq("id", projectId as string)
-      .eq("workspace_id", actor.workspaceId)
-      .maybeSingle();
-    if (error) throw error;
-    return { start: data?.baseline_start_date ?? null, target: data?.baseline_target_date ?? null };
-  };
-
-  const storedBaseline = (value: unknown): ProjectBaseline | null => {
-    if (!value || typeof value !== "object") return null;
-    const v = value as { start?: unknown; target?: unknown };
-    const date = (x: unknown) => (typeof x === "string" ? x : null);
-    return { start: date(v.start), target: date(v.target) };
-  };
-
-  const captureBaselineBefore = async (): Promise<ProjectBaseline> => {
-    // A previous attempt already captured it: that is the real "before".
-    const existing = storedBaseline((rebaseline as { baseline_before?: unknown }).baseline_before);
-    if (existing) return existing;
-
-    const current = await readProjectBaseline();
-    // The column is write-once in the database (a trigger keeps the first
-    // value), so two racing applies cannot overwrite it with a moved baseline;
-    // the returned value is whichever was stored first.
-    const { data, error } = await db
-      .from("rebaselines")
-      .update({ baseline_before: current })
-      .eq("id", params.id)
-      .eq("workspace_id", actor.workspaceId)
-      .eq("status", "approved")
-      .select("baseline_before")
-      .maybeSingle();
-    if (error) {
-      // Not migrated yet (0057): fall back to the in-memory read, as before.
-      if (error.code === "42703" || error.code === "PGRST204") return current;
-      throw error;
-    }
-    return storedBaseline(data?.baseline_before) ?? current;
-  };
-
-  let projectBaseline: { before: ProjectBaseline; after: ProjectBaseline } | null = null;
-
-  if (projectId) {
-    // The TRUE previous baseline is captured once, durably, BEFORE the snapshot
-    // moves it (rebaselines.baseline_before, migration 0057, write-once). A
-    // transient failure after the RPC (the CAS, the audit) leaves the
-    // rebaseline `approved`; the retry finds the stored value instead of
-    // re-reading a project baseline the first attempt already moved, so the
-    // audit never records before == after.
-    const baselineBefore = await captureBaselineBefore();
-    const { error: snapshotErr } = await db.rpc("nopm_apply_rebaseline_snapshot", {
-      p_project_id: projectId,
-      p_workspace_id: actor.workspaceId,
-    });
-    if (snapshotErr) throw snapshotErr;
-    projectBaseline = { before: baselineBefore, after: await readProjectBaseline() };
-  }
-
-  const now = new Date().toISOString();
-
-  // Compare-and-set approved -> applied: two concurrent applies can't both win
-  // (the rebaselines trigger of migration 0049 is the DB backstop). The loser
-  // may have re-run the idempotent snapshot above; that changes nothing.
-  const { data: afterRow, error: updateError } = await db
-    .from("rebaselines")
-    .update({
-      status: "applied",
-      applied_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", "approved")
-    .select()
-    .maybeSingle();
-
-  if (updateError) throw updateError;
-  if (!afterRow) {
-    throw new RuleError("This rebaseline has already been applied.", "already_applied");
-  }
-
-  // baseline_before is bookkeeping for the audit trail (it is already in
-  // after.project_baseline.before); it is not part of the rebaseline's shape.
-  const { baseline_before: _keptInTrail, ...after } = afterRow;
-  void _keptInTrail;
-  const { baseline_before: _loaded, ...beforeRow } = rebaseline as Record<string, unknown>;
-  void _loaded;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "rebaseline.apply",
-    targetType: "rebaseline",
-    targetId: params.id,
-    before: beforeRow,
-    after: projectBaseline ? { ...after, project_baseline: projectBaseline } : after,
+  // Moving the baselines, approved -> applied and the rebaseline.apply audit row
+  // are ONE database transaction (nopm_apply_rebaseline, migration 0062; it wraps
+  // nopm_apply_rebaseline_snapshot, which sets the transaction-local
+  // nopm.lock_bypass a locked project needs). Before, a failure after the status
+  // flip left an applied rebaseline with no audit row and no way to write it.
+  // The function also refuses (422 project_not_locked) when the project was
+  // unlocked since the sign-off, repeats the approver-role rule (P0018) and
+  // records the project baseline either side of the move in the audit row
+  // (after.project_baseline) for the History tab and the Trust Center.
+  const { data, error } = await db.rpc("nopm_apply_rebaseline", {
+    p_rebaseline_id: params.id,
+    p_workspace_id: actor.workspaceId,
+    p_approver_principal_id: principal,
+    ...auditRpcArgs(actor),
   });
+  if (error) {
+    throwRebaselineRpcError(
+      error,
+      "Failed to apply the rebaseline",
+      new RuleError("This rebaseline has already been applied.", "already_applied"),
+    );
+  }
 
-  return ok(after);
+  return ok(data as Record<string, unknown>);
 });

@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { useInspector } from "@/components/layout/app-shell";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
-import { apiPost, apiDelete, type ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, apiDelete, type ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/cn";
 import {
   ProjectForm,
@@ -25,18 +25,22 @@ interface ProjectActionsProps {
 
 // ── Inline confirmation dialog rendered inside the modal ──────────────────────
 
+export const DEFAULT_LOCK_REASON = "Baseline frozen";
+
 function LockConfirmDialog({
   onConfirm,
   onCancel,
 }: {
-  onConfirm: () => void;
+  onConfirm: (reason: string) => void;
   onCancel: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // Q-GOV-9 / D14: the lock reason is a human reason, prefilled but editable.
+  const [reason, setReason] = useState(DEFAULT_LOCK_REASON);
 
   async function handleConfirm() {
     setBusy(true);
-    onConfirm();
+    onConfirm(reason.trim() || DEFAULT_LOCK_REASON);
   }
 
   return (
@@ -52,6 +56,17 @@ function LockConfirmDialog({
             in the audit log.
           </p>
         </div>
+      </div>
+
+      <div>
+        <FieldLabel>Lock reason</FieldLabel>
+        <TextareaInput
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={2}
+          disabled={busy}
+          maxLength={1000}
+        />
       </div>
 
       <div className="flex justify-end gap-2">
@@ -80,14 +95,42 @@ function LockConfirmDialog({
 // unlockProjectSchema). Mirrors RequestDeletionDialog's reason-collection
 // shape.
 
+/** Rebaselines an unlock will cancel (migration 0058: pending_approval and approved). */
+export const CANCELLED_ON_UNLOCK = ["pending_approval", "approved"] as const;
+
+export function rebaselinesCancelledByUnlock<T extends { status: string }>(rows: T[]): T[] {
+  return rows.filter((r) => (CANCELLED_ON_UNLOCK as readonly string[]).includes(r.status));
+}
+
+interface RebaselineLite {
+  id: string;
+  status: string;
+  version?: number | null;
+  reason?: string | null;
+}
+
 function UnlockConfirmDialog({
+  projectId,
   onConfirm,
   onCancel,
 }: {
+  projectId: string;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
 }) {
   const [reason, setReason] = useState("");
+  const [affected, setAffected] = useState<RebaselineLite[] | null>(null);
+  const [affectedFailed, setAffectedFailed] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    apiGet<RebaselineLite[]>(`/api/projects/${projectId}/rebaselines?limit=100`)
+      .then((rows) => live && setAffected(rebaselinesCancelledByUnlock(rows ?? [])))
+      .catch(() => live && setAffectedFailed(true));
+    return () => {
+      live = false;
+    };
+  }, [projectId]);
   const [busy, setBusy] = useState(false);
   const [fieldError, setFieldError] = useState<string | undefined>(undefined);
 
@@ -112,6 +155,28 @@ function UnlockConfirmDialog({
           <p className="mt-1 text-sm text-ink-secondary">
             Unlocking will allow edits and mutations again. This is recorded in the audit log.
           </p>
+          {affected && affected.length > 0 && (
+            <div role="note" className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-ink">
+              <p className="font-semibold">
+                Unlocking cancels {affected.length} pending/approved rebaseline{affected.length === 1 ? "" : "s"}:
+              </p>
+              <ul className="mt-1 list-disc pl-4">
+                {affected.map((r) => (
+                  <li key={r.id}>
+                    {r.version ? `v${r.version} ` : ""}
+                    {r.status === "approved" ? "approved" : "pending sign-off"}
+                    {r.reason ? ` — ${r.reason}` : ""}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1">Confirm below to unlock and cancel them.</p>
+            </div>
+          )}
+          {affectedFailed && (
+            <p className="mt-2 text-xs text-ink-muted">
+              Could not check for open rebaselines. Unlocking cancels any pending or approved ones.
+            </p>
+          )}
         </div>
       </div>
 
@@ -259,13 +324,11 @@ export function ProjectActions({ project }: ProjectActionsProps) {
     };
   }, [menuOpen]);
 
-  async function executeLock() {
+  async function executeLock(reason: string) {
     setLocking(true);
     setLockError(null);
     try {
-      await apiPost(`/api/projects/${project.id}/lock`, {
-        reason: "Baseline frozen",
-      });
+      await apiPost(`/api/projects/${project.id}/lock`, { reason });
       router.refresh();
     } catch (err) {
       const apiErr = err as ApiError;
@@ -294,6 +357,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
     if (project.is_locked) {
       modal.open(
         <UnlockConfirmDialog
+          projectId={project.id}
           onConfirm={(reason) => {
             modal.close();
             void executeUnlock(reason);
@@ -308,9 +372,9 @@ export function ProjectActions({ project }: ProjectActionsProps) {
     }
     modal.open(
       <LockConfirmDialog
-        onConfirm={() => {
+        onConfirm={(reason) => {
           modal.close();
-          void executeLock();
+          void executeLock(reason);
         }}
         onCancel={() => {
           modal.close();

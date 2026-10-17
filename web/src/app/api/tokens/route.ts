@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { generateToken } from "@/lib/auth/tokens";
+import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
 import type { Actor } from "@/lib/auth/guard";
 import { createTokenSchema } from "./_schema";
 
@@ -65,6 +66,8 @@ export const GET = route(async ({ actor, request }) => {
 // POST /api/tokens — mint a new API token
 export const POST = route(async ({ actor, request }) => {
   requireTokenAdmin(actor);
+  // A1-3 / A2-2: the shared public demo login must not mint durable credentials.
+  if (await isDemoActor(actor)) throw new ScopeError(DEMO_RESTRICTED_MESSAGE, "demo_restricted");
 
   const body = await safeJson(request);
   const parsed = createTokenSchema.safeParse(body);

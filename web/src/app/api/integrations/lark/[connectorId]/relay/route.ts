@@ -35,8 +35,8 @@ const RATE_WINDOW_SECONDS = 60;
 
 /**
  * Same baseline as invites/accept and lib/api/rate-limit.ts: DB-backed fixed
- * window via nopm_rate_check, FAIL-OPEN on infrastructure error (abuse guard,
- * not an auth control), loud in the logs so an unenforced cap is observable.
+ * window via nopm_rate_check. FAIL-CLOSED on infrastructure error (A1-15):
+ * a public endpoint must not lose its cap when the counter store hiccups.
  */
 async function rateCheck(
   db: ReturnType<typeof createAdminClient>,
@@ -49,11 +49,11 @@ async function rateCheck(
     p_window_seconds: RATE_WINDOW_SECONDS,
   });
   if (error) {
-    console.error("[nopm][lark-relay] nopm_rate_check RPC failed — FAILING OPEN (cap not enforced this call)", {
+    console.error("[nopm][lark-relay] nopm_rate_check RPC failed — FAILING CLOSED (request refused)", {
       key,
       error: error.message,
     });
-    return { allowed: true, retryAfterSeconds: 0 };
+    return { allowed: false, retryAfterSeconds: 30 };
   }
   const rate = data as { allowed: boolean; retry_after_seconds: number };
   return { allowed: rate.allowed, retryAfterSeconds: rate.retry_after_seconds };

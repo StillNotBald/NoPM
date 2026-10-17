@@ -89,7 +89,7 @@ interface TaskCardProps {
   onOpen?: () => void;
 }
 
-function TaskCard({ task, moveState, isLocked, dragEnabled, onOpen }: TaskCardProps) {
+function TaskCard({ task, moveState, dragEnabled, onOpen }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -99,7 +99,7 @@ function TaskCard({ task, moveState, isLocked, dragEnabled, onOpen }: TaskCardPr
     isDragging,
     // a card whose move is still being saved can't be moved again: a second
     // optimistic move would race the first and could not be reverted cleanly
-  } = useSortable({ id: task.id, disabled: isLocked || !dragEnabled || moveState === "saving" });
+  } = useSortable({ id: task.id, disabled: !dragEnabled || moveState === "saving" });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -119,7 +119,7 @@ function TaskCard({ task, moveState, isLocked, dragEnabled, onOpen }: TaskCardPr
     <div
       ref={setNodeRef}
       style={style}
-      {...(isLocked || !dragEnabled ? {} : { ...attributes, ...listeners })}
+      {...(!dragEnabled ? {} : { ...attributes, ...listeners })}
       onClick={onOpen}
       role={onOpen ? "button" : undefined}
       tabIndex={onOpen ? 0 : undefined}
@@ -135,7 +135,7 @@ function TaskCard({ task, moveState, isLocked, dragEnabled, onOpen }: TaskCardPr
                 e.preventDefault();
                 onOpen();
               } else if (e.key === " ") {
-                if (isLocked || !dragEnabled) {
+                if (!dragEnabled) {
                   e.preventDefault();
                   onOpen();
                 } else {
@@ -153,16 +153,14 @@ function TaskCard({ task, moveState, isLocked, dragEnabled, onOpen }: TaskCardPr
         // touch-action: none on the draggable node so dnd-kit's PointerSensor
         // can claim touch gestures without the page hijacking them as a scroll
         // (same precedent as the sortable shortcut tiles in bottom-nav.tsx).
-        !isLocked && dragEnabled && "touch-none",
+        dragEnabled && "touch-none",
         isDragging
           ? "opacity-50 shadow-md z-50"
           : "hover:shadow-sm",
         onOpen && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
         !dragEnabled
           ? "cursor-pointer"
-          : isLocked
-            ? "cursor-default"
-            : "cursor-grab active:cursor-grabbing",
+          : "cursor-grab active:cursor-grabbing",
       )}
     >
       <p className="font-medium text-ink leading-snug">{task.name}</p>
@@ -380,7 +378,7 @@ export function KanbanBoard({
       {/* Locked banner */}
       {isLocked && (
         <div className="rounded-md border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning-ink">
-          Timeline locked — changes require a rebaseline.
+          Timeline locked — dates and estimates are frozen (changes need a rebaseline). Status moves still work.
         </div>
       )}
 

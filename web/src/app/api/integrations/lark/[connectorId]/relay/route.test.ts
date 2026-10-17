@@ -396,10 +396,10 @@ describe("relay route — rate limiting", () => {
     expect(state.rpcCalls.map((c) => c.key)).toEqual([`lark-relay:${CONNECTOR_ID}`]);
   });
 
-  it("fails open, loudly, when the rate-limit RPC itself errors", async () => {
+  it("fails CLOSED, loudly, when the rate-limit RPC itself errors (A1-15)", async () => {
     state.rate.set("lark-relay", { data: null, error: { message: "rpc down" } });
     const res = await call(relayRequest({ type: "ping" }));
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(429);
     expect(vi.mocked(console.error)).toHaveBeenCalled();
   });
 });

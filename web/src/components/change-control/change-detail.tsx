@@ -430,9 +430,11 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
             {cr.title}
           </h2>
         </div>
-        <Button variant="ghost" onClick={openEdit} className="shrink-0 h-11 px-3 text-xs sm:h-9">
-          Edit
-        </Button>
+        {cr.canEdit && !decided && (
+          <Button variant="ghost" onClick={openEdit} className="shrink-0 h-11 px-3 text-xs sm:h-9">
+            Edit
+          </Button>
+        )}
       </div>
 
       <ChangeFacts cr={cr} projectName={projectName} />

@@ -58,6 +58,11 @@ export interface ChangeRequest {
    * did not come through the change-control page.
    */
   decide?: DecideState;
+  /**
+   * Server-computed: may this viewer edit it? Only the requester, and only
+   * while it is open (decision 11). Absent means "not known": treated as no.
+   */
+  canEdit?: boolean;
 }
 
 type Project = { id: string; name: string };

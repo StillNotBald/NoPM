@@ -3,7 +3,8 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { ConflictError, NotFoundError } from "@/lib/api/errors";
+import { PENDING_REBASELINE_EXISTS_MESSAGE } from "@/lib/governance/rebaseline-rpc";
 import { requireMakerPrincipal } from "@/lib/governance/decide";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
@@ -127,7 +128,14 @@ export const POST = route(async ({ actor, params, request }) => {
     .select()
     .single();
 
-  if (insertError) throw insertError;
+  if (insertError) {
+    // D4: uniq_pending_rebaseline allows ONE rebaseline waiting for sign-off per
+    // project; a second proposal is a conflict, not a server fault.
+    if (insertError.code === "23505") {
+      throw new ConflictError(PENDING_REBASELINE_EXISTS_MESSAGE, "pending_rebaseline_exists");
+    }
+    throw insertError;
+  }
 
   await writeAudit({
     workspaceId: actor.workspaceId,

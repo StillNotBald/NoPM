@@ -48,6 +48,18 @@ function sameActor(viewer: Viewer, requester: Requester): boolean {
   return requester.type === "user" && requester.id === viewer.id;
 }
 
+/** D-16: only admins and managers may approve or decide, on every channel. */
+export function canDecideByRole(role: string | null | undefined): boolean {
+  return role === "admin" || role === "manager";
+}
+
+function canWithdrawOwn(viewer: Viewer, kind: PendingKind, row: object): boolean {
+  if (kind !== "task_deletion" && kind !== "project_deletion") return false;
+  const requester: Requester = requesterOf({ kind, row: row as Record<string, unknown> });
+  if (!requester.principal && requester.type === "user") requester.principal = requester.id;
+  return sameActor(viewer, requester) || (!!requester.principal && requester.principal === viewer.id);
+}
+
 export function judgeDecision(input: {
   viewer: Viewer;
   kind: PendingKind;
@@ -59,8 +71,19 @@ export function judgeDecision(input: {
    * rule (decide.ts `assertNotTimesheetSubject`).
    */
   subjectProfileId?: string | null;
+  /**
+   * Deletions only: the project the record lives in is locked, so the commit
+   * would be refused (D17). Unlock it or rebaseline first.
+   */
+  projectLocked?: boolean;
 }): DecideState {
-  const { viewer, kind, row, subjectProfileId } = input;
+  const { viewer, kind, row, subjectProfileId, projectLocked } = input;
+  // D-16 (2026-10-17, "follow Lark rules"): deciding is for admins and managers
+  // only. Members and viewers never get a decide control; the server refuses
+  // them with 403 role_not_permitted.
+  if (!canDecideByRole(viewer.role)) {
+    return { canDecide: false, block: "role_not_permitted", canWithdraw: canWithdrawOwn(viewer, kind, row) };
+  }
   const requester: Requester = requesterOf({ kind, row: row as Record<string, unknown> });
   // Rows from before the principal columns: a user-raised request IS that person.
   if (!requester.principal && requester.type === "user") requester.principal = requester.id;
@@ -79,6 +102,9 @@ export function judgeDecision(input: {
     (sameActor(viewer, requester) || (!!requester.principal && requester.principal === viewer.id));
 
   if (verdict.can_decide) {
+    if (projectLocked && (kind === "task_deletion" || kind === "project_deletion")) {
+      return { canDecide: false, block: "project_locked", canWithdraw };
+    }
     if (kind === "timesheet" && subjectProfileId && subjectProfileId === viewer.id) {
       return { canDecide: false, block: "your_hours", canWithdraw: false };
     }
@@ -90,7 +116,37 @@ export function judgeDecision(input: {
 
 /** Which of `evaluateDecision`'s refusals applied, in its own order (scope, then identity, then four-eyes). */
 function classify(viewer: Viewer, requester: Requester): FourEyesBlock {
-  if (viewer.role === "viewer") return "no_scope";
+  if (!canDecideByRole(viewer.role)) return "role_not_permitted";
   if (sameActor(viewer, requester)) return "you_raised";
   return requester.type === "token" ? "your_token_raised" : "you_raised";
+}
+
+/**
+ * Decision 11 / Q-GOV-17: an open change request is edited only by the
+ * requester's person, and not at all once decided. Mirrors the API's
+ * assertRequester + assertStillOpen (a legacy row with no recorded requester
+ * person has nobody to compare with, so the API lets it through).
+ */
+export function canEditChangeRequest(input: {
+  viewerId: string;
+  status: string;
+  requestedPrincipalId?: string | null;
+}): boolean {
+  if (input.status !== "raised" && input.status !== "under_review") return false;
+  return !input.requestedPrincipalId || input.requestedPrincipalId === input.viewerId;
+}
+
+/**
+ * Rebaseline sign-off (D1, D-16): admins and managers only, and never the
+ * proposer (by person: a token counts as the person who minted it).
+ */
+export function judgeRebaselineSignoff(
+  viewer: Viewer,
+  row: { requested_by?: string | null; requested_principal_id?: string | null },
+): DecideState {
+  if (!canDecideByRole(viewer.role)) return { canDecide: false, block: "role_not_permitted", canWithdraw: false };
+  if (row.requested_by === viewer.id || row.requested_principal_id === viewer.id) {
+    return { canDecide: false, block: "you_raised", canWithdraw: false };
+  }
+  return { canDecide: true, block: null, canWithdraw: false };
 }

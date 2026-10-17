@@ -3,6 +3,8 @@ import { ApiError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { catchUpPendingApprovals } from "@/lib/integrations/catchup";
+import { schedule } from "@/lib/integrations/emit";
 import { decryptSecrets, encryptSecrets, generateRelaySecret } from "@/lib/integrations/secrets";
 import {
   CONNECTOR_COLUMNS,
@@ -169,6 +171,12 @@ export const PATCH = route(async ({ actor, params, request }) => {
     },
   });
 
+  // D-ACC-7: requests raised while the connector was paused never got a card. On
+  // resume, queue cards for the ones still pending (deduped against open cards).
+  if (connector.status === "paused" && updated.status === "active") {
+    schedule("connector resumed", actor.workspaceId, () => catchUpPendingApprovals(actor.workspaceId));
+  }
+
   return ok({ ...after, ...(rotatedRelaySecret ? { relay_secret: rotatedRelaySecret } : {}) });
 });
 
@@ -188,60 +196,29 @@ export const DELETE = route(async ({ actor, params }) => {
   const db = createAdminClient();
   const nowIso = new Date().toISOString();
 
-  // The connector first: this alone stops inbound and outbound.
-  const { data: row, error } = await db
-    .from("integration_connectors")
-    .update({ status: "revoked", revoked_at: nowIso })
-    .eq("id", connector.id)
-    .eq("workspace_id", actor.workspaceId)
-    .neq("status", "revoked")
-    .select(CONNECTOR_COLUMNS)
-    .maybeSingle();
-  if (error) throw error;
-  if (!row) throw new RuleError("This connector is already revoked", "connector_revoked");
-
-  const { data: identities, error: identityError } = await db
-    .from("external_identities")
-    .update({ revoked_at: nowIso })
-    .eq("workspace_id", actor.workspaceId)
-    .eq("connector_id", connector.id)
-    .is("revoked_at", null)
-    .select("id");
-  if (identityError) throw identityError;
-
-  const { data: deliveries, error: deliveryError } = await db
-    .from("integration_deliveries")
-    .update({ status: "superseded", last_error: "connector revoked", locked_until: null })
-    .eq("workspace_id", actor.workspaceId)
-    .eq("connector_id", connector.id)
-    .in("status", ["pending", "retry"])
-    .select("id");
-  if (deliveryError) throw deliveryError;
-
-  const { error: codeError } = await db
-    .from("identity_link_codes")
-    .delete()
-    .eq("workspace_id", actor.workspaceId)
-    .eq("connector_id", connector.id)
-    .is("used_at", null);
-  if (codeError) throw codeError;
-
-  const revoked: ConnectorRow = { ...(row as unknown as ConnectorRow), config: normalizeConfig(row.config) };
-  const view = toPublicConnector(revoked);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "integration.connector.revoke",
-    targetType: "integration_connector",
-    targetId: revoked.id,
-    before: toAuditConnector(toPublicConnector(connector)),
-    after: {
-      ...toAuditConnector(view),
-      identities_revoked: (identities ?? []).length,
-      deliveries_superseded: (deliveries ?? []).length,
-    },
+  // One transaction (migration 0069, D-ACC-6): the connector is marked revoked,
+  // every linked identity is unlinked, queued deliveries are superseded, unused
+  // link codes are dropped and the audit row is written, or none of it happens.
+  const view = toPublicConnector({ ...connector, status: "revoked", revoked_at: nowIso });
+  const { error } = await db.rpc("nopm_revoke_connector", {
+    p_workspace_id: actor.workspaceId,
+    p_connector_id: connector.id,
+    p_actor_type: actor.type,
+    p_actor_id: actor.id,
+    p_actor_label: actor.label,
+    p_before: toAuditConnector(toPublicConnector(connector)),
+    p_after: toAuditConnector(view),
+    p_revoked_at: nowIso,
+    p_channel: actor.channel ?? null,
+    p_correlation_id: actor.requestId ?? null,
   });
+  if (error) {
+    if (/CONNECTOR_REVOKED/.test(error.message)) {
+      throw new RuleError("This connector is already revoked", "connector_revoked");
+    }
+    if (/CONNECTOR_NOT_FOUND/.test(error.message)) throw new NotFoundError("Connector not found");
+    throw error;
+  }
 
   return ok(view);
 });

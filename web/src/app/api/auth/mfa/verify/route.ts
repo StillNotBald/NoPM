@@ -1,4 +1,3 @@
-import { authenticator } from "otplib";
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { route } from "@/lib/api/handler";
@@ -8,6 +7,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { MFA_COOKIE_NAME } from "@/lib/auth/mfa";
+import { consumeTotp, spendMfaAttempt } from "@/lib/auth/mfa-factor";
 import { verifyMfaSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -31,6 +31,9 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
+  // D-ACC-19: bounded guessing (10 attempts / 5 min / account) -> 429 + Retry-After.
+  await spendMfaAttempt(db, actor.id);
+
   const { data: mfa, error: fetchError } = await db
     .from("user_mfa")
     .select("totp_secret, enabled")
@@ -45,9 +48,19 @@ export const POST = route(async ({ actor, request }) => {
   // Secret is AES-GCM encrypted (3 dot-separated segments). Fall back to the raw
   // value for any legacy plaintext enrollment created before encryption-at-rest.
   const secret = mfa.totp_secret.split(".").length === 3 ? decrypt(mfa.totp_secret) : mfa.totp_secret;
-  const valid = authenticator.verify({ token: parsed.data.code, secret });
-  if (!valid) {
-    throw new RuleError("Invalid code");
+  // D-ACC-19: the code's 30-second step is burned on success, so it cannot be replayed.
+  const outcome = await consumeTotp(db, actor.id, secret, parsed.data.code);
+  if (outcome !== "ok") {
+    await writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "auth.mfa.verify_failed",
+      targetType: "user_mfa",
+      targetId: actor.id,
+      before: null,
+      after: { reason: outcome },
+    });
+    throw new RuleError(outcome === "replay" ? "That code was already used. Wait for the next one." : "Invalid code");
   }
 
   // Generate 8 backup codes as random hex strings (16 bytes each = 32 hex chars)

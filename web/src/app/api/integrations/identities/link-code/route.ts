@@ -3,7 +3,7 @@ import { RuleError, ScopeError } from "@/lib/api/errors";
 import { created } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write";
 import { mintLinkCode } from "@/lib/integrations/identity";
-import { getActiveConnector } from "@/lib/integrations/store";
+import { getActiveConnector, listConnectors } from "@/lib/integrations/store";
 
 export const runtime = "nodejs";
 
@@ -24,6 +24,11 @@ export const POST = route(async ({ actor }) => {
 
   const connector = await getActiveConnector(actor.workspaceId);
   if (!connector) {
+    // D-ACC-16: a PAUSED connector is not "no connector"; say what the admin has to do.
+    const live = (await listConnectors(actor.workspaceId)).find((c) => c.kind === "lark" && c.status === "paused");
+    if (live) {
+      throw new RuleError("The Lark connection is paused. Ask an admin to resume it.", "connector_paused");
+    }
     throw new RuleError("No active Lark connector in this workspace. Ask an admin to connect one.", "no_connector");
   }
 

@@ -1,4 +1,5 @@
 import { requireScope, type Actor } from "@/lib/auth/guard";
+import { APPROVER_ROLE_MESSAGE, requireApprover } from "@/lib/auth/approver";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
@@ -336,20 +337,22 @@ async function assertTaskUnchangedSinceRequest(db: Db, workspaceId: string, row:
  * the task or project was already removed, e.g. by a cascade. The RPC raised, so
  * nothing was committed or audited as a deletion; this closes the request so it
  * does not sit pending forever. 'withdrawn' is the closed-without-a-decision
- * status (no approver is recorded), compare-and-set on 'pending'. Fail-soft: the
- * caller answers target_gone either way.
+ * status (no approver is recorded), compare-and-set on 'pending'. The audit row is
+ * fail-closed (A3-5): if it cannot be written the close is undone and the failure surfaces.
  */
 async function closeDeletionTargetGone(db: Db, actor: Actor, row: DeletionRow): Promise<void> {
+  const { data: updated, error: closeError } = await db
+    .from("deletion_requests")
+    .update({ status: "withdrawn", decided_at: new Date().toISOString() })
+    .eq("id", row.id)
+    .eq("workspace_id", actor.workspaceId)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+  // A failed close changed nothing and audited nothing: the 422 the caller is
+  // about to throw stands, and the next approve attempt retries the tidy-up.
+  if (closeError || !updated) return;
   try {
-    const { data: updated } = await db
-      .from("deletion_requests")
-      .update({ status: "withdrawn", decided_at: new Date().toISOString() })
-      .eq("id", row.id)
-      .eq("workspace_id", actor.workspaceId)
-      .eq("status", "pending")
-      .select("id")
-      .maybeSingle();
-    if (!updated) return;
     await writeAudit({
       workspaceId: actor.workspaceId,
       actor,
@@ -359,11 +362,20 @@ async function closeDeletionTargetGone(db: Db, actor: Actor, row: DeletionRow): 
       before: { status: "pending" },
       after: { status: "withdrawn", reason: "target_gone" },
     });
-    const base = await deletionBaseEvent(db, actor, row);
-    announceDecided(decidedFrom(actor, base, "withdrawn"));
-  } catch {
-    // The 422 below is the answer; a failed tidy-up is retried by the next approve attempt.
+  } catch (err) {
+    // Fail closed (A3-5): a close that cannot be audited must not stand. Put the
+    // request back to pending so the next attempt closes AND audits it, then
+    // surface the audit failure instead of swallowing it.
+    await db
+      .from("deletion_requests")
+      .update({ status: "pending", decided_at: null })
+      .eq("id", row.id)
+      .eq("workspace_id", actor.workspaceId)
+      .eq("status", "withdrawn");
+    throw err;
   }
+  const base = await deletionBaseEvent(db, actor, row);
+  announceDecided(decidedFrom(actor, base, "withdrawn"));
 }
 
 /**
@@ -385,6 +397,7 @@ export async function approveDeletion(
 
   requireScope(actor, resolveDeletionApproveScope(row.target_type));
   const principal = requirePrincipal(actor);
+  requireApprover(actor); // D-16: admins and managers only, on every channel
 
   if (row.status !== "pending") throw new RuleError("Request already decided", "already_decided");
   if (isSameActor(actor, row.requested_by_type, row.requested_by_id)) throw selfApprovalError();
@@ -420,6 +433,7 @@ export async function approveDeletion(
     if (m.includes("ALREADY_DECIDED") || error.code === "P0001") throw new RuleError("Request already decided", "already_decided");
     if (m.includes("SELF_APPROVAL") || error.code === "P0003") throw selfApprovalError();
     if (m.includes("NO_PRINCIPAL") || error.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
+    if (m.includes("ROLE_NOT_PERMITTED") || error.code === "P0018") throw new ScopeError(APPROVER_ROLE_MESSAGE, "role_not_permitted");
     if (m.includes("PROJECT_LOCKED") || error.code === "P0010")
       throw new RuleError("Project is locked — unlock or rebaseline before committing this deletion.", "project_locked");
     // 0056: the target was already gone, the RPC rolled back (no commit, no
@@ -483,6 +497,7 @@ export async function rejectDeletion(
   // Per-type checker gate (mirrors approve — guard symmetry on every decision verb)
   requireScope(actor, resolveDeletionApproveScope(row.target_type));
   const principal = requirePrincipal(actor);
+  requireApprover(actor); // D-16
 
   if (row.status !== "pending") throw new RuleError("Request already decided", "already_decided");
 
@@ -682,6 +697,7 @@ export async function decideChangeRequest(
   const cr = data as ChangeRow;
 
   const principal = requirePrincipal(actor);
+  requireApprover(actor); // D-16: approve, reject and defer are approver verbs
 
   if (!(CHANGE_DECIDABLE as readonly string[]).includes(cr.status)) {
     throw new RuleError(`Change request already decided (status: ${cr.status})`, "already_decided");
@@ -703,49 +719,44 @@ export async function decideChangeRequest(
   checkOptimisticConcurrency(cr.updated_at, input.expected_updated_at);
 
   const newStatus = CHANGE_STATUS[input.decision];
-  const now = new Date().toISOString();
 
-  let decideQuery = db
-    .from("change_requests")
-    .update({
-      status: newStatus,
-      decided_by: actor.type === "user" ? actor.id : null,
-      decided_by_label: actor.label,
-      decided_by_type: actor.type,
-      decided_by_id: actor.id,
-      decided_principal_id: principal,
-      decision_rationale: input.rationale,
-      decided_at: now,
-    })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .in("status", [...CHANGE_DECIDABLE]);
-  // The decision write is pinned to the version that was checked above, closing
-  // the narrow window in which an edit lands between that check and this write.
-  if (input.expected_updated_at !== undefined && input.expected_updated_at !== null) {
-    decideQuery = decideQuery.eq("updated_at", cr.updated_at);
-  }
-  const { data: updated, error: updateError } = await decideQuery.select().maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    if (input.expected_updated_at !== undefined && input.expected_updated_at !== null) {
-      // Edited or decided between our read and our write — tell the caller to look again.
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    // Lost the race: someone decided between our read and our write.
-    throw new RuleError("Change request already decided", "already_decided");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "change_request.decide",
-    targetType: "change_request",
-    targetId: updated.id,
-    before: cr,
-    after: updated,
+  // The decision and its audit row are ONE database transaction
+  // (nopm_decide_change_request, migration 0063): the row is locked, the status
+  // compare-and-set and the pinned version re-checked, and change_request.decide
+  // is written before the commit — a decision can never exist without its audit
+  // row. The function also repeats the approver-role rule (P0018).
+  const pinned =
+    input.expected_updated_at !== undefined && input.expected_updated_at !== null ? (cr.updated_at ?? null) : null;
+  const { data: rpcRow, error: rpcError } = await db.rpc("nopm_decide_change_request", {
+    p_id: id,
+    p_workspace_id: actor.workspaceId,
+    p_new_status: newStatus,
+    p_rationale: input.rationale,
+    p_expected_updated_at: pinned,
+    p_actor_type: actor.type,
+    p_actor_id: actor.id,
+    p_actor_label: actor.label,
+    p_approver_principal_id: principal,
+    p_channel: actor.channel ?? null,
+    p_correlation_id: actor.requestId ?? null,
+    p_via_connector_id: actor.viaConnectorId ?? null,
+    p_external_event_id: actor.externalEventId ?? null,
+    p_external_actor_ref: actor.externalActorRef ?? null,
   });
+  if (rpcError) {
+    const m = `${rpcError.message ?? ""} ${rpcError.code ?? ""}`;
+    if (m.includes("NOT_FOUND") || rpcError.code === "P0002") throw new NotFoundError("Change request not found");
+    if (m.includes("ALREADY_DECIDED") || rpcError.code === "P0001")
+      throw new RuleError("Change request already decided", "already_decided");
+    if (m.includes("SELF_APPROVAL") || rpcError.code === "P0003") throw selfApprovalError();
+    if (m.includes("NO_PRINCIPAL") || rpcError.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
+    if (m.includes("ROLE_NOT_PERMITTED") || rpcError.code === "P0018")
+      throw new ScopeError(APPROVER_ROLE_MESSAGE, "role_not_permitted");
+    if (m.includes("PRECONDITION_FAILED") || rpcError.code === "P0021")
+      throw new PreconditionFailedError("Record changed since you loaded it");
+    throw new Error(rpcError.message || "Failed to record the decision");
+  }
+  const updated = rpcRow as Record<string, unknown> & { id: string };
 
   void notify({
     workspaceId: actor.workspaceId,
@@ -889,6 +900,7 @@ export async function decideTimesheet(
   const submission = data as TimesheetRow;
 
   const principal = requirePrincipal(actor);
+  requireApprover(actor); // D-16: approve, reject AND reopen are approver verbs
   const { decision } = input;
   const rationale = input.rationale ?? undefined;
 

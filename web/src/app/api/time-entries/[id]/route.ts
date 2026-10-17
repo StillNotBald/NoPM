@@ -4,6 +4,7 @@ import { noContent } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { assertMayActForMemberHours } from "../_own";
 import { assertWeekUnlocked, weekLockRuleError } from "@/lib/governance/period-lock";
 
 export const runtime = "nodejs";
@@ -21,6 +22,15 @@ export const DELETE = route(async ({ actor, params }) => {
     .maybeSingle();
 
   if (!existing) throw new NotFoundError("Time entry not found");
+
+  // D-17: members delete only their own hours; admins / managers may for others.
+  const { data: owner } = await db
+    .from("resource_members")
+    .select("profile_id")
+    .eq("id", existing.member_id)
+    .eq("workspace_id", actor.workspaceId)
+    .maybeSingle();
+  assertMayActForMemberHours(actor, owner ?? {});
 
   // L-32/R-76 + R1/H2: reject deleting from a week whose timesheet is approved
   // (period_locked) or submitted and awaiting a decision (timesheet_locked) —

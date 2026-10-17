@@ -100,6 +100,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.completion_pct !== undefined) updates.completion_pct = input.completion_pct;
   if (input.owner_id !== undefined) updates.owner_id = input.owner_id;
   if (input.sort_order !== undefined) updates.sort_order = input.sort_order;
+  if (input.description !== undefined) updates.description = input.description;
+  if (input.deliverable !== undefined) updates.deliverable = input.deliverable;
+  if (input.start_date !== undefined) updates.start_date = input.start_date;
+  if (input.baseline_target_date !== undefined) updates.baseline_target_date = input.baseline_target_date;
+  if (input.actual_date !== undefined) updates.actual_date = input.actual_date;
 
   let query = db
     .from("milestones")

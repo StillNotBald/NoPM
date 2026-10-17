@@ -43,7 +43,19 @@ const { createAdminClient } = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient }));
 
-import { runAssistant, runAssistantStream, buildToolCall, boundHistory, checkDemoRateLimit, MAX_HISTORY_MESSAGES, MAX_TOOL_CALLS_PER_TURN } from "./index";
+import {
+  runAssistant,
+  runAssistantStream,
+  buildToolCall,
+  boundHistory,
+  checkDemoRateLimit,
+  chargeTurnQuota,
+  newTurnQuota,
+  DemoQuotaExceededError,
+  DemoQuotaUnavailableError,
+  MAX_HISTORY_MESSAGES,
+  MAX_TOOL_CALLS_PER_TURN,
+} from "./index";
 import { TOOLS } from "./tools";
 
 function testActor(): Actor {
@@ -110,20 +122,60 @@ describe("checkDemoRateLimit", () => {
     await expect(checkDemoRateLimit(db, "usr_1")).rejects.toThrow(/rate limit/i);
   });
 
-  it("fails OPEN (does not throw) on an RPC error, and logs a loud structured warning", async () => {
+  it("fails CLOSED (503) on an RPC error, and logs a loud structured warning (A1-12)", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const db = {
       rpc: vi.fn(async () => ({ data: null, error: { message: "connection reset" } })),
     } as unknown as Parameters<typeof checkDemoRateLimit>[0];
 
-    await expect(checkDemoRateLimit(db, "usr_1")).resolves.toBeUndefined();
+    await expect(checkDemoRateLimit(db, "usr_1")).rejects.toBeInstanceOf(DemoQuotaUnavailableError);
 
     expect(errorSpy).toHaveBeenCalledTimes(1);
     const [msg, payload] = errorSpy.mock.calls[0];
-    expect(String(msg)).toMatch(/fail(ing)?\s+open/i);
+    expect(String(msg)).toMatch(/fail(ing)?\s+closed/i);
     expect(payload).toMatchObject({ userId: "usr_1", rpc: "nopm_demo_rate_check" });
 
     errorSpy.mockRestore();
+  });
+
+  it("an exhausted cap is a DemoQuotaExceededError (429) carrying a retry-after", async () => {
+    const db = { rpc: vi.fn(async () => ({ data: false, error: null })) } as unknown as Parameters<
+      typeof checkDemoRateLimit
+    >[0];
+    const err = await checkDemoRateLimit(db, "usr_1").catch((e) => e);
+    expect(err).toBeInstanceOf(DemoQuotaExceededError);
+    expect((err as DemoQuotaExceededError).status).toBe(429);
+    expect((err as DemoQuotaExceededError).retryAfterSeconds).toBeGreaterThan(0);
+  });
+
+  it("keys a per-client-address bucket as well as the shared one, address first", async () => {
+    const rpc = vi.fn(async (name: string, _args?: Record<string, unknown>) =>
+      name === "nopm_rate_check" ? { data: { allowed: true, retry_after_seconds: 0 }, error: null } : { data: true, error: null },
+    );
+    const db = { rpc } as unknown as Parameters<typeof checkDemoRateLimit>[0];
+    await checkDemoRateLimit(db, "usr_1", { ipKey: "203.0.113.9" });
+    expect(rpc.mock.calls.map((c) => c[0])).toEqual(["nopm_rate_check", "nopm_demo_rate_check"]);
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_key: "assistant-demo:ip:203.0.113.9" });
+  });
+
+  it("one visitor over their address cap is refused (429 + retry-after) WITHOUT spending the shared cap", async () => {
+    const rpc = vi.fn(async (name: string, _args?: Record<string, unknown>) =>
+      name === "nopm_rate_check" ? { data: { allowed: false, retry_after_seconds: 42 }, error: null } : { data: true, error: null },
+    );
+    const db = { rpc } as unknown as Parameters<typeof checkDemoRateLimit>[0];
+    const err = await checkDemoRateLimit(db, "usr_1", { ipKey: "203.0.113.9" }).catch((e) => e);
+    expect(err).toBeInstanceOf(DemoQuotaExceededError);
+    expect((err as DemoQuotaExceededError).retryAfterSeconds).toBe(42);
+    expect(rpc.mock.calls.map((c) => c[0])).toEqual(["nopm_rate_check"]);
+  });
+
+  it("fails CLOSED when the per-address counter errors", async () => {
+    const failSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const db = {
+      rpc: vi.fn(async () => ({ data: null, error: { message: "down" } })),
+    } as unknown as Parameters<typeof checkDemoRateLimit>[0];
+    await expect(checkDemoRateLimit(db, "usr_1", { ipKey: "203.0.113.9" })).rejects.toBeInstanceOf(DemoQuotaUnavailableError);
+    failSpy.mockRestore();
   });
 
   it("does NOT log when the rate check succeeds normally", async () => {
@@ -136,6 +188,68 @@ describe("checkDemoRateLimit", () => {
 
     expect(errorSpy).not.toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+});
+
+describe("chargeTurnQuota - the demo counter is charged once per user turn (D-ACC-10)", () => {
+  it("charges on the first call and is a no-op afterwards (resolve + fallback = one charge)", async () => {
+    const rpc = vi.fn(async () => ({ data: true, error: null }));
+    const db = { rpc } as unknown as Parameters<typeof checkDemoRateLimit>[0];
+    const quota = newTurnQuota(null);
+    await chargeTurnQuota(db, "usr_1", quota);
+    await chargeTurnQuota(db, "usr_1", quota);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(quota.charged).toBe(true);
+  });
+
+  it("does not mark the turn charged when the cap refuses it", async () => {
+    const db = { rpc: vi.fn(async () => ({ data: false, error: null })) } as unknown as Parameters<
+      typeof checkDemoRateLimit
+    >[0];
+    const quota = newTurnQuota(null);
+    await expect(chargeTurnQuota(db, "usr_1", quota)).rejects.toBeInstanceOf(DemoQuotaExceededError);
+    expect(quota.charged).toBe(false);
+  });
+});
+
+describe("runAssistantStream - token release (A1-10)", () => {
+  beforeEach(() => {
+    mintEphemeralToken.mockClear();
+    revokeEphemeralToken.mockClear();
+    mockChat.mockReset();
+    createAdminClient.mockReturnValue(byokAdminClient());
+  });
+
+  it("release() revokes the token even when the text stream is never iterated, and only once", async () => {
+    mockChat.mockResolvedValueOnce({ text: "done", toolCalls: [] });
+    const res = await runAssistantStream({
+      actor: testActor(),
+      message: "hi",
+      history: [],
+      origin: "http://localhost:3000",
+      conversationId: "conv-1",
+    });
+    expect(revokeEphemeralToken).not.toHaveBeenCalled();
+    await res.release();
+    await res.release();
+    expect(revokeEphemeralToken).toHaveBeenCalledTimes(1);
+    expect(revokeEphemeralToken).toHaveBeenCalledWith("tok_id", expect.objectContaining({ conversationId: "conv-1" }));
+    // iterating afterwards must not revoke a second time
+    for await (const chunk of res.textChunks) void chunk;
+    expect(revokeEphemeralToken).toHaveBeenCalledTimes(1);
+  });
+
+  it("mints the token against the conversation id", async () => {
+    mockChat.mockResolvedValueOnce({ text: "done", toolCalls: [] });
+    const res = await runAssistantStream({
+      actor: testActor(),
+      message: "hi",
+      history: [],
+      origin: "http://localhost:3000",
+      conversationId: "conv-9",
+    });
+    expect(mintEphemeralToken).toHaveBeenCalledWith(expect.anything(), { conversationId: "conv-9" });
+    await res.release();
   });
 });
 

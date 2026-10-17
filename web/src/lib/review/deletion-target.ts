@@ -42,3 +42,56 @@ export function describeDeletionTarget(req: {
 export function targetPhrase(target: Pick<DeletionTarget, "type" | "name">): string {
   return target.name ? `${target.type} “${target.name}”` : target.type;
 }
+
+// ── What a project deletion also takes with it (D2 / Q-GOV-12) ────────────────
+
+export interface ChildCountLine {
+  key: string;
+  label: string;
+  count: number;
+  /** Governed records (decided/auditable) rather than plain work items. */
+  governed: boolean;
+}
+
+const CHILD_LABELS: Record<string, string> = {
+  tasks: "tasks",
+  milestones: "milestones",
+  risks: "risks",
+  issues: "issues",
+  clashes: "clashes",
+  time_entries: "time entries",
+  resource_allocations: "resource allocations",
+  allocations: "allocations",
+  budget_lines: "budget lines",
+  budgets: "budgets",
+  sprints: "sprints",
+  change_requests: "change requests",
+  decisions: "decisions",
+  documents: "documents",
+  rebaselines: "rebaselines",
+  rebaseline_signoffs: "rebaseline sign-offs",
+  deletion_requests: "deletion requests",
+};
+
+const GOVERNED = new Set(["change_requests", "decisions", "documents", "rebaselines", "rebaseline_signoffs"]);
+
+/**
+ * The non-zero child counts recorded in a project-deletion request's `before`
+ * snapshot (`before.child_counts`), as friendly lines. Renders whatever keys
+ * exist (generic), skips the reserved `_scope` fingerprint and nested objects,
+ * and puts governed records last so the approver sees them called out.
+ */
+export function describeChildCounts(before: unknown): ChildCountLine[] {
+  const counts = isRow(before) && isRow(before.child_counts) ? before.child_counts : {};
+  const lines: ChildCountLine[] = [];
+  for (const [key, value] of Object.entries(counts)) {
+    if (key.startsWith("_") || typeof value !== "number" || !(value > 0)) continue;
+    lines.push({
+      key,
+      label: CHILD_LABELS[key] ?? key.replace(/_/g, " "),
+      count: value,
+      governed: GOVERNED.has(key),
+    });
+  }
+  return lines.sort((a, b) => Number(a.governed) - Number(b.governed) || a.label.localeCompare(b.label));
+}

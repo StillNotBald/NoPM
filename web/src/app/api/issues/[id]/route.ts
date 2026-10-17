@@ -75,6 +75,12 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.status !== undefined) updates.status = input.status;
   if (input.raised_at !== undefined) updates.raised_at = input.raised_at;
   if (input.due_date !== undefined) updates.due_date = input.due_date;
+  // content-enrichment (0008)
+  if (input.severity !== undefined) updates.severity = input.severity;
+  if (input.issue_category !== undefined) updates.issue_category = input.issue_category;
+  if (input.impact !== undefined) updates.impact = input.impact;
+  if (input.resolution_eta !== undefined) updates.resolution_eta = input.resolution_eta;
+  if (input.resolved_at !== undefined) updates.resolved_at = input.resolved_at;
   // ── complement seam (0041, R-81) ────────────────────────────────────────────
   if (input.source !== undefined) updates.source = input.source;
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;

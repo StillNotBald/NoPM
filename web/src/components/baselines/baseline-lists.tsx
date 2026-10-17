@@ -14,6 +14,8 @@ import { EntityLink } from "@/components/ui/entity-link";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
 import type { Tone } from "@/lib/status";
+import { ProposeRebaselineButton, RebaselineRowActions } from "./rebaseline-controls";
+import type { RebaselineActionState } from "./rebaseline-rules";
 
 export interface LockedBaselineRow {
   id: string;
@@ -22,6 +24,10 @@ export interface LockedBaselineRow {
   lockedAtTitle: string;
   lockedByLabel: string;
   lockReason: string | null;
+  /** The viewer may propose (project:write: not a viewer). */
+  canPropose: boolean;
+  /** Set when a rebaseline is already awaiting sign-off for this project. */
+  proposeDisabledReason: string | null;
 }
 
 export interface RebaselineRow {
@@ -34,6 +40,10 @@ export interface RebaselineRow {
   requestedText: string;
   requestedTitle: string;
   signoffLabel: string;
+  /** What the signed-in viewer may do with it (sign off / apply / why not). */
+  actions: RebaselineActionState;
+  /** Opened from the Review Queue (?focus=<id>). */
+  focused: boolean;
 }
 
 export function LockedBaselinesList({
@@ -85,6 +95,16 @@ export function LockedBaselinesList({
           <span className="text-ink-muted">—</span>
         ),
     },
+    {
+      key: "actions",
+      header: "Action",
+      cell: (r) =>
+        r.canPropose ? (
+          <ProposeRebaselineButton projectId={r.id} projectName={r.name} disabledReason={r.proposeDisabledReason} />
+        ) : (
+          <span className="text-xs text-ink-muted">Read-only</span>
+        ),
+    },
   ];
 
   return <DataList columns={columns} rows={rows} rowKey={(r) => r.id} tableClassName="min-w-[700px]" />;
@@ -119,9 +139,16 @@ export function RebaselinesList({
       header: "Status",
       badge: true,
       cell: (r) => (
-        <Badge size="sm" tone={r.statusTone}>
-          {r.statusLabel}
-        </Badge>
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <Badge size="sm" tone={r.statusTone}>
+            {r.statusLabel}
+          </Badge>
+          {r.focused && (
+            <Badge size="sm" tone="info">
+              From Review Queue
+            </Badge>
+          )}
+        </span>
       ),
     },
     {
@@ -137,6 +164,11 @@ export function RebaselinesList({
       key: "signoffs",
       header: "Sign-offs",
       cell: (r) => <span className="tabular-nums text-ink-secondary">{r.signoffLabel}</span>,
+    },
+    {
+      key: "actions",
+      header: "Action",
+      cell: (r) => <RebaselineRowActions rebaselineId={r.id} projectName={r.projectName} state={r.actions} />,
     },
   ];
 

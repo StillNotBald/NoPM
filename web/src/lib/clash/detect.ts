@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { writeAudit } from "@/lib/audit/write";
 import type { Actor } from "@/lib/auth/guard";
 
+/** Clash statuses that mean "still live" (everything except resolved). */
+const LIVE_CLASH_STATUSES = ["open", "investigating"];
+
 /**
  * Detect over-allocation for a given member and upsert a clash row if
  * allocation_pct exceeds 100% across any overlapping windows.
@@ -91,14 +94,38 @@ export async function detectOverAllocation(
   }
 
   if (maxPct <= 100) {
-    // No over-allocation — resolve any existing open clash for this member
-    await db
+    // No over-allocation — resolve every still-live (open or investigating)
+    // clash for this member, one audit row per resolved clash (the caller whose
+    // write triggered detection is the actor).
+    const { data: live, error: liveErr } = await db
       .from("clashes")
-      .update({ status: "resolved" })
+      .select("*")
       .eq("workspace_id", workspaceId)
       .eq("resource_member_id", memberId)
       .eq("type", "resource")
-      .eq("status", "open");
+      .in("status", LIVE_CLASH_STATUSES);
+    if (liveErr) throw liveErr;
+    for (const clash of (live ?? []) as { id: string }[]) {
+      const { data: resolved, error: resolveErr } = await db
+        .from("clashes")
+        .update({ status: "resolved" })
+        .eq("id", clash.id)
+        .eq("workspace_id", workspaceId)
+        .in("status", LIVE_CLASH_STATUSES)
+        .select()
+        .maybeSingle();
+      if (resolveErr) throw resolveErr;
+      if (!resolved) continue; // someone else resolved it first: no double audit
+      await writeAudit({
+        workspaceId,
+        actor,
+        action: "clash.auto_resolve",
+        targetType: "clash",
+        targetId: clash.id,
+        before: clash,
+        after: resolved,
+      });
+    }
     return false;
   }
 
@@ -128,14 +155,17 @@ export async function detectOverAllocation(
           ? `Monitor ${member.name}'s schedule closely. Adjust lower-priority task windows or reduce allocation percentages on overlapping assignments.`
           : `Minor over-allocation detected for ${member.name}. Review allocation windows and consider trimming low-priority commitments.`;
 
-  // Check for an existing open clash for this member
+  // Check for an existing live clash for this member. "investigating" counts
+  // as open: someone is already working it, so do not raise a second one.
   const { data: existing } = await db
     .from("clashes")
     .select("*")
     .eq("workspace_id", workspaceId)
     .eq("resource_member_id", memberId)
     .eq("type", "resource")
-    .eq("status", "open")
+    .in("status", LIVE_CLASH_STATUSES)
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
 
   if (existing) {
@@ -201,4 +231,27 @@ export async function detectOverAllocation(
   }
 
   return true;
+}
+
+/**
+ * Fail-soft wrapper for the allocation routes: the allocation is already
+ * saved (and audited) when detection runs, so a detector failure must not turn
+ * a successful write into a 500 that invites a duplicating retry. Logs the
+ * error and reports a warning for the response instead.
+ */
+export async function detectOverAllocationSafe(
+  db: SupabaseClient,
+  workspaceId: string,
+  memberId: string,
+  actor: Actor,
+): Promise<{ detected: boolean; warning: string | null }> {
+  try {
+    return { detected: await detectOverAllocation(db, workspaceId, memberId, actor), warning: null };
+  } catch (err) {
+    console.error("clash detection failed", { workspaceId, memberId, message: (err as Error)?.message });
+    return {
+      detected: false,
+      warning: "The allocation was saved, but over-allocation detection failed; clashes for this member may be out of date.",
+    };
+  }
 }

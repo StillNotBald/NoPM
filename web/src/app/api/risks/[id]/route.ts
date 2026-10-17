@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { updateRiskSchema } from "@/app/api/risks/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 
 export const runtime = "nodejs";
 
@@ -77,6 +78,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.status !== undefined) updates.status = input.status;
   if (input.raised_at !== undefined) updates.raised_at = input.raised_at;
   if (input.due_date !== undefined) updates.due_date = input.due_date;
+  // content-enrichment (0008)
+  if (input.probability_pct !== undefined) updates.probability_pct = input.probability_pct;
+  if (input.impact_score !== undefined) updates.impact_score = input.impact_score;
+  if (input.response_strategy !== undefined) updates.response_strategy = input.response_strategy;
+  if (input.risk_category !== undefined) updates.risk_category = input.risk_category;
+  if (input.impact_area !== undefined) updates.impact_area = input.impact_area;
+  if (input.trigger !== undefined) updates.trigger = input.trigger;
+  if (input.residual_risk !== undefined) updates.residual_risk = input.residual_risk;
   // ── complement seam (0041, R-81) ────────────────────────────────────────────
   if (input.source !== undefined) updates.source = input.source;
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
@@ -113,6 +122,26 @@ export const PATCH = route(async ({ actor, params, request }) => {
     before: existing,
     after: updated,
   });
+
+  // Same alert as on create when severity is raised to high or critical — fail-soft.
+  if (
+    input.severity !== undefined &&
+    input.severity !== existing.severity &&
+    (input.severity === "high" || input.severity === "critical")
+  ) {
+    const projectId = updated.project_id as string;
+    void resolveProjectOwner(actor.workspaceId, projectId).then((ownerId) => {
+      if (!ownerId) return;
+      return notify({
+        workspaceId: actor.workspaceId,
+        recipientIds: [ownerId],
+        type: "risk.escalated",
+        title: `${input.severity!.toUpperCase()} risk raised: ${updated.title}`,
+        body: updated.description ?? undefined,
+        payload: { riskId: updated.id, projectId, severity: input.severity, refId: updated.reference_id },
+      });
+    });
+  }
 
   return ok(updated);
 });

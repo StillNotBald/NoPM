@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appearance";
 import { formatByPref } from "@/lib/format/dates";
 import { Card } from "@/components/ui/card";
+import { rebaselineActionsFor } from "@/components/baselines/rebaseline-rules";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContainer } from "@/components/ui/page-container";
 import { FourEyesNote } from "@/components/governance/four-eyes-note";
@@ -16,11 +17,10 @@ import {
 
 // Baselines (R-78 sprint-1 follow-up): a nav home for the "lock → rebaseline
 // → sign-off → apply" flow described in
-// user-manual/operator/03-schedule-and-lock.md — previously only reachable
-// by opening a project or the Review Queue. Read-only here: the write path
-// stays the API/agent surfaces (CLI, MCP, BYOK assistant) exactly as that
-// doc describes; this page just makes the flow's two record types legible
-// in one place instead of hidden inside individual project pages.
+// user-manual/operator/03-schedule-and-lock.md. D1 / Q-GOV-6: the whole
+// governed flow (propose, sign off go / no-go, apply) now has web controls
+// here, calling the same API routes the CLI and agents use; admins and
+// managers only for sign-off and apply (D-16), never the proposer.
 
 export const metadata = { title: "Baselines" };
 
@@ -41,6 +41,8 @@ interface RebaselineRow {
   status: string;
   reason: string | null;
   created_at: string;
+  requested_by: string | null;
+  requested_principal_id: string | null;
 }
 
 interface SignoffRow {
@@ -67,7 +69,13 @@ function statusLabel(s: string) {
 const FLOW_EXPLAINER =
   "Lock a project to freeze its baseline; changes then require a rebaseline with sign-off from a different approver.";
 
-export default async function BaselinesPage() {
+export default async function BaselinesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  const sp = await searchParams;
+  const rawFocus = Array.isArray(sp.focus) ? sp.focus[0] : sp.focus;
   const db = await createClient();
   const {
     data: { user },
@@ -78,7 +86,7 @@ export default async function BaselinesPage() {
     (await cookies()).get(APPEARANCE_COOKIE_NAME)?.value,
   ).dateDisplay;
 
-  const [{ data: projects }, { data: rebaselines }, { data: profiles }, { data: signoffs }] =
+  const [{ data: projects }, { data: rebaselines }, { data: profiles }, { data: signoffs }, { data: viewerProfile }] =
     await Promise.all([
       db
         .from("projects")
@@ -86,13 +94,16 @@ export default async function BaselinesPage() {
         .order("name"),
       db
         .from("rebaselines")
-        .select("id, project_id, status, reason, created_at")
+        .select("id, project_id, status, reason, created_at, requested_by, requested_principal_id")
         .order("created_at", { ascending: false }),
       // locked_by → display name. Cheap workspace-wide read (RLS-scoped),
       // same pattern as risks/page.tsx's ownerMap.
       db.from("profiles").select("id, display_name, email"),
       db.from("rebaseline_signoffs").select("rebaseline_id, vote"),
+      db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     ]);
+  const viewerRole = (viewerProfile?.role as string | null | undefined) ?? null;
+  const canPropose = viewerRole !== null && viewerRole !== "viewer";
 
   const projectList = (projects ?? []) as ProjectRow[];
   const rebaselineList = (rebaselines ?? []) as RebaselineRow[];
@@ -121,6 +132,10 @@ export default async function BaselinesPage() {
     .filter((p) => p.is_locked)
     .sort((a, b) => (b.locked_at ?? "").localeCompare(a.locked_at ?? ""));
 
+  const pendingProjects = new Set(
+    rebaselineList.filter((r) => r.status === "pending_approval").map((r) => r.project_id),
+  );
+
   const lockedBaselineRows: LockedBaselineRow[] = lockedProjects.map((p) => {
     const lockedAt = formatByPref(p.locked_at, dateDisplayPref);
     return {
@@ -131,6 +146,8 @@ export default async function BaselinesPage() {
       lockedAtTitle: p.locked_at ? lockedAt.title : "No lock time was recorded",
       lockedByLabel: labelFor(p.locked_by),
       lockReason: p.lock_reason,
+      canPropose,
+      proposeDisabledReason: pendingProjects.has(p.id) ? "A rebaseline is already awaiting sign-off for this project." : null,
     };
   });
 
@@ -147,6 +164,14 @@ export default async function BaselinesPage() {
       requestedText: requested.text,
       requestedTitle: requested.title,
       signoffLabel: counts ? `${counts.cast} of ${counts.total} cast` : "None yet",
+      focused: r.id === rawFocus,
+      actions: rebaselineActionsFor({
+        status: r.status,
+        viewerId: user.id,
+        viewerRole,
+        requestedBy: r.requested_by,
+        requestedPrincipalId: r.requested_principal_id,
+      }),
     };
   });
 

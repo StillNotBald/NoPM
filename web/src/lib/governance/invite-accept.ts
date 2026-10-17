@@ -25,6 +25,10 @@ export type InviteAcceptAdminClient = {
         error: { message?: string; code?: string } | null;
       }>;
       deleteUser: (userId: string) => Promise<{ error: { message?: string } | null }>;
+      updateUserById: (
+        userId: string,
+        attrs: { password: string; email_confirm: boolean },
+      ) => Promise<{ error: { message?: string } | null }>;
     };
   };
   // PromiseLike (not Promise): supabase-js's real .rpc() returns a
@@ -65,6 +69,26 @@ function isEmailExistsError(error: { message?: string; code?: string } | null): 
 }
 
 /**
+ * D-ACC-3: an earlier accept attempt may have created the auth user and then
+ * failed (the RPC errored, and the best-effort clean-up did not run). The
+ * invite is still pending, so the retry must finish the job instead of dying on
+ * "email already exists". Returns the id of an auth user for this email that
+ * owns NO profile (a stranded half-identity), else null. A user WITH a profile
+ * is a real account and is never touched. The lookup is the service-role-only
+ * nopm_auth_user_for_invite function (auth.users is not reachable via PostgREST).
+ */
+async function findStrandedAuthUser(db: InviteAcceptAdminClient, email: string): Promise<string | null> {
+  try {
+    const { data, error } = await db.rpc("nopm_auth_user_for_invite", { p_email: email });
+    if (error || !Array.isArray(data) || data.length === 0) return null;
+    const row = data[0] as { user_id?: string; has_profile?: boolean };
+    return row.user_id && row.has_profile === false ? row.user_id : null;
+  } catch {
+    return null; // lookup unavailable: fall back to the plain "already exists" answer
+  }
+}
+
+/**
  * Orchestrates: admin.auth.admin.createUser (email_confirm: true) FIRST,
  * then the nopm_accept_invite RPC. If the RPC fails AFTER the auth user was
  * created, best-effort admin.auth.admin.deleteUser cleans it up (never lets
@@ -81,18 +105,38 @@ export async function performInviteAccept(
     email_confirm: true,
   });
 
+  // The auth user this attempt created, or reused (see findStrandedAuthUser).
+  let userId: string | null = createData?.user?.id ?? null;
+  let reused = false;
+
   if (createError || !createData?.user) {
     if (isEmailExistsError(createError)) {
-      throw new RuleError("An account with this email already exists", "email_exists");
-    }
+      const stranded = await findStrandedAuthUser(db, input.email);
+      if (!stranded) {
+        throw new RuleError("An account with this email already exists", "email_exists");
+      }
+      // The invite holder is the only person who can reach this point (the route
+      // validated a pending invite for exactly this e-mail), so the retry sets
+      // the password they just chose on the half-created identity.
+      const { error: updateError } = await db.auth.admin.updateUserById(stranded, {
+        password: input.password,
+        email_confirm: true,
+      });
+      if (updateError) {
+        throw new RuleError(updateError.message || "Could not create your account", "account_creation_failed");
+      }
+      userId = stranded;
+      reused = true;
+    } else {
     // Any other createUser failure (weak password rejected by Supabase's own
     // policy, transient provider error, ...) is still a clean client-facing
     // 422 on this public accept endpoint — never a raw 500 that could leak
     // provider internals.
     throw new RuleError(createError?.message || "Could not create your account", "account_creation_failed");
+    }
   }
 
-  const userId = createData.user.id;
+  if (!userId) throw new RuleError("Could not create your account", "account_creation_failed");
 
   const { data: rpcData, error: rpcError } = await db.rpc("nopm_accept_invite", {
     p_token_hash: input.tokenHash,
@@ -111,7 +155,8 @@ export async function performInviteAccept(
     // without a matching profiles row, so a stranded user can never sign in
     // successfully even if this cleanup didn't run.
     try {
-      await db.auth.admin.deleteUser(userId);
+      // A reused identity is left in place: the retry path above picks it up again.
+      if (!reused) await db.auth.admin.deleteUser(userId);
     } catch {
       // fail-soft cleanup — see comment above; the mapped RPC error below
       // must still propagate regardless of whether cleanup succeeded.

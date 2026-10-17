@@ -1,11 +1,12 @@
 /**
- * POST /api/rebaselines/:id/signoff — a vote never persists next to a status it
- * contradicts, and the audit row keeps the vote, its comment and the voter's
- * previous vote.
+ * POST /api/rebaselines/:id/signoff — the vote, the status it implies and the
+ * rebaseline.signoff audit row are ONE RPC (nopm_signoff_rebaseline, migration
+ * 0063), so a vote never persists next to a status it contradicts and never
+ * without its trail; D-16 (approvers only) is enforced in the route and in SQL.
  *
  * Harness as lifecycle-guards.test.ts: the real route (wrapped by route()) over
- * the in-memory admin client; requireAuth is mocked, requireScope is real. A
- * concurrent writer is simulated with FakeDb.afterNextSelect.
+ * the in-memory admin client (RPC mirrored by test-support/fake-rpcs.ts);
+ * requireAuth is mocked, requireScope is real.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
@@ -42,6 +43,7 @@ import { POST as signoff } from "./route";
 const WS = "ws-1";
 const ALICE = "11111111-1111-4111-8111-111111111111";
 const BOB = "22222222-2222-4222-8222-222222222222";
+const CASEY = "33333333-3333-4333-8333-333333333333";
 const RB = "rb-pending";
 
 function pat(id: string, owner: string): Actor {
@@ -53,6 +55,7 @@ function pat(id: string, owner: string): Actor {
     workspaceId: WS,
     scopes: ["rebaseline:approve"],
     principalId: owner,
+    principalRole: "manager",
     channel: "api",
     requestId: `req-${id}`,
   };
@@ -80,6 +83,11 @@ beforeEach(() => {
       { id: RB, workspace_id: WS, project_id: "proj-1", version: 1, status: "pending_approval", requested_by: null, requested_principal_id: ALICE },
     ],
     rebaseline_signoffs: [],
+    profiles: [
+      { id: ALICE, workspace_id: WS, role: "admin" },
+      { id: BOB, workspace_id: WS, role: "manager" },
+      { id: CASEY, workspace_id: WS, role: "member" },
+    ],
     audit_log: [],
     notifications: [],
   });
@@ -87,68 +95,25 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
-/** Another voter's vote and decision land between this request's votes read and its status write. */
-function concurrentDecision(status: "approved" | "rejected", otherVote: "go" | "no_go") {
-  // select #1 is the previous-vote read; select #2 is the all-votes read the status is computed from.
-  db.afterNextSelect("rebaseline_signoffs", () => {});
-  db.afterNextSelect("rebaseline_signoffs", (d) => {
-    d.rows("rebaseline_signoffs").push({
-      id: "sig-other",
-      workspace_id: WS,
-      rebaseline_id: RB,
-      approver_id: "99999999-9999-4999-8999-999999999999",
-      vote: otherVote,
-    });
-    d.rows("rebaselines").find((r) => r.id === RB)!.status = status;
+describe("the vote and the status move together", () => {
+  it("the non-racing path: the vote stands and the status follows it", async () => {
+    const res = await call(bobPat(), { vote: "go" });
+    expect(res.status).toBe(200);
+    expect(votes().map((v) => v.vote)).toEqual(["go"]);
+    expect(rebaseline().status).toBe("approved");
   });
-}
 
-describe("a losing vote does not persist next to the status that beat it", () => {
-  it("A's no_go loses the status race to B's approval: 422, A's no_go row is gone, the rebaseline stays approved", async () => {
-    concurrentDecision("approved", "go");
+  it("losing the race (the RPC finds the rebaseline already decided): 422, no vote row, no audit row", async () => {
+    rebaseline().status = "approved"; // B's approval landed first
     const res = await call(bobPat(), { vote: "no_go", comment: "too risky" });
     expect(res.status).toBe(422);
-
     expect(rebaseline().status).toBe("approved");
-    expect(votes().filter((v) => v.vote === "no_go")).toEqual([]);
-    expect(votes().map((v) => v.id)).toEqual(["sig-other"]);
+    expect(votes()).toEqual([]);
     expect(audits()).toHaveLength(0);
   });
 
-  it("the loser who had voted before gets the previous vote back, not a deleted row", async () => {
-    votes().push({ id: "sig-bob", workspace_id: WS, rebaseline_id: RB, approver_id: BOB, approver_principal_id: BOB, vote: "pending", voted_at: "2026-10-01T00:00:00.000Z", comment: "waiting on QA" });
-    concurrentDecision("rejected", "no_go");
-    const res = await call(bobPat(), { vote: "go" });
-    expect(res.status).toBe(422);
-
-    const mine = votes().filter((v) => v.approver_id === BOB);
-    expect(mine).toHaveLength(1);
-    expect(mine[0]).toMatchObject({ vote: "pending", comment: "waiting on QA", voted_at: "2026-10-01T00:00:00.000Z" });
-    expect(rebaseline().status).toBe("rejected");
-  });
-
-  it("a database error on the status write also takes the vote back out", async () => {
-    const realFrom = db.client.from;
-    db.client.from = (table: string) => {
-      const b = realFrom(table) as unknown as { update: (p: Row) => unknown };
-      if (table === "rebaselines") {
-        b.update = () => {
-          const result = { data: null, error: { code: "XX000", message: "connection reset" } };
-          const chain: unknown = new Proxy(
-            {},
-            {
-              get: (_t, prop) => {
-                if (prop === "then") return (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result).then(res, rej);
-                if (prop === "single" || prop === "maybeSingle") return () => Promise.resolve(result);
-                return () => chain;
-              },
-            },
-          );
-          return chain;
-        };
-      }
-      return b as never;
-    };
+  it("a failure inside the RPC leaves no vote and no audit row", async () => {
+    db.rpcHandlers.nopm_signoff_rebaseline = () => ({ data: null, error: { code: "XX000", message: "connection reset" } });
     const res = await call(bobPat(), { vote: "no_go" });
     expect(res.status).toBe(500);
     expect(votes()).toEqual([]);
@@ -156,11 +121,29 @@ describe("a losing vote does not persist next to the status that beat it", () =>
     expect(audits()).toHaveLength(0);
   });
 
-  it("the non-racing path is unchanged: the vote stands and the status follows it", async () => {
+  it("a no_go rejects the rebaseline", async () => {
+    await call(bobPat(), { vote: "no_go", comment: "no" });
+    expect(rebaseline().status).toBe("rejected");
+  });
+});
+
+describe("D-16 — only admins and managers sign off", () => {
+  const memberPat = () => ({ ...pat("tok-casey", CASEY), principalRole: "member" }) as Actor;
+
+  it("a member's token is 403 role_not_permitted: nothing recorded, the RPC is not called", async () => {
+    const res = await call(memberPat(), { vote: "go" });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("role_not_permitted");
+    expect(votes()).toEqual([]);
+    expect(db.rpcCallsTo("nopm_signoff_rebaseline")).toHaveLength(0);
+  });
+
+  it("the RPC repeats the rule: a token that still claims manager but whose human was demoted is refused in SQL", async () => {
+    db.rows("profiles").find((p) => p.id === BOB)!.role = "member";
     const res = await call(bobPat(), { vote: "go" });
-    expect(res.status).toBe(200);
-    expect(votes().map((v) => v.vote)).toEqual(["go"]);
-    expect(rebaseline().status).toBe("approved");
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("role_not_permitted");
+    expect(votes()).toEqual([]);
   });
 });
 

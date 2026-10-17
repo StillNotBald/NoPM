@@ -1,11 +1,13 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
+import { NotFoundError, FieldsError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { assertWeekUnlocked, weekLockRuleError } from "@/lib/governance/period-lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
+import { assertMayActForMemberHours } from "./_own";
 import { createTimeEntrySchema } from "./_schema";
 import { parseTimeEntryFilters, resolveBillable } from "./_query";
 
@@ -75,11 +77,29 @@ export const POST = route(async ({ actor, request }) => {
   // Verify member belongs to workspace and look up cost_rate
   const { data: member } = await db
     .from("resource_members")
-    .select("id, cost_rate")
+    .select("id, cost_rate, profile_id")
     .eq("id", parsed.data.member_id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
   if (!member) throw new NotFoundError("Resource member not found");
+
+  // D-17: members log only their own hours; admins / managers may log for others.
+  assertMayActForMemberHours(actor, member);
+
+  // D-WRK-16: a task link must belong to the project named on the entry.
+  if (parsed.data.task_id) {
+    const { data: task } = await db
+      .from("tasks")
+      .select("id, project_id")
+      .eq("id", parsed.data.task_id)
+      .eq("workspace_id", actor.workspaceId)
+      .maybeSingle();
+    if (task && task.project_id !== parsed.data.project_id) {
+      throw new FieldsError("Task does not belong to this project", [
+        { field: "task_id", message: "task_id must belong to the project named in project_id" },
+      ]);
+    }
+  }
 
   // A task link must point at a task in THIS workspace (the FK alone accepts
   // any workspace's row — red-team R1 cross-tenant references).
@@ -100,6 +120,14 @@ export const POST = route(async ({ actor, request }) => {
   // L-29: explicit billable wins; else fall back to the project's default_billable.
   const billable = resolveBillable(parsed.data.billable, project.default_billable);
 
+  const idem = await withIdempotency(
+    {
+      workspaceId: actor.workspaceId,
+      actorId: actor.id,
+      key: readIdempotencyKey(request),
+      route: "POST /api/time-entries",
+    },
+    async () => {
   const { data: row, error } = await db
     .from("time_entries")
     .insert({
@@ -138,5 +166,9 @@ export const POST = route(async ({ actor, request }) => {
     after: row,
   });
 
-  return created(row);
+  return row;
+    },
+  );
+  // A replayed key returns the first result (no second row, no second audit).
+  return created(idem.result);
 });

@@ -2,7 +2,8 @@ import { cookies } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { hashToken, hasScope } from "@/lib/auth/tokens";
-import { AuthError, ScopeError } from "@/lib/api/errors";
+import { AuthError, RateLimitError, ScopeError } from "@/lib/api/errors";
+import { ipRateKey } from "@/lib/api/client-ip";
 import { resolveClientMeta, type AuditChannel } from "@/lib/audit/channel";
 import { MFA_COOKIE_NAME, verifyMfaCookie, getMfaEnrollmentStatus } from "@/lib/auth/mfa";
 
@@ -36,6 +37,13 @@ export type Actor = {
    * approve (fail-closed).
    */
   principalId?: string | null;
+  /**
+   * The current member_role of the human principal (principalId): session
+   * users = their role; bearer PATs = the CURRENT role of api_tokens.created_by,
+   * looked up at verify time; connector actors are set by the integration code.
+   * Null when there is no principal (legacy token with no creator).
+   */
+  principalRole?: string | null;
   /** Set when the action arrived through an integration connector. */
   viaConnectorId?: string;
   /** The platform's event / callback id (non-repudiation, idempotency). */
@@ -64,7 +72,7 @@ function isMfaChallengeExempt(request: Request): boolean {
 export async function requireAuth(request: Request): Promise<Actor> {
   const authz = request.headers.get("authorization");
   if (authz?.toLowerCase().startsWith("bearer ")) {
-    const actor = await verifyBearer(authz.slice(7).trim());
+    const actor = await verifyBearer(authz.slice(7).trim(), request.headers);
     return { ...actor, ...resolveClientMeta(request.headers, "token") };
   }
   const actor = await verifySession();
@@ -102,18 +110,98 @@ async function assertMfaSatisfied(uid: string): Promise<void> {
 /** Do not rewrite api_tokens.last_used_at more often than this. */
 const LAST_USED_TOUCH_INTERVAL_MS = 5 * 60 * 1000;
 
-async function verifyBearer(raw: string): Promise<Actor> {
+/**
+ * Failed bearer auth (unknown / revoked / expired token) budget per client
+ * network (A1-8 / D-ACC-20). Checked BEFORE the token lookup so a guessing run
+ * stops costing a database lookup per attempt; each failure is then counted.
+ * Needs a trustworthy client address (see @/lib/api/client-ip) — with none, the
+ * cap is skipped rather than keyed on spoofable header text.
+ */
+const BEARER_FAIL_MAX = Number(process.env.NOPM_BEARER_FAIL_PER_MIN ?? 20);
+const BEARER_FAIL_WINDOW_SECONDS = 60;
+
+type PeekResult = { allowed: boolean; retry_after_seconds: number };
+
+async function assertBearerFailureBudget(
+  admin: ReturnType<typeof createAdminClient>,
+  key: string | null,
+): Promise<void> {
+  if (!key) return;
+  let peek: PeekResult | null = null;
+  try {
+    const { data, error } = await admin.rpc("nopm_rate_peek", {
+      p_key: key,
+      p_max: BEARER_FAIL_MAX,
+      p_window_seconds: BEARER_FAIL_WINDOW_SECONDS,
+    });
+    if (!error) peek = data as PeekResult;
+  } catch {
+    // Fail-open (abuse guard, not the auth control itself — the 192-bit token is).
+  }
+  if (peek && !peek.allowed) {
+    throw new RateLimitError(
+      `Too many failed API token attempts. Retry in ${peek.retry_after_seconds}s.`,
+      "rate_limited",
+      peek.retry_after_seconds,
+    );
+  }
+}
+
+async function countBearerFailure(admin: ReturnType<typeof createAdminClient>, key: string | null): Promise<void> {
+  if (!key) return;
+  try {
+    await admin.rpc("nopm_rate_check", {
+      p_key: key,
+      p_max: BEARER_FAIL_MAX,
+      p_window_seconds: BEARER_FAIL_WINDOW_SECONDS,
+    });
+  } catch {
+    // Best-effort counter.
+  }
+}
+
+async function verifyBearer(raw: string, headers: Headers = new Headers()): Promise<Actor> {
   const admin = createAdminClient();
+  const ip = ipRateKey(headers);
+  const failKey = ip ? `bearer-fail:${ip}` : null;
+  await assertBearerFailureBudget(admin, failKey);
+
   const { data, error } = await admin
     .from("api_tokens")
     .select("id, workspace_id, name, scopes, revoked, expires_at, created_by, last_used_at")
     .eq("token_hash", hashToken(raw))
     .maybeSingle();
 
-  if (error || !data) throw new AuthError("Invalid API token");
-  if (data.revoked) throw new AuthError("API token has been revoked");
+  if (error || !data) {
+    await countBearerFailure(admin, failKey);
+    throw new AuthError("Invalid API token");
+  }
+  if (data.revoked) {
+    await countBearerFailure(admin, failKey);
+    throw new AuthError("API token has been revoked");
+  }
   if (data.expires_at && new Date(data.expires_at) < new Date()) {
+    await countBearerFailure(admin, failKey);
     throw new AuthError("API token has expired");
+  }
+
+  // A token is its creator's delegate: when that person's profile no longer
+  // exists in this workspace the token stops working (D-ACC-2 / A1-4 / A2-6).
+  // Legacy tokens with no recorded creator (created_by null) keep working but
+  // can never approve. This lookup also yields the creator's CURRENT role
+  // (principalRole). Calendar feeds are deliberately NOT checked (decision 9).
+  let principalRole: string | null = null;
+  if (data.created_by) {
+    const { data: creator, error: creatorError } = await admin
+      .from("profiles")
+      .select("workspace_id, role")
+      .eq("id", data.created_by)
+      .maybeSingle();
+    if (creatorError) throw creatorError; // fail closed: never guess a role
+    if (!creator || creator.workspace_id !== data.workspace_id) {
+      throw new AuthError("The person who created this API token no longer has access to this workspace");
+    }
+    principalRole = creator.role ?? null;
   }
 
   // Fire-and-forget last_used_at. supabase-js builders are lazy thenables:
@@ -146,6 +234,7 @@ async function verifyBearer(raw: string): Promise<Actor> {
     // raised. NULL for legacy tokens with no recorded creator — those can
     // never approve (fail-closed, enforced in @/lib/governance/decide).
     principalId: data.created_by ?? null,
+    principalRole,
   };
 }
 
@@ -171,6 +260,7 @@ async function verifySession(): Promise<Actor> {
     role: profile.role,
     // A signed-in person is their own principal.
     principalId: user.id,
+    principalRole: profile.role ?? null,
   };
 }
 

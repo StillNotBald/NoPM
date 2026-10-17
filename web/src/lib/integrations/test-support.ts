@@ -239,8 +239,61 @@ export class FakeDb {
     return new FakeQuery(this, table);
   }
 
-  /** The rate limiter's RPC: always allowed. */
-  async rpc(): Promise<Result> {
+  /** Set to make the next nopm_revoke_connector call fail BEFORE it changes anything (atomic: all or nothing). */
+  failRevokeRpc: PgError | null = null;
+
+  /**
+   * RPCs. nopm_revoke_connector mirrors migration 0069 (one transaction: connector,
+   * identities, deliveries, link codes and the audit row, or an error and no change).
+   * Anything else is the rate limiter: always allowed.
+   */
+  async rpc(name?: string, args: Record<string, unknown> = {}): Promise<Result> {
+    if (name === "nopm_revoke_connector") {
+      if (this.failRevokeRpc) {
+        const error = this.failRevokeRpc;
+        this.failRevokeRpc = null;
+        return { data: null, error, count: null };
+      }
+      const ws = args.p_workspace_id;
+      const cid = args.p_connector_id;
+      const connector = this.rows("integration_connectors").find((c) => c.id === cid && c.workspace_id === ws);
+      if (!connector) return { data: null, error: { message: "CONNECTOR_NOT_FOUND" }, count: null };
+      if (connector.status === "revoked") return { data: null, error: { message: "CONNECTOR_REVOKED" }, count: null };
+      connector.status = "revoked";
+      connector.revoked_at = args.p_revoked_at;
+      let identities = 0;
+      for (const i of this.rows("external_identities")) {
+        if (i.workspace_id === ws && i.connector_id === cid && i.revoked_at === null) {
+          i.revoked_at = args.p_revoked_at;
+          identities += 1;
+        }
+      }
+      let deliveries = 0;
+      for (const d of this.rows("integration_deliveries")) {
+        if (d.workspace_id === ws && d.connector_id === cid && (d.status === "pending" || d.status === "retry")) {
+          d.status = "superseded";
+          d.last_error = "connector revoked";
+          deliveries += 1;
+        }
+      }
+      this.tables.identity_link_codes = this.rows("identity_link_codes").filter(
+        (c) => !(c.workspace_id === ws && c.connector_id === cid && c.used_at === null),
+      );
+      this.seed("audit_log", [
+        {
+          workspace_id: ws,
+          action: "integration.connector.revoke",
+          target_type: "integration_connector",
+          target_id: cid,
+          actor_id: args.p_actor_id,
+          before: args.p_before,
+          after: { ...(args.p_after as Row), identities_revoked: identities, deliveries_superseded: deliveries },
+          channel: args.p_channel,
+          request_id: args.p_correlation_id,
+        },
+      ]);
+      return { data: { identities_revoked: identities, deliveries_superseded: deliveries }, error: null, count: null };
+    }
     return { data: { allowed: true, remaining: 999, retry_after_seconds: 0 }, error: null, count: null };
   }
 }

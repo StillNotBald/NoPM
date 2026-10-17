@@ -223,6 +223,16 @@ function matchIntent(message: string): "risks" | "audit" | "portfolio" | "defaul
   return "default";
 }
 
+/**
+ * The lines that keep an earlier, already-executed turn visible after the
+ * provider failed: every action the turn ran, with its own summary (a failed
+ * one says it failed). Plain text built from the action log, nothing invented.
+ */
+export function priorActionsNote(prior: Action[]): string {
+  const lines = prior.map((a) => `- ${a.summary}`).join("\n");
+  return `The AI provider stopped responding partway through. These actions had already been carried out:\n${lines}`;
+}
+
 export async function runAssistantFallback(opts: {
   actor: Actor;
   message: string;
@@ -233,8 +243,17 @@ export async function runAssistantFallback(opts: {
   /** Incoming X-Request-Id from the chat request, forwarded into the
    *  fallback's own tool-call fetches (R-82). */
   requestId?: string;
+  /** The conversation this turn belongs to (token mint/revoke audit rows, A3-14). */
+  conversationId?: string | null;
+  /**
+   * Actions the real provider's turn had already executed before it failed
+   * (D-ACC-8). They are NOT undone by the failure, so the reply must still say
+   * what was done and the result keeps them ahead of the fallback's own reads.
+   */
+  priorActions?: Action[];
 }): Promise<FallbackResult> {
-  const { actor, message, origin, rateCheck, requestId } = opts;
+  const { actor, message, origin, rateCheck, requestId, conversationId = null } = opts;
+  const prior = opts.priorActions ?? [];
 
   await rateCheck();
 
@@ -242,7 +261,7 @@ export async function runAssistantFallback(opts: {
   let ephemeral: { raw: string; id: string } | null = null;
 
   try {
-    ephemeral = await mintEphemeralToken(actor);
+    ephemeral = await mintEphemeralToken(actor, { conversationId });
 
     const intent = matchIntent(message);
     let reply: string;
@@ -262,10 +281,14 @@ export async function runAssistantFallback(opts: {
         break;
     }
 
-    return { reply, actions, usedFallback: true, usedDemoKey: false };
+    if (prior.length > 0) {
+      reply = `${priorActionsNote(prior)}\n\n${reply}`;
+    }
+
+    return { reply, actions: [...prior, ...actions], usedFallback: true, usedDemoKey: false };
   } finally {
     if (ephemeral) {
-      await revokeEphemeralToken(ephemeral.id);
+      await revokeEphemeralToken(ephemeral.id, { actor, conversationId });
     }
   }
 }

@@ -4,39 +4,11 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { insertWithReference } from "@/lib/governance/next-ref";
 import { createDecisionSchema } from "@/app/api/decisions/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 
 export const runtime = "nodejs";
-
-/** Derive the next DEC-NNN reference_id for a workspace. */
-async function nextDecRefId(
-  db: ReturnType<typeof createAdminClient>,
-  workspaceId: string,
-): Promise<string> {
-  const { data, error } = await db
-    .from("decisions")
-    .select("reference_id")
-    .eq("workspace_id", workspaceId)
-    .not("reference_id", "is", null);
-
-  if (error) throw new Error(`nextDecRefId: ${error.message}`);
-
-  let maxNum = 0;
-  if (data && data.length > 0) {
-    for (const row of data) {
-      const val = row.reference_id as string | null;
-      if (!val) continue;
-      const dashIdx = val.lastIndexOf("-");
-      if (dashIdx === -1) continue;
-      const num = parseInt(val.slice(dashIdx + 1), 10);
-      if (!isNaN(num) && num > maxNum) maxNum = num;
-    }
-    if (maxNum === 0) maxNum = data.length;
-  }
-
-  return `DEC-${String(maxNum + 1).padStart(3, "0")}`;
-}
 
 /**
  * GET /api/projects/:id/decisions — list decisions for a project.
@@ -117,9 +89,7 @@ export const POST = route(async ({ actor, params, request }) => {
     { table: "decisions", id: input.supersedes, field: "supersedes" },
   ]);
 
-  const refId = await nextDecRefId(db, actor.workspaceId);
-
-  const { data: row, error } = await db
+  const { data: row, error } = await insertWithReference(db, actor.workspaceId, "decision", (refId) => db
     .from("decisions")
     .insert({
       workspace_id: actor.workspaceId,
@@ -141,7 +111,7 @@ export const POST = route(async ({ actor, params, request }) => {
       external_url: input.external_url ?? null,
     })
     .select()
-    .single();
+    .single());
 
   if (error || !row) throw new Error(error?.message ?? "Insert failed");
 

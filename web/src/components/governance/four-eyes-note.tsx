@@ -21,6 +21,8 @@ export type FourEyesBlock =
   | "your_token_raised"
   | "your_hours"
   | "no_scope"
+  | "role_not_permitted"
+  | "project_locked"
   | "no_principal";
 
 /** What the server worked out for one item and the signed-in viewer. */
@@ -56,6 +58,14 @@ export const BLOCK_COPY: Record<FourEyesBlock, { lead: string; rest: string; det
   no_scope: {
     lead: "Your role can view this but not decide it",
     rest: ". Ask a member or admin to decide.",
+  },
+  role_not_permitted: {
+    lead: "Only managers and admins can approve",
+    rest: ". Ask a manager or admin to decide.",
+  },
+  project_locked: {
+    lead: "Project is locked",
+    rest: " — unlock it or rebaseline first.",
   },
   no_principal: {
     lead: "This sign-in isn't tied to a person",

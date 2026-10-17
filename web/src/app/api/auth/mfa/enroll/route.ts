@@ -1,6 +1,6 @@
 import { authenticator } from "otplib";
 import { route } from "@/lib/api/handler";
-import { AuthError } from "@/lib/api/errors";
+import { AuthError, ConflictError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { encrypt } from "@/lib/crypto";
@@ -14,10 +14,24 @@ export const POST = route(async ({ actor }) => {
     throw new AuthError("MFA requires a user session");
   }
 
+  const db = createAdminClient();
+
+  // D-ACC-4: re-enrolling while two-step is ON silently replaced the live
+  // factor (and dropped the backup codes) for a mere session. Turn it off
+  // first (which now needs a code), then enroll.
+  const { data: existing, error: existingError } = await db
+    .from("user_mfa")
+    .select("enabled")
+    .eq("user_id", actor.id)
+    .maybeSingle();
+  if (existingError) throw existingError;
+  if (existing?.enabled) {
+    throw new ConflictError("Two-step is already on. Turn it off first.", "mfa_already_enabled");
+  }
+
   const secret = authenticator.generateSecret();
   const otpauth = authenticator.keyuri(actor.label, "NoPM", secret);
 
-  const db = createAdminClient();
   const { error } = await db.from("user_mfa").upsert(
     {
       user_id: actor.id,
@@ -27,6 +41,7 @@ export const POST = route(async ({ actor }) => {
       // clear any stale backup codes and confirmed_at from a previous enrollment
       backup_codes: null,
       confirmed_at: null,
+      last_totp_step: null,
       enrolled_at: new Date().toISOString(),
     },
     { onConflict: "user_id" },

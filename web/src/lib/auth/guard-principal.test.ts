@@ -8,7 +8,7 @@
  * Supabase, next/headers and the MFA module are mocked exactly like
  * guard.test.ts so only guard.ts's own wiring is exercised.
  */
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const { getMfaEnrollmentStatusMock, verifyMfaCookieMock } = vi.hoisted(() => ({
   getMfaEnrollmentStatusMock: vi.fn(),
@@ -35,6 +35,9 @@ vi.mock("@/lib/supabase/admin", () => ({
 import { requireAuth } from "./guard";
 
 const selectSpy = vi.fn();
+const profileRow = {
+  current: { workspace_id: "ws-1", role: "manager" } as { workspace_id: string; role: string } | null,
+};
 
 function mockToken(createdBy: string | null | undefined) {
   const row: Record<string, unknown> = {
@@ -48,6 +51,13 @@ function mockToken(createdBy: string | null | undefined) {
   if (createdBy !== undefined) row.created_by = createdBy;
   createAdminClientMock.mockReturnValue({
     from: (table: string) => {
+      if (table === "profiles") {
+        return {
+          select: () => ({
+            eq: () => ({ maybeSingle: async () => ({ data: profileRow.current, error: null }) }),
+          }),
+        };
+      }
       if (table !== "api_tokens") throw new Error(`unexpected table: ${table}`);
       return {
         select: (cols: string) => {
@@ -82,6 +92,7 @@ const cookieReq = () => new Request("http://localhost/api/tasks");
 
 beforeEach(() => {
   vi.clearAllMocks();
+  profileRow.current = { workspace_id: "ws-1", role: "manager" };
   getMfaEnrollmentStatusMock.mockResolvedValue({ enabled: false, enr: null });
 });
 
@@ -144,8 +155,15 @@ describe("requireAuth — api_tokens.last_used_at", () => {
       last_used_at: lastUsedAt,
     };
     createAdminClientMock.mockReturnValue({
-      from: () => ({
-        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: row, error: null }) }) }),
+      from: (table: string) => ({
+        select: () => ({
+          eq: () => ({
+            maybeSingle: async () => ({
+              data: table === "profiles" ? { workspace_id: "ws-1", role: "member" } : row,
+              error: null,
+            }),
+          }),
+        }),
         update: (patch: Record<string, unknown>) => ({
           eq: () => ({
             then(onFulfilled?: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) {
@@ -183,11 +201,11 @@ describe("requireAuth — api_tokens.last_used_at", () => {
 
   it("a failing touch never breaks authentication", async () => {
     createAdminClientMock.mockReturnValue({
-      from: () => ({
+      from: (table: string) => ({
         select: () => ({
           eq: () => ({
             maybeSingle: async () => ({
-              data: {
+              data: table === "profiles" ? { workspace_id: "ws-1", role: "member" } : {
                 id: "tok-1",
                 workspace_id: "ws-1",
                 name: "agent",
@@ -211,5 +229,88 @@ describe("requireAuth — api_tokens.last_used_at", () => {
       }),
     });
     await expect(requireAuth(bearer())).resolves.toMatchObject({ type: "token", id: "tok-1" });
+  });
+});
+
+describe("requireAuth — token creator must still exist (D-ACC-2 / A1-4 / A2-6)", () => {
+  it("a token whose creator's profile is gone no longer authenticates (401)", async () => {
+    mockToken("gone-profile");
+    profileRow.current = null;
+    await expect(requireAuth(bearer())).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("a token whose creator now belongs to a different workspace is refused", async () => {
+    mockToken("moved-profile");
+    profileRow.current = { workspace_id: "ws-OTHER", role: "admin" };
+    await expect(requireAuth(bearer())).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("principalRole is the creator's CURRENT role", async () => {
+    mockToken("owner-profile-7");
+    profileRow.current = { workspace_id: "ws-1", role: "viewer" };
+    const actor = await requireAuth(bearer());
+    expect(actor.principalRole).toBe("viewer");
+  });
+
+  it("a legacy token with no creator keeps working with a null principalRole (no profile lookup)", async () => {
+    mockToken(null);
+    profileRow.current = null;
+    const actor = await requireAuth(bearer());
+    expect(actor.principalRole).toBeNull();
+  });
+
+  it("a session user's principalRole is their own role", async () => {
+    mockSession("user-42");
+    const actor = await requireAuth(cookieReq());
+    expect(actor.principalRole).toBe("member");
+  });
+});
+
+describe("requireAuth — failed bearer auth is rate limited per client IP before the lookup (A1-8)", () => {
+  const rpc = vi.fn();
+  function mockUnknownToken() {
+    createAdminClientMock.mockReturnValue({
+      rpc,
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      }),
+    });
+  }
+  const bearerFromIp = () =>
+    new Request("http://localhost/api/tasks", {
+      headers: { authorization: "Bearer npm_nope", "x-forwarded-for": "203.0.113.9" },
+    });
+
+  beforeEach(() => {
+    rpc.mockReset();
+    vi.stubEnv("NOPM_TRUSTED_PROXY_HOPS", "1");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("429s with the retry-after seconds when the IP is already over budget, without touching api_tokens", async () => {
+    const fromSpy = vi.fn();
+    createAdminClientMock.mockReturnValue({
+      rpc: async () => ({ data: { allowed: false, retry_after_seconds: 41 }, error: null }),
+      from: fromSpy,
+    });
+    const err = await requireAuth(bearerFromIp()).catch((e) => e);
+    expect(err.status).toBe(429);
+    expect(err.retryAfterSeconds).toBe(41);
+    expect(fromSpy).not.toHaveBeenCalled();
+  });
+
+  it("counts an unknown token against the IP", async () => {
+    mockUnknownToken();
+    rpc.mockResolvedValue({ data: { allowed: true, retry_after_seconds: 0 }, error: null });
+    await expect(requireAuth(bearerFromIp())).rejects.toMatchObject({ status: 401 });
+    expect(rpc).toHaveBeenCalledWith("nopm_rate_peek", expect.objectContaining({ p_key: "bearer-fail:203.0.113.9" }));
+    expect(rpc).toHaveBeenCalledWith("nopm_rate_check", expect.objectContaining({ p_key: "bearer-fail:203.0.113.9" }));
+  });
+
+  it("skips the IP cap when no trustworthy address exists", async () => {
+    vi.unstubAllEnvs();
+    mockUnknownToken();
+    await expect(requireAuth(bearer())).rejects.toMatchObject({ status: 401 });
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

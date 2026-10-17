@@ -70,6 +70,7 @@ export const POST = route(async ({ actor, request }) => {
   // project's notifications (change requests, approvals) into another tenant.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: parsed.data.owner_id, field: "owner_id" },
+    { table: "programs", id: parsed.data.program_id, field: "program_id" },
   ]);
 
   // A project is never BORN locked: locking snapshots the baselines and is

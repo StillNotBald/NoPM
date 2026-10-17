@@ -232,3 +232,22 @@ describe("invalidInputError — malformed ids and values are the caller's, not a
     expect(invalidInputError(new RuleError("invalid input syntax for type uuid"))).toBeNull();
   });
 });
+
+describe("toErrorResponse — Retry-After on every 429 (A1-7)", () => {
+  it("sets Retry-After from RateLimitError.retryAfterSeconds", async () => {
+    const { RateLimitError, toErrorResponse } = await import("./errors");
+    const res = toErrorResponse(new RateLimitError("slow down", "rate_limited", 17));
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("17");
+  });
+
+  it("falls back to 60 when no retry-after is given", async () => {
+    const { RateLimitError, toErrorResponse } = await import("./errors");
+    expect(toErrorResponse(new RateLimitError()).headers.get("Retry-After")).toBe("60");
+  });
+
+  it("sets no Retry-After on other statuses", async () => {
+    const { AuthError, toErrorResponse } = await import("./errors");
+    expect(toErrorResponse(new AuthError()).headers.get("Retry-After")).toBeNull();
+  });
+});

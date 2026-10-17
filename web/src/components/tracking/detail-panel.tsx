@@ -129,7 +129,6 @@ export function TaskDetailPanel({
   milestones,
   tasks = [],
   members,
-  isLocked = false,
 }: {
   task: Task;
   milestones: Milestone[];
@@ -261,8 +260,9 @@ export function TaskDetailPanel({
             <SelectInput
               id={`task-status-${task.id}`}
               value={currentStatusType}
-              disabled={statusSaving || isLocked}
-              title={isLocked ? "Timeline locked — rebaseline to change status" : undefined}
+              // A lock freezes schedule shape (dates, estimate, milestone), not
+              // status: the API accepts status changes on a locked project.
+              disabled={statusSaving}
               onChange={(e) =>
                 handleStatusChange(e.target.value as Task["status_type"])
               }

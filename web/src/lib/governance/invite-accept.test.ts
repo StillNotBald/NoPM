@@ -13,6 +13,7 @@ function fakeClient(overrides: {
   createUser?: InviteAcceptAdminClient["auth"]["admin"]["createUser"];
   deleteUser?: InviteAcceptAdminClient["auth"]["admin"]["deleteUser"];
   rpc?: InviteAcceptAdminClient["rpc"];
+  updateUserById?: InviteAcceptAdminClient["auth"]["admin"]["updateUserById"];
 } = {}): InviteAcceptAdminClient {
   return {
     auth: {
@@ -21,6 +22,7 @@ function fakeClient(overrides: {
           overrides.createUser ??
           vi.fn(async () => ({ data: { user: { id: "auth-user-1" } }, error: null })),
         deleteUser: overrides.deleteUser ?? vi.fn(async () => ({ error: null })),
+        updateUserById: overrides.updateUserById ?? vi.fn(async () => ({ error: null })),
       },
     },
     rpc: overrides.rpc ?? vi.fn(async () => ({ data: { profile_id: "auth-user-1", member_id: "m1", workspace_id: "ws1" }, error: null })),
@@ -98,8 +100,18 @@ describe("performInviteAccept — createUser failure (never reaches the rpc)", (
     const db = fakeClient({ createUser, rpc });
 
     await expect(performInviteAccept(db, INPUT)).rejects.toBeInstanceOf(RuleError);
-    expect(rpc).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalledWith("nopm_accept_invite", expect.anything());
     expect(db.auth.admin.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("a REAL account (auth user WITH a profile) stays email_exists and is never touched", async () => {
+    const createUser = vi.fn(async () => ({ data: { user: null }, error: { message: "x", code: "email_exists" } }));
+    const rpc = vi.fn(async () => ({ data: [{ user_id: "real-user", has_profile: true }], error: null }));
+    const db = fakeClient({ createUser, rpc });
+
+    await expect(performInviteAccept(db, INPUT)).rejects.toMatchObject({ code: "email_exists" });
+    expect(db.auth.admin.updateUserById).not.toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalledWith("nopm_accept_invite", expect.anything());
   });
 
   it("maps any other createUser failure to a 422, not a raw 500 (public endpoint)", async () => {
@@ -172,5 +184,40 @@ describe("performInviteAccept — FAILURE INJECTION: rpc fails after createUser 
     }
     expect(threw).toBe(true);
     expect(deleteUser).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D-ACC-3: retry after a half-finished accept (auth user created, no profile).
+// ---------------------------------------------------------------------------
+describe("performInviteAccept — retry after a stranded auth user (D-ACC-3)", () => {
+  const existsError = { message: "User already registered", code: "email_exists" };
+
+  function retryClient(acceptError: { code: string; message: string } | null = null) {
+    const createUser = vi.fn(async () => ({ data: { user: null }, error: existsError }));
+    const rpc = vi.fn(async (fn: string) => {
+      if (fn === "nopm_auth_user_for_invite") return { data: [{ user_id: "stranded-1", has_profile: false }], error: null };
+      return acceptError
+        ? { data: null, error: acceptError }
+        : { data: { profile_id: "stranded-1", member_id: "m1", workspace_id: "ws1" }, error: null };
+    });
+    return { db: fakeClient({ createUser, rpc }), rpc };
+  }
+
+  it("reuses the stranded user: sets the chosen password, then completes the accept RPC with that id", async () => {
+    const { db, rpc } = retryClient();
+    const result = await performInviteAccept(db, INPUT);
+    expect(result.workspace_id).toBe("ws1");
+    expect(db.auth.admin.updateUserById).toHaveBeenCalledWith("stranded-1", {
+      password: INPUT.password,
+      email_confirm: true,
+    });
+    expect(rpc).toHaveBeenCalledWith("nopm_accept_invite", expect.objectContaining({ p_auth_user_id: "stranded-1" }));
+  });
+
+  it("does NOT delete a reused identity when the RPC fails again (the next retry can pick it up)", async () => {
+    const { db } = retryClient({ code: "P0002", message: "NOT_FOUND" });
+    await expect(performInviteAccept(db, INPUT)).rejects.toBeInstanceOf(RuleError);
+    expect(db.auth.admin.deleteUser).not.toHaveBeenCalled();
   });
 });

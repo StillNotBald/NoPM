@@ -96,6 +96,7 @@ function pat(id: string, owner: string | null, scopes: string[]): Actor {
     workspaceId: WS,
     scopes,
     principalId: owner,
+    principalRole: owner ? "manager" : null,
     channel: "api",
     requestId: `req-${id}`,
   };
@@ -384,6 +385,7 @@ describe("a different human decides (the happy paths still work)", () => {
   });
 
   it("rebaseline: apply by a different human", async () => {
+    db.rows("projects")[0].is_locked = true; // a sign-off is for a locked project
     const res = await call(applyRebaseline, bobPat(), "rb-approved", {});
     expect(res.status).toBe(200);
     expect(db.rows("rebaselines").find((r) => r.id === "rb-approved")?.status).toBe("applied");
@@ -610,5 +612,31 @@ describe("every request-creation insert records the requester's principal and em
     await flush();
     const recipients = db.rows("notifications").map((n) => n.recipient_id);
     expect(recipients.sort()).toEqual([ALICE, BOB].sort());
+  });
+});
+
+// ── D-16: approving is for admins and managers only, on every channel ─────
+
+describe("D-16 — a member or viewer (or their token) cannot approve anything", () => {
+  const memberSession = (): Actor => ({ ...session(BOB), role: "member" });
+  const memberPat = (): Actor => ({ ...bobPat(), principalRole: "member" }) as Actor;
+  const viewerPat = (): Actor => ({ ...bobPat(), principalRole: "viewer" }) as Actor;
+
+  it("403 role_not_permitted on every approve / decide verb, nothing recorded", async () => {
+    for (const actor of [memberPat(), viewerPat()]) {
+      await expectForbidden(await call(approveDeletion, actor, "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
+      await expectForbidden(await call(rejectDeletion, actor, "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
+      await expectForbidden(
+        await call(decideChange, actor, "cr-1", { decision: "approve", rationale: "x" }),
+        "role_not_permitted",
+        "Only managers and admins can approve",
+      );
+      await expectForbidden(await call(decideTimesheet, actor, "ts-1", { decision: "approved" }), "role_not_permitted", "Only managers and admins can approve");
+      await expectForbidden(await call(signoff, actor, "rb-user", { vote: "go" }), "role_not_permitted", "Only managers and admins can approve");
+      await expectForbidden(await call(applyRebaseline, actor, "rb-approved", {}), "role_not_permitted", "Only managers and admins can approve");
+    }
+    await expectForbidden(await call(approveDeletion, memberSession(), "del-1", {}), "role_not_permitted", "Only managers and admins can approve");
+    expect(db.rows("audit_log")).toHaveLength(0);
+    expect(db.rpcCallsTo("nopm_commit_task_deletion")).toHaveLength(0);
   });
 });

@@ -17,13 +17,13 @@ const raiseStatusEnum = z.enum(RAISE_TIME_STATUSES, {
 
 export const createChangeRequestSchema = z.object({
   title: z.string().min(1, "title is required").max(255),
-  description: z.string().optional().nullable(),
+  description: z.string().max(10_000).optional().nullable(),
   category: categoryEnum.optional().default("scope"),
   priority: priorityEnum.optional().default("medium"),
   status: raiseStatusEnum.optional().default("raised"),
-  impact_summary: z.string().optional().nullable(),
-  impact_schedule_days: z.number().int().optional().nullable(),
-  impact_cost: z.number().optional().nullable(),
+  impact_summary: z.string().max(10_000).optional().nullable(),
+  impact_schedule_days: z.number().int().min(-36500).max(36500).optional().nullable(),
+  impact_cost: z.number().min(-999_999_999_999).max(999_999_999_999).optional().nullable(),
   target_date: z.string().date().optional().nullable(),
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
 });
@@ -34,12 +34,12 @@ export const createChangeRequestSchema = z.object({
 // the decider≠requester check is enforced. See SECURITY-REVIEW-2026-06-10.
 export const updateChangeRequestSchema = z.object({
   title: z.string().min(1).max(255).optional(),
-  description: z.string().optional().nullable(),
+  description: z.string().max(10_000).optional().nullable(),
   category: categoryEnum.optional(),
   priority: priorityEnum.optional(),
-  impact_summary: z.string().optional().nullable(),
-  impact_schedule_days: z.number().int().optional().nullable(),
-  impact_cost: z.number().optional().nullable(),
+  impact_summary: z.string().max(10_000).optional().nullable(),
+  impact_schedule_days: z.number().int().min(-36500).max(36500).optional().nullable(),
+  impact_cost: z.number().min(-999_999_999_999).max(999_999_999_999).optional().nullable(),
   target_date: z.string().date().optional().nullable(),
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
 });
@@ -48,7 +48,7 @@ export const decisionActionSchema = z.object({
   decision: z.enum(["approve", "reject", "defer"], {
     error: "decision must be approve, reject, or defer",
   }),
-  rationale: z.string().min(1, "rationale is required"),
+  rationale: z.string().min(1, "rationale is required").max(10_000),
   // Optimistic concurrency (R-90), opt-in: the `updated_at` of the change request
   // the decider was looking at. If it was edited since, the decision is refused
   // with 412 instead of approving content the approver never saw.

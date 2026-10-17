@@ -99,6 +99,8 @@ function pat(id: string, owner: string | null, scopes: string[] = SCOPES): Actor
     workspaceId: WS,
     scopes,
     principalId: owner,
+    // D-17: the human behind these test tokens is an admin (time-entry ownership rule).
+    principalRole: "admin",
     channel: "api",
     requestId: `req-${id}`,
   };
@@ -534,6 +536,10 @@ describe("M1 — timesheet subject cannot decide their own hours", () => {
 // ── M2: rebaseline states are terminal ────────────────────────────────────
 
 describe("M2 — rebaseline lifecycle", () => {
+  beforeEach(() => {
+    const p = db.rows("projects").find((r) => r.id === PROJECT);
+    if (p) p.is_locked = true; // apply needs a locked project (D11)
+  });
   const status = (id: string) => db.rows("rebaselines").find((r) => r.id === id)?.status;
 
   it("a REJECTED rebaseline cannot be revived by flipping a vote", async () => {
@@ -564,12 +570,12 @@ describe("M2 — rebaseline lifecycle", () => {
     expect(status("rb-pending")).toBe("approved");
   });
 
-  it("apply works once; the second apply is a 422 already_applied and re-snapshots nothing", async () => {
-    const snapshots = () => db.rpcCallsTo("nopm_apply_rebaseline_snapshot").length;
+  it("apply works once; the second apply is a 422 already_applied and runs the RPC only once", async () => {
+    const applies = () => db.rpcCallsTo("nopm_apply_rebaseline").length;
     expect((await call(applyRebaseline, bobPat(), "rb-approved", {})).status).toBe(200);
-    expect(snapshots()).toBe(1);
+    expect(applies()).toBe(1);
     await expectRule(await call(applyRebaseline, bobPat(), "rb-approved", {}), "already_applied");
-    expect(snapshots()).toBe(1);
+    expect(applies()).toBe(1);
     expect(status("rb-approved")).toBe("applied");
   });
 
@@ -579,17 +585,12 @@ describe("M2 — rebaseline lifecycle", () => {
       expect(res.status, id).toBe(422);
     }
     await expectRule(await call(applyRebaseline, bobPat(), "rb-applied", {}), "already_applied");
-    expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")).toHaveLength(0);
+    expect(db.rpcCallsTo("nopm_apply_rebaseline")).toHaveLength(0);
   });
 
-  it("losing the compare-and-set race on apply is a 422 and writes no audit row of its own", async () => {
-    db.afterNextSelect("rebaselines", (d) => {
-      d.rows("rebaselines").find((r) => r.id === "rb-approved")!.status = "applied";
-    });
+  it("losing the race on apply (the RPC finds it no longer approved) is a 422 and writes no audit row of its own", async () => {
+    db.rpcHandlers.nopm_apply_rebaseline = () => ({ data: null, error: { code: "P0001", message: "ALREADY_DECIDED" } });
     await expectRule(await call(applyRebaseline, bobPat(), "rb-approved", {}), "already_applied");
-    // The snapshot runs BEFORE the status flip (CR-gov P2-9) so a failed snapshot cannot strand an
-    // "applied" rebaseline; it is idempotent (baseline := current dates), so the loser's run is harmless.
-    expect(db.rpcCallsTo("nopm_apply_rebaseline_snapshot")).toHaveLength(1);
     expect(auditActions()).not.toContain("rebaseline.apply");
   });
 });

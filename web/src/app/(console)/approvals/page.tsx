@@ -11,7 +11,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
-import { describeDeletionTarget, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
+import { describeDeletionTarget, describeChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
+import { ChildCountsNote } from "@/components/review/child-counts-note";
 import { judgeDecision } from "@/lib/review/four-eyes";
 import { DECIDED_PAGE_SIZE, PENDING_CAP, pageWindow, parsePage } from "./_paging";
 
@@ -83,6 +84,9 @@ function TargetSummary({
           <span className="text-ink-muted">Reason:</span> <span className="italic">{req.reason}</span>
         </p>
       )}
+      {req.target_type === "project" && req.status === "pending" && (
+        <ChildCountsNote lines={describeChildCounts(req.before)} />
+      )}
       {!target.name && (
         <code className="mt-1 inline-block rounded bg-sunken px-1.5 py-0.5 font-mono text-2xs text-ink-secondary">
           {shortId(req.target_id)}
@@ -119,7 +123,7 @@ export default async function ApprovalsPage({
       .limit(PENDING_CAP),
     db.from("deletion_requests").select("id", { count: "exact", head: true }).neq("status", "pending"),
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
-    db.from("projects").select("id, name"),
+    db.from("projects").select("id, name, is_locked"),
   ]);
 
   if (pendingRes.error) return <QueryError what="approval requests" message={pendingRes.error.message} />;
@@ -143,6 +147,9 @@ export default async function ApprovalsPage({
   const viewer = { id: user.id, role: (viewerProfile?.role as string | null | undefined) ?? null };
   const projectName = new Map<string, string>((projects ?? []).map((p) => [p.id as string, p.name as string]));
 
+  const lockedProjects = new Set<string>(
+    (projects ?? []).filter((p) => (p as { is_locked?: boolean }).is_locked).map((p) => p.id as string),
+  );
   const pending = (pendingRes.data ?? []) as DeletionRequest[];
   const pendingCapped = pending.length >= PENDING_CAP;
   const rows = view === "pending" ? pending : decided;
@@ -153,7 +160,15 @@ export default async function ApprovalsPage({
   const stateOf = new Map<string, DecideState>(
     pending.map((r) => [
       r.id,
-      judgeDecision({ viewer, kind: r.target_type === "project" ? "project_deletion" : "task_deletion", row: r }),
+      judgeDecision({
+        viewer,
+        kind: r.target_type === "project" ? "project_deletion" : "task_deletion",
+        row: r,
+        projectLocked: (() => {
+          const pid = describeDeletionTarget(r).projectId;
+          return !!pid && lockedProjects.has(pid);
+        })(),
+      }),
     ]),
   );
   const mine = pending.filter((r) => stateOf.get(r.id)?.canDecide);

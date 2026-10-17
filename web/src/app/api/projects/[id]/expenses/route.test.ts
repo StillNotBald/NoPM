@@ -1,0 +1,55 @@
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { NextRequest } from "next/server";
+import type { Actor } from "@/lib/auth/guard";
+
+const h = vi.hoisted(() => ({ inserted: [] as Record<string, unknown>[] }));
+vi.mock("@/lib/audit/write", () => ({ writeAudit: vi.fn(async () => {}) }));
+vi.mock("@/lib/auth/guard", async (orig) => ({
+  ...(await orig<typeof import("@/lib/auth/guard")>()),
+  requireAuth: vi.fn(async (): Promise<Actor> => ({
+    type: "user", id: "u", label: "u", workspaceId: "w", role: "manager", principalId: "u",
+  })),
+}));
+vi.mock("@/lib/supabase/admin", () => ({
+  createAdminClient: () => ({
+    rpc: async () => ({ data: { allowed: true }, error: null }),
+    from: (table: string) => {
+      const b: Record<string, unknown> = {};
+      for (const m of ["select", "eq", "order", "range"]) b[m] = () => b;
+      b.insert = (row: Record<string, unknown>) => {
+        h.inserted.push(row);
+        return { select: () => ({ single: async () => ({ data: { id: "e1", ...row }, error: null }) }) };
+      };
+      b.maybeSingle = async () => ({ data: table === "projects" ? { id: "p" } : null });
+      return b;
+    },
+  }),
+}));
+
+import { POST } from "./route";
+
+const call = (body: unknown) =>
+  POST(
+    new NextRequest("http://localhost/api/projects/p/expenses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ id: "p" }) },
+  );
+
+beforeEach(() => {
+  h.inserted.length = 0;
+});
+
+describe("POST /api/projects/:id/expenses", () => {
+  it("omits incurred_on (never NULL) so the DB default of today applies", async () => {
+    const res = await call({ description: "Cab", amount: 12 });
+    expect(res.status).toBe(201);
+    expect("incurred_on" in h.inserted[0]).toBe(false);
+  });
+  it("keeps an explicit incurred_on", async () => {
+    await call({ description: "Cab", amount: 12, incurred_on: "2026-10-01" });
+    expect(h.inserted[0].incurred_on).toBe("2026-10-01");
+  });
+});

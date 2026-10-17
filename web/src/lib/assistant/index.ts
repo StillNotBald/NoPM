@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decrypt } from "@/lib/crypto";
 import type { Actor } from "@/lib/auth/guard";
+import { ApiError, RateLimitError } from "@/lib/api/errors";
 import { chat, chatStream, type Provider, type ProviderMessage } from "./providers/index";
 import { TOOLS } from "./tools";
 import { mintEphemeralToken, revokeEphemeralToken } from "./token";
@@ -66,45 +67,127 @@ export function boundHistory<T>(history: T[]): T[] {
   return history.length > MAX_HISTORY_MESSAGES ? history.slice(-MAX_HISTORY_MESSAGES) : history;
 }
 
+/** Per-client-address cap on demo-key turns, on top of the shared per-user cap (A1-12). */
+const DEMO_IP_LIMIT = 8;
+
+/** The demo cap is spent (HTTP 429 + Retry-After). Thrown, never a generic 500 or a mid-reply error. */
+export class DemoQuotaExceededError extends RateLimitError {
+  constructor(
+    public readonly retryAfterSeconds: number,
+    message = "Demo key rate limit exceeded. Please add your own API key in Settings.",
+  ) {
+    super(message);
+  }
+}
+
+/** The counter store failed: the demo cap fails CLOSED (HTTP 503), never open. */
+export class DemoQuotaUnavailableError extends ApiError {
+  constructor() {
+    super(503, "The demo assistant is unavailable right now. Please try again shortly.", "demo_quota_unavailable");
+  }
+}
+
+/** Seconds until the shared per-user demo window resets (best effort; the full window if unknown). */
+async function demoWindowRetrySeconds(db: ReturnType<typeof createAdminClient>, userId: string): Promise<number> {
+  try {
+    const { data } = await db.from("assistant_demo_usage").select("window_start").eq("user_id", userId).maybeSingle();
+    const start = data?.window_start ? new Date(data.window_start as string).getTime() : NaN;
+    if (Number.isFinite(start)) {
+      return Math.max(1, Math.min(DEMO_WINDOW_SECS, DEMO_WINDOW_SECS - Math.floor((Date.now() - start) / 1000)));
+    }
+  } catch {
+    /* fall through */
+  }
+  return DEMO_WINDOW_SECS;
+}
+
 /**
- * Durable per-user demo-key rate limit. Backed by a service-role-only table +
- * row-locked SQL function, so the owner-key cap holds across serverless
- * instances and cold starts (an in-memory Map did not). Fail-open on a transient
- * DB error — this is best-effort cost protection, not an auth control. Exported
- * so the chat route can pass it (bound to the caller's actor) into the
- * fallback's injected `rateCheck`.
+ * Durable demo-key rate limit, FAIL-CLOSED (A1-12). Two buckets, both held in
+ * service-role-only tables so the cap survives serverless instances and cold
+ * starts:
+ *  - per client address (`ipKey`, from lib/api/client-ip.ts) so one visitor
+ *    cannot spend everyone's quota; skipped only when no address can be trusted;
+ *  - per user (nopm_demo_rate_check), which for the shared demo login is the
+ *    global cap.
+ * A counter-store error refuses the call (503): the cap is cost protection for
+ * the maintainer's key, and "the counter is down" must not mean "unlimited".
+ * Exported so the chat route can pass it into the fallback's `rateCheck`.
  */
 export async function checkDemoRateLimit(
   db: ReturnType<typeof createAdminClient>,
   userId: string,
+  opts: { ipKey?: string | null } = {},
 ): Promise<void> {
+  if (opts.ipKey) {
+    const { data, error } = await db.rpc("nopm_rate_check", {
+      p_key: `assistant-demo:ip:${opts.ipKey}`,
+      p_max: DEMO_IP_LIMIT,
+      p_window_seconds: DEMO_WINDOW_SECS,
+    });
+    if (error) {
+      console.error("[nopm][assistant] demo per-address rate-limit RPC failed - FAILING CLOSED", {
+        rpc: "nopm_rate_check",
+        error: error.message,
+        at: new Date().toISOString(),
+      });
+      throw new DemoQuotaUnavailableError();
+    }
+    const rate = data as { allowed?: boolean; retry_after_seconds?: number } | null;
+    if (!rate || rate.allowed !== true) {
+      throw new DemoQuotaExceededError(Math.max(1, rate?.retry_after_seconds ?? DEMO_WINDOW_SECS));
+    }
+  }
+
   const { data, error } = await db.rpc("nopm_demo_rate_check", {
     p_user: userId,
     p_limit: DEMO_LIMIT,
     p_window_secs: DEMO_WINDOW_SECS,
   });
   if (error) {
-    // Fail-open (best-effort cost protection, not an auth control) — but
-    // make the failure LOUD in server logs so a cap that's silently not
-    // enforcing shows up as a cost anomaly, not a mystery.
-    console.error(
-      "[nopm][assistant] demo rate-limit RPC failed — FAILING OPEN (cap not enforced this call)",
-      { userId, rpc: "nopm_demo_rate_check", error: error.message, at: new Date().toISOString() },
-    );
-    return;
+    console.error("[nopm][assistant] demo rate-limit RPC failed - FAILING CLOSED", {
+      userId,
+      rpc: "nopm_demo_rate_check",
+      error: error.message,
+      at: new Date().toISOString(),
+    });
+    throw new DemoQuotaUnavailableError();
   }
   if (data === false) {
-    throw new Error("Demo key rate limit exceeded. Please add your own API key in Settings.");
+    throw new DemoQuotaExceededError(await demoWindowRetrySeconds(db, userId));
   }
 }
 
+/**
+ * Per-turn quota state: the demo counter is charged AT MOST ONCE per user turn
+ * (D-ACC-10). Provider resolution charges it; if the real provider then fails
+ * and the grounded fallback answers, the fallback's check is a no-op instead of
+ * a second charge.
+ */
+export type TurnQuota = { ipKey: string | null; charged: boolean };
+
+export function newTurnQuota(ipKey: string | null = null): TurnQuota {
+  return { ipKey, charged: false };
+}
+
+export async function chargeTurnQuota(
+  db: ReturnType<typeof createAdminClient>,
+  userId: string,
+  quota: TurnQuota,
+): Promise<void> {
+  if (quota.charged) return;
+  await checkDemoRateLimit(db, userId, { ipKey: quota.ipKey });
+  quota.charged = true;
+}
+
 /** Resolve the LLM provider+key+model for this user. */
-async function resolveProvider(actor: Actor): Promise<{
+export type ResolvedProvider = {
   provider: Provider;
   apiKey: string;
   model: string;
   usedDemoKey: boolean;
-}> {
+};
+
+export async function resolveProvider(actor: Actor, quota: TurnQuota = newTurnQuota()): Promise<ResolvedProvider> {
   const db = createAdminClient();
   const { data: cred } = await db
     .from("assistant_credentials")
@@ -134,7 +217,7 @@ async function resolveProvider(actor: Actor): Promise<{
     );
   }
 
-  await checkDemoRateLimit(db, actor.id);
+  await chargeTurnQuota(db, actor.id, quota);
 
   return { provider: demoProvider, apiKey: demoKey, model: demoModel, usedDemoKey: true };
 }
@@ -214,10 +297,18 @@ export async function runAssistant(opts: {
    *  internal tool-call fetches so their audit rows correlate back to this
    *  request rather than each minting its own id (R-82). */
   requestId?: string;
+  /** The conversation this turn belongs to; written on the token mint/revoke audit rows (A3-14). */
+  conversationId?: string | null;
+  /** Filled with every action as it runs, so the caller still has them if the turn throws (D-ACC-8). */
+  actionLog?: Action[];
+  /** Per-turn demo-quota state shared with the fallback (D-ACC-10). */
+  quota?: TurnQuota;
+  /** Provider already resolved (and its quota already charged) by the caller. */
+  resolved?: ResolvedProvider;
 }): Promise<AssistantResult> {
-  const { actor, message, history, origin, requestId } = opts;
+  const { actor, message, history, origin, requestId, conversationId = null } = opts;
 
-  const { provider, apiKey, model, usedDemoKey } = await resolveProvider(actor);
+  const { provider, apiKey, model, usedDemoKey } = opts.resolved ?? (await resolveProvider(actor, opts.quota));
 
   const toolDefs = TOOLS.map((t) => t.definition);
 
@@ -227,12 +318,12 @@ export async function runAssistant(opts: {
     { role: "user" as const, content: message },
   ];
 
-  const actions: Action[] = [];
+  const actions: Action[] = opts.actionLog ?? [];
   let ephemeral: { raw: string; id: string } | null = null;
   let toolCallsExecuted = 0;
 
   try {
-    ephemeral = await mintEphemeralToken(actor);
+    ephemeral = await mintEphemeralToken(actor, { conversationId });
 
     const MAX_STEPS = 6;
 
@@ -377,7 +468,7 @@ export async function runAssistant(opts: {
     };
   } finally {
     if (ephemeral) {
-      await revokeEphemeralToken(ephemeral.id);
+      await revokeEphemeralToken(ephemeral.id, { actor, conversationId });
     }
   }
 }
@@ -399,14 +490,26 @@ export async function runAssistantStream(opts: {
   origin: string;
   /** See runAssistant's requestId — same forwarding, streaming variant. */
   requestId?: string;
+  /** See runAssistant. */
+  conversationId?: string | null;
+  actionLog?: Action[];
+  quota?: TurnQuota;
+  resolved?: ResolvedProvider;
 }): Promise<{
   actions: Action[];
   usedDemoKey: boolean;
   textChunks: AsyncIterable<string>;
+  /**
+   * Revoke the turn's ephemeral token now. Idempotent. The caller MUST call it
+   * when it stops consuming `textChunks` for any reason (client gone before
+   * iteration, error, timeout): the generator's own `finally` only runs once
+   * iteration has started (A1-10).
+   */
+  release: () => Promise<void>;
 }> {
-  const { actor, message, history, origin, requestId } = opts;
+  const { actor, message, history, origin, requestId, conversationId = null } = opts;
 
-  const { provider, apiKey, model, usedDemoKey } = await resolveProvider(actor);
+  const { provider, apiKey, model, usedDemoKey } = opts.resolved ?? (await resolveProvider(actor, opts.quota));
 
   const toolDefs = TOOLS.map((t) => t.definition);
 
@@ -416,7 +519,7 @@ export async function runAssistantStream(opts: {
     { role: "user" as const, content: message },
   ];
 
-  const actions: Action[] = [];
+  const actions: Action[] = opts.actionLog ?? [];
   let ephemeral: { raw: string; id: string } | null = null;
   let toolCallsExecuted = 0;
 
@@ -426,7 +529,7 @@ export async function runAssistantStream(opts: {
   // stream that final completion.
 
   try {
-    ephemeral = await mintEphemeralToken(actor);
+    ephemeral = await mintEphemeralToken(actor, { conversationId });
 
     const MAX_STEPS = 6;
     let finalMessages: ProviderMessage[] | null = null; // messages to pass into the final stream call
@@ -543,6 +646,12 @@ export async function runAssistantStream(opts: {
 
     // Build the streaming AsyncIterable for the final text
     const capturedEphemeral = ephemeral;
+    let released = false;
+    const release = async (): Promise<void> => {
+      if (released) return;
+      released = true;
+      await revokeEphemeralToken(capturedEphemeral.id, { actor, conversationId });
+    };
 
     async function* generateChunks(): AsyncIterable<string> {
       try {
@@ -564,20 +673,18 @@ export async function runAssistantStream(opts: {
         }
       } finally {
         // Revoke ephemeral token after streaming finishes (or on error)
-        if (capturedEphemeral) {
-          await revokeEphemeralToken(capturedEphemeral.id);
-        }
+        await release();
       }
     }
 
     // Transfer ownership — outer finally must NOT revoke (the generator does it)
     ephemeral = null;
 
-    return { actions, usedDemoKey, textChunks: generateChunks() };
+    return { actions, usedDemoKey, textChunks: generateChunks(), release };
   } finally {
     // Only runs if we error before returning (ephemeral still set)
     if (ephemeral) {
-      await revokeEphemeralToken(ephemeral.id);
+      await revokeEphemeralToken(ephemeral.id, { actor, conversationId });
     }
   }
 }

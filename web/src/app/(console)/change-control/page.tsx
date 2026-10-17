@@ -12,7 +12,7 @@ import { ChangeTable } from "@/components/change-control/change-table";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
 import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
 import type { ChangeRequest } from "@/components/change-control/change-form";
-import { judgeDecision } from "@/lib/review/four-eyes";
+import { judgeDecision, canEditChangeRequest } from "@/lib/review/four-eyes";
 
 export const metadata = { title: "Change Control" };
 
@@ -70,7 +70,12 @@ export default async function ChangeControlPage({
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { requested_by_type, requested_by_id, requested_principal_id, ...row } = raw;
     const open = row.status === "raised" || row.status === "under_review";
-    return open ? { ...row, decide: judgeDecision({ viewer, kind: "change_request", row: raw }) } : row;
+    const canEdit = canEditChangeRequest({
+      viewerId: user.id,
+      status: row.status,
+      requestedPrincipalId: requested_principal_id,
+    });
+    return open ? { ...row, canEdit, decide: judgeDecision({ viewer, kind: "change_request", row: raw }) } : { ...row, canEdit };
   });
   const projectId =
     rawProject && (projects ?? []).some((p) => p.id === rawProject) ? rawProject : "";

@@ -1,5 +1,3 @@
-import { authenticator } from "otplib";
-import { createHash } from "node:crypto";
 import { cookies } from "next/headers";
 import { route } from "@/lib/api/handler";
 import { AuthError, RateLimitError, RuleError } from "@/lib/api/errors";
@@ -9,6 +7,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { issueMfaCookie, computeEnrollmentBinding, MFA_COOKIE_NAME } from "@/lib/auth/mfa";
+import { consumeTotp, hashBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
 import { challengeMfaSchema } from "../_schema";
 
 export const runtime = "nodejs";
@@ -44,6 +43,9 @@ export const POST = route(async ({ actor, request }) => {
 
   const db = createAdminClient();
 
+  // D-ACC-19: shared per-account attempt budget (all outcomes count) -> 429 + Retry-After.
+  await spendMfaAttempt(db, actor.id);
+
   // Attempt cap: 5 failed challenges per 10 minutes per user. No dedicated
   // counter table — this is the only caller of `auth.mfa.challenge_failed`,
   // so a short-window count query against audit_log is cheap and needs no
@@ -59,6 +61,8 @@ export const POST = route(async ({ actor, request }) => {
   if ((count ?? 0) >= ATTEMPT_LIMIT) {
     throw new RateLimitError(
       `Too many MFA attempts. Try again in ${ATTEMPT_WINDOW_MINUTES} minutes.`,
+      "rate_limited",
+      ATTEMPT_WINDOW_MINUTES * 60,
     );
   }
 
@@ -77,10 +81,13 @@ export const POST = route(async ({ actor, request }) => {
   // fallback verify/route.ts uses for a pre-encryption enrollment.
   const secret =
     mfa.totp_secret.split(".").length === 3 ? decrypt(mfa.totp_secret) : mfa.totp_secret;
-  const validTotp = authenticator.verify({ token: code, secret });
+  // A correct code whose 30-second step was already used is a replay (D-ACC-19):
+  // treated exactly like a wrong code (audited as challenge_failed, counts toward the cap).
+  const totp = await consumeTotp(db, actor.id, secret, code);
+  const validTotp = totp === "ok";
 
   const backupCodes: string[] = mfa.backup_codes ?? [];
-  const codeHash = createHash("sha256").update(code).digest("hex");
+  const codeHash = hashBackupCode(code);
   const usedBackupCode = !validTotp && backupCodes.includes(codeHash);
 
   if (!validTotp && !usedBackupCode) {

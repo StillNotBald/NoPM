@@ -5,6 +5,7 @@ import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
 export const runtime = "nodejs";
 
@@ -76,6 +77,15 @@ export const POST = route(async ({ actor, params, request }) => {
     );
   }
 
+  // D-WRK-12: a retry with the same Idempotency-Key returns the first expense.
+  const idem = await withIdempotency(
+    {
+      workspaceId: actor.workspaceId,
+      actorId: actor.id,
+      key: readIdempotencyKey(request),
+      route: "POST /api/projects/:id/expenses",
+    },
+    async () => {
   const { data: row, error } = await db
     .from("expenses")
     .insert({
@@ -84,7 +94,8 @@ export const POST = route(async ({ actor, params, request }) => {
       description: parsed.data.description,
       amount: parsed.data.amount,
       category: parsed.data.category ?? null,
-      incurred_on: parsed.data.incurred_on ?? null,
+      // incurred_on is NOT NULL with a DB default of today: omit the key when not sent (never an explicit NULL).
+      ...(parsed.data.incurred_on ? { incurred_on: parsed.data.incurred_on } : {}),
     })
     .select()
     .single();
@@ -103,5 +114,9 @@ export const POST = route(async ({ actor, params, request }) => {
     after: row,
   });
 
-  return created(row);
+  return row;
+    },
+  );
+
+  return created(idem.result);
 });

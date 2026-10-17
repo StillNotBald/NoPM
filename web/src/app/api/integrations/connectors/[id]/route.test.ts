@@ -8,6 +8,13 @@ const { writeAuditMock, requireAuthMock } = vi.hoisted(() => ({
   writeAuditMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),
   requireAuthMock: vi.fn(),
 }));
+const { catchUpMock } = vi.hoisted(() => ({ catchUpMock: vi.fn(async () => ({ considered: 0 })) }));
+vi.mock("@/lib/integrations/catchup", () => ({ catchUpPendingApprovals: catchUpMock }));
+vi.mock("@/lib/integrations/emit", () => ({
+  schedule: (_label: string, _ws: string, task: () => Promise<unknown>) => {
+    void task();
+  },
+}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
 vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
 vi.mock("@/lib/auth/guard", async (importOriginal) => ({
@@ -64,6 +71,7 @@ beforeEach(() => {
   vi.stubEnv("NOPM_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
   vi.spyOn(console, "error").mockImplementation(() => {});
   writeAuditMock.mockReset();
+  catchUpMock.mockClear();
   writeAuditMock.mockResolvedValue(undefined);
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue(admin());
@@ -102,6 +110,21 @@ describe("PATCH /api/integrations/connectors/[id]", () => {
     connectorInDb().status = "paused";
     expect((await patch({ status: "active" })).status).toBe(200);
     expect(connectorInDb().status).toBe("active");
+  });
+
+  it("resuming queues cards for requests raised while it was paused (D-ACC-7), in this workspace", async () => {
+    connectorInDb().status = "paused";
+    await patch({ status: "active" });
+    expect(catchUpMock).toHaveBeenCalledTimes(1);
+    expect(catchUpMock).toHaveBeenCalledWith(WS);
+  });
+
+  it("pausing, renaming or re-saving an active connector does not trigger a catch-up", async () => {
+    await patch({ status: "paused" });
+    connectorInDb().status = "active";
+    await patch({ name: "Again" });
+    await patch({ status: "active" });
+    expect(catchUpMock).not.toHaveBeenCalled();
   });
 
   it("shallow-merges config: a partial digest change keeps the rest", async () => {
@@ -251,13 +274,37 @@ describe("DELETE /api/integrations/connectors/[id] (revoke)", () => {
     expect(states).toEqual({ "d-pending": "superseded", "d-retry": "superseded", "d-sent": "sent" });
     expect(db.rows("identity_link_codes").map((c) => c.id)).toEqual(["code-used"]);
 
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    expect(lastAudit()).toMatchObject({
+    // The audit row is written INSIDE the revoke transaction (RPC), not by the route.
+    expect(writeAuditMock).not.toHaveBeenCalled();
+    const audits = db.rows("audit_log");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
       action: "integration.connector.revoke",
-      targetId: CONNECTOR_ID,
+      target_id: CONNECTOR_ID,
       before: { status: "active" },
       after: { status: "revoked", identities_revoked: 2, deliveries_superseded: 2 },
     });
+  });
+
+  it("is atomic (D-ACC-6): when the revoke transaction fails nothing is revoked and no audit row exists", async () => {
+    linkIdentity(db, ids.manager, "ou_max");
+    db.seed("integration_deliveries", [
+      { id: "d-pending", workspace_id: WS, connector_id: CONNECTOR_ID, kind: "digest", status: "pending" },
+    ]);
+    db.failRevokeRpc = { message: "boom" };
+
+    const res = await del();
+
+    expect(res.status).toBe(500);
+    expect(connectorInDb().status).toBe("active");
+    expect(db.rows("external_identities").every((i) => i.revoked_at === null)).toBe(true);
+    expect(db.rows("integration_deliveries")[0].status).toBe("pending");
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+
+  it("a revoke that loses a race to another revoke is a 422, not a 500", async () => {
+    db.failRevokeRpc = { message: "CONNECTOR_REVOKED" };
+    expect((await del()).status).toBe(422);
   });
 
   it("leaves another workspace's data untouched", async () => {
@@ -275,7 +322,7 @@ describe("DELETE /api/integrations/connectors/[id] (revoke)", () => {
     expect((await del()).status).toBe(200);
     const again = await del();
     expect(again.status).toBe(422);
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    expect(db.rows("audit_log")).toHaveLength(1);
   });
 
   it("is admin-only and 404s for unknown ids", async () => {

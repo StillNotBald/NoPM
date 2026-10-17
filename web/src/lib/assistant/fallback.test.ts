@@ -236,7 +236,43 @@ describe("runAssistantFallback — ephemeral token lifecycle", () => {
 
     expect(mintEphemeralToken).toHaveBeenCalledTimes(1);
     expect(revokeEphemeralToken).toHaveBeenCalledTimes(1);
-    expect(revokeEphemeralToken).toHaveBeenCalledWith("tok_id_fallback");
+    expect(revokeEphemeralToken).toHaveBeenCalledWith(
+      "tok_id_fallback",
+      expect.objectContaining({ actor: expect.objectContaining({ id: "usr_demo" }) }),
+    );
+  });
+
+  it("keeps the actions the failed turn already ran: listed in the reply and ahead of its own reads (D-ACC-8)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { data: [], total: 0, page: 1, limit: 5 })));
+    const prior = [
+      { tool: "create_task", args: { name: "Ship" }, ok: true, summary: 'Created task "Ship"' },
+      { tool: "create_risk", args: {}, ok: false, summary: "create_risk failed: nope" },
+    ];
+
+    const result = await runAssistantFallback({
+      actor: testActor(),
+      message: "hello",
+      origin: "http://localhost:3000",
+      rateCheck: async () => {},
+      priorActions: prior,
+    });
+
+    expect(result.reply).toContain("had already been carried out");
+    expect(result.reply).toContain('- Created task "Ship"');
+    expect(result.reply).toContain("- create_risk failed: nope");
+    expect(result.actions.slice(0, 2)).toEqual(prior);
+    expect(result.actions.length).toBeGreaterThan(2);
+  });
+
+  it("adds nothing when no earlier action ran", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(200, { data: [], total: 0, page: 1, limit: 5 })));
+    const result = await runAssistantFallback({
+      actor: testActor(),
+      message: "hello",
+      origin: "http://localhost:3000",
+      rateCheck: async () => {},
+    });
+    expect(result.reply).not.toContain("had already been carried out");
   });
 
   it("still revokes the token when a tool call throws", async () => {

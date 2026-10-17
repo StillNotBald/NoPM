@@ -84,6 +84,7 @@ function pat(id: string, owner: string | null, scopes: string[], over: Partial<A
     workspaceId: WS,
     scopes,
     principalId: owner,
+    principalRole: owner ? "manager" : null,
     channel: "api",
     requestId: `req-${id}`,
     ...over,
@@ -520,6 +521,21 @@ describe("approveDeletion", () => {
       const actions = db.rows("audit_log").map((a) => a.action);
       expect(actions).toEqual(["deletion_request.withdrawn"]); // no task.delete naming the approver
       expect(db.rows("audit_log")[0].after).toMatchObject({ status: "withdrawn", reason: "target_gone" });
+    });
+    it("A3-5: if the close cannot be audited it fails closed — the request goes back to pending and the audit error surfaces", async () => {
+      failWith("P0017", "TARGET_GONE: the task no longer exists");
+      const realFrom = db.client.from;
+      db.client.from = (table: string) => {
+        if (table === "audit_log") {
+          return {
+            insert: () => ({ then: (res: (v: unknown) => unknown) => Promise.resolve({ data: null, error: { message: "audit down" } }).then(res) }),
+          } as never;
+        }
+        return realFrom(table);
+      };
+      await expect(approveDeletion(bobPat(), "del-1")).rejects.toThrow(/Fail-closed audit write failed/);
+      const req = db.rows("deletion_requests").find((r) => r.id === "del-1")!;
+      expect(req.status).toBe("pending"); // not closed without a trail
     });
     it("P0017 on a project deletion maps the same way", async () => {
       db.rows("deletion_requests")[0] = deletionRow({
@@ -1011,6 +1027,19 @@ describe("decideApproval", () => {
   /** A chat-connector actor: a verified linked profile, channel derived server-side. */
   const larkActor = (id = BOB) =>
     session(id, { channel: "lark", viaConnectorId: "conn-1", externalEventId: "evt-1", externalActorRef: "lark:tenant:ou_x" });
+
+  it("D-16: a member or viewer (session or token principal) is 403 role_not_permitted on every kind and verb", async () => {
+    for (const actor of [larkActor(BOB), bobPat()]) {
+      const demoted = { ...actor, ...(actor.type === "user" ? { role: "member" } : { principalRole: "viewer" }) } as Actor;
+      for (const [kind, id] of [["task_deletion", "del-1"], ["change_request", "cr-1"], ["timesheet", "ts-1"]] as const) {
+        for (const action of ["approve", "reject"] as const) {
+          const err = await caught(decideApproval(demoted, { kind, id }, action, "because"));
+          expect([err.status, err.code, err.message]).toEqual([403, "role_not_permitted", "Only managers and admins can approve"]);
+        }
+      }
+    }
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
 
   it("reject requires a non-empty note, for every kind (422 rationale_required)", async () => {
     for (const kind of ["task_deletion", "project_deletion", "change_request", "timesheet"] as const) {
