@@ -57,7 +57,7 @@ export type WebhookDeps = {
   loadConnector(connectorId: string): Promise<ConnectorRow | null>;
   /** Decrypt the connector's stored secrets; may throw. */
   readSecrets(connector: ConnectorRow): LarkSecrets;
-  /** DB-backed fixed-window counter; fail-open on infrastructure errors. */
+  /** DB-backed fixed-window counter; fail-CLOSED on infrastructure errors (the production binding refuses the request). */
   rateCheck(key: string, max: number): Promise<{ allowed: boolean; retryAfterSeconds: number }>;
   /**
    * A rate-limit key for the caller's network (`ipRateKey`), or null when no

@@ -81,9 +81,11 @@ async function rateCheck(
  *        returned to Lark VERBATIM as the callback response ({ toast, card }),
  *        hence not wrapped in { data }; ping -> { data: { ok, connector_id, mode, status } }.
  * Errors use the standard { error, code } contract:
- *        401 invalid_relay_signature | stale_relay_timestamp | no_relay_secret
- *        (an unknown connector id is the same 401 invalid_relay_signature: before
- *        the HMAC is checked nothing says whether a connector exists),
+ *        401 invalid_relay_signature, the ONE answer to every failure before the
+ *        caller is authenticated (unknown connector id, wrong or missing
+ *        signature, stale timestamp, a connector with no relay secret): before
+ *        the HMAC is checked nothing says whether a connector exists or which
+ *        mode it is in. The reason is logged server-side only (F3, 2026-10-17),
  *        403 connector_inactive | wrong_mode (authenticated callers only),
  *        404 connector_not_found (a malformed id only), 413 body_too_large,
  *        422 invalid_relay_request, 429 rate_limited, 503 connector_unavailable
@@ -144,6 +146,7 @@ export const POST = route(
     const rawBody = capped.text;
 
     if (!found) {
+      console.warn("[nopm][lark-relay] rejected relay request", { connector: connectorId, reason: "unknown_connector" });
       verifyRelaySignature({
         secretHash: DECOY_RELAY_HASH,
         timestamp: request.headers.get(RELAY_TIMESTAMP_HEADER),
@@ -163,16 +166,8 @@ export const POST = route(
     if (!verdict.ok) {
       // No body, header or secret in the log line — connector id and reason only.
       console.warn("[nopm][lark-relay] rejected relay request", { connector: connector.id, reason: verdict.reason });
-      if (verdict.reason === "stale") {
-        throw new ApiError(
-          401,
-          "Relay timestamp is outside the allowed window; check the clock on the machine running the worker",
-          RELAY_ERROR_CODES.staleTimestamp,
-        );
-      }
-      if (verdict.reason === "no_secret") {
-        throw new ApiError(401, "This connector has no relay secret", RELAY_ERROR_CODES.noSecret);
-      }
+      // One generic answer whatever the reason (stale clock, no relay secret, bad signature): an
+      // unauthenticated caller must not learn which connector ids exist or which are relay-mode.
       throw new ApiError(401, "Invalid relay signature", RELAY_ERROR_CODES.invalidSignature);
     }
 

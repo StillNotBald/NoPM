@@ -19,6 +19,7 @@ import {
   sendWeeklyDigestIfDue,
   verifyCronAuth,
 } from "./cron";
+import { RECONCILE_LIMIT_PER_TICK } from "./catchup";
 import { LARK_CALL_TIMEOUT_MS } from "./lark/client";
 import type { ConnectorRow } from "./types";
 import {
@@ -30,6 +31,7 @@ import {
   connectorRow,
   createFakeAdapter,
   ids,
+  linkIdentity,
   seedWorkspace,
 } from "./test-support";
 
@@ -800,5 +802,106 @@ describe("sendWeeklyDigestIfDue (standalone)", () => {
     expect(await sendWeeklyDigestIfDue(cfg, new Date())).toBe("sent");
     expect(await sendWeeklyDigestIfDue(cfg, new Date())).toBe("skipped");
     expect(fake.calls.sends).toHaveLength(1);
+  });
+});
+
+describe("runCron — lost-emit reconciliation (F1)", () => {
+  const oldIso = () => new Date(Date.now() - 2 * 3600_000).toISOString();
+  const cards = () => db.rows("integration_deliveries").filter((d) => d.kind === "approval_card") as Record<string, any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  beforeEach(() => {
+    setConfig(digestConfig({ enabled: false }));
+    linkIdentity(db, ids.manager, "ou_max");
+    // The standard seed request has no created_at; give it an age so it can be reconciled.
+    db.rows("change_requests")[0].created_at = oldIso();
+  });
+
+  it("sends the approval card for a pending request that never got one, audited as the scheduler", async () => {
+    const summary = await runCron({ now: new Date() });
+
+    expect(summary.reconciled).toEqual({ requests: 1, failed: 0 });
+    expect(fake.calls.cards).toHaveLength(1);
+    expect(cards()).toHaveLength(1);
+    const audits = writeAuditMock.mock.calls.map((c) => c[0] as Record<string, any>); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const rec = audits.find((a) => a.action === "integration.approvals.reconcile")!;
+    expect(rec).toMatchObject({ workspaceId: WS, targetType: "integration_connector", targetId: CONNECTOR_ID });
+    expect(rec.actor).toMatchObject({ viaConnectorId: CONNECTOR_ID, channel: "lark" });
+    expect(rec.after.requests).toEqual([{ kind: "change_request", id: ids.approval }]);
+  });
+
+  it("is idempotent: the next tick finds a card and sends nothing more", async () => {
+    await runCron({ now: new Date() });
+    const again = await runCron({ now: new Date() });
+    expect(again.reconciled.requests).toBe(0);
+    expect(fake.calls.cards).toHaveLength(1);
+  });
+
+  it("leaves a request younger than the grace period to its own emit", async () => {
+    db.rows("change_requests")[0].created_at = new Date(Date.now() - 60_000).toISOString();
+    const summary = await runCron({ now: new Date() });
+    expect(summary.reconciled.requests).toBe(0);
+    expect(fake.calls.cards).toHaveLength(0);
+  });
+
+  it("does not touch a request whose card already exists, even a dead or an expired-token one", async () => {
+    for (const status of ["dead", "sent", "retry"]) {
+      db.tables.integration_deliveries = [];
+      db.seed("integration_deliveries", [
+        {
+          id: `d-${status}`,
+          workspace_id: WS,
+          connector_id: CONNECTOR_ID,
+          kind: "approval_card",
+          approval_kind: "change_request",
+          approval_id: ids.approval,
+          recipient_profile_id: ids.manager,
+          status,
+          next_attempt_at: new Date(Date.now() + 3600_000).toISOString(),
+          payload: {},
+          created_at: oldIso(),
+        },
+      ]);
+      const summary = await runCron({ now: new Date() });
+      expect(summary.reconciled.requests, status).toBe(0);
+      expect(fake.calls.cards, status).toHaveLength(0);
+    }
+  });
+
+  it("skips a paused connector, a connector with approvals off, and does not decide anything", async () => {
+    db.rows("integration_connectors")[0].status = "paused";
+    expect((await runCron({ now: new Date() })).reconciled.requests).toBe(0);
+    db.rows("integration_connectors")[0].status = "active";
+    setConfig({ ...digestConfig({ enabled: false }), approvals: { enabled: false } });
+    expect((await runCron({ now: new Date() })).reconciled.requests).toBe(0);
+    expect(db.rows("change_requests")[0].status).toBe("raised");
+  });
+
+  it("is bounded per tick and never queues for another workspace's request", async () => {
+    db.seed(
+      "change_requests",
+      Array.from({ length: 30 }, (_, i) => ({
+        id: `cr-${i}`,
+        workspace_id: WS,
+        status: "raised",
+        updated_at: "v1",
+        created_at: oldIso(),
+      })),
+    );
+    db.seed("change_requests", [{ id: "cr-foreign", workspace_id: OTHER_WS, status: "raised", updated_at: "v1", created_at: oldIso() }]);
+    const summary = await runCron({ now: new Date() });
+    expect(summary.reconciled.requests).toBeLessThanOrEqual(RECONCILE_LIMIT_PER_TICK);
+    expect(cards().some((c) => c.approval_id === "cr-foreign")).toBe(false);
+  });
+
+  it("a failing reconciliation is counted and does not stop the drain or the digest steps", async () => {
+    db.failNext({ table: "integration_deliveries", op: "select", times: 100, error: { message: "down" } });
+    const summary = await runCron({ now: new Date() });
+    expect(summary.reconciled).toEqual({ requests: 0, failed: 1 });
+    expect(summary.connectors).toBe(1);
+    expect(summary.skippedForDeadline).toBe(0);
+    // nothing was sent on a guess, and the next tick repairs it
+    expect(fake.calls.cards).toHaveLength(0);
+    while (db.takeFailure("integration_deliveries", "select")) { /* the outage is over */ }
+    expect((await runCron({ now: new Date() })).reconciled.requests).toBe(1);
   });
 });

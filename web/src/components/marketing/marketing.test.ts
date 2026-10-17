@@ -269,7 +269,7 @@ describe("phone layouts", () => {
     expect(TRANSCRIPT).toMatch(/sm:hidden/);
     expect(TRANSCRIPT).toMatch(/hidden sm:inline/);
     // the compact audit row is the real column order minus created_at, within ~39 columns
-    const compact = TRANSCRIPT.match(/actor_label {6}action {7}target\n([^\n`]+)/);
+    const compact = TRANSCRIPT.match(/actor_label {6}action {7}target\r?\n([^\r\n`]+)/);
     expect(compact).not.toBeNull();
     expect("actor_label      action       target".length).toBeLessThanOrEqual(39);
   });

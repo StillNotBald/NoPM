@@ -288,7 +288,7 @@ export function describeRelayFailure(status, code) {
     return "NoPM says this machine's clock is more than 5 minutes off. Fix the system time (NTP) and restart.";
   }
   if (status === 401) {
-    return "NoPM rejected the relay signature: NOPM_LARK_RELAY_SECRET is wrong, or this machine's clock is more than 5 minutes off.";
+    return "NoPM rejected the relay request. NoPM gives one answer for every pre-authentication failure, so check all three: NOPM_LARK_RELAY_SECRET and NOPM_LARK_CONNECTOR_ID are right, the connector was created in Long connection mode (a webhook-mode connector has no relay secret), and this machine's clock is within 5 minutes of real time.";
   }
   if (status === 403 && code === "wrong_mode") {
     return "This connector is not in long-connection mode. In NoPM > Integrations, switch it to Long connection (self-host).";

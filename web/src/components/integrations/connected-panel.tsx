@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Pause, Play, PlugZap, Send } from "lucide-react";
+import { Pause, Play, PlugZap, RotateCw, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/cn";
 import {
   clearTenantPin,
+  requeueDeadCards,
   revokeConnector,
   sendDigestNow,
   setConnectorStatus,
@@ -25,6 +26,7 @@ import {
   digestOutcome,
   errorText,
   featuresFromConnector,
+  requeueOutcome,
   summariseDeliveryHealth,
   validateFeatures,
   type ConnectorView,
@@ -34,7 +36,7 @@ import {
 import { ConfirmDialog, CopyValue, Disclosure, InlineAlert } from "./shared";
 import { WebhookUrls } from "./setup-panel";
 
-type Busy = "test" | "digest" | "status" | "settings" | null;
+type Busy = "test" | "digest" | "requeue" | "status" | "settings" | null;
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -124,6 +126,19 @@ export function ConnectedPanel({
       onChanged();
     } catch (e) {
       toast.error(errorText(e, "Could not send the digest."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runRequeue() {
+    setBusy("requeue");
+    try {
+      const outcome = requeueOutcome(await requeueDeadCards(connector.id));
+      toast[outcome.tone](outcome.message);
+      onChanged();
+    } catch (e) {
+      toast.error(errorText(e, "Could not send the failed cards again."));
     } finally {
       setBusy(null);
     }
@@ -281,6 +296,13 @@ export function ConnectedPanel({
         </div>
       )}
 
+      {connector.health?.schedulerStale === true && (
+        <InlineAlert>
+          The daily scheduler has not run for this connection for over 36 hours, so retries and the weekly digest are
+          stalled. Check that the cron job is still configured on your host.
+        </InlineAlert>
+      )}
+
       {!connector.secretsReadable && (
         <InlineAlert>
           This server can no longer decrypt the stored Lark credentials (the encryption key changed). Revoke this
@@ -315,6 +337,18 @@ export function ConnectedPanel({
           {busy === "digest" ? <Spinner size="sm" className="mr-1.5" /> : <Send size={14} className="mr-1.5" aria-hidden="true" />}
           Send digest now
         </Button>
+        {(connector.health?.dead ?? 0) > 0 && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-11 w-full sm:h-8 sm:w-auto"
+            onClick={runRequeue}
+            disabled={busy !== null || paused}
+          >
+            {busy === "requeue" ? <Spinner size="sm" className="mr-1.5" /> : <RotateCw size={14} className="mr-1.5" aria-hidden="true" />}
+            Requeue failed cards
+          </Button>
+        )}
         <Button
           variant="secondary"
           size="sm"

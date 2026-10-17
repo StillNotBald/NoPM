@@ -410,8 +410,9 @@ async function refuseReplacement(
 /**
  * Count one link attempt against the sender's budget and the connector's, in a
  * 10-minute fixed window (the shared `nopm_rate_check` counter). Keys hold a
- * hash, never the platform ids. Fail-OPEN on an infrastructure error: an abuse
- * guard, not an auth control — the code itself is 40 bits and single use.
+ * hash, never the platform ids. Fail-CLOSED on an infrastructure error (F5): the
+ * code is a 40-bit single-use bearer secret and this counter is its only throttle,
+ * so a broken limiter must not become an unlimited one.
  */
 async function linkAttemptBudget(
   connector: Pick<ConnectorRow, "id">,
@@ -431,8 +432,11 @@ async function linkAttemptBudget(
       p_window_seconds: LINK_ATTEMPT_WINDOW_SECONDS,
     });
     if (error) {
-      console.error("[integrations] nopm_rate_check RPC failed - FAILING OPEN (link attempts not limited this call)", { error: error.message });
-      return { allowed: true, retryAfterSeconds: 0 };
+      // A link code is a 40-bit bearer secret and this counter is its only throttle, so an
+      // infrastructure error refuses the attempt (like the webhook and relay limiters) rather than
+      // letting an unthrottled guess through. A genuine user simply retries a moment later.
+      console.error("[integrations] nopm_rate_check RPC failed - FAILING CLOSED (link attempt refused)", { error: error.message });
+      return { allowed: false, retryAfterSeconds: 30 };
     }
     const result = data as { allowed: boolean; retry_after_seconds: number };
     if (!result.allowed) return { allowed: false, retryAfterSeconds: result.retry_after_seconds };

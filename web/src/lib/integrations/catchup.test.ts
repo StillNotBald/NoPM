@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
 const { runApprovalRequestedMock } = vi.hoisted(() => ({ runApprovalRequestedMock: vi.fn(async (_ev: Record<string, unknown>, _opts?: unknown) => {}) }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
+vi.mock("@/lib/audit/write", () => ({ writeAudit: vi.fn(async () => {}) }));
 vi.mock("@/lib/integrations/emit", () => ({ runApprovalRequested: runApprovalRequestedMock }));
 vi.mock("@/lib/governance/decide", () => ({
   projectNameOf: async () => "Proj",

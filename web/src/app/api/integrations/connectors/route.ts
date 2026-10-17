@@ -46,7 +46,7 @@ export const GET = route(async ({ actor, request }) => {
         rows.map(async (row) => ({
           ...toPublicConnector(row),
           callback_urls: callbackUrls(appBaseUrl(new URL(request.url).origin), row.id),
-          health: row.status === "revoked" ? null : await getConnectorHealth(actor.workspaceId, row.id),
+          health: row.status === "revoked" ? null : await getConnectorHealth(actor.workspaceId, row.id, { connectorCreatedAt: row.created_at, connectorStatus: row.status }),
         })),
       )
     : rows.filter((row) => row.status !== "revoked").map(toRedactedConnector);

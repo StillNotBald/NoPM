@@ -248,6 +248,29 @@ describe("handleLarkPayload", () => {
     expect(sent).toHaveLength(0);
     expect(deps.claimEvent).not.toHaveBeenCalled();
   });
+
+  it("treats a message or card event with NO app id as a mismatch, not a pass (F6)", async () => {
+    const noAppId = (body: Record<string, any>) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      const copy = JSON.parse(JSON.stringify(body));
+      delete copy.header.app_id;
+      return copy;
+    };
+    const message = fakeHandlerDeps();
+    expect(await handleLarkPayload(ctx(), env(noAppId(messageEvent({ text: "help" }))), message.deps)).toEqual({ status: 200, body: {} });
+    expect(message.sent).toHaveLength(0);
+    expect(message.deps.claimEvent).not.toHaveBeenCalled();
+
+    const card = fakeHandlerDeps();
+    expect(await handleLarkPayload(ctx(), env(noAppId(cardActionEvent({ value: { t: "tok", a: "approve" } }))), card.deps)).toEqual({ status: 200, body: {} });
+    expect(card.deps.handleApprovalAction).not.toHaveBeenCalled();
+    expect(card.deps.log).toHaveBeenCalledWith("warn", expect.stringContaining("different app"), expect.anything());
+  });
+
+  it("still accepts the same events when they carry the connector's own app id", async () => {
+    const { deps } = fakeHandlerDeps();
+    await handleLarkPayload(ctx(), env(cardActionEvent({ value: { t: "tok", a: "approve" } })), deps);
+    expect(deps.handleApprovalAction).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("bot DMs (im.message.receive_v1)", () => {

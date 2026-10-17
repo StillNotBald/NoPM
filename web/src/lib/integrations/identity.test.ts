@@ -554,10 +554,19 @@ describe("consumeLinkCode — guessing a code is throttled", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("fails open when the counter is unavailable (the code itself is single use and 40 bits)", async () => {
+  it("fails CLOSED when the counter is unavailable: the limiter is the only throttle on a 40-bit code (F5)", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     watchRate(() => "error");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    db.log.length = 0;
+
+    expect(await link({ rawCode: code })).toMatchObject({ status: "rate_limited" });
+
+    // the code was not even looked up, let alone burned, so the person can retry when the counter is back
+    expect(db.log.filter((l) => l.table === "identity_link_codes")).toHaveLength(0);
+    expect(db.rows("identity_link_codes")[0].used_at).toBeNull();
+    expect(db.rows("external_identities")).toHaveLength(0);
+    watchRate();
     expect((await link({ rawCode: code })).status).toBe("linked");
   });
 

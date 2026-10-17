@@ -234,6 +234,9 @@ export async function handleApprovalAction(input: ApprovalActionInput): Promise<
   }
 }
 
+/** Shown when a card for a retired request kind is tapped (F10). */
+export const UNSUPPORTED_KIND_MESSAGE = "This kind of request is no longer handled here. Open NoPM.";
+
 /** Map what decideApproval throws onto a typed outcome the adapter can render. */
 export function mapDecisionError(err: unknown): InboundOutcome {
   // The request moved on between the version check and the decision write.
@@ -250,6 +253,10 @@ export function mapDecisionError(err: unknown): InboundOutcome {
         return { status: "already_decided" };
       case "rationale_required":
         return { status: "invalid", message: "A reason is required to reject." };
+      case "unsupported_kind":
+        // A card for a request kind that has since been retired (hour logging, decision 18). Never
+        // show the internal "Unsupported approval kind: ..." text to a person.
+        return { status: "invalid", message: UNSUPPORTED_KIND_MESSAGE };
     }
   }
   if (err instanceof ScopeError) {

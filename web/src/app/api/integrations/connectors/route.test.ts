@@ -333,6 +333,8 @@ describe("GET /api/integrations/connectors — operator health (admin view)", ()
     last_error: string | null;
     last_cron_at: string | null;
     last_cron: Record<string, unknown> | null;
+    cron_state_available: boolean;
+    scheduler_stale: boolean | null;
   };
   const get = async (): Promise<{ text: string; data: { id: string; health: Health | null }[] }> => {
     const res = await GET(new NextRequest("http://localhost:3000/api/integrations/connectors"), NO_PARAMS);
@@ -359,9 +361,9 @@ describe("GET /api/integrations/connectors — operator health (admin view)", ()
   it("counts the queue by status and reports the last send, the last failure and the last scheduler run", async () => {
     db.seed("integration_deliveries", [
       delivery("p1", "pending"),
-      delivery("r1", "retry", { last_error: "lark 230002 (bot is not in the chat)", created_at: "2026-10-16T02:00:00.000Z" }),
-      delivery("r2", "retry", { last_error: "network error [ETIMEDOUT]", created_at: "2026-10-16T03:00:00.000Z" }),
-      delivery("d1", "dead", { last_error: "older failure", created_at: "2026-10-15T01:00:00.000Z" }),
+      delivery("r1", "retry", { last_error: "lark 230002 (bot is not in the chat)", next_attempt_at: "2026-10-16T02:00:00.000Z" }),
+      delivery("r2", "retry", { last_error: "network error [ETIMEDOUT]", next_attempt_at: "2026-10-16T03:00:00.000Z" }),
+      delivery("d1", "dead", { last_error: "older failure", next_attempt_at: "2026-10-15T01:00:00.000Z" }),
       delivery("s1", "sent", { sent_at: "2026-10-16T01:05:00.000Z" }),
       delivery("s2", "sent", { sent_at: "2026-10-16T04:05:00.000Z" }),
       delivery("x1", "superseded", { last_error: "request already decided" }),
@@ -385,6 +387,9 @@ describe("GET /api/integrations/connectors — operator health (admin view)", ()
       last_error: "network error [ETIMEDOUT]",
       last_cron_at: "2026-10-16T01:07:00.000Z",
       last_cron: { claimed: 3, sent: 2, retried: 1, dead: 0, superseded: 0, digest: "sent" },
+      cron_state_available: true,
+      // the seeded scheduler record is from 2026-10-16: long past 36 hours by the time the suite runs
+      scheduler_stale: true,
     });
   });
 
@@ -398,6 +403,8 @@ describe("GET /api/integrations/connectors — operator health (admin view)", ()
       last_error: null,
       last_cron_at: null,
       last_cron: null,
+      cron_state_available: true,
+      scheduler_stale: expect.any(Boolean),
     });
   });
 
@@ -428,7 +435,7 @@ describe("GET /api/integrations/connectors — operator health (admin view)", ()
     db.seed("integration_deliveries", [delivery("d1", "dead")]);
     db.failNext({ table: "integration_cron_state", op: "select", error: { message: "relation does not exist" } });
     const { data } = await get();
-    expect(data[0].health).toMatchObject({ dead: 1, last_cron_at: null, last_cron: null });
+    expect(data[0].health).toMatchObject({ dead: 1, last_cron_at: null, last_cron: null, cron_state_available: false, scheduler_stale: null });
   });
 
   it("the redacted member view carries no health at all", async () => {

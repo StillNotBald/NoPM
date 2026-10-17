@@ -130,6 +130,8 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "integration.connector.create", description: "A chat integration was connected" },
   { action: "integration.connector.update", description: "A chat integration's settings were changed" },
   { action: "integration.connector.revoke", description: "A chat integration was revoked and its linked accounts released" },
+  { action: "integration.approvals.reconcile", description: "The scheduler sent approval cards for pending requests that never got one" },
+  { action: "integration.approvals.requeue_dead", description: "An admin re-sent approval cards that had failed for requests still pending" },
   { action: "integration.digest.send", description: "A workspace digest was queued for a chat group" },
   { action: "integration.identity.code", description: "A one-time code to link a chat account was issued" },
   { action: "integration.identity.link", description: "A chat account was linked to a NoPM user" },

@@ -88,6 +88,8 @@ export interface DeliveryHealth {
   dead: number;
   lastSentAt: string | null;
   lastError: string | null;
+  /** True when the daily scheduler has not processed this connector for over 36 hours; null/absent = unknown. */
+  schedulerStale?: boolean | null;
 }
 
 export interface ConnectorView {
@@ -132,6 +134,7 @@ export function readDeliveryHealth(raw: unknown): DeliveryHealth | null {
     dead: asCount(firstDefined(raw.dead, raw.failed)),
     lastSentAt: asString(firstDefined(raw.last_sent_at, raw.lastSentAt)),
     lastError: asString(firstDefined(raw.last_error, raw.lastError)),
+    schedulerStale: firstDefined(raw.scheduler_stale, raw.schedulerStale) === true ? true : firstDefined(raw.scheduler_stale, raw.schedulerStale) === false ? false : null,
   };
 }
 
@@ -360,6 +363,26 @@ export function normalizeTestResult(raw: unknown): { ok: boolean; botName: strin
     ok,
     botName: asString(firstDefined(raw.bot_name, raw.botName)),
     error: asString(raw.error),
+  };
+}
+
+/** Result of `POST …/requeue-dead`: how many requests had a dead card and how many are still pending. */
+export function normalizeRequeueResult(raw: unknown): { deadRequests: number; stillPending: number } {
+  const r = isRec(raw) ? raw : {};
+  return { deadRequests: asCount(r.dead_requests), stillPending: asCount(r.still_pending) };
+}
+
+/** Honest feedback for "Requeue failed cards". */
+export function requeueOutcome(r: { deadRequests: number; stillPending: number }): { tone: "success" | "info"; message: string } {
+  if (r.stillPending > 0) {
+    return {
+      tone: "success",
+      message: `Sent again for ${r.stillPending} pending ${r.stillPending === 1 ? "request" : "requests"}. Anyone who already has a live card was skipped.`,
+    };
+  }
+  return {
+    tone: "info",
+    message: r.deadRequests > 0 ? "Nothing to send: every request with a failed card has since been decided." : "No failed cards to send again.",
   };
 }
 

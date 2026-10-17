@@ -22,6 +22,8 @@ import {
   normalizeTestResult,
   pickConnector,
   readDeliveryHealth,
+  normalizeRequeueResult,
+  requeueOutcome,
   readOnlySummary,
   summariseDeliveryHealth,
   validateConnectForm,
@@ -165,7 +167,14 @@ describe("normalizeConnector", () => {
       dead: 0,
       lastSentAt: "2026-10-16T09:00:00Z",
       lastError: "429",
+      schedulerStale: null,
     });
+  });
+
+  it("reads the scheduler_stale flag from the admin health block", () => {
+    expect(readDeliveryHealth({ pending: 0, retry: 0, dead: 0, scheduler_stale: true })?.schedulerStale).toBe(true);
+    expect(readDeliveryHealth({ pending: 0, retry: 0, dead: 0, scheduler_stale: false })?.schedulerStale).toBe(false);
+    expect(readDeliveryHealth({ pending: 0, retry: 0, dead: 0, scheduler_stale: null })?.schedulerStale).toBeNull();
   });
 });
 
@@ -547,5 +556,18 @@ describe("calendar feeds", () => {
     expect(normalizeProjects([{ id: "p1", name: "Alpha" }, { id: "p2" }, null, { name: "x" }])).toEqual([
       { id: "p1", name: "Alpha" },
     ]);
+  });
+});
+
+describe("requeue failed cards (F2)", () => {
+  it("reads { dead_requests, still_pending } and tolerates a bad response", () => {
+    expect(normalizeRequeueResult({ dead_requests: 3, still_pending: 2 })).toEqual({ deadRequests: 3, stillPending: 2 });
+    expect(normalizeRequeueResult(undefined)).toEqual({ deadRequests: 0, stillPending: 0 });
+  });
+  it("says what happened, honestly", () => {
+    expect(requeueOutcome({ deadRequests: 3, stillPending: 2 })).toMatchObject({ tone: "success", message: expect.stringContaining("2 pending requests") });
+    expect(requeueOutcome({ deadRequests: 1, stillPending: 1 }).message).toContain("1 pending request.");
+    expect(requeueOutcome({ deadRequests: 2, stillPending: 0 })).toMatchObject({ tone: "info", message: expect.stringContaining("since been decided") });
+    expect(requeueOutcome({ deadRequests: 0, stillPending: 0 }).message).toBe("No failed cards to send again.");
   });
 });
