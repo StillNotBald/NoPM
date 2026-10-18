@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { Actor } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { safeJson, validationError } from "@/lib/api/response";
 import { writeAudit } from "@/lib/audit/write";
 import { assignedApproverIdField, resolveAssignedApprover } from "@/lib/review/assignee";
@@ -54,7 +54,6 @@ const ISSUE_REQUESTED_AUDIT_ACTION = "issue.delete_requested";
 const EXPENSE_REQUESTED_AUDIT_ACTION = "expense.delete_requested";
 const DOCUMENT_REQUESTED_AUDIT_ACTION = "document.delete_requested";
 const MILESTONE_REQUESTED_AUDIT_ACTION = "milestone.delete_requested";
-const DOCUMENT_BLOCKED_AUDIT_ACTION = "document.delete_request.blocked";
 const MILESTONE_BLOCKED_AUDIT_ACTION = "milestone.delete_request.blocked";
 
 const REQUESTED_ACTION: Record<RequestableEntity, string> = {
@@ -71,20 +70,11 @@ export const DeletionRequestBodySchema = z.object({
   assigned_approver_id: assignedApproverIdField,
 });
 
-/** Decision 25, tier B: an approved document is deleted only on a request raised by an admin. */
-export const APPROVED_DOCUMENT_REQUEST_MESSAGE =
-  "This document is approved. Only an admin can request its deletion.";
-
 type Row = Record<string, unknown>;
 
 function labelOf(entity: RequestableEntity, row: Row, id: string): string {
   const v = entity === "risk" || entity === "issue" || entity === "document" ? row.title : row.name ?? row.title ?? row.description;
   return typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : id;
-}
-
-/** The role of the human behind the actor: the user's own, or a token creator's current role. */
-function humanRole(actor: Actor): string | null {
-  return (actor.type === "user" ? actor.role : actor.principalRole) ?? null;
 }
 
 export async function requestDeletion(args: {
@@ -126,20 +116,6 @@ export async function requestDeletion(args: {
     );
   }
 
-  // Decision 25 (tier B): an approved document is the record of a sign-off. Only an admin asks.
-  if (entity === "document" && row.status === "approved" && humanRole(actor) !== "admin") {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: DOCUMENT_BLOCKED_AUDIT_ACTION,
-      targetType: entity,
-      targetId: id,
-      before: null,
-      after: { reason: "approved_document_needs_admin" },
-    });
-    throw new ScopeError(APPROVED_DOCUMENT_REQUEST_MESSAGE, "role_not_permitted");
-  }
-
   const duplicate = () =>
     new RuleError(`A pending deletion request already exists for this ${NOUN[entity]}`, "duplicate_deletion_request");
 
@@ -162,12 +138,13 @@ export async function requestDeletion(args: {
     );
   }
   const { reason } = parsed.data;
-  // G1/G3: the tier comes from the policy, never from the caller. An approved document is a sign-off
-  // record, so its deletion is high_risk (an admin decides it, as an admin asks for it, decision 25).
+  // G1/G3: the tier comes from the policy, never from the caller. Owner decision Q4: an approved document is
+  // deleted on the manager tier like any other document (the audit trail tracks it, no admin gate). Q5: an
+  // expense whose amount reaches the currency threshold is high_risk, like a project.
   const policy = await loadApprovalPolicy(db, actor.workspaceId);
   const { tier } = classify({
-    kind: "task_deletion",
-    requested_tier: entity === "document" && row.status === "approved" ? "high_risk" : undefined,
+    kind: entity === "expense" ? "expense_deletion" : "task_deletion",
+    amount: entity === "expense" ? Number(row.amount ?? 0) : undefined,
     requester_role: humanRoleOf(actor as Parameters<typeof humanRoleOf>[0]),
     policy,
   });

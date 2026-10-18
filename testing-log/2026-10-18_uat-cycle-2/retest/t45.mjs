@@ -1,0 +1,11 @@
+import { call, rec, sql } from "./h.mjs";
+const PROJ = "ed3d04cd-18bd-4ad3-8848-07b876dbd907";
+const n0 = sql("select count(*) from change_requests where title like 'T4 retest%'");
+const m = await call("member", "POST", `/api/projects/${PROJ}/change-requests`, { title: "T4 retest member emergency", category: "scope", priority: "high", is_emergency: true });
+rec("t4", { status: m.status, body: m.text, before: n0, after: sql("select count(*) from change_requests where title like 'T4 retest%'") });
+const g = await call("admin", "GET", "/api/workspace-settings");
+rec("t5-get-before", { status: g.status, policy: g.json?.data?.approval_policy ?? g.json?.data });
+const p = await call("admin", "PATCH", "/api/workspace-settings", { approval_policy: { emergency_retro_hours: 48 } });
+rec("t5-patch", { status: p.status, body: p.text });
+const g2 = await call("admin", "GET", "/api/workspace-settings");
+rec("t5-get-after", { status: g2.status, policy: g2.json?.data?.approval_policy ?? g2.json?.data });

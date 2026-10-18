@@ -6,8 +6,8 @@
  *   routine    -> manager   (the only tier that can be auto-approved, OFF by default)
  *   normal     -> manager
  *   high_risk  -> admin
- *   emergency  -> any manager or admin raises it and may ship it now; an ADMIN gives the
- *                 retro decision within `emergency_retro_hours` (default 48)
+ *   emergency  -> a flag, not an approval path (owner decision Q1, 2026-10-18): a manager or admin raises
+ *                 it and it commits at once. Nobody decides it, no retro decision is owed.
  *   strategic  -> admin     (only an admin can ask for it)
  *
  * A cost threshold (default 50,000, compared as a plain number in the workspace's own currency) or a
@@ -38,7 +38,7 @@ export type TierApproverRole = (typeof APPROVER_ROLES)[number];
 export type TierRule = {
   /** The least role that may decide. An admin meets every tier; a manager meets the ones that say `manager`. */
   approver_role: TierApproverRole;
-  /** Hours a decision may take; 0 = no turnaround timer. For `emergency` the retro hours apply instead. */
+  /** Hours a decision may take; 0 = no turnaround timer. An emergency has none (it commits when raised). */
   turnaround_hours: number;
   /** Approve by policy when the turnaround passes with no decision. Routine only; OFF by default. */
   auto_approve: boolean;
@@ -55,7 +55,7 @@ export type ApprovalPolicy = {
   currency: string | null;
   /** A schedule impact of more than this many days (either sign) lifts normal to high_risk. */
   schedule_threshold_days: number;
-  /** How long an emergency change may stay live before its retro decision is overdue. */
+  /** DEPRECATED (owner decision Q1): read from old data, never used and never changed. An emergency owes no retro decision. */
   emergency_retro_hours: number;
 };
 
@@ -71,7 +71,7 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
     routine: { approver_role: "manager", turnaround_hours: 24, auto_approve: false },
     normal: { approver_role: "manager", turnaround_hours: 48, auto_approve: false },
     high_risk: { approver_role: "admin", turnaround_hours: 72, auto_approve: false },
-    // Emergency: the retro role. Its clock is emergency_retro_hours, not a turnaround.
+    // Emergency: nobody decides it (Q1). The role is kept only so the policy shape stays the same.
     emergency: { approver_role: "admin", turnaround_hours: 0, auto_approve: false },
     strategic: { approver_role: "admin", turnaround_hours: 120, auto_approve: false },
   },
@@ -228,15 +228,8 @@ export function validatePolicyInput(input: unknown): { ok: true; value: Approval
     if (typeof p.currency === "string" && /^[A-Za-z]{3}$/.test(p.currency)) value.currency = p.currency.toUpperCase();
     else issues.push({ field: "approval_policy.currency", message: "Use a three-letter currency code such as MYR." });
   }
-  if (p.emergency_retro_hours !== undefined) {
-    if (isInt(p.emergency_retro_hours, 1, MAX_RETRO_HOURS)) value.emergency_retro_hours = p.emergency_retro_hours;
-    else {
-      issues.push({
-        field: "approval_policy.emergency_retro_hours",
-        message: `Use a whole number of hours from 1 to ${MAX_RETRO_HOURS}.`,
-      });
-    }
-  }
+  // `emergency_retro_hours` is deprecated (Q1): an old client may still send it. It is accepted, not validated and
+  // not stored, so it can neither fail a save nor change anything.
   return issues.length > 0 ? { ok: false, issues } : { ok: true, value };
 }
 
@@ -260,7 +253,6 @@ export function mergePolicy(stored: unknown, patch: ApprovalPolicy, sent: unknow
   if (s.currency_threshold !== undefined) out.currency_threshold = patch.currency_threshold;
   if (s.schedule_threshold_days !== undefined) out.schedule_threshold_days = patch.schedule_threshold_days;
   if (s.currency !== undefined) out.currency = s.currency === null ? null : patch.currency;
-  if (s.emergency_retro_hours !== undefined) out.emergency_retro_hours = patch.emergency_retro_hours;
   return out;
 }
 
@@ -277,7 +269,7 @@ export async function loadApprovalPolicy(db: Db, workspaceId: string): Promise<A
 
 // ── classification (G1, G7) ───────────────────────────────────────────────
 
-export type ClassifyKind = "change_request" | "task_deletion" | "project_deletion" | "rebaseline";
+export type ClassifyKind = "change_request" | "task_deletion" | "project_deletion" | "expense_deletion" | "rebaseline";
 
 export type ClassifyInput = {
   kind: ClassifyKind;
@@ -285,6 +277,8 @@ export type ClassifyInput = {
   impact_cost?: number | null;
   /** Schedule impact in days; a routine request may not carry one. Change requests only. */
   impact_schedule_days?: number | null;
+  /** Amount of the expense being deleted, in the workspace's own currency. Expense deletions only. */
+  amount?: number | null;
   /** Number of structured impact areas on the request; a routine request has none. */
   impact_scope_count?: number;
   is_emergency?: boolean;
@@ -311,7 +305,8 @@ const STRATEGIC_MESSAGE = "Only an admin can raise a strategic request.";
  *  - `requested_tier: 'strategic'` -> strategic (admin only).
  *  - `requested_tier: 'routine'` -> routine, change requests only, and only with no cost and no
  *    schedule impact (else 422): a second human decides money and dates.
- *  - otherwise `normal`; a project deletion starts at high_risk (never lower).
+ *  - otherwise `normal`; a project deletion starts at high_risk (never lower), and so does an expense
+ *    deletion whose amount reaches the cost threshold (owner decision Q5).
  *  - a normal change request with |cost| at or above the cost threshold, or a schedule impact of more
  *    than `schedule_threshold_days`, becomes high_risk (G7).
  * A requester may always ask for MORE scrutiny (high_risk), never less than the floor.
@@ -327,7 +322,7 @@ export function classify(input: ClassifyInput): Classification {
     if (kind !== "change_request") {
       throw new FieldsError("Validation failed", [{ field: "is_emergency", message: "Only a change request can use the emergency path." }]);
     }
-    return { tier: "emergency", reason: "Raised on the emergency path.", threshold_bump: false };
+    return { tier: "emergency", reason: "Raised on the emergency path: flagged, committed at once, no approval required.", threshold_bump: false };
   }
 
   const asked = input.requested_tier ?? null;
@@ -350,6 +345,14 @@ export function classify(input: ClassifyInput): Classification {
 
   let reason: string | null = tier !== "normal" && tier === floor && !asked ? "Deleting a whole project is high risk." : null;
   let bump = false;
+  if (kind === "expense_deletion" && tier === "normal") {
+    const amount = Math.abs(Number(input.amount ?? 0) || 0);
+    if (amount !== 0 && amount >= policy.currency_threshold) {
+      tier = "high_risk";
+      bump = true;
+      reason = `Deleting an expense of ${policy.currency_threshold.toLocaleString("en-US")} or more is high risk.`;
+    }
+  }
   if (kind === "change_request" && tier === "normal") {
     const overCost = cost !== 0 && Math.abs(cost) >= policy.currency_threshold;
     const overDays = Math.abs(days) > policy.schedule_threshold_days;
@@ -384,7 +387,7 @@ export function reclassifyOnEdit(
 
 // ── routing (G2) ──────────────────────────────────────────────────────────
 
-/** The role the policy asks of whoever decides this tier (for an emergency: the retro decider). */
+/** The role the policy asks of whoever decides this tier (an emergency is never decided; its role is unused). */
 export function approverRoleFor(tier: Tier | string | null | undefined, policy: ApprovalPolicy): TierApproverRole {
   return policy.tiers[isTier(tier) ? tier : "normal"].approver_role;
 }
@@ -400,12 +403,12 @@ export function eligibleRoles(tier: Tier | string | null | undefined, policy: Ap
   return approverRoleFor(tier, policy) === "admin" ? ["admin"] : ["admin", "manager"];
 }
 
-const TIER_WORDS: Record<string, string> = { high_risk: "high-risk", routine: "routine", normal: "normal", emergency: "emergency", strategic: "strategic" };
+const TIER_WORDS: Record<string, string> = { high_risk: "a high-risk", routine: "a routine", normal: "a normal", emergency: "an emergency", strategic: "a strategic" };
 
 /** "Only admins can approve a high-risk request." for an admin-level tier. */
 export const tierRoleMessage = (role: TierApproverRole, tier?: string | null) =>
   role === "admin"
-    ? `Only admins can approve a ${TIER_WORDS[tier ?? ""] ?? "this"} request.`
+    ? `Only admins can approve ${TIER_WORDS[tier ?? ""] ?? "this"} request.`
     : "Only managers and admins can approve";
 
 type RoleActor = { type: string; role?: string | null; principalRole?: string | null };
@@ -461,26 +464,9 @@ export async function assertTierRole(db: Db, actor: RoleActor & { workspaceId: s
 /** When a decision on this tier is due, or null when the tier has no turnaround. */
 export function deadlineFor(tier: Tier | string | null | undefined, policy: ApprovalPolicy, now: Date): Date | null {
   const t = isTier(tier) ? tier : "normal";
-  if (t === "emergency") return null; // the retro clock applies
+  if (t === "emergency") return null; // an emergency commits when raised: nothing waits
   const hours = policy.tiers[t].turnaround_hours;
   return hours > 0 ? new Date(now.getTime() + hours * 3_600_000) : null;
-}
-
-/** When the retro decision on an emergency change is due. */
-export function retroDueAt(policy: ApprovalPolicy, now: Date): Date {
-  return new Date(now.getTime() + policy.emergency_retro_hours * 3_600_000);
-}
-
-type RetroRow = { is_emergency?: boolean | null; retro_due_at?: string | null; retro_decided_at?: string | null };
-
-/** An emergency change still owed its retro decision. */
-export function isAwaitingRetro(row: RetroRow): boolean {
-  return row.is_emergency === true && !row.retro_decided_at;
-}
-
-/** The pending-item flag: awaiting retro AND past `retro_due_at`. Computed live, never stored (the timer must not touch the row). */
-export function isRetroOverdue(row: RetroRow, now: Date): boolean {
-  return isAwaitingRetro(row) && !!row.retro_due_at && Date.parse(row.retro_due_at) < now.getTime();
 }
 
 /** Half of the turnaround has passed (the reminder point), from the raise time and the deadline. */

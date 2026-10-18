@@ -6,7 +6,6 @@ import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/toast";
 import {
-  MAX_RETRO_HOURS,
   MAX_SCHEDULE_THRESHOLD_DAYS,
   MAX_TURNAROUND_HOURS,
   TIERS,
@@ -22,8 +21,8 @@ import { CheckRow, Field, InlineAlert, LoadingRow, Select } from "./shared";
 const TIER_COPY: Record<Tier, { name: string; help: string }> = {
   routine: { name: "Routine", help: "No cost and no schedule impact." },
   normal: { name: "Normal", help: "The default for a change request or rebaseline." },
-  high_risk: { name: "High risk", help: "Large cost, or deleting a whole project." },
-  emergency: { name: "Emergency", help: "Ships now. This role gives the approval afterwards." },
+  high_risk: { name: "High risk", help: "Large cost, deleting a whole project, or deleting an expense at or above the threshold." },
+  emergency: { name: "Emergency", help: "Commits when raised. No approval. Flagged everywhere." },
   strategic: { name: "Strategic", help: "Only an admin can raise one." },
 };
 
@@ -62,11 +61,10 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
   const setTier = (t: Tier, patch: Partial<ApprovalPolicy["tiers"][Tier]>) =>
     setDraft({ ...value, tiers: { ...value.tiers, [t]: { ...value.tiers[t], ...patch } } });
   const thresholdBad = !Number.isFinite(value.currency_threshold) || value.currency_threshold < 0;
-  const retroBad = badHours(value.emergency_retro_hours, MAX_RETRO_HOURS, 1);
   const daysBad = badHours(value.schedule_threshold_days, MAX_SCHEDULE_THRESHOLD_DAYS);
   const currencyBad = value.currency !== null && !/^[A-Za-z]{3}$/.test(value.currency);
   const hoursBad = TIERS.some((t) => badHours(value.tiers[t].turnaround_hours, MAX_TURNAROUND_HOURS));
-  const invalid = thresholdBad || retroBad || currencyBad || hoursBad || daysBad;
+  const invalid = thresholdBad || currencyBad || hoursBad || daysBad;
 
   async function save() {
     setSaving(true);
@@ -104,7 +102,10 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
                   <p className="text-sm font-medium text-ink">{TIER_COPY[t].name}</p>
                   <p className="text-xs text-ink-muted">{TIER_COPY[t].help}</p>
                 </div>
-                <Field id={`tier-${t}-role`} label={isEmergency ? "Approves afterwards" : "Decided by"}>
+                {isEmergency ? (
+                  <p className="text-xs text-ink-muted sm:pt-6">No approver. It commits when raised.</p>
+                ) : (
+                <Field id={`tier-${t}-role`} label="Decided by">
                   {(a11y) => (
                     <Select
                       {...a11y}
@@ -118,8 +119,9 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
                     </Select>
                   )}
                 </Field>
+                )}
                 {isEmergency ? (
-                  <p className="text-xs text-ink-muted sm:pt-6">The retro window below applies.</p>
+                  <p className="text-xs text-ink-muted sm:pt-6">Flagged in every list.</p>
                 ) : (
                   <Field
                     id={`tier-${t}-hours`}
@@ -221,26 +223,6 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
                 maxLength={3}
                 disabled={!isAdmin || saving}
                 onChange={(e) => setDraft({ ...value, currency: e.target.value === "" ? null : e.target.value.toUpperCase() })}
-                className="w-full"
-              />
-            )}
-          </Field>
-          <Field
-            id="retro-hours"
-            label="Emergency approval window (hours)"
-            hint="How long an emergency change may stay live before its approval is overdue."
-            error={retroBad ? `Use a whole number from 1 to ${MAX_RETRO_HOURS}.` : undefined}
-          >
-            {(a11y) => (
-              <Input
-                {...a11y}
-                type="number"
-                inputMode="numeric"
-                min={1}
-                max={MAX_RETRO_HOURS}
-                value={Number.isNaN(value.emergency_retro_hours) ? "" : value.emergency_retro_hours}
-                disabled={!isAdmin || saving}
-                onChange={(e) => setDraft({ ...value, emergency_retro_hours: intOrNaN(e.target.value) })}
                 className="w-full"
               />
             )}

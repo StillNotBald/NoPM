@@ -21,7 +21,7 @@
 | 1A-1 | Manager | Desktop | Open a project that is not locked. Click **Lock**. | The project shows a lock badge. The badge text names your own name as the locker. | |
 | 1A-2 | Manager | Phone 390 px | Open the same project on the phone. | The lock badge is visible and does not overlap the title. The locker name is shown in full or truncated with `…`, never cut mid-letter. | |
 | 1A-3 | Admin | Desktop | Open the same project. | The lock badge names the manager from step 1A-1, not the admin. | |
-| 1A-4 | Member | Desktop | Open the same project and try to **Unlock**. | Unlock is refused. The message names who can unlock (a manager or admin). | |
+| 1A-4 | Member | Desktop | Open the same project. Check there is no **Unlock** button. Then run `curl -s -X POST -b <member-cookie> $BASE/api/projects/<id>/unlock` with the member's session. | The member sees no Unlock control. The API answers 403 and the message names who can unlock (a manager or admin). | |
 | 1A-5 | Manager | Desktop | Open the **Trust Center** and find the lock audit row for this project. | The row shows the manager as the actor. | |
 
 ### 1B. Locking through an agent token
@@ -158,3 +158,24 @@ Steps 4-19 to 4-23 need a GitHub repository that the tester can change, and a ta
 | 4-23 | Tester | Desktop | Open the linked pull request on GitHub, then merge it. Return to the task. | The task moves to the status the mapping gives: Started on open, In review on merge. The GitHub card lists both deliveries as applied. | |
 | 4-24 | Manager | Desktop | Lock the project of a linked task, then open and merge its pull request. | The task does not move. The GitHub card lists the event with the reason "project locked". | |
 | 4-25 | Admin | Desktop | On the GitHub card, pause the connection. Send a new delivery from GitHub. | GitHub shows the delivery as failed with a 401. The card shows the connection as paused. | |
+
+## Cycle 2 — cycle-1 leftovers and the owner's decisions (2026-10-18 evening)
+
+Environment: local stack with cycle-1 data, dev server with a separate demo manager and the fake Lark override. Reports: `testing-log/2026-10-18_uat-cycle-2/` (tester A, runner C, retest).
+
+| Step | Role | Device | Do | Expect | Pass/Fail |
+|---|---|---|---|---|---|
+| R1 | Manager | Both | Edit a project that has no start date, Save. | Saves, no 422 (UAT-033). | |
+| R2 | Manager | Both | Documents, open an evidence document linked to a change request. | Viewer names the request by reference and title (UAT-029). | |
+| R3 | Member | Desktop | GET /api/export?entity=tokens with the member session. | 403 naming the admin or manager session (UAT-030). | |
+| R4 | Member, Admin | Both | Read the Governance badge in the sidebar and bottom bar. | Member: "N items in review"; admin: "N items awaiting your decision" (UAT-031). | |
+| R5 | Member | Desktop | Open a locked project; POST /api/projects/<id>/unlock. | No Unlock control; API 403 names who can unlock (UAT-032). | |
+| R6 | Manager | Both | Raise Change Request with the Emergency tick on a locked project. | Helper says it commits now with no approval; after save: status Approved, red Emergency badge in list and detail, "Emergency change: committed without approval on <date> by <you>", no Approve/Reject/Defer, nothing waiting in Approvals or Review, audit shows change_request.emergency_commit by you (Q1). | |
+| R7 | Member | Desktop | POST the raise route with is_emergency true. | 403, nothing created. | |
+| R7b | Admin | Desktop | Mint a PAT with change:* and raise an emergency with it; repeat with change:decide. | change:* → 403 role_not_permitted naming change:decide; change:decide → committed (C2-01). | |
+| R8 | Manager, Admin | Desktop | Request deletion of an approved document in an unlocked project; approve as the admin. | 202 with tier normal, no admin-only refusal; approve 200 (Q4). | |
+| R9 | Manager, Admin | Desktop | Request deletion of an expense at or above the currency threshold; approve as a second manager, then as the admin. | Tier high_risk; with two admins in the workspace the manager is refused naming the admin role; with one admin the fallback (D7) lets the manager decide and the audit row carries fallback_approver true; admin 200 (Q5). | |
+| R10 | Admin | Both | Settings → Approval policy. | Emergency row "Commits when raised. No approval. Flagged everywhere."; no retro window field; PATCH emergency_retro_hours is accepted and ignored. | |
+| R11 | Admin | Both | Integrations → GitHub card; PATCH the connector rules with deploy_success completed. | No Completed option; helper line says only a person marks a task Completed; PATCH 422 (Q7). | |
+| R12 | Admin | Both | Weekly report page. | "Emergency changes this week: N" lists the R6 request; no "overdue for approval" line. | |
+| R13 | Admin | Desktop | Download the audit pack CSV. | Change-request sheet keeps the columns is_emergency (yes or blank) and retro_overdue (always blank, deprecated); no column named emergency (review decision C2-13). | |

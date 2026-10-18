@@ -2,10 +2,11 @@ import { route } from "@/lib/api/handler";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
+import { ScopeError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner, resolveWorkspaceApprovers } from "@/lib/notify/publish";
-import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy, retroDueAt } from "@/lib/governance/tiers";
+import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
 import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { insertWithReference } from "@/lib/governance/next-ref";
@@ -13,6 +14,9 @@ import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 export const runtime = "nodejs";
+
+const EMERGENCY_TOKEN_MESSAGE =
+  "An API token needs the change:decide scope to raise an emergency change, because nobody else decides it. Use a signed-in manager or admin, or a token that holds change:decide.";
 
 /** GET /api/projects/:id/change-requests — list change requests for a project */
 export const GET = route(async ({ actor, params, request }) => {
@@ -99,89 +103,122 @@ export const POST = route(async ({ actor, params, request }) => {
   });
   const tier = classified.tier;
   const isEmergency = tier === "emergency";
+  // C2-01: nobody decides an emergency, so a token may raise one only with the exact change:decide scope
+  // (wildcards never grant it). A signed-in manager or admin needs nothing more.
+  if (isEmergency && actor.type === "token") {
+    try {
+      requireScope(actor, "change:decide");
+    } catch {
+      throw new ScopeError(EMERGENCY_TOKEN_MESSAGE, "role_not_permitted");
+    }
+  }
   const deadline = deadlineFor(tier, policy, now);
-  const retroDue = isEmergency ? retroDueAt(policy, now) : null;
-  const assignedApproverId = await resolveAssignedApprover(
-    db,
-    actor.workspaceId,
-    input.assigned_approver_id,
-    requesterPrincipal,
-    approverRoleFor(tier, policy),
+  // Q1: an emergency commits on raise. Nobody decides it, so it has no assigned approver.
+  const assignedApproverId = isEmergency
+    ? null
+    : await resolveAssignedApprover(
+        db,
+        actor.workspaceId,
+        input.assigned_approver_id,
+        requesterPrincipal,
+        approverRoleFor(tier, policy),
+      );
+  const baseFields = {
+    project_id: projectId,
+    title: input.title,
+    description: input.description ?? null,
+    category: input.category,
+    priority: input.priority,
+    impact_summary: input.impact_summary ?? null,
+    impact_schedule_days: input.impact_schedule_days ?? null,
+    impact_cost: input.impact_cost ?? null,
+    impact_scope: input.impact_scope ?? null,
+    target_date: input.target_date ?? null,
+    // raised_at is NOT NULL DEFAULT now() — an explicit null would violate the column; omit the key so the
+    // database default applies when the caller does not send one (agents and curl callers rarely do).
+    ...(input.raised_at ? { raised_at: input.raised_at } : {}),
+    requested_by: actor.type === "user" ? actor.id : null,
+    requested_by_label: actor.label,
+    requested_by_type: actor.type,
+    requested_by_id: actor.id,
+  };
+  const { data: row, error } = await insertWithReference(db, actor.workspaceId, "change_request", (refId) =>
+    isEmergency
+      ? // Q1 + C2-03: an emergency commits when raised. The request and both audit rows (create, emergency_commit)
+        // are written by one database function in one transaction: a failed audit leaves no request behind.
+        db.rpc("nopm_raise_emergency_change_request", {
+          p_workspace_id: actor.workspaceId,
+          p_input: { ...baseFields, reference_id: refId },
+          p_actor_type: actor.type,
+          p_actor_id: actor.id,
+          p_actor_label: actor.label,
+          p_principal_id: requesterPrincipal,
+          p_channel: actor.channel ?? null,
+          p_correlation_id: actor.requestId ?? null,
+          p_via_connector_id: actor.viaConnectorId ?? null,
+          p_external_event_id: actor.externalEventId ?? null,
+          p_external_actor_ref: actor.externalActorRef ?? null,
+        })
+      : db
+          .from("change_requests")
+          .insert({
+            workspace_id: actor.workspaceId,
+            reference_id: refId,
+            ...baseFields,
+            status: input.status,
+            tier,
+            approval_deadline_at: deadline ? deadline.toISOString() : null,
+            // The HUMAN behind the requester (the user, or the token's creator) — four-eyes compares this.
+            requested_principal_id: requesterPrincipal,
+            // G5: only sent when asked for, so a database without 0097 still accepts every other raise.
+            ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
+          })
+          .select()
+          .single(),
   );
-  const { data: row, error } = await insertWithReference(db, actor.workspaceId, "change_request", (refId) => db
-    .from("change_requests")
-    .insert({
-      workspace_id: actor.workspaceId,
-      project_id: projectId,
-      reference_id: refId,
-      title: input.title,
-      description: input.description ?? null,
-      category: input.category,
-      priority: input.priority,
-      // G4: an emergency request is raised in its own status and may be implemented at once.
-      status: isEmergency ? "emergency" : input.status,
-      tier,
-      approval_deadline_at: deadline ? deadline.toISOString() : null,
-      ...(isEmergency ? { is_emergency: true, retro_due_at: retroDue!.toISOString() } : {}),
-      impact_summary: input.impact_summary ?? null,
-      impact_schedule_days: input.impact_schedule_days ?? null,
-      impact_cost: input.impact_cost ?? null,
-      impact_scope: input.impact_scope ?? null,
-      target_date: input.target_date ?? null,
-      // raised_at is NOT NULL DEFAULT now() — an explicit null would violate
-      // the column; omit the key so the database default applies when the
-      // caller does not send one (agents and curl callers rarely do).
-      ...(input.raised_at ? { raised_at: input.raised_at } : {}),
-      requested_by: actor.type === "user" ? actor.id : null,
-      requested_by_label: actor.label,
-      requested_by_type: actor.type,
-      requested_by_id: actor.id,
-      // The HUMAN behind the requester (the user, or the token's creator) —
-      // four-eyes compares this, not the actor id.
-      requested_principal_id: requesterPrincipal,
-      // G5: only sent when asked for, so a database without 0097 still accepts every other raise.
-      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
-    })
-    .select()
-    .single());
 
+  if (error && (error.code === "P0043" || /EMERGENCY_NOT_PERMITTED/.test(error.message ?? ""))) {
+    throw new ScopeError("Only a manager or admin can raise an emergency change.", "role_not_permitted");
+  }
   if (error || !row) throw new Error(error?.message ?? "Insert failed");
 
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "change_request.create",
-    targetType: "change_request",
-    targetId: row.id,
-    before: null,
-    after: row,
-  });
+  // The emergency path wrote its own audit rows inside the database call above (one transaction).
+  if (!isEmergency) {
+    await writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "change_request.create",
+      targetType: "change_request",
+      targetId: row.id,
+      before: null,
+      after: row,
+    });
 
-  // G3: the deadline (or the emergency retro due date) is on record from the start. Fail-soft.
-  await recordApprovalEvent(db, {
-    workspaceId: actor.workspaceId,
-    targetType: "change_request",
-    targetId: row.id,
-    kind: "deadline_set",
-    actorLabel: actor.label,
-    detail: { tier, deadline: deadline?.toISOString() ?? null, retro_due_at: retroDue?.toISOString() ?? null, reason: classified.reason },
-  });
+    // G3: the deadline is on record from the start. Fail-soft.
+    await recordApprovalEvent(db, {
+      workspaceId: actor.workspaceId,
+      targetType: "change_request",
+      targetId: row.id,
+      kind: "deadline_set",
+      actorLabel: actor.label,
+      detail: { tier, deadline: deadline?.toISOString() ?? null, reason: classified.reason },
+    });
+  }
 
   // G2: tell the people who may decide THIS tier (an admin tier goes to admins only), not every approver.
-  void resolveWorkspaceApprovers(actor.workspaceId, { tier, assignedApproverId }).then((approverIds) => {
-    return notify({
-      workspaceId: actor.workspaceId,
-      recipientIds: approverIds.filter((id) => id !== requesterPrincipal),
-      type: "approval.requested",
-      title: isEmergency
-        ? `EMERGENCY change: ${input.title}`
-        : `Change request needs a decision: ${input.title}`,
-      body: isEmergency
-        ? `Shipped now by ${actor.label}; your retro decision is due by ${retroDue!.toISOString().slice(0, 16).replace("T", " ")} UTC.`
-        : (classified.reason ?? input.description ?? undefined),
-      payload: { href: "/approvals", changeRequestId: row.id, tier, refId: row.reference_id },
+  // An emergency has nothing to decide, so no approval request goes out for it.
+  if (!isEmergency) {
+    void resolveWorkspaceApprovers(actor.workspaceId, { tier, assignedApproverId }).then((approverIds) => {
+      return notify({
+        workspaceId: actor.workspaceId,
+        recipientIds: approverIds.filter((id) => id !== requesterPrincipal),
+        type: "approval.requested",
+        title: `Change request needs a decision: ${input.title}`,
+        body: classified.reason ?? input.description ?? undefined,
+        payload: { href: "/approvals", changeRequestId: row.id, tier, refId: row.reference_id },
+      });
     });
-  });
+  }
 
   // Notify project owner when priority is high or critical — fail-soft
   if (input.priority === "high" || input.priority === "critical") {
@@ -199,8 +236,8 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   // Tell the integration hub (chat approval cards) — never throws, runs after
-  // the request and its audit row are committed.
-  announceRequested({
+  // the request and its audit row are committed. An emergency has no card: nothing to approve.
+  if (!isEmergency) announceRequested({
     workspaceId: actor.workspaceId,
     kind: "change_request",
     id: row.id,

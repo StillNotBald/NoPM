@@ -11,7 +11,6 @@
  * "not recorded" (blank) rather than failing the download.
  */
 import { dayAfter, type ExportRange } from "@/app/api/export/_audit-range";
-import { isRetroOverdue } from "@/lib/governance/tiers";
 import { getChainHead, type ChainHead } from "@/lib/audit/chain-head";
 
 /** Ids per .in() lookup, so a 10,000-row export never builds an oversized URL. */
@@ -119,7 +118,9 @@ export const CHANGE_REQUEST_COLUMNS = [
   "impact_schedule_days", "impact_cost", "impact_scope", "implemented_at",
   "implemented_by_label", "evidence_count", "evidence_pass", "evidence_fail",
   "evidence_latest_at", "linked_decisions",
-  // Approval tiers (G1) and the emergency path (G4): an emergency change is flagged until its retro decision.
+  // Approval tiers (G1) and the emergency path (R-159): an emergency commits on raise and is flagged "yes".
+  // retro_due_at, retro_decided_at and retro_outcome are history for emergencies raised before the retro was
+  // retired. retro_overdue is DEPRECATED: always blank, kept one release so tooling keyed on headers still works.
   "tier", "is_emergency", "retro_due_at", "retro_decided_at", "retro_outcome", "retro_overdue",
 ] as const;
 
@@ -216,11 +217,11 @@ export async function fetchChangeRequestRows(
       evidence_latest_at: latest,
       linked_decisions: (decByCr.get(r.id as string) ?? []).join(" "),
       tier: r.tier ?? "normal",
-      is_emergency: r.is_emergency === true ? "yes" : "",
+      is_emergency: r.is_emergency === true || r.tier === "emergency" ? "yes" : "",
       retro_due_at: r.retro_due_at ?? "",
       retro_decided_at: r.retro_decided_at ?? "",
       retro_outcome: r.retro_outcome ?? "",
-      retro_overdue: isRetroOverdue(r as never, new Date()) ? "yes" : "",
+      retro_overdue: "",
     } as Row;
   });
   return {

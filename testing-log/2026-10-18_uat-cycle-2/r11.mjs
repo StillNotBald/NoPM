@@ -1,0 +1,11 @@
+import { open, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m";
+const s = await open("admin", w, w>600?800:844); const p = s.page;
+await p.goto(BASE + "/integrations", { waitUntil: "load" });
+await p.waitForFunction(()=>/^JH$/m.test(document.body.innerText),null,{timeout:60000}).catch(()=>{}); await p.waitForTimeout(4000);
+const gh = p.getByText(/GitHub/).locator("visible=true").first(); console.log("github text count", await p.getByText(/GitHub/).count());
+await gh.scrollIntoViewIfNeeded(); await s.shot(`r11-${tag}-1-github`);
+const t = await s.text(); const i = t.search(/GitHub/); console.log(t.slice(i, i+1500));
+const sels = await p.locator("select").evaluateAll(a=>a.map(x=>x.getAttribute("aria-label")+": "+[...x.options].map(o=>o.text).join("/")));
+console.log(sels.join("\n"));
+await s.browser.close();

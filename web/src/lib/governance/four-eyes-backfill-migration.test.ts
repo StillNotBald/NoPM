@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const FILE = "20261018000089_four_eyes_backfill_validate.sql";
-const text = readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", FILE), "utf8");
+const text = readFileSync(join(__dirname, "..", "..", "..", "supabase", "migrations", FILE), "utf8").replace(/\r\n/g, "\n");
 /** The SQL without its comment header, so prose cannot satisfy or break an assertion. */
 const sql = text.replace(/^\s*--.*$/gm, "");
 

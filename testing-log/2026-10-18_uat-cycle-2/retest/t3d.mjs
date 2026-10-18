@@ -1,0 +1,10 @@
+import { open, BASE } from "./ui.mjs"; import { rec } from "./h.mjs";
+const [w,h,tag] = process.argv[2]==="d" ? [1280,800,"1280"] : [390,844,"390"];
+const { browser, page, shot, text } = await open("manager", w, h);
+await page.goto(BASE + "/change-control", { waitUntil: "domcontentloaded" }); await page.waitForTimeout(4000);
+await page.getByText(`T3 retest emergency ${tag}`).locator("visible=true").first().click(); await page.waitForTimeout(2500);
+const panel = page.locator('[role="dialog"], aside, [data-panel]').last();
+const t = (await panel.count()) ? await panel.innerText() : await text();
+rec(`t3-${tag}-detail`, { note: (t.match(/Emergency change: committed without approval on[^\n]*/)||[null])[0], badge: /Emergency/.test(t), approveBtn: await page.getByRole("button", { name: /^(Approve|Reject|Defer)/ }).count(), panelFound: await panel.count() });
+await shot(`t3-${tag}-04-detail`);
+await browser.close();

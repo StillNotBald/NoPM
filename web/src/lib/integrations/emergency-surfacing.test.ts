@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-// W4-09: emergency changes (not yet live, or live and owing their retro decision) are "pending" for the
-// chat hub: the card is still actionable and the catch-up re-announces it.
+// Q1: an emergency change commits when raised, so its card is never actionable and the catch-up never re-announces it.
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
 const emitted = vi.hoisted(() => ({ requested: [] as Record<string, unknown>[] }));
@@ -42,38 +41,38 @@ const cr = (id: string, over: Record<string, unknown>) => ({
 });
 const stateOf = async (id: string) => (await readRequest({ workspace_id: WS, approval_kind: "change_request", approval_id: id })).state;
 
-describe("a card for an emergency change stays actionable until the retro decision", () => {
-  it("status emergency is pending", async () => {
-    db.seed("change_requests", [cr("e1", { status: "emergency", tier: "emergency", is_emergency: true })]);
-    expect(await stateOf("e1")).toBe("pending");
+describe("Q1: a card for an emergency change is decided, never pending", () => {
+  it("a committed emergency (approved) is decided", async () => {
+    db.seed("change_requests", [cr("e1", { status: "approved", tier: "emergency", is_emergency: true, retro_decided_at: "2026-10-18T00:00:00.000Z" })]);
+    expect(await stateOf("e1")).toBe("decided");
   });
 
-  it("a live emergency (implemented) still owing its retro decision is pending; once decided it is not", async () => {
+  it("a live emergency (implemented) is decided, whether or not it was ever retro-decided", async () => {
     db.seed("change_requests", [
       cr("e2", { status: "implemented", tier: "emergency", is_emergency: true, retro_decided_at: null }),
       cr("e3", { status: "implemented", tier: "emergency", is_emergency: true, retro_decided_at: "2026-10-19T00:00:00.000Z" }),
     ]);
-    expect(await stateOf("e2")).toBe("pending");
+    expect(await stateOf("e2")).toBe("decided");
     expect(await stateOf("e3")).toBe("decided");
   });
 
-  it("an ordinary implemented change is decided", async () => {
-    db.seed("change_requests", [cr("n1", { status: "implemented", is_emergency: false })]);
-    expect(await stateOf("n1")).toBe("decided");
+  it("an ordinary raised change is still pending", async () => {
+    db.seed("change_requests", [cr("r1", { status: "raised" })]);
+    expect(await stateOf("r1")).toBe("pending");
   });
 });
 
-describe("catch-up re-announces emergencies that wait", () => {
-  it("includes status emergency and live-awaiting-retro, not a decided emergency or an ordinary implemented change", async () => {
+describe("catch-up leaves emergencies alone", () => {
+  it("announces only raised and under-review changes", async () => {
     db.seed("change_requests", [
-      cr("e1", { status: "emergency", tier: "emergency", is_emergency: true }),
+      cr("e1", { status: "approved", tier: "emergency", is_emergency: true }),
       cr("e2", { status: "implemented", tier: "emergency", is_emergency: true, retro_decided_at: null }),
-      cr("e3", { status: "implemented", tier: "emergency", is_emergency: true, retro_decided_at: "2026-10-19T00:00:00.000Z" }),
       cr("n1", { status: "implemented", is_emergency: false }),
       cr("r1", { status: "raised" }),
+      cr("u1", { status: "under_review" }),
     ]);
     await catchUpPendingApprovals(WS);
     const ids = emitted.requested.filter((e) => e.kind === "change_request").map((e) => e.id).sort();
-    expect(ids).toEqual(["e1", "e2", "r1"]);
+    expect(ids).toEqual(["r1", "u1"]);
   });
 });

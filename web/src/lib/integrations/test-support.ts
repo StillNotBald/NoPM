@@ -259,6 +259,9 @@ export class FakeDb {
   /** Set to make the next nopm_revoke_connector call fail BEFORE it changes anything (atomic: all or nothing). */
   failRevokeRpc: PgError | null = null;
 
+  /** Set to make the audit half of the next nopm_raise_emergency_change_request fail: the request is rolled back with it. */
+  failEmergencyAudit = false;
+
   /**
    * RPCs. nopm_revoke_connector mirrors migration 0069 (one transaction: connector,
    * identities, deliveries, link codes and the audit row, or an error and no change).
@@ -270,6 +273,46 @@ export class FakeDb {
     if (name === "nopm_mutate_audited") {
       const r = mutateAuditedRpc(args, this as unknown as Parameters<typeof mutateAuditedRpc>[1]);
       return { data: r.data, error: r.error, count: null } as Result;
+    }
+    // Migration 0106: an emergency change request and both of its audit rows in one transaction, or nothing.
+    if (name === "nopm_raise_emergency_change_request") {
+      const principal = this.rows("profiles").find((p) => p.id === args.p_principal_id && p.workspace_id === args.p_workspace_id);
+      if (!principal || (principal.role !== "admin" && principal.role !== "manager")) {
+        return { data: null, error: { code: "P0043", message: "EMERGENCY_NOT_PERMITTED: only a manager or admin can raise an emergency change" }, count: null } as Result;
+      }
+      if (this.failEmergencyAudit) {
+        return { data: null, error: { code: "XX000", message: "audit insert failed" }, count: null } as Result;
+      }
+      const input = (args.p_input ?? {}) as Row;
+      const now = new Date().toISOString();
+      const row: Row = {
+        id: this.nextId(),
+        workspace_id: args.p_workspace_id,
+        category: "scope",
+        priority: "medium",
+        ...input,
+        status: "approved",
+        tier: "emergency",
+        is_emergency: true,
+        requested_principal_id: args.p_principal_id,
+        approval_deadline_at: null,
+        retro_due_at: null,
+        decided_at: now,
+        decided_by_label: "Emergency path (no approval required)",
+        decision_rationale: "Emergency: committed on raise, no approval required.",
+        retro_decided_at: now,
+        retro_outcome: "not_required",
+        raised_at: (input.raised_at as string | undefined) ?? now,
+        created_at: now,
+        updated_at: now,
+      };
+      this.seed("change_requests", [row]);
+      const base = { workspace_id: args.p_workspace_id, actor_type: args.p_actor_type, actor_id: args.p_actor_id, actor_label: args.p_actor_label, target_type: "change_request", target_id: row.id, principal_id: args.p_principal_id };
+      this.seed("audit_log", [
+        { ...base, action: "change_request.create", before: null, after: row },
+        { ...base, action: "change_request.emergency_commit", before: null, after: { emergency: true, tier: "emergency", status: "approved", approval_required: false, reference_id: row.reference_id ?? null } },
+      ]);
+      return { data: row, error: null, count: null } as Result;
     }
     // Migration 0105: a GitHub work event's status move, lock check and audit row in one transaction.
     if (name === "nopm_apply_task_status_from_event") {

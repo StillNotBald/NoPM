@@ -66,3 +66,7 @@ Each assumption is built as stated and flagged. The owner can change any of them
 | Narrow the positioning instead. Drop the governance-tier and agent-surface claims and sell only the reporting outcome. | The owner chose to build the full brief. The positioning depends on evidence that only the gaps provide. |
 | Build only section M (the evidence and control items). | Section M alone leaves the unattended-operation promise (A-items) unmet and the change-request evidence chain incomplete. |
 | Build all items in one wave. | Too large to review in one pass. Each wave needs its own UAT round before the next starts. |
+
+## Superseded 2026-10-18
+
+The sentence "Emergency changes get a 48-hour admin retro flag" no longer holds. Owner decision Q1 made an emergency a flag that commits on raise, with no retro. See `docs/adr/0017-approval-tiers.md`.

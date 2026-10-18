@@ -1,5 +1,5 @@
 /**
- * Work-event status rules (R-153). A workspace maps each GitHub work event to the status a linked
+ * Work-event status rules (R-153; R-160: no rule may complete a task, completion is a human action). A workspace maps each GitHub work event to the status a linked
  * task moves to, or to nothing. The same value set is enforced in the database by
  * `nopm_valid_work_event_rules` (migration 0105); this file is the application-side twin.
  */
@@ -7,8 +7,11 @@
 export const WORK_EVENT_KINDS = ["pr_opened", "pr_merged", "pr_closed", "deploy_success", "deploy_failure"] as const;
 export type WorkEventKind = (typeof WORK_EVENT_KINDS)[number];
 
-/** A status a work event may move a task to. `in_review` is status_type started with the label "In review". */
-export const RULE_TARGETS = ["unstarted", "started", "in_review", "completed", "canceled"] as const;
+/**
+ * A status a work event may move a task to. `in_review` is status_type started with the label "In review".
+ * "completed" is deliberately absent: only a person completes a task (owner decision, 2026-10-18).
+ */
+export const RULE_TARGETS = ["unstarted", "started", "in_review", "canceled"] as const;
 export type RuleTarget = (typeof RULE_TARGETS)[number];
 
 export type WorkEventRules = Record<WorkEventKind, RuleTarget | null>;
@@ -17,7 +20,7 @@ export const DEFAULT_RULES: WorkEventRules = {
   pr_opened: "started",
   pr_merged: "in_review",
   pr_closed: null,
-  deploy_success: "completed",
+  deploy_success: null,
   deploy_failure: null,
 };
 
@@ -25,7 +28,6 @@ export const RULE_TARGET_LABELS: Record<RuleTarget, string> = {
   unstarted: "Not started",
   started: "In progress",
   in_review: "In review",
-  completed: "Completed",
   canceled: "Canceled",
 };
 
@@ -65,14 +67,21 @@ export function targetToStatus(target: RuleTarget): { statusType: TaskStatusType
   return { statusType: target, label: null };
 }
 
-/** Parse a stored value into rules; unknown keys and values fall back to the defaults. */
+export const COMPLETION_IS_HUMAN_MESSAGE =
+  "A work event cannot complete a task. Completing a task is a human action; map the event to unstarted, started, in_review or canceled, or leave it unset.";
+
+/**
+ * Parse a stored value into rules; unknown keys and values fall back to the defaults.
+ * A stored "completed" (workspaces saved before R-160, e.g. deploy_success) is read as "none" until
+ * migration 0106 rewrites it, so an old rule can never complete a task.
+ */
 export function normalizeRules(raw: unknown): WorkEventRules {
   const src = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out = { ...DEFAULT_RULES };
   for (const kind of WORK_EVENT_KINDS) {
     if (!(kind in src)) continue;
     const v = src[kind];
-    if (v === null) out[kind] = null;
+    if (v === null || v === "completed") out[kind] = null;
     else if (typeof v === "string" && (RULE_TARGETS as readonly string[]).includes(v)) out[kind] = v as RuleTarget;
   }
   return out;
@@ -86,6 +95,7 @@ export function validateRulesPatch(
   const out: Partial<WorkEventRules> = {};
   for (const [key, v] of Object.entries(raw as Record<string, unknown>)) {
     if (!(WORK_EVENT_KINDS as readonly string[]).includes(key)) return { ok: false, message: `Unknown work event "${key}"` };
+    if (v === "completed") return { ok: false, message: `rules.${key}: ${COMPLETION_IS_HUMAN_MESSAGE}` };
     if (v === null) out[key as WorkEventKind] = null;
     else if (typeof v === "string" && (RULE_TARGETS as readonly string[]).includes(v)) out[key as WorkEventKind] = v as RuleTarget;
     else return { ok: false, message: `rules.${key} must be one of ${RULE_TARGETS.join(", ")} or null` };

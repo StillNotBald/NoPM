@@ -348,13 +348,20 @@ export function ProjectForm({
             ["Build & UAT", 90],
             ["Cutover & Closure", 150],
           ];
+          let scaffoldFailed = false;
           for (const [mName, daysOffset] of milestones) {
-            await apiPost(`/api/projects/${p.id}/milestones`, {
-              name: mName,
-              target_date: addDays(daysOffset),
-              status: "not_started",
-            });
+            try {
+              await apiPost(`/api/projects/${p.id}/milestones`, {
+                name: mName,
+                target_date: addDays(daysOffset),
+                status: "not_started",
+              });
+            } catch {
+              scaffoldFailed = true;
+            }
           }
+          // The project exists either way: never strand the user on the form with a half-made project.
+          if (scaffoldFailed) toast.error("Project created, but the starter milestones could not be added. Add them from the project page.");
         }
 
         toast.success("Project created");

@@ -145,8 +145,8 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
 /**
  * DELETE /api/documents/:id — does NOT delete the document. It raises a deletion request (scope
- * document:delete:request) with a required `reason` and returns 202. An approved document needs an admin
- * to ask (decision 25). A second person approves it at POST /api/deletion-requests/:id/approve (audit gap G8).
+ * document:delete:request) with a required `reason` and returns 202. An approved document is on the manager tier
+ * like any other (owner decision Q4; the audit trail tracks it). A second person approves it at POST /api/deletion-requests/:id/approve (audit gap G8).
  */
 export const DELETE = route(async ({ actor, params, request }) =>
   requestDeletion({ actor, request, entity: "document", id: params.id }),

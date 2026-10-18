@@ -133,8 +133,6 @@ describe("GET /api/review", () => {
         is_emergency: false,
         tier: null,
         approval_deadline_at: null,
-        retro_due_at: null,
-        retro_overdue: false,
       },
     ]);
     // every query carries the caller's workspace

@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LayoutGrid, Plus, X } from "lucide-react";
 import { cn } from "@/lib/cn";
-import { ALL_NAV_ITEMS, pendingByHref, filterNavItemsByRole, type NavItem } from "@/lib/nav/nav-config";
+import { ALL_NAV_ITEMS, pendingByHref, filterNavItemsByRole, canDecideGovernance, type NavItem } from "@/lib/nav/nav-config";
 import { useMyRole } from "@/lib/nav/use-my-role";
 import type { PendingCounts } from "@/lib/governance/pending-counts";
 import { usePreferences } from "@/lib/prefs/use-preferences";
@@ -114,6 +114,7 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
   const unpin = (href: string) => save(shortcuts.filter((h) => h !== href));
 
   const role = useMyRole();
+  const canDecide = canDecideGovernance(role);
   const visibleItems = filterNavItemsByRole(ALL_ITEMS, role);
   const barItems = filterNavItemsByRole(shortcuts.map(byHref).filter(Boolean) as Item[], role);
   const unpinned = visibleItems.filter((i) => !shortcuts.includes(i.href));
@@ -259,7 +260,7 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
                     >
                       <Icon size={22} />
                       <span className="max-w-full truncate px-1 text-center leading-tight">{label}</span>
-                      <NavBadge count={pending[href] ?? 0} className="absolute right-2 top-1" />
+                      <NavBadge count={pending[href] ?? 0} canDecide={canDecide} className="absolute right-2 top-1" />
                     </Link>
                   );
                 })}
@@ -284,7 +285,7 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
                 active ? "text-accent" : "text-ink-muted",
               )}
             >
-              <NavBadge count={pending[href] ?? 0} className="absolute right-1/4 top-0.5" />
+              <NavBadge count={pending[href] ?? 0} canDecide={canDecide} className="absolute right-1/4 top-0.5" />
               <Icon size={22} strokeWidth={active ? 2.2 : 2} />
               <span className="max-w-full truncate px-0.5">{label}</span>
             </Link>
@@ -299,7 +300,7 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
           aria-haspopup="dialog"
           aria-expanded={open}
         >
-          <NavBadge count={pendingTotal} className="absolute right-1/4 top-0.5" />
+          <NavBadge count={pendingTotal} canDecide={canDecide} className="absolute right-1/4 top-0.5" />
           <LayoutGrid size={22} />
           <span>Apps</span>
         </button>

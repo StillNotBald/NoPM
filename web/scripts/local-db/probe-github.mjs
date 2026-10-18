@@ -132,14 +132,15 @@ await report.check("GH3", "a replayed delivery id answers 200 and changes nothin
   expectEqual(n, 1, "one work_events row for the delivery");
 });
 
-await report.check("GH4", "a successful deployment naming the PR completes the task; a failed one only records", async () => {
+await report.check("GH4", "a successful deployment never completes the task (Q7); a failed one only records", async () => {
+  const before = await taskRow(t1.id);
   const done = await deliver("deployment_status", deploy("success", 1));
   expectEqual(done.status, 200, "deployment");
   const after = await taskRow(t1.id);
-  expectEqual(after.status_type, "completed", "completed");
-  expectEqual(after.status, "Done", "label is a real label, never null (UAT-001)");
-  const ev1 = (await pgc.query("select reason from work_events where connector_id = $1 and external_event_id = $2", [connector.id, done.id])).rows[0];
-  expectEqual(ev1.reason, "applied", "the deployment event must be applied, not recorded as an error");
+  expectEqual(after.status_type, before.status_type, "a deployment must leave the task status unchanged");
+  expect(after.status_type !== "completed", "no work event completes a task");
+  const ev1 = (await pgc.query("select applied, reason from work_events where connector_id = $1 and external_event_id = $2", [connector.id, done.id])).rows[0];
+  expectEqual(ev1.reason, "no_rule", "recorded, no rule moves the task");
   const t2 = await newLinkedTask(2);
   const failed = await deliver("deployment_status", deploy("failure", 2));
   expectEqual(failed.status, 200, "failure delivery");

@@ -83,7 +83,6 @@ describe("approval_policy in /api/workspace-settings", () => {
     ["an unknown tier", { tiers: { urgent: { approver_role: "admin" } } }],
     ["negative turnaround", { tiers: { normal: { turnaround_hours: -3 } } }],
     ["a negative threshold", { currency_threshold: -1 }],
-    ["zero retro hours", { emergency_retro_hours: 0 }],
   ])("refuses %s with 422 naming the field, and changes and audits nothing", async (_l, policy) => {
     const res = await patch({ approval_policy: policy });
     expect(res.status).toBe(422);
@@ -141,11 +140,19 @@ describe("approval_policy in /api/workspace-settings", () => {
     expect((await patch({ approval_policy: { schedule_threshold_days: -2 } })).status).toBe(422);
   });
 
+  it("the deprecated emergency_retro_hours is accepted and ignored, even when out of range", async () => {
+    const res = await patch({ approval_policy: { emergency_retro_hours: 0, currency: "MYR" } });
+    expect(res.status).toBe(200);
+    expect((await get()).approval_policy.emergency_retro_hours).toBe(48);
+    expect((await get()).approval_policy.currency).toBe("MYR");
+  });
+
   it("works alongside the other settings in one PATCH", async () => {
     const res = await patch({ stale_days: 30, approval_policy: { emergency_retro_hours: 24 } });
     expect(res.status).toBe(200);
     expect(db.rows("workspaces").find((w) => w.id === WS)).toMatchObject({ stale_days: 30 });
-    expect(stored()!.emergency_retro_hours).toBe(24);
+    // deprecated (Q1): accepted, not stored
+    expect((await get()).approval_policy.emergency_retro_hours).toBe(48);
     expect(audits()).toHaveLength(1);
   });
 });

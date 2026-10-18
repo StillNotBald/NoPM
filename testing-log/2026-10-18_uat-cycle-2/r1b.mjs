@@ -1,0 +1,12 @@
+import { open, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m"; const id = process.argv[3];
+const s = await open("manager", w, w>600?800:844); const p = s.page;
+const resp=[]; p.on("response", async r=>{ if(/\/api\/projects\/[0-9a-f-]+$/.test(r.url()) && r.request().method()!=="GET") { let t=""; try{t=(await r.text()).slice(0,300)}catch{} resp.push(r.request().method()+" "+r.status()+" "+t); }});
+await p.goto(BASE + "/projects/"+id, { waitUntil: "load" }); await p.waitForTimeout(4000);
+await p.getByRole("button", { name: "Edit", exact: true }).first().click(); await p.waitForTimeout(2000);
+await s.shot(`r1-${tag}-5-editform`);
+await p.getByLabel("Sponsor").fill("Retest sponsor "+tag);
+await p.getByRole("button", { name: /^save/i }).last().click(); await p.waitForTimeout(3500);
+await s.shot(`r1-${tag}-6-saved`);
+console.log(resp.join("\n")); console.log((await s.text()).slice(0,400));
+await s.browser.close();

@@ -1,0 +1,15 @@
+import { open, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m";
+const s = await open("manager", w, w>600?800:844); const p = s.page;
+await p.goto(BASE + "/projects", { waitUntil: "load" }); await p.waitForTimeout(4000);
+await p.getByRole("button", { name: /New Project/i }).first().click(); await p.waitForTimeout(2000);
+await s.shot(`r1-${tag}-1-newform`);
+const name = `UAT-A nostart ${tag} ${Date.now()%100000}`;
+await p.getByLabel("Project name", {exact:true}).last().fill(name);
+const startVal = await p.getByLabel("Start Date").inputValue().catch(()=> "n/a"); console.log("start value:", JSON.stringify(startVal));
+await s.shot(`r1-${tag}-2-filled`);
+await p.getByRole("button", { name: /^(create|save|add)/i }).last().click(); await p.waitForTimeout(4000);
+await s.shot(`r1-${tag}-3-created`);
+console.log((await s.text()).slice(0,600));
+console.log("NAME", name);
+await s.browser.close();

@@ -200,11 +200,11 @@ describe("who may edit or delete an open change request: only the requester's pe
   });
 });
 
-describe("W4-08: an emergency request that has not gone live is still the requester's to edit and withdraw", () => {
-  it("edit and delete are allowed while the status is emergency", async () => {
-    Object.assign(crRow(), { status: "emergency", tier: "emergency", is_emergency: true, retro_due_at: "2099-01-01T00:00:00.000Z" });
-    expect((await edit({ title: "Prod is down (fixed wording)" })).status).toBe(200);
-    expect((await remove()).status).toBe(204);
+describe("Q1: an emergency request commits when raised, so it is part of the record at once", () => {
+  it("edit and delete are refused (422) on a committed emergency request, whether approved or implemented", async () => {
+    Object.assign(crRow(), { status: "approved", tier: "emergency", is_emergency: true });
+    expect((await edit({ title: "Prod is down (fixed wording)" })).status).toBe(422);
+    expect((await remove()).status).toBe(422);
   });
 
   it("once it is live (implemented) it is part of the record: 422 for edit and delete", async () => {
@@ -213,11 +213,6 @@ describe("W4-08: an emergency request that has not gone live is still the reques
     expect((await remove()).status).toBe(422);
   });
 
-  it("someone else still cannot touch an emergency request (403 not_requester)", async () => {
-    Object.assign(crRow(), { status: "emergency", tier: "emergency", is_emergency: true });
-    requireAuthMock.mockResolvedValue(approver());
-    expect((await edit({ title: "x" })).status).toBe(403);
-  });
 });
 
 describe("DELETE /api/change-requests/[id] — approval cards for the deleted request", () => {

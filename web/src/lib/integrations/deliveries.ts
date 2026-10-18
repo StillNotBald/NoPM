@@ -270,7 +270,7 @@ const REQUEST_SOURCES: Record<ApprovalKind, { table: string; pending: readonly s
   expense_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
   document_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
   milestone_deletion: { table: "deletion_requests", pending: ["pending"], versioned: false },
-  change_request: { table: "change_requests", pending: ["raised", "under_review", "emergency"], versioned: true },
+  change_request: { table: "change_requests", pending: ["raised", "under_review"], versioned: true },
   rebaseline_signoff: { table: "rebaselines", pending: ["pending_approval"], versioned: false },
 };
 
@@ -311,7 +311,7 @@ export async function readRequest(
   const db = createAdminClient();
   const { data, error } = await db
     .from(source.table)
-    .select(source.versioned ? "status, updated_at, is_emergency, retro_decided_at" : "status")
+    .select(source.versioned ? "status, updated_at" : "status")
     .eq("id", row.approval_id)
     .eq("workspace_id", row.workspace_id)
     .maybeSingle();
@@ -320,13 +320,9 @@ export async function readRequest(
   const found = data as unknown as {
     status: string;
     updated_at?: string | null;
-    is_emergency?: boolean | null;
-    retro_decided_at?: string | null;
   };
-  // W4-09: a live emergency change (status implemented) still owes its retro decision, so its card is open.
-  const awaitingRetro = found.status === "implemented" && found.is_emergency === true && !found.retro_decided_at;
   return {
-    state: source.pending.includes(found.status) || awaitingRetro ? "pending" : "decided",
+    state: source.pending.includes(found.status) ? "pending" : "decided",
     version: source.versioned ? (found.updated_at ?? null) : null,
   };
 }

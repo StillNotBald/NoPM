@@ -142,7 +142,7 @@ export function canEditChangeRequest(input: {
   status: string;
   requestedPrincipalId?: string | null;
 }): boolean {
-  if (input.status !== "raised" && input.status !== "under_review" && input.status !== "emergency") return false;
+  if (input.status !== "raised" && input.status !== "under_review") return false;
   return !input.requestedPrincipalId || input.requestedPrincipalId === input.viewerId;
 }
 

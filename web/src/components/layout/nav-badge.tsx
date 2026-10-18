@@ -3,10 +3,11 @@ import { pendingSrText } from "@/lib/nav/nav-config";
 
 /**
  * Pending-decision count pill for nav items / groups. Visual text is the
- * (capped) number; screen readers get "N items awaiting your decision".
+ * (capped) number; screen readers get "N items awaiting your decision" for
+ * someone who can decide, and "N items in review" for everyone else (UAT-031).
  * Renders nothing for 0 so a quiet queue adds no chrome.
  */
-export function NavBadge({ count, className }: { count: number; className?: string }) {
+export function NavBadge({ count, className, canDecide = true }: { count: number; className?: string; canDecide?: boolean }) {
   if (!count || count < 1) return null;
   return (
     <span
@@ -16,7 +17,7 @@ export function NavBadge({ count, className }: { count: number; className?: stri
       )}
     >
       <span aria-hidden="true">{count > 99 ? "99+" : count}</span>
-      <span className="sr-only">{pendingSrText(count)}</span>
+      <span className="sr-only">{pendingSrText(count, canDecide)}</span>
     </span>
   );
 }

@@ -20,6 +20,7 @@ import {
   commitTaskDeletion,
   connect,
   createFixtures,
+  makeUser,
   mintToken,
   must,
   newTaskDeletionRequest,
@@ -452,6 +453,153 @@ await report.check("P2", "project deletion RPC: an ADMIN commits; project gone; 
   const gone = await pgc.query("select 1 from projects where id = $1", [project.id]);
   expectEqual(gone.rowCount, 0, "project must be deleted");
   expectEqual((await auditCount(pgc, fx.workspaceId)) - before, 2, "commit must write exactly 2 audit rows");
+});
+
+// ── tier decisions (migration 0106: owner decisions Q1, Q4, Q5) ───────────
+await report.check("T1", "Q5: an expense deletion at/above the threshold is stored high_risk; a small one stays normal", async () => {
+  const mk = async (amount) => {
+    const e = await must(
+      db.from("expenses").insert({ workspace_id: fx.workspaceId, project_id: fx.project.id, description: "probe expense", amount, incurred_on: "2026-10-18" }).select("*").single(),
+      "expense",
+    );
+    const r = await must(
+      db.from("deletion_requests").insert({
+        workspace_id: fx.workspaceId, target_type: "expense", target_id: e.id, reason: "probe: tier", status: "pending",
+        requested_by_type: actors.aUser.type, requested_by_id: actors.aUser.id, requested_by_label: actors.aUser.label,
+        before: e, [CONTRACT.columns.deletion_requests.requester]: actors.aUser.principalId,
+      }).select("*").single(),
+      "expense deletion request",
+    );
+    return r.tier;
+  };
+  expectEqual(await mk(50000), "high_risk", "an amount at the default threshold");
+  expectEqual(await mk(-90000), "high_risk", "a refund of that size");
+  expectEqual(await mk(49999), "normal", "an amount under the threshold");
+});
+
+await report.check("T2", "Q1: an emergency change commits as approved with no decider; deciding it is refused (ALREADY_DECIDED)", async () => {
+  const now = new Date().toISOString();
+  const cr = await must(
+    db.from("change_requests").insert({
+      workspace_id: fx.workspaceId, project_id: fx.project.id, title: "probe emergency", category: "scope", priority: "high",
+      status: "approved", tier: "emergency", is_emergency: true, decided_at: now, retro_decided_at: now, retro_outcome: "not_required",
+      requested_by_type: actors.aUser.type, requested_by_id: actors.aUser.id, requested_by_label: actors.aUser.label,
+      requested_principal_id: actors.aUser.principalId,
+    }).select("*").single(),
+    "emergency change request",
+  );
+  expect(cr.status === "approved" && cr.decided_by_id === null, "committed with no decider");
+  const decide = await db.rpc("nopm_decide_change_request", {
+    p_id: cr.id, p_workspace_id: fx.workspaceId, p_new_status: "approved", p_rationale: null, p_expected_updated_at: null,
+    p_actor_type: "user", p_actor_id: fx.admin.id, p_actor_label: "admin", p_approver_principal_id: fx.admin.id, p_channel: "api",
+  });
+  expect(decide.error && /ALREADY_DECIDED/.test(errText(decide.error)), `expected ALREADY_DECIDED, got ${decide.error ? errText(decide.error) : "success"}`);
+});
+
+await report.check("T3", "Q4: a manager commits the deletion of an APPROVED document (no admin gate)", async () => {
+  const doc = await must(
+    db.from("documents").insert({ workspace_id: fx.workspaceId, project_id: fx.project.id, title: "probe signed doc", doc_type: "charter", status: "approved" }).select("*").single(),
+    "approved document",
+  );
+  const req = await must(
+    db.from("deletion_requests").insert({
+      workspace_id: fx.workspaceId, target_type: "document", target_id: doc.id, reason: "probe: Q4", status: "pending",
+      requested_by_type: actors.aUser.type, requested_by_id: actors.aUser.id, requested_by_label: actors.aUser.label,
+      before: doc, [CONTRACT.columns.deletion_requests.requester]: actors.aUser.principalId,
+    }).select("*").single(),
+    "document deletion request",
+  );
+  expectEqual(req.tier, "normal", "an approved document is on the manager tier");
+  const { data, error } = await db.rpc("nopm_commit_document_deletion", {
+    p_request_id: req.id, p_workspace_id: fx.workspaceId, p_approver_type: actors.bToken.type, p_approver_id: actors.bToken.id,
+    p_approver_label: actors.bToken.label, p_approver_principal_id: actors.bToken.principalId, p_channel: "api",
+    p_correlation_id: `probe-${fx.tag}-doc`,
+  });
+  expect(!error && data?.committed === true, `expected committed, got ${errText(error) || JSON.stringify(data)}`);
+  const gone = await pgc.query("select 1 from documents where id = $1", [doc.id]);
+  expectEqual(gone.rowCount, 0, "document must be deleted");
+});
+
+// ── hostile rows and the data steps (review C2-02, C2-03, C2-17) ──────────
+const crBase = (over) => ({
+  workspace_id: fx.workspaceId, project_id: fx.project.id, title: "probe hostile", category: "scope", priority: "high",
+  requested_by_type: actors.aUser.type, requested_by_id: actors.aUser.id, requested_by_label: actors.aUser.label,
+  ...over,
+});
+
+await report.check("T4", "C2-02: an emergency request from a member, from no principal, or flipped on afterwards is refused (P0043)", async () => {
+  const member = await makeUser(db, { workspaceId: fx.workspaceId, tag: fx.tag, label: "memberM", role: "member" });
+  const now = new Date().toISOString();
+  const emergency = { status: "approved", tier: "emergency", is_emergency: true, decided_at: now, retro_decided_at: now, retro_outcome: "not_required" };
+  const asMember = await db.from("change_requests").insert(crBase({ ...emergency, requested_principal_id: member.id })).select("id");
+  expect(asMember.error && /P0043|EMERGENCY_NOT_PERMITTED/.test(errText(asMember.error)), `member: ${asMember.error ? errText(asMember.error) : "inserted"}`);
+  const noOne = await db.from("change_requests").insert(crBase({ ...emergency, requested_principal_id: null })).select("id");
+  expect(noOne.error && /P0043|EMERGENCY_NOT_PERMITTED/.test(errText(noOne.error)), `no principal: ${noOne.error ? errText(noOne.error) : "inserted"}`);
+  const plain = await must(db.from("change_requests").insert(crBase({ requested_principal_id: actors.aUser.principalId })).select("*").single(), "plain request");
+  const flip = await pgc.query("update change_requests set is_emergency = true, tier = 'emergency' where id = $1", [plain.id]).then(() => null, (e) => e);
+  expect(flip && /EMERGENCY_NOT_PERMITTED/.test(String(flip.message)), `flip: ${flip ? flip.message : "updated"}`);
+});
+
+await report.check("T5", "C2-03: the raise function writes the request and both audit rows together; a member principal writes nothing", async () => {
+  const input = { project_id: fx.project.id, title: "probe emergency raise", reference_id: `PRB-${fx.tag}-E1`, category: "scope", priority: "high" };
+  const args = (principal) => ({
+    p_workspace_id: fx.workspaceId, p_input: input, p_actor_type: actors.aUser.type, p_actor_id: actors.aUser.id,
+    p_actor_label: actors.aUser.label, p_principal_id: principal, p_channel: "api", p_correlation_id: `probe-${fx.tag}-emerg`,
+  });
+  const before = await auditCount(pgc, fx.workspaceId);
+  const ok = await db.rpc("nopm_raise_emergency_change_request", args(actors.aUser.principalId));
+  expect(!ok.error && ok.data?.status === "approved" && ok.data?.tier === "emergency", `manager: ${errText(ok.error) || JSON.stringify(ok.data)}`);
+  expectEqual((await auditCount(pgc, fx.workspaceId)) - before, 2, "create + emergency_commit");
+  const actions = (await pgc.query("select action from audit_log where target_id = $1 order by chain_seq", [ok.data.id])).rows.map((r) => r.action);
+  expectEqual(actions.join(","), "change_request.create,change_request.emergency_commit", "audit actions");
+  const member = (await pgc.query("select id from profiles where workspace_id = $1 and role = 'member' limit 1", [fx.workspaceId])).rows[0];
+  const mid = member?.id ?? (await makeUser(db, { workspaceId: fx.workspaceId, tag: fx.tag, label: "memberN", role: "member" })).id;
+  const mark = await auditCount(pgc, fx.workspaceId);
+  const bad = await db.rpc("nopm_raise_emergency_change_request", { ...args(mid), p_input: { ...input, title: "probe emergency by member", reference_id: `PRB-${fx.tag}-E2` } });
+  expect(bad.error && /EMERGENCY_NOT_PERMITTED|P0043/.test(errText(bad.error)), `member: ${bad.error ? errText(bad.error) : "raised"}`);
+  expectEqual(await auditCount(pgc, fx.workspaceId), mark, "a refused raise writes no audit row");
+  const left = await pgc.query("select 1 from change_requests where workspace_id = $1 and title = 'probe emergency by member'", [fx.workspaceId]);
+  expectEqual(left.rowCount, 0, "a refused raise leaves no request");
+});
+
+await report.check("T6", "C2-07/C2-17: planted stragglers are fixed by nopm_apply_tier_decisions, and a second run changes nothing", async () => {
+  // a. an old-shape emergency still waiting for its retro decision
+  const e = await must(
+    db.from("change_requests").insert(crBase({ title: "probe straggler", status: "emergency", tier: "emergency", is_emergency: true, requested_principal_id: actors.aUser.principalId })).select("*").single(),
+    "straggler emergency",
+  );
+  // b. a pending expense deletion over the threshold, still normal, assigned to a manager
+  const exp = await must(db.from("expenses").insert({ workspace_id: fx.workspaceId, project_id: fx.project.id, description: "probe big", amount: 80000, incurred_on: "2026-10-18" }).select("*").single(), "expense");
+  const dreq = (target_type, target_id, row) => must(
+    db.from("deletion_requests").insert({
+      workspace_id: fx.workspaceId, target_type, target_id, reason: "probe: straggler", status: "pending",
+      requested_by_type: actors.aUser.type, requested_by_id: actors.aUser.id, requested_by_label: actors.aUser.label,
+      before: row, [CONTRACT.columns.deletion_requests.requester]: actors.aUser.principalId, assigned_approver_id: fx.b.id,
+    }).select("*").single(),
+    `${target_type} deletion request`,
+  );
+  const er = await dreq("expense", exp.id, exp);
+  await pgc.query("update deletion_requests set tier = 'normal' where id = $1", [er.id]);
+  // c. a pending deletion of an approved document, still high_risk from the old rule
+  const doc = await must(db.from("documents").insert({ workspace_id: fx.workspaceId, project_id: fx.project.id, title: "probe approved doc", doc_type: "charter", status: "approved" }).select("*").single(), "doc");
+  const dr = await dreq("document", doc.id, doc);
+  await pgc.query("update deletion_requests set tier = 'high_risk' where id = $1", [dr.id]);
+
+  const first = (await pgc.query("select nopm_apply_tier_decisions() as r")).rows[0].r;
+  expect(first.emergency_retired >= 1 && first.expense_raised >= 1 && first.document_lowered >= 1, `counts ${JSON.stringify(first)}`);
+  const ce = (await pgc.query("select status, retro_outcome, retro_decided_at is not null as decided from change_requests where id = $1", [e.id])).rows[0];
+  expect(ce.status === "approved" && ce.retro_outcome === "retired" && ce.decided, `emergency ${JSON.stringify(ce)}`);
+  const ce2 = (await pgc.query("select tier, assigned_approver_id from deletion_requests where id = $1", [er.id])).rows[0];
+  expect(ce2.tier === "high_risk" && ce2.assigned_approver_id === null, `expense ${JSON.stringify(ce2)}`);
+  const cd = (await pgc.query("select tier from deletion_requests where id = $1", [dr.id])).rows[0];
+  expectEqual(cd.tier, "normal", "approved document request lowered");
+  const note = (await pgc.query("select after from audit_log where action = 'deletion_request.tier_raised' and target_id = $1", [er.id])).rows[0];
+  expect(note && String(note.after.cleared_assigned_approver) === fx.b.id, "the audit row names the cleared assignee");
+
+  const mark = await auditCount(pgc, fx.workspaceId);
+  const second = (await pgc.query("select nopm_apply_tier_decisions() as r")).rows[0].r;
+  expectEqual(JSON.stringify(second), JSON.stringify({ expense_raised: 0, document_lowered: 0, emergency_retired: 0 }), "second run counts");
+  expectEqual(await auditCount(pgc, fx.workspaceId), mark, "second run writes no audit rows");
 });
 
 // ── 'lark' channel through the commit RPCs (a Lark click ends here) ────────

@@ -1,0 +1,16 @@
+import { open, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m"; const ref = process.argv[3];
+const s = await open("manager", w, w>600?800:844); const p = s.page;
+const resp=[]; p.on("response", async r=>{ if(/deletion|delete/.test(r.url()) && r.request().method()==="POST"){ let t=""; try{t=(await r.text()).slice(0,500)}catch{}; resp.push("POST "+r.url().replace(BASE,"")+" "+r.status()+" "+t);} });
+await p.goto(BASE + "/documents", { waitUntil: "load" }); await p.waitForTimeout(4000);
+await p.getByText(ref, {exact:true}).locator("visible=true").first().click(); await p.waitForTimeout(2500);
+await p.getByRole("button", { name: /Request deletion/i }).first().click(); await p.waitForTimeout(1500);
+await s.shot(`r8-${tag}-1-dialog`);
+console.log((await s.text()).slice(-600));
+const ta = p.locator("textarea").filter({visible:true}).first(); await ta.fill("UAT-A R8 "+ref+" retest");
+await s.shot(`r8-${tag}-2-filled`);
+const btn = p.getByRole("button", { name: /^(request deletion|submit|confirm|send)/i }).last(); console.log("submit btn:", await btn.innerText());
+await btn.click(); await p.waitForTimeout(3500);
+await s.shot(`r8-${tag}-3-after`);
+console.log(resp.join("\n"));
+await s.browser.close();

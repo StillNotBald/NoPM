@@ -199,10 +199,7 @@ describe("listPendingApprovals — shape and ordering", () => {
       "in",
       ["target_type", ["task", "project", "risk", "issue", "expense", "document", "milestone"]],
     ]);
-    expect(ops("change_requests")).toContainEqual([
-      "or",
-      ["status.in.(raised,under_review,emergency),and(status.eq.implemented,is_emergency.eq.true,retro_decided_at.is.null)"],
-    ]);
+    expect(ops("change_requests")).toContainEqual(["in", ["status", ["raised", "under_review"]]]);
     expect(ops("rebaselines")).toContainEqual(["eq", ["status", "pending_approval"]]);
   });
 
@@ -525,10 +522,10 @@ describe("listPendingApprovals — deletion of risks, issues, expenses, document
     expect(byId["del-ms"]).toMatchObject({
       tier: "high_risk",
       approval_deadline_at: "2026-10-14T08:00:00+00:00",
-      retro_due_at: null,
-      retro_overdue: null,
     });
-    expect(byId["del-risk"]).toMatchObject({ tier: null, approval_deadline_at: null, retro_due_at: null, retro_overdue: null });
+    expect(byId["del-risk"]).toMatchObject({ tier: null, approval_deadline_at: null });
+    expect(byId["del-risk"]).not.toHaveProperty("retro_overdue");
+    expect(byId["del-risk"]).not.toHaveProperty("retro_due_at");
   });
 
   it("asks the database for exactly the target types of the kinds wanted", async () => {
@@ -562,28 +559,19 @@ describe("listPendingApprovals: tiers and emergency change requests", () => {
   const emergencyCr: Row = { ...change, id: "cr-em", status: "implemented", is_emergency: true, retro_due_at: past, retro_decided_at: null, tier: "normal" };
   const asRole = (role: string) => ({ ...me, role });
 
-  it("asks for raised, under review, emergency, and implemented emergencies owed a retro decision", async () => {
+  it("asks for raised and under review only: an emergency never waits and owes no retro decision", async () => {
     const { db, calls } = fullDb();
     await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
     const ops = calls.find((c) => c.table === "change_requests")!.ops;
-    expect(JSON.stringify(ops)).toContain("is_emergency.eq.true,retro_decided_at.is.null");
+    expect(JSON.stringify(ops)).not.toContain("retro_decided_at");
   });
 
-  it("marks an emergency change whose retro window passed as overdue (computed from the row, not a column)", async () => {
+  it("Q1: retro_overdue is gone from the payload; an emergency row only carries its tier and flag", async () => {
     const { db } = fullDb({ change_requests: { data: [emergencyCr, { ...emergencyCr, id: "cr-ok", retro_due_at: "2999-01-01T00:00:00+00:00" }] } });
     const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
     const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
-    expect(byId["cr-em"]).toMatchObject({ is_emergency: true, tier: "emergency", retro_overdue: true });
-    expect(byId["cr-ok"]).toMatchObject({ retro_overdue: false });
-  });
-
-  it("an emergency change needs an admin; a manager sees it but cannot decide", async () => {
-    const { db } = fullDb({ change_requests: { data: [emergencyCr] } });
-    const mgr = await listPendingApprovals(db, asRole("manager"), probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["change_request"] });
-    expect(mgr.items[0]).toMatchObject({ can_decide: false });
-    expect(mgr.items[0].reason_if_not).toMatch(/admin/i);
-    const adm = await listPendingApprovals(db, asRole("admin"), probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["change_request"] });
-    expect(adm.items[0].can_decide).toBe(true);
+    expect(byId["cr-em"]).toMatchObject({ is_emergency: true, tier: "emergency" });
+    expect(byId["cr-em"]).not.toHaveProperty("retro_overdue");
   });
 
   it("a high_risk deletion needs an admin too; a normal one a manager is enough for", async () => {

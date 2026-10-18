@@ -540,6 +540,13 @@ async function fetchEntityRows(
   }
 }
 
+/** Same gate as GET /api/tokens (admin or manager session), but the refusal names the tokens export. */
+function assertCanExportTokens(actor: { type: string; role?: string | null }): void {
+  if (actor.type !== "user" || !["admin", "manager"].includes(actor.role ?? "")) {
+    throw new ScopeError("Exporting tokens requires an admin or manager session");
+  }
+}
+
 /** The audit pack is for an external auditor: admin or manager SESSION only (a token gets 403). */
 function assertCanExportAuditPack(actor: { type: string; role?: string | null }): void {
   if (actor.type !== "user" || !["admin", "manager"].includes(actor.role ?? "")) {
@@ -623,7 +630,9 @@ export const GET = route(async ({ actor, request }) => {
 
   if (isAdminEntity(entity)) {
     // Access review: admin or manager session only (same gate as GET /api/members).
-    assertCanListMembers(actor);
+    // UAT-030: the tokens export is admin or manager (same as GET /api/tokens); its refusal names the tokens export.
+    if (entity === "tokens") assertCanExportTokens(actor);
+    else assertCanListMembers(actor);
   } else {
     requireScope(actor, ENTITY_SCOPES[entity]);
   }

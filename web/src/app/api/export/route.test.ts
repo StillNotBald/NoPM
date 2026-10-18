@@ -94,6 +94,13 @@ describe("GET /api/export access-review entities", () => {
     });
   }
 
+  it("names the tokens export in the refusal for a member (UAT-030)", async () => {
+    requireAuthMock.mockResolvedValueOnce(session("member"));
+    const res = await call("?entity=tokens");
+    expect(res.status).toBe(403);
+    expect(JSON.stringify(await res.json())).toContain("Exporting tokens requires an admin or manager session");
+  });
+
   it("403s a viewer session on tokens", async () => {
     requireAuthMock.mockResolvedValueOnce(session("viewer"));
     expect((await call("?entity=tokens")).status).toBe(403);

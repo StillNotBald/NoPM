@@ -541,7 +541,7 @@ const RAW_TOOLS = [
     description:
       "Request deletion of a document (scope: document:delete:request). Does NOT delete: it creates a maker-checker " +
       "deletion request (status=pending, target_type=document) that a DIFFERENT person holding document:delete:approve " +
-      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope. An APPROVED document can be requested only by an admin; the stored file is removed on approval.",
+      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope. An approved document is on the manager tier like any other, and is audited; the stored file is removed on approval.",
     parameters: {
       type: "object",
       properties: {
@@ -1016,10 +1016,9 @@ const RAW_TOOLS = [
     name: "list_pending_approvals",
     description:
       "List the governed decisions waiting on a human in this workspace, oldest first: deletion requests " +
-      "(task, project, risk, issue, expense, document, milestone), change requests (raised, under review, emergency, " +
-      "and implemented emergencies still owed a retro approval), " +
+      "(task, project, risk, issue, expense, document, milestone), change requests (raised or under review; an emergency change commits when raised and never waits), " +
       "and rebaselines awaiting sign-off. Each item also carries removes (what approving also detaches or deletes), " +
-      "tier, approval_deadline_at, is_emergency, retro_due_at and retro_overdue (null when not applicable). Each item has can_decide plus reason_if_not " +
+      "tier, approval_deadline_at and is_emergency. Each item has can_decide plus reason_if_not " +
       "(missing scope, or four-eyes: the requester cannot decide their own request). READ-ONLY — " +
       "there is deliberately no approve/decide tool: a person decides in the console. Use this " +
       "to answer \"what is waiting for me?\" and to tell the user what needs their decision. " +
@@ -1110,8 +1109,11 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   {
     name: "create_change_request",
     description:
-      "Raise a change request on a project (scope: change:write). Status is raised or under_review only; " +
-      "approval is a separate decision by an admin or manager, never made here. Needs a token with a recorded owner.",
+      "Raise a change request on a project (scope: change:write). Status is raised or under_review; " +
+      "approval is a separate decision by an admin or manager, never made here. The one exception is is_emergency: " +
+      "an emergency change commits as soon as it is raised, with no approver, and needs a token that holds the exact " +
+      "change:decide scope (change:write and wildcards are not enough) whose owner is a manager or admin. " +
+      "Needs a token with a recorded owner.",
     parameters: {
       type: "object",
       properties: {
@@ -1134,7 +1136,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
         is_emergency: {
           type: "boolean",
           description:
-            "Emergency path: the change can be implemented at once and an admin owes an approval within the workspace window (default 48 h). Only a manager or admin may use it; it stays flagged until approved.",
+            "Emergency flag: the change commits when it is raised and needs no approval and no retro decision. Only a manager or admin may use it, and a token also needs the change:decide scope; it stays flagged as an emergency in every list.",
         },
       },
       required: ["project_id", "title"],

@@ -28,9 +28,10 @@ describe("GithubCard", () => {
     expect(html(createElement(GithubCard))).toContain("Loading GitHub");
   });
 
-  it("offers a select for each of the four events with every status and a 'leave as it is' choice", () => {
+  it("offers a select for each of the four events with every status except Completed (R-160) and a 'leave as it is' choice", () => {
     expect(RULE_ROWS.map((r) => r.kind)).toEqual(["pr_opened", "pr_merged", "deploy_success", "deploy_failure"]);
-    expect(TARGET_OPTIONS.map((o) => o.value)).toEqual(["unstarted", "started", "in_review", "completed", "canceled"]);
+    expect(TARGET_OPTIONS.map((o) => o.value)).toEqual(["unstarted", "started", "in_review", "canceled"]);
+    expect(TARGET_OPTIONS.map((o) => o.label)).not.toContain("Completed");
   });
 
   it("has a plain reason for every outcome the webhook can record", () => {

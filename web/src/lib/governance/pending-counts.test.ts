@@ -49,21 +49,19 @@ describe("getPendingCounts", () => {
     expect(r).toEqual({ approvals: 2, changeControl: 3, decisions: 4, review: 8, total: 17 });
   });
 
-  it("W4-09: emergency changes count: waiting ones in the open statuses, live ones owing a retro decision as a separate query", async () => {
-    const { db, calls } = fakeDb({ change_requests: 2, "change_requests:live": 1 });
+  it("Q1: change control counts raised and under-review requests only; an emergency never waits, so no retro query", async () => {
+    const { db, calls } = fakeDb({ change_requests: 2 });
     const r = await getPendingCounts(db, actor);
-    expect(r.changeControl).toBe(3);
-    const open = calls.find((c) => c.table === "change_requests" && c.ops.some(([op]) => op === "in"))!;
-    expect(open.ops).toContainEqual(["in", ["status", ["raised", "under_review", "emergency"]]]);
-    const live = calls.find((c) => c.ops.some(([op, a]) => op === "eq" && a[1] === "implemented"))!;
-    expect(live.ops).toContainEqual(["eq", ["is_emergency", true]]);
-    expect(live.ops).toContainEqual(["is", ["retro_decided_at", null]]);
+    expect(r.changeControl).toBe(2);
+    const open = calls.find((c) => c.table === "change_requests")!;
+    expect(open.ops).toContainEqual(["in", ["status", ["raised", "under_review"]]]);
+    expect(JSON.stringify(calls)).not.toContain("retro_decided_at");
   });
 
   it("filters every query by workspace", async () => {
     const { db, calls } = fakeDb({});
     await getPendingCounts(db, actor);
-    expect(calls).toHaveLength(8); // change control is counted twice (W4-09: live emergencies owing a retro decision)
+    expect(calls).toHaveLength(7);
     for (const c of calls) {
       expect(c.ops).toContainEqual(["eq", ["workspace_id", "ws-1"]]);
     }

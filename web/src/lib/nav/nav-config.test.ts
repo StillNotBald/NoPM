@@ -12,6 +12,7 @@ import {
   labelForSegment,
   pendingByHref,
   pendingSrText,
+  canDecideGovernance,
   visibleSections,
   hiddenCount,
   type NavSection,
@@ -185,6 +186,16 @@ describe("pending badges", () => {
   it("screen-reader text pluralises", () => {
     expect(pendingSrText(3)).toBe("3 items awaiting your decision");
     expect(pendingSrText(1)).toBe("1 item awaiting your decision");
+  });
+
+  it("says 'in review' to someone who cannot decide (UAT-031)", () => {
+    expect(pendingSrText(28, false)).toBe("28 items in review");
+    expect(pendingSrText(1, false)).toBe("1 item in review");
+    expect(canDecideGovernance("member")).toBe(false);
+    expect(canDecideGovernance("viewer")).toBe(false);
+    expect(canDecideGovernance(null)).toBe(false);
+    expect(canDecideGovernance("manager")).toBe(true);
+    expect(canDecideGovernance("admin")).toBe(true);
   });
 });
 

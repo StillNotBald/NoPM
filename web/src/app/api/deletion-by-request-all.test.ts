@@ -179,23 +179,54 @@ describe("DELETE is the maker step: 202 and a pending request, never a delete", 
     expect(emitted.requested[0]).toMatchObject({ tier: "normal" });
   });
 
-  it("an approved document is high_risk (admin-tier); a draft document is normal (W4-14)", async () => {
+  it("Q4: an approved document and a draft document are both on the manager tier (normal)", async () => {
     await call(deleteDocument, session(ALICE, "admin"), "doc-ok", { reason: "x" });
     await call(deleteDocument, session(ALICE, "admin"), "doc-1", { reason: "x" });
     const byTarget = Object.fromEntries(db.rows("deletion_requests").map((r) => [r.target_id as string, r.tier]));
-    expect(byTarget["doc-ok"]).toBe("high_risk");
+    expect(byTarget["doc-ok"]).toBe("normal");
     expect(byTarget["doc-1"]).toBe("normal");
   });
 
-  it("the commit refuses a non-admin approver of an approved document (RPC backstop, P0042)", async () => {
+  it("Q5: an expense at or above the currency threshold is high_risk; one below it is normal", async () => {
+    db.rows("expenses").push({ id: "exp-big", workspace_id: WS, project_id: "proj-1", description: "Plant", amount: 50_000 });
+    db.rows("expenses").push({ id: "exp-neg", workspace_id: WS, project_id: "proj-1", description: "Refund", amount: -75_000 });
+    await call(deleteExpense, session(ALICE, "admin"), "exp-1", { reason: "x" });
+    await call(deleteExpense, session(ALICE, "admin"), "exp-big", { reason: "x" });
+    await call(deleteExpense, session(ALICE, "admin"), "exp-neg", { reason: "x" });
+    const byTarget = Object.fromEntries(db.rows("deletion_requests").map((r) => [r.target_id as string, r.tier]));
+    expect(byTarget["exp-1"]).toBe("normal");
+    expect(byTarget["exp-big"]).toBe("high_risk");
+    expect(byTarget["exp-neg"]).toBe("high_risk");
+  });
+
+  it("Q5: the workspace's own threshold is used", async () => {
+    db.rows("workspaces").push({ id: WS, approval_policy: { currency_threshold: 400 } });
+    await call(deleteExpense, session(ALICE, "admin"), "exp-1", { reason: "x" });
+    expect(db.rows("deletion_requests")[0].tier).toBe("high_risk");
+  });
+
+  it("Q5: a high-risk expense deletion is approved by an admin; a manager is refused once a second admin exists", async () => {
+    db.rows("expenses").push({ id: "exp-big", workspace_id: WS, project_id: "proj-1", description: "Plant", amount: 90_000 });
+    db.rows("profiles").push({ id: "adm-2", workspace_id: WS, role: "admin" });
+    const id = (await (await call(deleteExpense, session(CARA, "manager"), "exp-big", { reason: "x" })).json()).data.id as string;
+    const refused = await call(approve, session(BOB, "manager"), id, {}, "POST");
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).code).toBe("role_not_permitted");
+    expect(db.rows("expenses").some((x) => x.id === "exp-big")).toBe(true);
+    const ok = await call(approve, session(ALICE, "admin"), id, {}, "POST");
+    expect(ok.status).toBe(200);
+    expect(db.rows("expenses").some((x) => x.id === "exp-big")).toBe(false);
+  });
+
+  it("Q4: a manager approves the deletion of an approved document (no admin gate in the commit)", async () => {
     db.rows("deletion_requests").push({
-      id: "del-doc2", workspace_id: WS, target_type: "document", target_id: "doc-ok", status: "pending", reason: "x",
+      id: "del-doc2", workspace_id: WS, target_type: "document", target_id: "doc-ok", status: "pending", reason: "x", tier: "normal",
       requested_by_type: "user", requested_by_id: ALICE, requested_by_label: "Alice", requested_principal_id: ALICE,
       before: { id: "doc-ok", title: "Signed charter", project_id: "proj-1" },
     });
     const res = await call(approve, session(BOB, "manager"), "del-doc2", {}, "POST");
-    expect(res.status).toBe(403);
-    expect(db.rows("documents").some((d) => d.id === "doc-ok")).toBe(true);
+    expect(res.status).toBe(200);
+    expect(db.rows("documents").some((d) => d.id === "doc-ok")).toBe(false);
   });
 
   it.each(ENTITIES)("$entity: the reason is required (422), nothing is created", async (e) => {
@@ -307,43 +338,34 @@ describe("milestones", () => {
   });
 });
 
-describe("approved documents (decision 25, tier B): only an admin asks", () => {
-  it("a manager cannot request deletion of an approved document: 403, audited, no request", async () => {
+describe("approved documents (owner decision Q4): manager tier, tracked, no admin gate", () => {
+  it("a manager can request deletion of an approved document: 202, a normal-tier request, audited", async () => {
     const res = await call(deleteDocument, session(BOB, "manager"), "doc-ok", { reason: "x" });
-    expect(res.status).toBe(403);
-    expect((await res.json()).code).toBe("role_not_permitted");
-    expect(db.rows("deletion_requests")).toHaveLength(0);
-    expect(auditActions()).toEqual(["document.delete_request.blocked"]);
+    expect(res.status).toBe(202);
+    expect(db.rows("deletion_requests")).toHaveLength(1);
+    expect(db.rows("deletion_requests")[0].tier).toBe("normal");
+    expect(auditActions()).toEqual(["document.delete_requested"]);
   });
 
-  it("an admin can; a draft document needs no admin", async () => {
+  it("an admin can too; a draft document is the same", async () => {
     expect((await call(deleteDocument, session(ALICE, "admin"), "doc-ok", { reason: "x" })).status).toBe(202);
     expect((await call(deleteDocument, session(BOB, "manager"), "doc-1", { reason: "x" })).status).toBe(202);
   });
 
-  it("a token is judged by the human behind it", async () => {
+  it("a token is judged by the human behind it, exactly as for any document", async () => {
     const adminTok = pat("tok-a", ALICE, ["document:delete:request"], "admin");
     expect((await call(deleteDocument, adminTok, "doc-ok", { reason: "x" })).status).toBe(202);
   });
 
-  it("the commit refuses an approved document whose requester is not an admin (the RPC backstop, P0041)", async () => {
+  it("the refusal code approved_document_needs_admin no longer exists", async () => {
     db.rows("deletion_requests").push({
-      id: "del-doc",
-      workspace_id: WS,
-      target_type: "document",
-      target_id: "doc-ok",
-      status: "pending",
-      reason: "x",
-      requested_by_type: "user",
-      requested_by_id: CARA,
-      requested_by_label: "Cara",
-      requested_principal_id: CARA,
+      id: "del-doc", workspace_id: WS, target_type: "document", target_id: "doc-ok", status: "pending", reason: "x", tier: "normal",
+      requested_by_type: "user", requested_by_id: CARA, requested_by_label: "Cara", requested_principal_id: CARA,
       before: { id: "doc-ok", title: "Signed charter", project_id: "proj-1" },
     });
     const res = await call(approve, session(BOB, "manager"), "del-doc", {}, "POST");
-    expect(res.status).toBe(422);
-    expect((await res.json()).code).toBe("approved_document_needs_admin");
-    expect(db.rows("documents").some((d) => d.id === "doc-ok")).toBe(true);
+    expect(res.status).toBe(200);
+    expect(db.rows("documents").some((d) => d.id === "doc-ok")).toBe(false);
   });
 });
 

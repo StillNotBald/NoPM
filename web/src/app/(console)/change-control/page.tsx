@@ -13,7 +13,6 @@ import { ChangeTable } from "@/components/change-control/change-table";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
 import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
 import type { ChangeRequest } from "@/components/change-control/change-form";
-import { isRetroOverdue } from "@/lib/governance/tiers";
 import { judgeDecision, canEditChangeRequest, canReopenChangeRequest, canDecideByRole } from "@/lib/review/four-eyes";
 
 export const metadata = { title: "Change Control" };
@@ -90,12 +89,8 @@ export default async function ChangeControlPage({
   const allRows: ChangeRequest[] = ((changeRequests ?? []) as RawRow[]).map((raw) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { requested_by_type, requested_by_id, requested_principal_id, ...row } = raw;
-    // G4: an emergency change is open until its retro decision, even after it went live.
-    const open =
-      row.status === "raised" ||
-      row.status === "under_review" ||
-      row.status === "emergency" ||
-      (row.status === "implemented" && row.is_emergency === true && !row.retro_decided_at);
+    // R-159: an emergency change commits on raise; it is never open for a decision.
+    const open = row.status === "raised" || row.status === "under_review";
     const canEdit = canEditChangeRequest({
       viewerId: user.id,
       status: row.status,
@@ -110,12 +105,12 @@ export default async function ChangeControlPage({
     const canStartReview = row.status === "raised" && canDecideByRole(viewer.role);
     // M2: the requester, or a manager or admin, marks an approved request implemented.
     const canImplement =
-      (row.status === "approved" || row.status === "emergency") &&
+      row.status === "approved" &&
       (canDecideByRole(viewer.role) || (!!requested_principal_id && requested_principal_id === user.id));
     const decisions = decisionsByCr.get(row.id);
     const extra = decisions ? { decisions } : {};
     return open
-      ? { ...row, ...extra, retro_overdue: isRetroOverdue(row, new Date()), deadline_overdue: !!row.approval_deadline_at && new Date(row.approval_deadline_at).getTime() < new Date().getTime(), canEdit, canStartReview, canImplement, decide: judgeDecision({ viewer, kind: "change_request", row: raw, singleAdmin }) }
+      ? { ...row, ...extra, deadline_overdue: !!row.approval_deadline_at && new Date(row.approval_deadline_at).getTime() < new Date().getTime(), canEdit, canStartReview, canImplement, decide: judgeDecision({ viewer, kind: "change_request", row: raw, singleAdmin }) }
       : { ...row, ...extra, canEdit, canReopen, canImplement };
   });
   const projectId =

@@ -59,3 +59,25 @@ Kept in `OWNER-VISIBLE.md` per wave and summarised in the PR.
 ## Post-UAT fixes
 
 UAT findings are minted in `UAT-log/01-FINDINGS.md` only, root-caused in `02-ROOT-CAUSES.md`, retested in `03-RETEST-SHEET.md`. No pass/fail counts in `UAT-log/`; counts go to `testing-log/`.
+
+## Owner decisions recorded 2026-10-18 20:15 MYT (after release of 0088–0105)
+
+**A1–A8:** all confirmed as built. **D1–D7:** all confirmed, builder defaults stand.
+
+Wave-4 review questions (`review/wave4.md`), owner's answers and the resulting scope for UAT cycle 2:
+
+| # | Owner's answer | Scope |
+|---|---|---|
+| Q1 Emergency path | "Emergency will flag, no approval required." | CHANGE: an emergency change request commits on raise, carries the `emergency` tier flag and a full audit row, and needs no approver and no 48-hour admin retro. The retro timer, the overdue state and the overdue notification are retired. UAT-034 is superseded by this decision; the flag itself must be visible wherever the request is listed. |
+| Q2 Routine tier | "No routine required." | AMBIGUOUS, not built: read as "a requester may not label their own request routine" (tier stays engine-computed). Awaiting one line from the owner before any change. |
+| Q3 Thresholds | "Not required." | No schedule-days threshold; currency default unchanged. |
+| Q4 Approved documents | "Manager approval is sufficient, we just need to track, no stop." | CHANGE: approved-document changes and deletions route to the manager tier (normal), audited; no admin gate. |
+| Q5 Expense deletions | "Yes." | CHANGE: an expense deletion above the currency threshold is high risk (admin), like a project. |
+| Q6 Rebaselines | "Keep." | Stay `normal`. |
+| Q7 GitHub | "No, only manual completed is sufficient." | CHANGE: no GitHub event ever sets a task to `completed`; completion is a human action. Events may still record the link, move a task to `started`, and leave their audit row. |
+| Q8 External anchor | "Different DB." | NEW SCOPE (later): the audit-chain head hash is anchored in a separate database. Not part of cycle 2. |
+| Q9 Project cascade | "Yes." | Per-record audit rows for children of a deleted project, as built. |
+
+**UAT-018** (replayed deletion approve returns 200): still awaiting the owner. UAT-017 stays REOPENED for its probe checks only.
+
+C2-01 decision (default built): an agent token needs change:decide to raise an emergency; the owner may relax it. A signed-in manager or admin needs nothing more. The database also refuses an emergency whose requester is not a manager or admin (P0043).

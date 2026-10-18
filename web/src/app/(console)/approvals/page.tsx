@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
+import { tierLabel } from "@/components/governance/tier-label";
 import { ApprovalActions } from "@/components/approvals/actions";
 import { FourEyesNote, type DecideState } from "@/components/governance/four-eyes-note";
 import { PageHeader } from "@/components/ui/page-header";
@@ -13,7 +14,6 @@ import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
 import { childCountsHeading, describeDeletionTarget, describeChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
 import { deletionKindFor } from "@/lib/integrations/types";
-import { isRetroOverdue } from "@/lib/governance/tiers";
 import { ChildCountsNote } from "@/components/review/child-counts-note";
 import { judgeDecision } from "@/lib/review/four-eyes";
 import { DECIDED_PAGE_SIZE, PENDING_CAP, pageWindow, parsePage } from "./_paging";
@@ -40,9 +40,7 @@ interface DeletionRequest {
   /** Wave-4 approval tier columns; absent (undefined or null) until the database has them. */
   tier?: string | null;
   approval_deadline_at?: string | null;
-  retro_due_at?: string | null;
   is_emergency?: boolean | null;
-  retro_decided_at?: string | null;
 }
 
 function formatDate(iso: string) {
@@ -75,18 +73,15 @@ function statusTone(s: string) {
   return "neutral" as const;
 }
 
-/** Tier, decision deadline and retro-review state, when the request carries them (wave 4). */
+/** Tier and decision deadline, when the request carries them (wave 4). Nothing waits for an emergency any more (R-159). */
 function TierLine({ req }: { req: DeletionRequest }) {
-  const overdue = isRetroOverdue(req, new Date());
-  if (!req.tier && !req.approval_deadline_at && !req.retro_due_at && !overdue) return null;
+  if (!req.tier && !req.approval_deadline_at) return null;
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-secondary">
-      {req.tier && <Badge tone="neutral" size="sm">{req.tier}</Badge>}
+      {req.tier && <Badge tone={req.tier === "emergency" ? "danger" : "neutral"} size="sm">{tierLabel(req.tier)}</Badge>}
       {req.approval_deadline_at && req.status === "pending" && (
         <span>decide by {formatDate(req.approval_deadline_at)}</span>
       )}
-      {req.retro_due_at && <span>retro review by {formatDate(req.retro_due_at)}</span>}
-      {overdue && <Badge tone="danger" size="sm">Emergency: retro approval overdue</Badge>}
     </p>
   );
 }

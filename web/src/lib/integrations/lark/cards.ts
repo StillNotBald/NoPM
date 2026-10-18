@@ -444,10 +444,12 @@ export function buildDigestCard(data: DigestData): LarkCard {
   ];
   elements.push(md(ids, stats.join(" · ")));
 
-  // G4: only when an emergency change is overdue for its retro approval, so a quiet week keeps the card as it was.
-  if (data.retroOverdue && data.retroOverdue > 0) {
-    elements.push(md(ids, `**Emergency changes overdue for approval**
-**${data.retroOverdue}** live change${data.retroOverdue === 1 ? "" : "s"} still waiting for the after-the-fact decision`));
+  // R-159: only when an emergency change was raised this week, so a quiet week keeps the card as it was.
+  if (data.emergencyChanges && data.emergencyChanges.count > 0) {
+    const e = data.emergencyChanges;
+    const list = e.items.map((i) => `${i.reference ? `${i.reference} ` : ""}${i.title}`).join("; ");
+    elements.push(md(ids, `**Emergency changes this week: ${e.count}**
+Committed without approval and flagged${list ? `: ${list}` : ""}`));
   }
 
   // R-141: only when something is stale, so a quiet week keeps the card as it was.

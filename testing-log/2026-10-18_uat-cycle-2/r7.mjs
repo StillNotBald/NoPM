@@ -1,0 +1,17 @@
+import { open, api, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m"; const LOCKED="ed3d04cd-18bd-4ad3-8848-07b876dbd907";
+const s = await open("member", w, w>600?800:844); const p = s.page;
+const resp=[]; p.on("response", async r=>{ if(/change-requests/.test(r.url()) && r.request().method()==="POST"){ let t=""; try{t=(await r.text()).slice(0,300)}catch{}; resp.push("UI POST "+r.status()+" "+t);} });
+await p.goto(BASE + "/change-control", { waitUntil: "load" }); await p.waitForTimeout(4000);
+await p.getByRole("button", { name: /Raise Change Request/i }).first().click(); await p.waitForTimeout(2000);
+const els = p.locator("input:not([type=checkbox]):not([type=date]):not([type=number]), select").filter({visible:true});
+await els.nth(1).fill("UAT-A member emergency attempt "+tag);
+await els.nth(2).selectOption({ label: "S/4HANA Core Rollout — EMEA" });
+const cb = p.locator("input[type=checkbox]"); console.log("emergency checkbox visible to member:", await cb.count(), await cb.first().isVisible().catch(()=>false));
+if (await cb.count()) await cb.first().check().catch(e=>console.log("check failed", String(e).slice(0,100)));
+await s.shot(`r7-${tag}-1-filled`);
+await p.getByRole("button", { name: "Raise Change Request" }).last().click(); await p.waitForTimeout(3500);
+await s.shot(`r7-${tag}-2-after`);
+console.log(resp.join("\n"));
+console.log("API:", JSON.stringify(await api(p,"POST",`/api/projects/${LOCKED}/change-requests`, {title:"UAT-A member emergency api "+tag, category:"scope", priority:"medium", is_emergency:true})));
+await s.browser.close();

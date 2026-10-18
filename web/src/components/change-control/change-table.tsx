@@ -13,7 +13,7 @@ import {
   statusTone,
 } from "@/components/change-control/change-detail";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
-import { impactCellText, type ChangeRequest } from "@/components/change-control/change-form";
+import { impactCellText, isEmergencyChange, type ChangeRequest } from "@/components/change-control/change-form";
 
 // ── ChangeTable ───────────────────────────────────────────────────────────────
 
@@ -116,9 +116,16 @@ export function ChangeTable({ rows, projectMap, projects, canWrite = true }: Cha
       header: "Status",
       badge: true,
       cell: (cr) => (
-        <Badge size="sm" tone={statusTone(cr.status)}>
-          {statusLabel(cr.status)}
-        </Badge>
+        <span className="inline-flex flex-wrap items-center gap-1">
+          <Badge size="sm" tone={statusTone(cr.status)}>
+            {statusLabel(cr.status)}
+          </Badge>
+          {isEmergencyChange(cr) && (
+            <Badge size="sm" tone="danger">
+              Emergency
+            </Badge>
+          )}
+        </span>
       ),
     },
     {

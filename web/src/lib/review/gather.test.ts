@@ -30,11 +30,11 @@ function fakeDb(tables: Record<string, Row[]>) {
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
 
 describe("gatherReviewItems — change requests", () => {
-  it("queries raised, under_review and emergency (a new request is 'raised' and nothing auto-advances it)", async () => {
+  it("queries raised and under_review (a new request is 'raised' and nothing auto-advances it)", async () => {
     const { db, calls } = fakeDb({});
     await gatherReviewItems(db);
     const q = calls.find((c) => c.table === "change_requests")!;
-    expect(q.ops).toContainEqual(["in", ["status", ["raised", "under_review", "emergency"]]]);
+    expect(q.ops).toContainEqual(["in", ["status", ["raised", "under_review"]]]);
     // the old single-status filter must be gone
     expect(q.ops.filter(([op, args]) => op === "eq" && args[0] === "status")).toEqual([]);
   });

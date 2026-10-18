@@ -361,12 +361,19 @@ describe("createProjectSchema", () => {
     expect(createProjectSchema.parse(minimal)).toEqual(minimal);
   });
 
-  it.each(["code", "name"])("rejects a payload missing %s", (field) => {
+  it.each(["name"])("rejects a payload missing %s", (field) => {
     const payload: Record<string, unknown> = { ...minimal };
     delete payload[field];
     const r = createProjectSchema.safeParse(payload);
     expect(r.success).toBe(false);
     expect(errorPaths(r)).toContain(field);
+  });
+
+  it("accepts a payload with code omitted or null (C2-15: the form sends null for an empty code; the column is nullable)", () => {
+    const omitted: Record<string, unknown> = { ...minimal };
+    delete omitted.code;
+    expect(createProjectSchema.safeParse(omitted).success).toBe(true);
+    expect(createProjectSchema.safeParse({ ...minimal, code: null }).success).toBe(true);
   });
 
   it("rejects empty or over-long code/name", () => {

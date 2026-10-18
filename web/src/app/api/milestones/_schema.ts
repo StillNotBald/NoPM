@@ -10,9 +10,24 @@ export const MILESTONE_STATUSES = [
 
 export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 
+/**
+ * A milestone date. The column is a calendar date and every form (and the new-project scaffold) sends a plain
+ * "2026-12-31", so that is accepted; a full ISO date-time with an offset is accepted too (UAT-035: the schema
+ * used to demand a date-time, so the scaffold milestones of a new project were all refused).
+ */
+const milestoneDate = z
+  .string()
+  .refine(
+    (v) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(v)
+        ? !Number.isNaN(Date.parse(`${v}T00:00:00Z`))
+        : z.string().datetime({ offset: true }).safeParse(v).success,
+    "Use a date such as 2026-12-31",
+  );
+
 export const createMilestoneSchema = z.object({
   name: z.string().min(1, "Name is required").max(255),
-  target_date: z.string().datetime({ offset: true }).nullable().optional(),
+  target_date: milestoneDate.nullable().optional(),
   status: z.enum(MILESTONE_STATUSES).default("not_started"),
   completion_pct: z.number().int().min(0).max(100).default(0),
   owner_id: z.string().uuid().nullable().optional(),
@@ -27,7 +42,7 @@ export const createMilestoneSchema = z.object({
 
 export const updateMilestoneSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  target_date: z.string().datetime({ offset: true }).nullable().optional(),
+  target_date: milestoneDate.nullable().optional(),
   status: z.enum(MILESTONE_STATUSES).optional(),
   completion_pct: z.number().int().min(0).max(100).optional(),
   owner_id: z.string().uuid().nullable().optional(),

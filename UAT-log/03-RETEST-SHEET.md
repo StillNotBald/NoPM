@@ -53,6 +53,13 @@ The closure sheet. For each UAT ID that has a fix shipped against its `02-ROOT-C
 - **Outcome** — Confirmed-fixed / Still-broken / Regressed-elsewhere (name the new symptom + file a fresh `01-FINDINGS.md` row for it).
 - **Status** — CLOSED on Confirmed-fixed; REOPENED on Still-broken/Regressed-elsewhere.
 
+| UAT-029 | 2026-10-18 | UAT tester A (cycle 2, R2) | /documents, open an evidence document linked to a change request | Confirmed-fixed — viewer names the request by reference and title (testing-log/2026-10-18_uat-cycle-2/tester-a.md R2) | CLOSED |
+| UAT-030 | 2026-10-18 | UAT tester A (cycle 2, R3) | Member session GET /api/export?entity=tokens | Confirmed-fixed — 403 "Exporting tokens requires an admin or manager session" (admin or manager, matching GET /api/tokens) | CLOSED |
+| UAT-031 | 2026-10-18 | UAT tester A (R4); retest runner (T11) | Sidebar and bottom bar badge as member, manager, admin | Confirmed-fixed — member reads "N items in review", approvers read "awaiting your decision"; both roles load the label after the role resolves | CLOSED |
+| UAT-032 | 2026-10-18 | UAT tester A (cycle 2, R5) | Member on a locked project, then POST /api/projects/<id>/unlock | Confirmed-fixed — no Unlock control for a member; API answers 403 naming who can unlock; plan step 1A-4 rewritten | CLOSED |
+| UAT-033 | 2026-10-18 | UAT tester A (R1); retest runner (T10) | Edit a project with no start date, Save; clear the Code box, Save | Confirmed-fixed — saves with no 422 for empty dates and empty code (C2-15) | CLOSED |
+| UAT-034 | 2026-10-18 | lead | n/a | Superseded — owner decision Q1 retired the retro step and its overdue marker; the emergency flag replaces it (retest T3, T12 confirm the flag in list, detail, weekly report) | SUPERSEDED |
+
 ## Log
 
-_(empty — first UAT round has not run)_
+- 2026-10-18 cycle 2: UAT-029..033 retested by tester A and the retest runner (reports in `testing-log/2026-10-18_uat-cycle-2/`); UAT-034 superseded by owner decision Q1.

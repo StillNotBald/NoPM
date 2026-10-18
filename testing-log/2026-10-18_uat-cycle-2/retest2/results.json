@@ -1,0 +1,136 @@
+{
+ "035-api-null": {
+  "status": 201,
+  "text": "{\"data\":{\"id\":\"d31946aa-e238-4069-963f-141b44592266\",\"code\":null,\"name\":\"UAT035 api 1792335743560\",\"phase\":\"planning\",\"source\":null,\"program\":null,\"sponsor\":null,\"currency\":\"USD\",\"owner_id\":null,\"is_locked\":false,\"locked_at\":null,\"locked_by\":null,\"objective\":null,\"created_at\":\"2026-10-18T15:02:23.716258+00:00\",\"program_id\":null,\"rag_status\":\"not_started\",\"start_date\":null,\"updated_at\":\"2026-10-18T15:02:23.713+00:00\",\"description\":null,\"lock_reason\":null,\"target_date\":null,\"external_ref\":null,\"external_url\":null,\"workspace_id\":\"3c8968e0-9577-40db-bc92-39750736abd1\",\"business_case\":null,\"scope_s"
+ },
+ "035-api-omit": {
+  "status": 201
+ },
+ "036-approvals-api": {
+  "status": 404,
+  "text": "<!DOCTYPE html><html lang=\"en\" class=\"inter_fe8b9d92-module__LINzvG__variable jetbrains_mono_7d65b77b-module__VxV-Ta__variable h-full antialiased\" style=\"font-size:100%\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/%5Broot-of-the-server%5D__082ijy0jpm_h0._.css\" nonce=\"NjIxZDIxMjAtNzg1Mi00NmFiLWIw"
+ },
+ "035-390-nodates": {
+  "post": 201,
+  "url": "http://localhost:3000/projects/7301ad5a-7955-42d5-98ab-e07d30c6a03f",
+  "errorToast": null,
+  "milestones": "3",
+  "dates": "null/null"
+ },
+ "035-390-startonly": {
+  "post": 201,
+  "url": "http://localhost:3000/projects/3cc3049f-45f5-4bc1-ac34-a7d172e0fa0c",
+  "errorToast": null,
+  "milestones": "3",
+  "dates": "2026-11-02/null"
+ },
+ "035-1280-nodates": {
+  "post": 201,
+  "url": "http://localhost:3000/projects/14e47e51-4913-4822-9ebc-c8df01335523",
+  "errorToast": null,
+  "milestones": "3",
+  "dates": "null/null"
+ },
+ "035-1280-startonly": {
+  "post": 201,
+  "url": "http://localhost:3000/projects/21271166-3cce-4d9b-99d4-59d6417008c3",
+  "errorToast": null,
+  "milestones": "3",
+  "dates": "2026-11-02/null"
+ },
+ "036-390-approvals": {
+  "raw": [],
+  "pretty": [
+   "High risk",
+   "Normal"
+  ],
+  "len": 1739
+ },
+ "036-390-review": {
+  "raw": [
+   "routine",
+   "normal",
+   "normal",
+   "emergency",
+   "emergency"
+  ],
+  "pretty": [
+   "Normal",
+   "High risk",
+   "Routine"
+  ],
+  "len": 4059
+ },
+ "036-1280-approvals": {
+  "raw": [],
+  "pretty": [
+   "High risk",
+   "Normal"
+  ],
+  "len": 2092
+ },
+ "036-1280-review": {
+  "raw": [
+   "routine",
+   "normal",
+   "normal",
+   "emergency",
+   "emergency"
+  ],
+  "pretty": [
+   "Normal",
+   "High risk",
+   "Routine"
+  ],
+  "len": 4477
+ },
+ "036-create-hr": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"b6c894e2-8c11-4232-a313-6301f08199ba\",\"workspace_id\":\"3c8968e0-9577-40db-bc92-39750736abd1\",\"target_type\":\"expense\",\"target_id\":\"bf514e43-efc5-4e76-a3db-5b207fe4e019\",\"reason\":\"UAT-036 retest high-risk\",\"status\":\"pending\",\"requested_by_type\":\"user\",\"requested_by_id\":\"bd116b79-ce19-4b2"
+ },
+ "037-api-CR-028": {
+  "status": 200,
+  "ownerDecision": false,
+  "q1": false,
+  "rationale": null,
+  "reason": null,
+  "decision_note": null
+ },
+ "037-api-CR-029": {
+  "status": 200,
+  "ownerDecision": false,
+  "q1": false,
+  "rationale": null,
+  "reason": null,
+  "decision_note": null
+ },
+ "037-api-CR-030": {
+  "status": 200,
+  "ownerDecision": false,
+  "q1": false,
+  "rationale": null,
+  "reason": null,
+  "decision_note": null
+ },
+ "037-390-CR-028": {
+  "url": "http://localhost:3000/changes/9bf74f2b-699e-4270-baf3-88bd365dde6f",
+  "hasCR": false,
+  "ownerDecision": false,
+  "q1": false,
+  "len": 113
+ },
+ "037-390-CR-029": {
+  "url": "http://localhost:3000/changes/e8e65fe4-faf0-46da-b051-3f2c46d1e99c",
+  "hasCR": false,
+  "ownerDecision": false,
+  "q1": false,
+  "len": 113
+ },
+ "037-390-CR-030": {
+  "url": "http://localhost:3000/changes/ac7f5649-297d-44d4-9398-45b76ce48535",
+  "hasCR": false,
+  "ownerDecision": false,
+  "q1": false,
+  "len": 113
+ }
+}

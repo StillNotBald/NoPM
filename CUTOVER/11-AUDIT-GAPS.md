@@ -41,7 +41,25 @@ Wave 3 adds five files. If it ships in the same window as 0088–0094, the dry r
 
 **Apply 0095 to 0099 in ONE `--atomic` run.** Migration 0095 changes the project row (`backup_owner_id`). The re-snapshot at the end of 0099 records the project fingerprint of pending deletions. If 0095 and 0099 land in separate runs, a pending deletion is re-snapshotted against a row that a later run changes again, and it would be refused at approval. Run the five files together, and check the ledger count of 97 before promote.
 
-### Hard dependencies for wave 3
+### Cycle 2 addition (migration 0106, tier decisions)
+
+`20261018000106_tier_decisions.sql` carries owner decisions Q1 (emergency = flag only), Q4 (approved documents on the manager tier), Q5 (expense deletion at or above the threshold is high risk) and Q7 (no GitHub event completes a task). It is additive and safe on live rows.
+
+**Order: apply the migration first, then promote the build.** The new build in front of the old database fails: an emergency raise calls `nopm_raise_emergency_change_request`, which does not exist yet. The old build in front of the new database works but leaves stragglers.
+
+**Stragglers.** If the old build keeps serving for a few minutes after the migration, an emergency raised then is stored in the old shape (`is_emergency` and `retro_decided_at is null`, status `emergency`). The new decide function refuses such a row, so retire it. The data steps are a function that is safe to run again, and the file runs it once at its end. After the old build is gone, run it once more and confirm it reports zeros:
+
+```sql
+select count(*) from change_requests where is_emergency and retro_decided_at is null;  -- the straggler query
+select nopm_apply_tier_decisions();  -- retires them, writes one audit row each, and reports the counts
+select nopm_apply_tier_decisions();  -- second run: all zeros, no audit rows
+```
+
+**What the migration does to existing rows.** An emergency waiting for a retro decision is closed out with outcome `retired` (status `emergency` becomes `approved`). A pending expense deletion at or above the threshold becomes high risk, and an assignee who is not an admin is cleared. A pending deletion of an approved document goes back to the manager tier. A stored work-event rule that said `completed` becomes null. Each change writes one audit row from "system (migration 0106)".
+
+**Agent tokens and emergencies.** A token needs the exact `change:decide` scope to raise an emergency (default built, owner may relax it, see CHANGE-REQUEST.md). Check before release that no agent token holds it by accident.
+
+## Hard dependencies for wave 3
 
 - **0095 before the handover, backup and list routes.** `views.ts` selects the backup columns on every list and detail read. The project header badge is the only fail-soft reader.
 - **0096 before the nudge settings save.** Without it the app keeps working: settings read as defaults, the nudge and report steps log and skip, and the Kanban stale flag stays at 14 days. Saving the new settings fails.
