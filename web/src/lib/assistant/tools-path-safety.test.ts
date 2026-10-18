@@ -52,6 +52,9 @@ const ID_ARGS: Record<string, string[]> = {
   get_project_trend: ["project_id"],
   get_change_request: ["change_request_id"],
   get_document: ["document_id"],
+  list_rebaselines: ["project_id"],
+  get_baseline_history: ["project_id"],
+  list_project_dependencies: ["project_id"],
 };
 
 const HOSTILE_IDS = [

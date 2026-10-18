@@ -13,7 +13,7 @@
 
 import { RuleError } from "@/lib/api/errors";
 
-export type ViewEntity = "projects" | "tasks" | "milestones" | "risks" | "issues" | "change_requests" | "decisions";
+export type ViewEntity = "projects" | "tasks" | "milestones" | "risks" | "issues" | "change_requests" | "decisions" | "documents";
 
 /** Columns a caller may pick with `fields=` (and what `view=full` returns). */
 export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
@@ -61,6 +61,12 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
     "status", "decided_by", "decided_by_label", "decided_at", "supersedes", "source", "external_ref",
     "external_url", "change_request_id", "options_structured", "created_at", "updated_at",
   ],
+  // storage_path (the internal bucket path) is deliberately absent, as in GET /api/documents/:id.
+  documents: [
+    "id", "workspace_id", "project_id", "reference_id", "folder", "title", "doc_type", "status", "version", "summary", "body",
+    "external_url", "owner_id", "created_by", "created_at", "updated_at", "file_name", "mime_type", "file_size",
+    "change_request_id", "evidence_type", "evidence_result", "tested_by_label", "tested_at", "evidence_note",
+  ],
 };
 
 /** The default list payload: enough to scan, filter and link; no long text, no lock detail, no seam columns. */
@@ -94,6 +100,11 @@ export const SUMMARY_COLUMNS: Record<ViewEntity, readonly string[]> = {
     "id", "reference_id", "project_id", "title", "status", "decided_by_label", "decided_at", "supersedes",
     "change_request_id", "updated_at",
   ],
+  // No body, summary or evidence_note in the default list: get_document returns the long text.
+  documents: [
+    "id", "reference_id", "project_id", "folder", "title", "doc_type", "status", "version", "owner_id",
+    "file_name", "change_request_id", "evidence_type", "evidence_result", "tested_at", "created_at", "updated_at",
+  ],
 };
 
 export type ListView = "summary" | "full";
@@ -107,8 +118,8 @@ export type ListSelection = {
 /**
  * Resolve `view` / `fields` query params into a select string.
  * - `fields` wins over `view`; `id` is always included.
- * - `view=full` is `*` except for risks, which use an explicit list so the
- *   deprecated `category` column is never returned.
+ * - `view=full` is `*` except for risks and documents, which use an explicit list so the
+ *   deprecated `category` column (risks) and the internal `storage_path` (documents) are never returned.
  */
 export function parseListSelection(searchParams: URLSearchParams, entity: ViewEntity): ListSelection {
   const rawView = searchParams.get("view");
@@ -133,7 +144,7 @@ export function parseListSelection(searchParams: URLSearchParams, entity: ViewEn
   }
 
   if (rawView === "full") {
-    return { select: entity === "risks" ? FULL_COLUMNS.risks.join(",") : "*", view: "full" };
+    return { select: entity === "risks" || entity === "documents" ? FULL_COLUMNS[entity].join(",") : "*", view: "full" };
   }
   return { select: SUMMARY_COLUMNS[entity].join(","), view: "summary" };
 }

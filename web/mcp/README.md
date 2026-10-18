@@ -11,7 +11,7 @@ NoPM bundles no LLM. This server is a thin bridge: it maps MCP tool calls to NoP
 
 ### Governance tools (stdio server)
 
-On top of the shared registry, the stdio server offers seven governance tools (`MCP_GOVERNANCE_TOOLS` in `tools.mjs`; deliberately NOT given to the in-app assistant): `create_change_request` (change:write), `propose_rebaseline` (project:write), `sign_off_rebaseline` and `apply_rebaseline` (rebaseline:approve), `create_decision` (decision:write) and `create_document` (document:write) and `close_sprint` (sprint:write; send `move_unfinished_to` = `backlog` or a sprint id when the API answers 422 `unfinished_tasks`). `update_risk` / `update_issue` take `resolution` (needed to close a risk or resolve/close an issue) and `update_milestone` takes `confirm_open_tasks: true` (resend after a 422 `open_tasks`). Each calls the existing REST route with your token. The two approve tools work only when the token carries the exact `rebaseline:approve` scope AND the person who minted it is currently an admin or manager (owner decision D-16, "follow Lark rules"); otherwise the API answers 403 `role_not_permitted` ("Only managers and admins can approve") and nothing changes. Four-eyes still applies: a token never decides what its creator raised.
+On top of the shared registry, the stdio server offers nine governance tools (`MCP_GOVERNANCE_TOOLS` in `tools.mjs`; deliberately NOT given to the in-app assistant): `create_change_request` (change:write), `propose_rebaseline` (project:write), `sign_off_rebaseline` and `apply_rebaseline` (rebaseline:approve), `create_decision` (decision:write) and `create_document` (document:write) and `close_sprint` (sprint:write; send `move_unfinished_to` = `backlog` or a sprint id when the API answers 422 `unfinished_tasks`), `attach_evidence` (document:write; links or creates test, UAT or deploy evidence on a change request) and `implement_change_request` (change:write, never change:decide; marks an approved request live). `create_document` also takes `change_request_id` and the evidence fields, `create_decision` takes `change_request_id`, and `create_task` / `update_task` take `blocker_reason` and `eta` (send `null` to clear). `update_risk` / `update_issue` take `resolution` (needed to close a risk or resolve/close an issue) and `update_milestone` takes `confirm_open_tasks: true` (resend after a 422 `open_tasks`). Each calls the existing REST route with your token. The two approve tools work only when the token carries the exact `rebaseline:approve` scope AND the person who minted it is currently an admin or manager (owner decision D-16, "follow Lark rules"); otherwise the API answers 403 `role_not_permitted` ("Only managers and admins can approve") and nothing changes. Four-eyes still applies: a token never decides what its creator raised.
 
 ---
 
@@ -115,6 +115,12 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `get_change_request` | GET /api/change-requests/:id | `change:read` |
 | `list_decisions` | GET /api/decisions (filters `project_id`, `status`; `view` / `fields`) | `decision:read` |
 | `get_document` | GET /api/documents/:id (metadata, `external_url`, stored text body; never file bytes) | `document:read` |
+| `list_documents` | GET /api/documents (filters `project_id`, `folder`, `status`, `doc_type`, `change_request_id`; `view` / `fields`) | `document:read` |
+| `list_rebaselines` | GET /api/projects/:id/rebaselines (newest version first; each row has `status`, `reason`, `applied_at` and `before` / `after` baseline dates) | `project:read` |
+| `get_baseline_history` | GET /api/projects/:id/rebaselines (up to 100 rows; read the `applied` ones to follow how the baseline dates moved) | `project:read` |
+| `list_project_dependencies` | GET /api/projects/:id/dependencies (both directions, with the other project's code, name and RAG) | `project:read` |
+| `attach_evidence` | POST /api/change-requests/:id/evidence (MCP only; `document_id` to link an existing document or `title` to create one; needs `evidence_type`) | `document:write` |
+| `implement_change_request` | POST /api/change-requests/:id/implement (MCP only; approved requests only; never decides anything) | `change:write` |
 | `list_clashes` | GET /api/clashes | `clash:read` |
 | `list_resources` | GET /api/resources | `resource:read` |
 | `search_workspace` | GET /api/search | `project:read` |
@@ -123,11 +129,15 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 
 ### Decision prep (read-only)
 
-An assistant can gather what a person needs before deciding a change request: `list_change_requests` and `get_change_request` for the request and its impact, `list_decisions` for earlier decisions on the same project, `get_document` for a charter or plan, and `get_evm` for the cost position. All five are GET-only and need read scopes only. There is deliberately no approve or decide tool: a person decides in the console.
+An assistant can gather what a person needs before deciding a change request: `list_change_requests` and `get_change_request` for the request and its impact, `list_decisions` for earlier decisions on the same project, `get_document` for a charter or plan, and `get_evm` for the cost position. `list_documents` (with `change_request_id`) shows the evidence already attached to a request, `list_rebaselines` and `get_baseline_history` show how the baseline dates moved, and `list_project_dependencies` shows which other projects a change would touch. All of these are GET-only and need read scopes only. There is deliberately no approve or decide tool: a person decides in the console.
+
+### Evidence and go-live
+
+`attach_evidence` puts test, UAT or deploy evidence on a change request through `POST /api/change-requests/:id/evidence`. Send `document_id` to link a document that already exists, or `title` (with optional `doc_type`, `summary`, `body`, `external_url`) to create one under the request's project, plus the required `evidence_type` and optional `evidence_result`, `tested_by`, `tested_at` and `evidence_note`. It needs only `document:write`. A rejected or deferred request answers 422 `evidence_not_accepted`, and a document that is already evidence for another request answers 422 `evidence_linked_elsewhere`. Every call is one audited document write. `implement_change_request` marks an approved request as live; it needs `change:write` and a token with a recorded owner (the requester, an admin or a manager), and the database refuses an `implemented_at` earlier than `decided_at`.
 
 ### Lean list payloads (`view` / `fields`)
 
-`list_projects`, `list_tasks`, `list_milestones`, `list_risks`, `list_issues`, `list_change_requests` and `list_decisions` return a **summary** column set by default (ids, names or titles, status, owner, dates, completion, `updated_at`; no charter text, lock detail or `source` / `external_ref`). This keeps a 20-row page small enough to leave room for the agent's own reasoning.
+`list_projects`, `list_tasks`, `list_milestones`, `list_risks`, `list_issues`, `list_change_requests`, `list_decisions` and `list_documents` return a **summary** column set by default (ids, names or titles, status, owner, dates, completion, `updated_at`; no charter text, lock detail or `source` / `external_ref`). This keeps a 20-row page small enough to leave room for the agent's own reasoning.
 
 | Argument | Effect |
 |---|---|
@@ -174,7 +184,7 @@ risk:write  issue:write
 
 ## Recipe: Slack thread to governed decision
 
-NoPM's MCP server ships no `create_decision` tool (the tool catalogue above is deliberately read-heavy plus the maker side of task/project deletion). To turn a Slack thread into a governed decision record, drive the REST API directly, either from your agent or with the `nopm` CLI:
+The MCP server's `create_decision` tool (scope `decision:write`, with an optional `change_request_id`) logs the decision from an agent session. To turn a Slack thread into a governed decision record, the same call is available on the REST API, either from your agent or with the `nopm` CLI:
 
 1. Attach a Slack MCP server and the NoPM MCP server (or just a scoped NoPM PAT) to one Claude session.
 2. Ask it to summarise the thread: title, context, and rationale for the call that was made.
