@@ -6,7 +6,7 @@ import type { Actor } from "@/lib/auth/guard";
 const h = vi.hoisted(() => ({
   rpc: vi.fn(),
   updateUser: vi.fn(),
-  listUsers: vi.fn(),
+  getUser: vi.fn(),
   status: "active" as string | null,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase/admin", () => ({
       b.maybeSingle = async () => ({ data: h.status ? { status: h.status } : null, error: null });
       return b;
     },
-    auth: { admin: { updateUserById: h.updateUser, listUsers: h.listUsers } },
+    auth: { admin: { updateUserById: h.updateUser, getUserById: h.getUser } },
   }),
 }));
 vi.mock("@/lib/crypto", () => ({ encrypt: (s: string) => `enc(${s.length})` }));
@@ -34,8 +34,7 @@ import {
   resetMemberMfa,
   restoreMember,
   LAST_ADMIN_MESSAGE,
-  LAST_SIGN_IN_MAX_PAGES,
-  LAST_SIGN_IN_PAGE_SIZE,
+  LAST_SIGN_IN_BATCH,
   memberLastSignIns,
 } from "./members";
 
@@ -45,7 +44,7 @@ beforeEach(() => {
   h.status = "active";
   h.rpc.mockReset();
   h.updateUser.mockReset();
-  h.listUsers.mockReset();
+  h.getUser.mockReset();
   h.updateUser.mockResolvedValue({ error: null });
 });
 
@@ -183,26 +182,31 @@ describe("restore is retryable (R3-4) and removal ends sessions (R3-3)", () => {
 });
 
 describe("memberLastSignIns (R-167)", () => {
-  const user = (id: string, at: string | null) => ({ id, last_sign_in_at: at });
-
-  it("pages until every wanted id is seen and leaves never-signed-in people out", async () => {
-    h.listUsers
-      .mockResolvedValueOnce({ data: { users: Array.from({ length: LAST_SIGN_IN_PAGE_SIZE }, (_, i) => user("x" + i, "2026-01-01T00:00:00Z")) }, error: null })
-      .mockResolvedValueOnce({ data: { users: [user("a", "2026-10-01T00:00:00Z"), user("b", null)] }, error: null });
-    const got = await memberLastSignIns(["a", "b"]);
-    expect(h.listUsers).toHaveBeenCalledTimes(2);
-    expect(got.get("a")).toBe("2026-10-01T00:00:00Z");
-    expect(got.has("b")).toBe(false);
+  it("reads each person by id in parallel batches and leaves never-signed-in people out", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    h.getUser.mockImplementation(async (id: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      inFlight--;
+      return { data: { user: { id, last_sign_in_at: id === "p3" ? null : "2026-10-01T00:00:00Z" } }, error: null };
+    });
+    const ids = Array.from({ length: 25 }, (_, n) => "p" + n);
+    const got = await memberLastSignIns(ids);
+    expect(h.getUser).toHaveBeenCalledTimes(25);
+    expect(peak).toBeLessThanOrEqual(LAST_SIGN_IN_BATCH);
+    expect(got.get("p0")).toBe("2026-10-01T00:00:00Z");
+    expect(got.has("p3")).toBe(false);
   });
 
   it("makes no auth call for an empty list", async () => {
     expect((await memberLastSignIns([])).size).toBe(0);
-    expect(h.listUsers).not.toHaveBeenCalled();
+    expect(h.getUser).not.toHaveBeenCalled();
   });
 
-  it("throws when the page cap is hit with people still unseen, so an empty cell never means 'stopped looking'", async () => {
-    h.listUsers.mockResolvedValue({ data: { users: Array.from({ length: LAST_SIGN_IN_PAGE_SIZE }, (_, i) => user("y" + i, null)) }, error: null });
-    await expect(memberLastSignIns(["missing"])).rejects.toThrow(/pages/);
-    expect(h.listUsers).toHaveBeenCalledTimes(LAST_SIGN_IN_MAX_PAGES);
+  it("throws when any lookup fails, so an empty cell never means 'lookup failed'", async () => {
+    h.getUser.mockResolvedValue({ data: { user: null }, error: new Error("auth down") });
+    await expect(memberLastSignIns(["a"])).rejects.toThrow("auth down");
   });
 });

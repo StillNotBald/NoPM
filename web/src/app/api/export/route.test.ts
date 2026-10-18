@@ -12,8 +12,8 @@ import type { Actor } from "@/lib/auth/guard";
 const { requireAuthMock, writeAuditMock, listUsersMock, tables } = vi.hoisted(() => ({
   requireAuthMock: vi.fn(),
   writeAuditMock: vi.fn(async (..._a: unknown[]) => undefined),
-  listUsersMock: vi.fn(async (_a: { page: number; perPage: number }) => ({
-    data: { users: [] as Array<{ id: string; last_sign_in_at?: string | null }> },
+  listUsersMock: vi.fn(async (_id: string) => ({
+    data: { user: null as null | { id: string; last_sign_in_at?: string | null } },
     error: null as unknown,
   })),
   tables: {} as Record<string, Array<Record<string, unknown>>>,
@@ -30,7 +30,7 @@ vi.mock("@/lib/integrations/time-zone", () => ({ workspaceToday: async () => "20
 const queried: Array<{ table: string; ops: Array<[string, unknown[]]> }> = [];
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    auth: { admin: { listUsers: (a: { page: number; perPage: number }) => listUsersMock(a) } },
+    auth: { admin: { getUserById: (id: string) => listUsersMock(id) } },
     from(table: string) {
       const call = { table, ops: [] as Array<[string, unknown[]]> };
       queried.push(call);
@@ -307,25 +307,18 @@ describe("GET /api/export members last_sign_in_at (R-167)", () => {
   it("admin: exports last_sign_in_at from auth metadata, empty for a member who never signed in", async () => {
     requireAuthMock.mockResolvedValueOnce(session("admin"));
     tables.profiles = [profile("p1"), profile("p2")];
-    listUsersMock.mockResolvedValueOnce({
-      data: {
-        users: [
-          { id: "p1", last_sign_in_at: "2026-10-17T08:00:00Z" },
-          { id: "p2", last_sign_in_at: null },
-          { id: "other-ws", last_sign_in_at: "2026-10-01T00:00:00Z" },
-        ],
-      },
+    listUsersMock.mockImplementation(async (id: string) => ({
+      data: { user: { id, last_sign_in_at: id === "p1" ? "2026-10-17T08:00:00Z" : null } },
       error: null,
-    });
+    }));
     const res = await call("?entity=members");
     expect(res.status).toBe(200);
     const [header, r1, r2] = lines(await res.text());
     expect(header.split(",").at(-1)).toBe("last_sign_in_at");
     expect(r1.split(",").at(-1)).toBe("2026-10-17T08:00:00Z");
     expect(r2.split(",").at(-1)).toBe("");
-    // one paged listUsers read, never one call per person
-    expect(listUsersMock).toHaveBeenCalledTimes(1);
-    expect(listUsersMock.mock.calls[0][0]).toMatchObject({ page: 1 });
+    // read by id for this workspace's people only, never a scan of every tenant's users
+    expect(listUsersMock.mock.calls.map((c) => c[0]).sort()).toEqual(["p1", "p2"]);
     // the export audit row is unchanged: same action, same shape, no sign-in data in it
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
     const audit = writeAuditMock.mock.calls[0][0] as { action: string; after: Record<string, unknown> };
@@ -337,10 +330,7 @@ describe("GET /api/export members last_sign_in_at (R-167)", () => {
   it("manager: no last_sign_in_at column and the auth users are never read", async () => {
     requireAuthMock.mockResolvedValueOnce(session("manager"));
     tables.profiles = [profile("p1")];
-    listUsersMock.mockResolvedValue({
-      data: { users: [{ id: "p1", last_sign_in_at: "2026-10-17T08:00:00Z" }] },
-      error: null,
-    });
+    listUsersMock.mockResolvedValue({ data: { user: { id: "p1", last_sign_in_at: "2026-10-17T08:00:00Z" } }, error: null });
     const res = await call("?entity=members");
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -352,7 +342,7 @@ describe("GET /api/export members last_sign_in_at (R-167)", () => {
   it("admin: a failing auth lookup fails the export instead of printing empty cells", async () => {
     requireAuthMock.mockResolvedValueOnce(session("admin"));
     tables.profiles = [profile("p1")];
-    listUsersMock.mockResolvedValueOnce({ data: { users: [] }, error: new Error("auth down") });
+    listUsersMock.mockResolvedValueOnce({ data: { user: null }, error: new Error("auth down") });
     const res = await call("?entity=members");
     expect(res.status).toBeGreaterThanOrEqual(500);
     expect(writeAuditMock).not.toHaveBeenCalled();

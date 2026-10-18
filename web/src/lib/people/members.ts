@@ -220,35 +220,30 @@ export async function memberMfaEnabled(profileIds: string[]): Promise<Set<string
   return mfa;
 }
 
-/** Auth users per page and the most pages read (R-167). 50 x 1000 = 50,000 sign-in records. */
-export const LAST_SIGN_IN_PAGE_SIZE = 1000;
-export const LAST_SIGN_IN_MAX_PAGES = 50;
+/** Lookups run this many at a time (R-167). The export is already capped, so the total is bounded. */
+export const LAST_SIGN_IN_BATCH = 10;
 
 /**
  * Last sign-in time per person, from the auth users (R-167). Service role only, read through the admin client.
  * This is for the admin access-review export and nothing else: it never reaches GET /api/members or the UI.
- * Pages through listUsers (at most LAST_SIGN_IN_MAX_PAGES pages) and stops as soon as every wanted id is seen.
- * A person who never signed in has no entry. If the page cap is reached while ids are still unseen it throws,
- * because an empty cell must mean "never signed in", not "we stopped looking".
+ * Reads BY ID with getUserById, in parallel batches of LAST_SIGN_IN_BATCH, so only this workspace's people are
+ * touched (never a scan of every tenant's users). A person who never signed in has no entry. Any failed lookup
+ * throws, so an empty cell always means "never signed in" and never "the lookup failed".
  */
 export async function memberLastSignIns(profileIds: string[]): Promise<Map<string, string>> {
   const found = new Map<string, string>();
   if (profileIds.length === 0) return found;
-  const wanted = new Set(profileIds);
-  const seen = new Set<string>();
   const db = createAdminClient();
-  for (let page = 1; page <= LAST_SIGN_IN_MAX_PAGES; page++) {
-    const { data, error } = await db.auth.admin.listUsers({ page, perPage: LAST_SIGN_IN_PAGE_SIZE });
-    if (error) throw error;
-    const users = data?.users ?? [];
-    for (const u of users) {
-      if (!wanted.has(u.id)) continue;
-      seen.add(u.id);
-      if (u.last_sign_in_at) found.set(u.id, u.last_sign_in_at);
-    }
-    if (seen.size === wanted.size || users.length < LAST_SIGN_IN_PAGE_SIZE) return found;
+  for (let i = 0; i < profileIds.length; i += LAST_SIGN_IN_BATCH) {
+    const batch = profileIds.slice(i, i + LAST_SIGN_IN_BATCH);
+    const results = await Promise.all(batch.map((id) => db.auth.admin.getUserById(id)));
+    results.forEach((r, k) => {
+      if (r.error) throw r.error;
+      const at = r.data?.user?.last_sign_in_at;
+      if (at) found.set(batch[k], at);
+    });
   }
-  throw new Error(`Sign-in lookup stopped at ${LAST_SIGN_IN_MAX_PAGES} pages with people still unseen`);
+  return found;
 }
 
 export async function listMembers(workspaceId: string): Promise<MemberRow[]> {
