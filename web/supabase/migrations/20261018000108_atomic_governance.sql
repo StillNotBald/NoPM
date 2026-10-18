@@ -36,6 +36,8 @@
 -- P0060 UNSUPPORTED_ENTITY, P0061 EMERGENCY_VIA_OTHER_FUNCTION. A duplicate pending deletion or rebaseline is the
 -- unique violation 23505 from the existing index; the route maps it exactly as it did.
 --
+-- P0064 INVALID_ASSIGNEE: an assigned approver that is not a profile of the workspace (checked inside the transaction).
+--
 -- SAFETY. Additive: one new table (seeded), seven new functions, nothing altered. Safe on live rows at ledger
 -- 0107 and safe to re-run (if not exists, create or replace, on conflict do nothing). Service role only; security
 -- definer with search_path pinned to public; every statement filters by the workspace id parameter.
@@ -52,7 +54,9 @@ create table if not exists nopm_deletion_entities (
 
 alter table nopm_deletion_entities enable row level security;
 revoke all on nopm_deletion_entities from public, anon, authenticated;
-grant select, insert, update on nopm_deletion_entities to service_role;
+-- Read-only for the service role: child_count_sql runs as dynamic SQL, so only migrations (the owner) may change it.
+revoke insert, update, delete, truncate on nopm_deletion_entities from service_role;
+grant select on nopm_deletion_entities to service_role;
 
 comment on table nopm_deletion_entities is
   'Wave 5: which table, commit RPC and child-count statement belong to each deletion_requests.target_type. Add an entity with an INSERT; nopm_request_deletion reads this table.';
@@ -109,6 +113,10 @@ begin
     raise exception 'INVALID_AUDIT: action must be %.delete_requested', p_entity using errcode = 'P0059';
   end if;
 
+  if p_assigned_approver_id is not null and not exists (select 1 from profiles where id = p_assigned_approver_id and workspace_id = p_workspace_id) then
+    raise exception 'INVALID_ASSIGNEE' using errcode = 'P0064';
+  end if;
+
   select * into ent from nopm_deletion_entities where entity = p_entity;
   if not found then
     raise exception 'UNSUPPORTED_ENTITY: %', p_entity using errcode = 'P0060';
@@ -153,14 +161,10 @@ begin
     case when p_assigned_approver_id is not null
          then jsonb_build_object('assigned_approver_id', p_assigned_approver_id) else null end);
 
-  -- Bookkeeping, not a governed fact: a missing ledger row must never fail the request.
-  begin
-    insert into approval_events (workspace_id, target_type, target_id, kind, actor_label, detail)
-      values (p_workspace_id, 'deletion_request', d.id, 'deadline_set', p_audit ->> 'actor_label', p_event_detail)
-      on conflict do nothing;
-  exception when others then
-    null;
-  end;
+  -- The ledger event is part of the transaction (one statement; the unique index makes a repeat a no-op).
+  insert into approval_events (workspace_id, target_type, target_id, kind, actor_label, detail)
+    values (p_workspace_id, 'deletion_request', d.id, 'deadline_set', p_audit ->> 'actor_label', p_event_detail)
+    on conflict do nothing;
 
   return to_jsonb(d);
 end;
@@ -304,6 +308,9 @@ begin
   if p_audit is null or (p_audit ->> 'action') is distinct from 'change_request.create' then
     raise exception 'INVALID_AUDIT: action must be change_request.create' using errcode = 'P0059';
   end if;
+  if p_assigned_approver_id is not null and not exists (select 1 from profiles where id = p_assigned_approver_id and workspace_id = p_workspace_id) then
+    raise exception 'INVALID_ASSIGNEE' using errcode = 'P0064';
+  end if;
   if v_project is null or not exists (select 1 from projects where id = v_project and workspace_id = p_workspace_id) then
     raise exception 'NOT_FOUND' using errcode = 'P0002';
   end if;
@@ -339,13 +346,9 @@ begin
 
   perform nopm_audit_insert(p_workspace_id, p_audit, r.id, null, to_jsonb(r));
 
-  begin
-    insert into approval_events (workspace_id, target_type, target_id, kind, actor_label, detail)
-      values (p_workspace_id, 'change_request', r.id, 'deadline_set', p_audit ->> 'actor_label', p_event_detail)
-      on conflict do nothing;
-  exception when others then
-    null;
-  end;
+  insert into approval_events (workspace_id, target_type, target_id, kind, actor_label, detail)
+    values (p_workspace_id, 'change_request', r.id, 'deadline_set', p_audit ->> 'actor_label', p_event_detail)
+    on conflict do nothing;
 
   return to_jsonb(r);
 end;
@@ -498,6 +501,10 @@ begin
     raise exception 'INVALID_AUDIT: action must be rebaseline.create' using errcode = 'P0059';
   end if;
 
+  if p_assigned_approver_id is not null and not exists (select 1 from profiles where id = p_assigned_approver_id and workspace_id = p_workspace_id) then
+    raise exception 'INVALID_ASSIGNEE' using errcode = 'P0064';
+  end if;
+
   select * into p from projects where id = p_project_id and workspace_id = p_workspace_id for update;
   if not found then
     raise exception 'NOT_FOUND' using errcode = 'P0002';
@@ -528,16 +535,12 @@ begin
 
   perform nopm_audit_insert(p_workspace_id, p_audit, r.id, null, to_jsonb(r));
 
-  begin
-    insert into approval_events (workspace_id, target_type, target_id, kind, actor_label, detail)
-      values (p_workspace_id, 'rebaseline', r.id, 'deadline_set', p_audit ->> 'actor_label',
-              jsonb_build_object('tier', p_tier,
-                                 'deadline', case when p_deadline is null then null
-                                                  else to_char(p_deadline at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end))
-      on conflict do nothing;
-  exception when others then
-    null;
-  end;
+  insert into approval_events (workspace_id, target_type, target_id, kind, actor_label, detail)
+    values (p_workspace_id, 'rebaseline', r.id, 'deadline_set', p_audit ->> 'actor_label',
+            jsonb_build_object('tier', p_tier,
+                               'deadline', case when p_deadline is null then null
+                                                else to_char(p_deadline at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') end))
+    on conflict do nothing;
 
   return to_jsonb(r);
 end;

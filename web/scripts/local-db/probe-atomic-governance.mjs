@@ -314,6 +314,27 @@ await report.check("R2", "a second pending proposal is uniq_pending_rebaseline (
   await rpcFails("nopm_propose_rebaseline", rbArgs(randomUUID()), /P0002|NOT_FOUND/);
 });
 
+// ── assigned approver must belong to the workspace (W1-12) ─────────────────
+await report.check("A1", "a foreign-workspace assigned approver is refused (P0064) by request, raise and propose; nothing written", async () => {
+  const [foreign] = await q("select id from profiles where workspace_id <> $1 limit 1", [ws]);
+  expect(foreign, "need a profile of another workspace");
+  const before = await auditCount();
+  const open = await must(db.from("projects").insert({ workspace_id: ws, code: `OP-${randomBytes(2).toString("hex")}`.toUpperCase(), name: "open probe", owner_id: fx.admin.id }).select("id").single(), "open project");
+  const t = await must(db.from("tasks").insert({ workspace_id: ws, project_id: open.id, name: "a1" }).select("*").single(), "task");
+  await rpcFails("nopm_request_deletion", requestDeletionArgs("task", t.id, { p_assigned_approver_id: foreign.id }), /P0064|INVALID_ASSIGNEE/);
+  await rpcFails("nopm_raise_change_request", raiseArgs({ p_assigned_approver_id: foreign.id, p_input: crInput({ reference_id: `CR-A-${randomBytes(2).toString("hex")}` }) }), /P0064|INVALID_ASSIGNEE/);
+  await rpcFails("nopm_propose_rebaseline", rbArgs(fx.project.id, { p_assigned_approver_id: foreign.id }), /P0064|INVALID_ASSIGNEE/);
+  expectEqual(await auditCount(), before, "audit rows");
+  expectEqual(await count("select count(*)::int n from deletion_requests where target_id = $1", [t.id]), 0, "deletion requests");
+  // a member of this workspace is accepted
+  await rpc("nopm_request_deletion", requestDeletionArgs("task", t.id, { p_assigned_approver_id: fx.admin.id }));
+});
+
+await report.check("A2", "nopm_deletion_entities is read-only for service_role (W1-04)", async () => {
+  const [r] = await q("select has_table_privilege('service_role', 'nopm_deletion_entities', 'select') s, has_table_privilege('service_role', 'nopm_deletion_entities', 'insert') i, has_table_privilege('service_role', 'nopm_deletion_entities', 'update') u");
+  expect(r.s && !r.i && !r.u, JSON.stringify(r));
+});
+
 // ── every audit row written above chained ──────────────────────────────────
 await report.check("X1", "every audit row of this workspace has chain_seq and row_hash (the helper never sets them)", async () => {
   const bad = await count("select count(*)::int n from audit_log where workspace_id = $1 and (chain_seq is null or row_hash is null)", [ws]);

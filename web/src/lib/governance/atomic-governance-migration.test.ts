@@ -135,8 +135,15 @@ describe("the deletion maker step", () => {
     expect(body).toMatch(/jsonb_build_object\('assigned_approver_id', p_assigned_approver_id\)/);
   });
 
-  it("writes the deadline_set event fail-soft in the same transaction", () => {
-    expect(body).toMatch(/insert into approval_events[\s\S]*'deadline_set'[\s\S]*exception when others then\s+null;/);
+  it("writes the deadline_set event in the same transaction, not swallowed (W1-11)", () => {
+    expect(body).toMatch(/insert into approval_events[\s\S]*'deadline_set'/);
+    expect(code).not.toMatch(/exception when others/);
+  });
+
+  it("refuses an assigned approver that is not a profile of the workspace (P0064) in all three raising functions", () => {
+    for (const name of ["nopm_request_deletion", "nopm_raise_change_request", "nopm_propose_rebaseline"]) {
+      expect(bodyOf(name), name).toMatch(/exists \(select 1 from profiles where id = p_assigned_approver_id and workspace_id = p_workspace_id\)[\s\S]*P0064/);
+    }
   });
 });
 
@@ -206,6 +213,16 @@ describe("the entity map (PR-12): wave 2 adds an entity with an INSERT", () => {
     expect(code).toMatch(/'milestone',\s*'milestones',\s*'nopm_commit_milestone_deletion',\s*'select jsonb_build_object\(''tasks'', count\(\*\)\) from tasks where workspace_id = \$1 and milestone_id = \$2'/);
   });
 
+  it("every named commit function is defined by some migration (the column is read here, not by the function)", () => {
+    const all = readdirSync(MIGRATIONS).filter((f) => f.endsWith(".sql")).map((f) => readFileSync(join(MIGRATIONS, f), "utf8")).join("\n");
+    for (const s of seeded) expect(all, s.rpc).toMatch(new RegExp(`create\\s+(?:or\\s+replace\\s+)?function\\s+${s.rpc}\\s*\\(`, "i"));
+  });
+
+  it("is read-only for the service role (W1-04): the statement column runs as dynamic SQL", () => {
+    expect(code).toMatch(/grant select on nopm_deletion_entities to service_role;/);
+    expect(code).not.toMatch(/grant\s+(?:select,\s*)?(?:insert|update)[^;]*nopm_deletion_entities/);
+  });
+
   it("is service-role data: RLS on, no access for anon or authenticated", () => {
     expect(code).toMatch(/alter table nopm_deletion_entities enable row level security;/);
     expect(code).toMatch(/revoke all on nopm_deletion_entities from public, anon, authenticated;/);
@@ -214,12 +231,12 @@ describe("the entity map (PR-12): wave 2 adds an entity with an INSERT", () => {
 });
 
 describe("error codes", () => {
-  it("P0060 and P0061 are new: no earlier migration uses them", () => {
+  it("P0060, P0061 and P0064 are new: no earlier migration uses them", () => {
     const others = readdirSync(MIGRATIONS)
       .filter((f) => f.endsWith(".sql") && f !== FILE)
       .map((f) => readFileSync(join(MIGRATIONS, f), "utf8"))
       .join("\n");
-    expect(others).not.toMatch(/P0060|P0061/);
+    expect(others).not.toMatch(/P0060|P0061|P0064/);
     expect(code).toMatch(/errcode = 'P0060'/);
     expect(code).toMatch(/errcode = 'P0061'/);
   });

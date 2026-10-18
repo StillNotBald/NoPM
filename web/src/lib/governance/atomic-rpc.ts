@@ -24,8 +24,19 @@ function audit(actor: Actor, action: string, targetType: string): Record<string,
   return buildRpcAudit(actor, action, targetType);
 }
 
-function has(e: RpcErr, token: string, code: string): boolean {
-  return (e.code ?? "") === code || (e.message ?? "").includes(token);
+/**
+ * The error carries the token the function raised. The SQLSTATE alone is not enough: P0001 is also what PL/pgSQL
+ * raises for any plain `raise exception`, so an unrelated failure must not read as "already decided". An error
+ * with no known token falls through to a plain Error (a 500). `code` is kept only to document the pairing.
+ */
+function has(e: RpcErr, token: string, _code: string): boolean {
+  void _code;
+  return (e.message ?? "").includes(token);
+}
+
+const INVALID_ASSIGNEE_MESSAGE = "assigned_approver_id must be a manager or admin of this workspace";
+function invalidAssignee(e: RpcErr): void {
+  if (has(e, "INVALID_ASSIGNEE", "P0064")) throw new RuleError(INVALID_ASSIGNEE_MESSAGE, "invalid_assigned_approver");
 }
 
 function unwrap<T>(res: { data: unknown; error: RpcErr | null }, fn: string, map: (e: RpcErr) => never): T {
@@ -92,6 +103,7 @@ export async function requestDeletionAtomic(db: Db, a: RequestDeletionArgs): Pro
         "duplicate_deletion_request",
       );
     }
+    invalidAssignee(e);
     if (has(e, "NOT_FOUND", "P0002")) throw new NotFoundError(`${capitalise(a.entity)} not found`);
     if (has(e, "PROJECT_LOCKED", "P0010")) throw new RuleError(PROJECT_LOCKED_MESSAGE, "project_locked");
     if (has(e, "NO_PRINCIPAL", "P0006")) throw new ScopeError(NO_MAKER_PRINCIPAL_MESSAGE, "no_principal");
@@ -275,6 +287,7 @@ export async function proposeRebaselineAtomic(db: Db, a: ProposeRebaselineArgs):
         "rebaseline_version_conflict",
       );
     }
+    invalidAssignee(e);
     if (has(e, "NOT_FOUND", "P0002")) throw new NotFoundError("Project not found");
     if (has(e, "PROJECT_NOT_LOCKED", "P0019")) throw new RuleError(LOCK_FIRST_MESSAGE, "project_not_locked");
     if (has(e, "NO_PRINCIPAL", "P0006")) throw new ScopeError(NO_MAKER_PRINCIPAL_MESSAGE, "no_principal");
