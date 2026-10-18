@@ -13,6 +13,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Actor } from "@/lib/auth/guard";
 import { ApiError, NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { FakeDb, type Row } from "./test-support/fake-admin";
+import { installAtomicGovernance } from "./test-support/fake-atomic-governance";
 
 const { holder, emitted, storageRemoved } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -175,7 +176,7 @@ async function caught(p: Promise<unknown>): Promise<ApiError> {
 }
 
 beforeEach(() => {
-  db = seed();
+  db = installAtomicGovernance(seed());
   holder.db = db;
   emitted.requested.length = 0;
   emitted.decided.length = 0;
@@ -519,16 +520,9 @@ describe("approveDeletion", () => {
     });
     it("A3-5: if the close cannot be audited it fails closed — the request goes back to pending and the audit error surfaces", async () => {
       failWith("P0017", "TARGET_GONE: the task no longer exists");
-      const realFrom = db.client.from;
-      db.client.from = (table: string) => {
-        if (table === "audit_log") {
-          return {
-            insert: () => ({ then: (res: (v: unknown) => unknown) => Promise.resolve({ data: null, error: { message: "audit down" } }).then(res) }),
-          } as never;
-        }
-        return realFrom(table);
-      };
-      await expect(approveDeletion(bobPat(), "del-1")).rejects.toThrow(/Fail-closed audit write failed/);
+      // wave 5: the close and its audit row are one database transaction, so a failing audit step rolls the close back
+      db.mutateFailure = { code: "XX000", message: "audit down" };
+      await expect(approveDeletion(bobPat(), "del-1")).rejects.toThrow(/audit down/);
       const req = db.rows("deletion_requests").find((r) => r.id === "del-1")!;
       expect(req.status).toBe("pending"); // not closed without a trail
     });

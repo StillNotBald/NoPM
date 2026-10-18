@@ -11,7 +11,7 @@ import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } f
 import { requireDeletionRequestScope } from "@/lib/governance/deletion-dispatch";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { deletionKindFor } from "@/lib/integrations/types";
-import { recordApprovalEvent } from "@/lib/governance/approval-events";
+import { requestDeletionAtomic } from "@/lib/governance/atomic-rpc";
 import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
 
 /**
@@ -157,65 +157,20 @@ export async function requestDeletion(args: {
     approverRoleFor(tier, policy),
   );
 
-  // What the approver sees: the row itself, plus (milestones) how many tasks it detaches. The commit RPC
-  // refuses the approval if that count moved, so the approver never signs off on a different scope.
-  let snapshot: Row = row;
-  if (entity === "milestone") {
-    // limit(1): only the exact count is wanted, not the rows.
-    const { data: attached, count, error: countError } = await db
-      .from("tasks")
-      .select("id", { count: "exact" })
-      .eq("workspace_id", actor.workspaceId)
-      .eq("milestone_id", id)
-      .limit(1);
-    if (countError) throw new Error(countError.message);
-    snapshot = { ...row, child_counts: { tasks: count ?? attached?.length ?? 0 } };
-  }
-
-  const { data: deletionRequest, error: insertError } = await db
-    .from("deletion_requests")
-    .insert({
-      workspace_id: actor.workspaceId,
-      target_type: entity,
-      target_id: id,
-      reason,
-      status: "pending",
-      tier,
-      approval_deadline_at: deadline ? deadline.toISOString() : null,
-      requested_by_type: actor.type,
-      requested_by_id: actor.id,
-      requested_by_label: actor.label,
-      // The HUMAN behind the requester; four-eyes compares this, not the actor id.
-      requested_principal_id: requesterPrincipal,
-      before: snapshot,
-      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
-    })
-    .select()
-    .single();
-
-  // Two concurrent requests both pass the pre-check; uniq_pending_deletion refuses the second (23505).
-  if (insertError?.code === "23505") throw duplicate();
-  if (insertError || !deletionRequest) {
-    throw new Error(insertError?.message ?? "Failed to create deletion request");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The deletion_requests row, its <entity>.delete_requested audit row and the deadline_set event are written by one
+  // database function in one transaction (wave 5, R-162). The same function takes the snapshot the approver signs
+  // off: the row itself, plus (milestones) how many tasks it detaches; the commit RPC refuses the approval if that
+  // count moved, so the approver never signs off on a different scope. uniq_pending_deletion answers a racing request.
+  const deletionRequest = await requestDeletionAtomic(db, {
     actor,
+    entity,
     action: REQUESTED_ACTION[entity],
-    targetType: entity,
     targetId: id,
-    before: snapshot,
-    after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
-  });
-
-  await recordApprovalEvent(db, {
-    workspaceId: actor.workspaceId,
-    targetType: "deletion_request",
-    targetId: deletionRequest.id,
-    kind: "deadline_set",
-    actorLabel: actor.label,
-    detail: { tier, deadline: deadline?.toISOString() ?? null },
+    reason,
+    tier,
+    deadline,
+    assignedApproverId,
+    requesterPrincipal,
   });
 
   const label = labelOf(entity, row, id);

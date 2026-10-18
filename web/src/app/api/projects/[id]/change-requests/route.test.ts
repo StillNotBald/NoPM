@@ -42,6 +42,7 @@ import {
   linkIdentity,
   seedWorkspace,
 } from "@/lib/integrations/test-support";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 import { POST } from "./route";
 
 const PROJECT = "7b1d0c4e-0000-4000-8000-0000000000aa";
@@ -79,7 +80,7 @@ beforeEach(() => {
   writeAuditMock.mockResolvedValue(undefined);
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue(requester());
-  db = new FakeDb();
+  db = installAtomicGovernance(new FakeDb());
   state.db = db;
   seedWorkspace(db);
   db.seed("projects", [{ id: PROJECT, workspace_id: WS, name: "Apollo" }]);

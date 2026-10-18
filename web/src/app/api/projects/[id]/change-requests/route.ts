@@ -4,12 +4,11 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { ScopeError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
-import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { insertWithReference } from "@/lib/governance/next-ref";
+import { raiseChangeRequestRpc } from "@/lib/governance/atomic-rpc";
 import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
@@ -159,22 +158,18 @@ export const POST = route(async ({ actor, params, request }) => {
           p_external_event_id: actor.externalEventId ?? null,
           p_external_actor_ref: actor.externalActorRef ?? null,
         })
-      : db
-          .from("change_requests")
-          .insert({
-            workspace_id: actor.workspaceId,
-            reference_id: refId,
-            ...baseFields,
-            status: input.status,
-            tier,
-            approval_deadline_at: deadline ? deadline.toISOString() : null,
-            // The HUMAN behind the requester (the user, or the token's creator) — four-eyes compares this.
-            requested_principal_id: requesterPrincipal,
-            // G5: only sent when asked for, so a database without 0097 still accepts every other raise.
-            ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
-          })
-          .select()
-          .single(),
+      : // Wave 5 (R-161): the request, its change_request.create audit row and the deadline_set event are written by
+        // one database function in one transaction. The tier, deadline and approver were decided above. A
+        // reference-number clash comes back as 23505 and insertWithReference retries with the next number.
+        raiseChangeRequestRpc(db, {
+          actor,
+          input: { ...baseFields, reference_id: refId, status: input.status },
+          tier,
+          deadline,
+          assignedApproverId,
+          requesterPrincipal,
+          reason: classified.reason,
+        }),
   );
 
   if (error && (error.code === "P0043" || /EMERGENCY_NOT_PERMITTED/.test(error.message ?? ""))) {
@@ -182,28 +177,8 @@ export const POST = route(async ({ actor, params, request }) => {
   }
   if (error || !row) throw new Error(error?.message ?? "Insert failed");
 
-  // The emergency path wrote its own audit rows inside the database call above (one transaction).
-  if (!isEmergency) {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "change_request.create",
-      targetType: "change_request",
-      targetId: row.id,
-      before: null,
-      after: row,
-    });
-
-    // G3: the deadline is on record from the start. Fail-soft.
-    await recordApprovalEvent(db, {
-      workspaceId: actor.workspaceId,
-      targetType: "change_request",
-      targetId: row.id,
-      kind: "deadline_set",
-      actorLabel: actor.label,
-      detail: { tier, deadline: deadline?.toISOString() ?? null, reason: classified.reason },
-    });
-  }
+  // Both paths wrote their audit rows (and the non-emergency deadline_set event) inside the database call above,
+  // in one transaction with the request itself.
 
   // G2: tell the people who may decide THIS tier (an admin tier goes to admins only), not every approver.
   // An emergency has nothing to decide, so no approval request goes out for it.

@@ -1,15 +1,14 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { ConflictError, NotFoundError, RuleError } from "@/lib/api/errors";
-import { LOCK_FIRST_MESSAGE, PENDING_REBASELINE_EXISTS_MESSAGE } from "@/lib/governance/rebaseline-rpc";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { LOCK_FIRST_MESSAGE } from "@/lib/governance/rebaseline-rpc";
+import { proposeRebaselineAtomic } from "@/lib/governance/atomic-rpc";
 import { announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { rebaselineEvent } from "@/lib/integrations/rebaseline-approval";
 import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
-import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
@@ -113,96 +112,21 @@ export const POST = route(async ({ actor, params, request }) => {
     approverRoleFor(tier, policy),
   );
 
-  // Compute next version: max existing version for this project + 1
-  const { data: maxRow, error: maxError } = await db
-    .from("rebaselines")
-    .select("version")
-    .eq("project_id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (maxError) throw maxError;
-
-  const nextVersion = (maxRow?.version ?? 0) + 1;
-
-  // Q-GOV-8: what approvers sign is the exact dates, recorded here, not free text.
-  // `after` is the project's locked dates (apply copies exactly these - and an
-  // unlock cancels the proposal, so they cannot move under a sign-off); `before`
-  // is the baseline they replace. Any free text the proposer sent rides along as `note`.
-  const status = "pending_approval";
-  const withNote = (dates: Record<string, unknown>, note: unknown) =>
-    note === undefined || note === null || note === "" ? dates : { ...dates, note };
-  const datesBefore = withNote(
-    { start_date: project.baseline_start_date ?? null, target_date: project.baseline_target_date ?? null },
-    parsed.data.before,
-  );
-  const datesAfter = withNote(
-    { start_date: project.start_date ?? null, target_date: project.target_date ?? null },
-    parsed.data.after,
-  );
-
-  const now = new Date().toISOString();
-
-  const { data: row, error: insertError } = await db
-    .from("rebaselines")
-    .insert({
-      workspace_id: actor.workspaceId,
-      project_id: params.id,
-      version: nextVersion,
-      status,
-      tier,
-      approval_deadline_at: deadline ? deadline.toISOString() : null,
-      reason: parsed.data.reason,
-      requested_by: actor.type === "user" ? actor.id : null,
-      // The HUMAN behind the requester (the user, or the token's creator). The
-      // legacy requested_by above is user-only, so a token-raised rebaseline
-      // used to carry no requester at all and sign-off four-eyes had nothing
-      // to compare against.
-      requested_principal_id: requesterPrincipal,
-      before: datesBefore,
-      after: datesAfter,
-      created_at: now,
-      // G5: only sent when asked for (deploy-order safe).
-      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
-    })
-    .select()
-    .single();
-
-  if (insertError) {
-    // D4: uniq_pending_rebaseline allows ONE rebaseline waiting for sign-off per
-    // project; a second proposal is a conflict, not a server fault.
-    // R-15: only that index maps to the "already waiting" message; a version
-    // (project, version) collision from two racing proposals is a different
-    // conflict and must not be reported as a pending sign-off.
-    if (insertError.code === "23505") {
-      const detail = `${insertError.message ?? ""} ${(insertError as { details?: string }).details ?? ""}`;
-      if (detail.includes("uniq_pending_rebaseline")) {
-        throw new ConflictError(PENDING_REBASELINE_EXISTS_MESSAGE, "pending_rebaseline_exists");
-      }
-      throw new ConflictError("Another rebaseline proposal was created at the same moment. Reload and try again.", "rebaseline_version_conflict");
-    }
-    throw insertError;
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Q-GOV-8: what approvers sign is the exact dates (current baseline -> the project's locked dates, which is what
+  // apply copies), recorded by the database function from the locked project row; any free text the proposer sent
+  // rides along as `note`. The next version, the row, its rebaseline.create audit row and the deadline_set event are
+  // one database transaction (wave 5, R-161). D4 / R-15: a second pending proposal (uniq_pending_rebaseline) and a
+  // racing version are told apart by the function's unique-violation text, mapped in proposeRebaselineAtomic.
+  const row = await proposeRebaselineAtomic(db, {
     actor,
-    action: "rebaseline.create",
-    targetType: "rebaseline",
-    targetId: row.id,
-    before: null,
-    after: row,
-  });
-
-  await recordApprovalEvent(db, {
-    workspaceId: actor.workspaceId,
-    targetType: "rebaseline",
-    targetId: row.id,
-    kind: "deadline_set",
-    actorLabel: actor.label,
-    detail: { tier, deadline: deadline?.toISOString() ?? null },
+    projectId: params.id,
+    reason: parsed.data.reason,
+    tier,
+    deadline,
+    assignedApproverId,
+    requesterPrincipal,
+    noteBefore: parsed.data.before,
+    noteAfter: parsed.data.after,
   });
 
   // G2: tell the people who may sign off THIS tier. Fail-soft.

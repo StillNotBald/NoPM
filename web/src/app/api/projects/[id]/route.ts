@@ -9,18 +9,16 @@ import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
-import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
+import { requestDeletionAtomic } from "@/lib/governance/atomic-rpc";
 import {
   assertProjectUnlocked,
   changedScheduleShapeFields,
   SCHEDULE_SHAPE_PROJECT_FIELDS,
 } from "@/lib/governance/lock";
 import {
-  CHILD_COUNTS_KEY,
   approvedRecordCounts,
   approvedRecordsMessage,
-  projectChildCounts,
 } from "@/lib/governance/project-children";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertBackupDiffers, effective } from "@/lib/handover/backup";
@@ -170,6 +168,9 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return ok(after);
 });
 
+// One constant per audit action (see request-deletion.ts): a text search for the action finds the line that writes it.
+const PROJECT_REQUESTED_AUDIT_ACTION = "project.delete_requested";
+
 /**
  * DELETE /api/projects/[id] — does NOT delete the project.
  * Maker step of the project-deletion four-eyes flow (Decision 3, devops-wave1
@@ -286,63 +287,19 @@ export const DELETE = route(async ({ actor, params, request }) => {
     approverRoleFor(tier, policy),
   );
 
-  // R1/M5: snapshot what hangs off the project, not only the project row. The
-  // approval is refused (422 `children_changed`) if the project gained records
-  // since — see lib/governance/project-children.ts.
-  const snapshot = { ...project, [CHILD_COUNTS_KEY]: await projectChildCounts(db, params.id) };
-
-  const { data: deletionRequest, error: insertError } = await db
-    .from("deletion_requests")
-    .insert({
-      workspace_id: actor.workspaceId,
-      target_type: "project",
-      target_id: params.id,
-      reason,
-      status: "pending",
-      tier,
-      approval_deadline_at: deadline ? deadline.toISOString() : null,
-      requested_by_type: actor.type,
-      requested_by_id: actor.id,
-      requested_by_label: actor.label,
-      // The HUMAN behind the requester (the user, or the token's creator) —
-      // four-eyes compares this, not the actor id.
-      requested_principal_id: requesterPrincipal,
-      before: snapshot,
-      // G5: only sent when asked for (deploy-order safe).
-      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
-    })
-    .select()
-    .single();
-
-  // Two concurrent requests both pass the pre-check above; uniq_pending_deletion
-  // lets one win and refuses the other (23505) — answer with the pre-check's 422.
-  if (insertError?.code === "23505") {
-    throw new RuleError(
-      "A pending deletion request already exists for this project",
-      "duplicate_deletion_request",
-    );
-  }
-  if (insertError || !deletionRequest) {
-    throw new Error(insertError?.message ?? "Failed to create deletion request");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The request row, its project.delete_requested audit row and the deadline_set event are written by one
+  // database function in one transaction (wave 5, R-162). It also snapshots the project and what hangs off it
+  // (R1/M5: the approval is refused with 422 `children_changed` if the project gained records since).
+  const deletionRequest = await requestDeletionAtomic(db, {
     actor,
-    action: "project.delete_requested",
-    targetType: "project",
+    entity: "project",
+    action: PROJECT_REQUESTED_AUDIT_ACTION,
     targetId: params.id,
-    before: snapshot,
-    after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
-  });
-
-  await recordApprovalEvent(db, {
-    workspaceId: actor.workspaceId,
-    targetType: "deletion_request",
-    targetId: deletionRequest.id,
-    kind: "deadline_set",
-    actorLabel: actor.label,
-    detail: { tier, deadline: deadline?.toISOString() ?? null },
+    reason,
+    tier,
+    deadline,
+    assignedApproverId,
+    requesterPrincipal,
   });
 
   // Notify approvers of THIS tier (G2) — fail-soft (never throws)

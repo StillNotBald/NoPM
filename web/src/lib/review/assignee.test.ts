@@ -35,11 +35,10 @@ describe("the four raise paths validate the assignee and audit it", () => {
   it.each(files)("%s resolves the assignee, stores it only when set, and records it", (f) => {
     const src = readFileSync(resolve(API, f), "utf8");
     expect(src).toMatch(/await resolveAssignedApprover\(/);
-    expect(src).toMatch(/\.\.\.\(assignedApproverId \? \{ assigned_approver_id: assignedApproverId \} : \{\}\)/);
+    // wave 5: the route hands the validated assignee to the database function that stores it and audits it
+    expect(src).toMatch(/(requestDeletionAtomic|proposeRebaselineAtomic|raiseChangeRequestRpc)\(db, \{[\s\S]*?\bassignedApproverId,/);
     // the audit row carries it: the CR and rebaseline audit the stored row, the deletions put it in `after`
-    if (f.includes("tasks/") || f === "projects/[id]/route.ts") {
-      expect(src).toMatch(/after: assignedApproverId \? \{ assigned_approver_id: assignedApproverId \} : null/);
-    }
+    // (the SQL side is asserted in lib/governance/atomic-governance-migration.test.ts)
   });
 });
 

@@ -15,6 +15,7 @@ import type {
   ApprovalKind,
   ApprovalRef,
 } from "@/lib/integrations/types";
+import { AlreadyDecidedSignal, rejectDeletionAtomic, withdrawDeletionAtomic } from "@/lib/governance/atomic-rpc";
 import {
   requireDeletionRequestScope,
   resolveDeletionApproveScope,
@@ -427,8 +428,8 @@ async function assertTaskUnchangedSinceRequest(db: Db, workspaceId: string, row:
  * the task or project was already removed, e.g. by a cascade. The RPC raised, so
  * nothing was committed or audited as a deletion; this closes the request so it
  * does not sit pending forever. 'withdrawn' is the closed-without-a-decision
- * status (no approver is recorded), compare-and-set on 'pending'. The audit row is
- * fail-closed (A3-5): if it cannot be written the close is undone and the failure surfaces.
+ * status (no approver is recorded), compare-and-set on 'pending'. The status change and its audit row are one
+ * database transaction (nopm_withdraw_deletion_request, wave 5): if the audit row cannot be written, nothing changes.
  */
 async function closeDeletionRequest(
   db: Db,
@@ -436,37 +437,13 @@ async function closeDeletionRequest(
   row: DeletionRow,
   reason: "target_gone" | "project_locked",
 ): Promise<void> {
-  const { data: updated, error: closeError } = await db
-    .from("deletion_requests")
-    .update({ status: "withdrawn", decided_at: new Date().toISOString(), closed_reason: reason })
-    .eq("id", row.id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", "pending")
-    .select("id")
-    .maybeSingle();
-  // A failed close changed nothing and audited nothing: the 422 the caller is
-  // about to throw stands, and the next approve attempt retries the tidy-up.
-  if (closeError || !updated) return;
   try {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "deletion_request.withdrawn",
-      targetType: "deletion_request",
-      targetId: row.id,
-      before: { status: "pending" },
-      after: { status: "withdrawn", reason },
-    });
+    await withdrawDeletionAtomic(db, actor, row.id, reason);
   } catch (err) {
-    // Fail closed (A3-5): a close that cannot be audited must not stand. Put the
-    // request back to pending so the next attempt closes AND audits it, then
-    // surface the audit failure instead of swallowing it.
-    await db
-      .from("deletion_requests")
-      .update({ status: "pending", decided_at: null, closed_reason: null })
-      .eq("id", row.id)
-      .eq("workspace_id", actor.workspaceId)
-      .eq("status", "withdrawn");
+    // Already decided or gone while we looked: nothing to close, the 422 the caller is about to throw stands and
+    // the next approve attempt retries the tidy-up. Any other failure (the audit row could not be written)
+    // surfaces: the database function rolled the close back, so no close ever stands without its trail (A3-5).
+    if (err instanceof RuleError || err instanceof NotFoundError) return;
     throw err;
   }
   const base = await deletionBaseEvent(db, actor, row);
@@ -508,32 +485,6 @@ function repeatDeletionOutcome(row: DeletionRow): KindOutcome {
     },
     row,
   };
-}
-
-/**
- * A status flip whose audit row cannot be written must not stand (A3-5): the
- * caller puts the request back to pending here (clearing what the flip set) and
- * rethrows the audit failure, so a decision never exists without its trail.
- */
-async function revertDeletionDecision(
-  db: Db,
-  actor: Actor,
-  id: string,
-  fromStatus: "rejected" | "withdrawn",
-): Promise<void> {
-  await db
-    .from("deletion_requests")
-    .update({
-      status: "pending",
-      decided_at: null,
-      approved_by_type: null,
-      approved_by_id: null,
-      approved_by_label: null,
-      approved_principal_id: null,
-    })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", fromStatus);
 }
 
 /**
@@ -710,48 +661,16 @@ export async function rejectDeletion(
   const reason = opts.reason?.trim() ? opts.reason.trim() : null;
   if (!reason) throw new RuleError(REJECT_REASON_REQUIRED_MESSAGE, "rationale_required");
 
-  const now = new Date().toISOString();
-
-  // Compare-and-set on status: two checkers racing can't both "reject".
-  const { data: updated, error: updateError } = await db
-    .from("deletion_requests")
-    .update({
-      status: "rejected",
-      approved_by_type: actor.type,
-      approved_by_id: actor.id,
-      approved_by_label: actor.label,
-      approved_principal_id: principal,
-      decided_at: now,
-    })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", "pending")
-    .select("id")
-    .maybeSingle();
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
+  // Compare-and-set on status under a row lock: two checkers racing can't both "reject". The status change, the
+  // approver and the audit row are one database transaction (nopm_reject_deletion_request, wave 5), so a decision
+  // never exists without its trail and no compensating write is needed.
+  try {
+    await rejectDeletionAtomic(db, actor, id, principal, reason);
+  } catch (err) {
+    if (!(err instanceof AlreadyDecidedSignal)) throw err;
     const fresh = await loadDeletion(db, actor, id);
     if (isRepeatDecision(fresh, principal, "rejected")) return repeatDeletionOutcome(fresh);
     throw alreadyDecidedDeletion(fresh);
-  }
-
-  try {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "deletion_request.rejected",
-      targetType: "deletion_request",
-      targetId: row.id,
-      before: { status: "pending" },
-      after: {
-        status: "rejected",
-        approver_principal_id: principal,
-        reason,
-      },
-    });
-  } catch (err) {
-    await revertDeletionDecision(db, actor, row.id, "rejected");
-    throw err;
   }
   await noteLegacyRequesterUnknown(actor, "deletion_request", row, "reject");
   if (fallback) await noteFallbackApprover(actor, "deletion_request", row.id, tierOf(row));
@@ -806,31 +725,8 @@ export async function withdrawDeletion(actor: Actor, id: string): Promise<KindOu
   }
   if (row.status !== "pending") throw alreadyDecidedDeletion(row);
 
-  const { data: updated, error: updateError } = await db
-    .from("deletion_requests")
-    .update({ status: "withdrawn", decided_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", "pending")
-    .select("id")
-    .maybeSingle();
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) throw new RuleError("Request already decided", "already_decided");
-
-  try {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "deletion_request.withdrawn",
-      targetType: "deletion_request",
-      targetId: row.id,
-      before: { status: "pending" },
-      after: { status: "withdrawn" },
-    });
-  } catch (err) {
-    await revertDeletionDecision(db, actor, row.id, "withdrawn");
-    throw err;
-  }
+  // Compare-and-set on pending under a row lock; the status change and the audit row are one database transaction.
+  await withdrawDeletionAtomic(db, actor, id, null);
 
   const base = await deletionBaseEvent(db, actor, row);
   announceDecided(decidedFrom(actor, base, "withdrawn"));
