@@ -1,6 +1,6 @@
 import { route } from "@/lib/api/handler";
 import { created, ok, okList, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
@@ -58,6 +58,11 @@ export const GET = route(async ({ actor, params }) => {
  * external_url: create a new document under the request's project), plus `evidence_type` (required),
  * `evidence_result`, `tested_by`, `tested_at`, `evidence_note`.
  *
+ * Tester: always the acting person's display name. Only an admin or manager session may set `tested_by` to someone
+ * else; from a token or any other role the text is kept in `evidence_note` as an unverified claim.
+ * Linking is compare-and-set: if the document changed between the read and the write, a link to another request
+ * is 422 evidence_linked_elsewhere and any other change is a 412.
+ *
  * Same write path as POST/PATCH /api/documents: scope document:write, workspace-filtered, the document
  * reference counter, assertEvidenceLink, and exactly one audit row (`document.create` for a new document,
  * `document.update` for a link), written in the same transaction as the row (nopm_mutate_audited).
@@ -89,13 +94,23 @@ export const POST = route(async ({ actor, params, request }) => {
     );
   }
 
+  // W2-13: the tester is the acting person. Only an admin or manager SESSION may name someone else; from a token
+  // or any other role the caller's text is kept in the note as a claim and the tester stays the actor.
+  const mayNameTester = actor.type === "user" && (actor.role === "admin" || actor.role === "manager");
+  const claimed = input.tested_by?.trim() || null;
+  let note = input.evidence_note ?? null;
+  let testedBy = actor.label ?? null;
+  if (claimed && mayNameTester) testedBy = claimed;
+  else if (claimed && claimed !== actor.label) {
+    note = `${note ? note + "\n" : ""}Tester as claimed by the caller (not verified): ${claimed}`.slice(0, 5000);
+  }
   const evidence = {
     change_request_id: cr.id,
     evidence_type: input.evidence_type,
     evidence_result: input.evidence_result ?? null,
-    tested_by_label: input.tested_by ?? actor.label ?? null,
+    tested_by_label: testedBy,
     tested_at: input.tested_at ?? new Date().toISOString(),
-    evidence_note: input.evidence_note ?? null,
+    evidence_note: note,
   };
 
   if (input.document_id) {
@@ -116,15 +131,36 @@ export const POST = route(async ({ actor, params, request }) => {
     }
     await assertEvidenceLink(db, actor.workspaceId, existing, evidence);
 
-    const { after } = await auditedUpdate({
-      table: "documents",
-      actor,
-      action: "document.update",
-      id: input.document_id,
-      patch: evidence,
-      notFoundMessage: "Document not found",
-    });
-    return ok(after);
+    // W2-12: compare-and-set on the row we just read. If anything changed it meanwhile (a concurrent link
+    // included) the write is refused with a 412; we re-read and report a link to another request as such.
+    const linkedElsewhere = new RuleError(
+      "This document is already evidence for a different change request. Unlink it there first (PATCH /api/documents/:id with change_request_id null), or attach a new document.",
+      "evidence_linked_elsewhere",
+    );
+    try {
+      const { after } = await auditedUpdate({
+        table: "documents",
+        actor,
+        action: "document.update",
+        id: input.document_id,
+        patch: evidence,
+        expectedUpdatedAt: (existing.updated_at as string | null) ?? undefined,
+        ...(existing.change_request_id ? {} : { requireNull: "change_request_id" }),
+        notFoundMessage: "Document not found",
+      });
+      return ok(after);
+    } catch (e) {
+      if (!(e instanceof PreconditionFailedError)) throw e;
+      const { data: now, error: rereadError } = await db
+        .from("documents")
+        .select("change_request_id")
+        .eq("id", input.document_id)
+        .eq("workspace_id", actor.workspaceId)
+        .maybeSingle();
+      if (rereadError) throw new Error(rereadError.message);
+      if (now?.change_request_id && now.change_request_id !== cr.id) throw linkedElsewhere;
+      throw e;
+    }
   }
 
   // New evidence document, filed under the request's project (the link check requires the same project).

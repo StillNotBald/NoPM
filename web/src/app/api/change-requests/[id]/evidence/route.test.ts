@@ -216,3 +216,71 @@ describe("GET still lists the evidence", () => {
     expect((await res.json()).data).toHaveLength(1);
   });
 });
+
+describe("W2-12 compare-and-set on linking", () => {
+  it("a document linked to another request between the read and the write is refused, not moved", async () => {
+    // Simulate the race: the document is free when read, taken by CR_OTHER before the write lands.
+    const row = db.rows("documents").find((d) => d.id === DOC_FREE)!;
+    row.updated_at = "2026-10-18T10:00:00Z";
+    const real = db.client.from.bind(db.client);
+    let raced = false;
+    (db.client as unknown as { from: (t: string) => unknown }).from = (t: string) => {
+      const q = real(t) as { maybeSingle?: () => Promise<unknown> };
+      if (t === "documents" && !raced && q.maybeSingle) {
+        const orig = q.maybeSingle.bind(q);
+        q.maybeSingle = async () => {
+          const out = await orig();
+          if (!raced) {
+            raced = true;
+            row.change_request_id = CR_OTHER;
+            row.updated_at = "2026-10-18T10:00:05Z";
+          }
+          return out;
+        };
+      }
+      return q;
+    };
+    const res = await call(POST, "POST", { document_id: DOC_FREE, evidence_type: "other" }, CR_OPEN);
+    expect(res.status).toBe(422);
+    expect((await res.json()).code).toBe("evidence_linked_elsewhere");
+    expect(row.change_request_id).toBe(CR_OTHER);
+    expect(db.rows("audit_log")).toHaveLength(0);
+  });
+
+  it("re-attaching a document already linked to this same request still works", async () => {
+    const res = await call(POST, "POST", { document_id: DOC_ELSEWHERE, evidence_type: "uat_signoff" }, CR_OTHER);
+    expect(res.status, await res.clone().text()).toBe(200);
+  });
+});
+
+describe("W2-13 tester is the acting person", () => {
+  it("an admin session may name the tester", async () => {
+    const res = await call(POST, "POST", { title: "Run", evidence_type: "uat_signoff", tested_by: "Dana Lee" }, CR_OPEN);
+    expect((await res.json()).data.tested_by_label).toBe("Dana Lee");
+  });
+
+  it("a token cannot name someone else: tester is the token label, the claim goes to the note", async () => {
+    setActor({ type: "token", label: "ci-agent", scopes: ["document:write"] } as Partial<Actor>);
+    const res = await call(POST, "POST", { title: "Run", evidence_type: "uat_signoff", tested_by: "Dana Lee", evidence_note: "ran suite" }, CR_OPEN);
+    expect(res.status, await res.clone().text()).toBe(201);
+    const row = (await res.json()).data;
+    expect(row.tested_by_label).toBe("ci-agent");
+    expect(row.evidence_note).toContain("ran suite");
+    expect(row.evidence_note).toContain("Dana Lee");
+    expect(row.evidence_note).toContain("not verified");
+  });
+
+  it("a member session cannot name someone else either", async () => {
+    setActor({ role: "member", label: "Mo" } as Partial<Actor>);
+    const res = await call(POST, "POST", { title: "Run", evidence_type: "other", tested_by: "Dana Lee" }, CR_OPEN);
+    const row = (await res.json()).data;
+    expect(row.tested_by_label).toBe("Mo");
+    expect(row.evidence_note).toContain("Dana Lee");
+  });
+
+  it("naming yourself adds no claim note", async () => {
+    setActor({ type: "token", label: "ci-agent", scopes: ["document:write"] } as Partial<Actor>);
+    const res = await call(POST, "POST", { title: "Run", evidence_type: "other", tested_by: "ci-agent" }, CR_OPEN);
+    expect((await res.json()).data.evidence_note).toBeNull();
+  });
+});

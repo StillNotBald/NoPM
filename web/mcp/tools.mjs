@@ -1458,7 +1458,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
         external_url: { type: "string", format: "uri", maxLength: 2000, description: "New document only: link to the test report, build or screenshot" },
         evidence_type: { type: "string", enum: EVIDENCE_TYPES },
         evidence_result: { type: "string", enum: EVIDENCE_RESULTS },
-        tested_by: { type: "string", description: "Who ran the test, up to 200 chars (default: the token's name)" },
+        tested_by: { type: "string", description: "Who ran the test, up to 200 chars. The record always names the acting token or person; only an admin or manager session may name someone else, and from a token this text is kept in evidence_note as an unverified claim." },
         tested_at: { type: "string", description: DATETIME + " (default: now)" },
         evidence_note: { type: "string", description: "Up to 5,000 chars" },
       },
