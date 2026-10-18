@@ -62,7 +62,7 @@ select status, count(*) as requests from change_requests group by status order b
 ```
 
 - **Expect:** a list. Note the `emergency` count (it may be 0, or absent).
-- **Use:** migration 0106 closes every emergency that still waits for a retro decision. Group 1 shows the count afterwards. The retired `emergency` status can leave the code's status lists only once this count is zero after the release.
+- **Use:** migration 0106 closes every emergency that still waits for a retro decision. Group 1 shows the count afterwards. The retired `emergency` status can leave the code's status lists only once the count in 1.5 is zero after the release; then remove it from the decidable and open status lists and from the MCP tool status list in the next wave (see the sign-off in [14-WAVE5-RELEASE.md](14-WAVE5-RELEASE.md)).
 
 ---
 
@@ -349,14 +349,38 @@ select
   (select count(*) from audit_log where created_at > now() - interval '3 hours') as audit_rows_since,
   (select count(*) from deletion_requests d
     where d.created_at > now() - interval '3 hours'
-      and not exists (select 1 from audit_log a where a.target_id = d.id and a.action like 'deletion\_request.%')) as deletion_requests_without_audit,
+      and not exists (select 1 from audit_log a
+                       where a.workspace_id = d.workspace_id and a.target_id = d.target_id
+                         and split_part(a.action, '.', 2) = 'delete_requested')) as deletion_requests_without_audit,
   (select count(*) from change_requests c
     where c.created_at > now() - interval '3 hours'
       and not exists (select 1 from audit_log a where a.target_id = c.id and a.action like 'change\_request.%')) as change_requests_without_audit;
 ```
 
 - **Expect:** `deletion_requests_without_audit` 0 and `change_requests_without_audit` 0. `audit_rows_since` above 0 once anyone has used the app. Use only the window after the deploy: older requests are not in scope.
-- **If it differs:** a request with no audit row is a write that bypassed the atomic function. First see where it came from: if it came from the app (for example your smoke test), roll the app back ([14-WAVE5-RELEASE.md](14-WAVE5-RELEASE.md)) and send the output. A row you inserted by hand in the window explains itself.
+- **How it matches:** a deletion request is raised with an audit row named `<kind>.delete_requested` whose target is the record to delete (the `deletion_request.*` rows only appear once somebody decides). A change request is matched by its own id.
+- **If it differs:** do not roll back on this number alone. Run 2.2b to see the requests, then decide. A count above 0 is only a finding if the request came from the app in the window and truly has no row. A request you inserted by hand, or one raised before the deploy, explains itself. If a genuine app request has no audit row, send me the 2.2b output before any rollback.
+
+### 2.2b Which requests (run only if 2.2 shows a count)
+
+```sql
+select 'deletion_request' as kind, d.id, d.target_type as detail, d.created_at
+from deletion_requests d
+where d.created_at > now() - interval '3 hours'
+  and not exists (select 1 from audit_log a
+                   where a.workspace_id = d.workspace_id and a.target_id = d.target_id
+                     and split_part(a.action, '.', 2) = 'delete_requested')
+union all
+select 'change_request', c.id, c.status::text, c.created_at
+from change_requests c
+where c.created_at > now() - interval '3 hours'
+  and not exists (select 1 from audit_log a where a.target_id = c.id and a.action like 'change\_request.%')
+union all
+select 'none', null, 'no request without an audit row', null
+order by created_at desc nulls last;
+```
+
+- **Expect:** only the `none` line.
 
 ### 2.3 Chain still intact after the new build wrote
 

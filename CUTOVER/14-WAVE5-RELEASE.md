@@ -175,6 +175,8 @@ If the script stops between steps 6 and 6b, the database is at phase 1 with the 
 |---|---|---|---|
 | Owner (rehearsal green, phase 1 and phase 2 executed, checks 12 filed) | | | |
 
+Follow-up recorded at sign-off: if the `emergency_status` count in check 1.5 of 12 is zero after the release, remove `emergency` from the status lists next wave (the decidable and open lists and the MCP tool status list).
+
 ## Run record
 
 _Not yet run._ Record: backup taken, phase 1 dry-run output, phase 1 apply output and time, ledger (110), promote time, smoke, phase 2 output, ledger (111), the ten triggers, the chain head hash, and the anchor state.

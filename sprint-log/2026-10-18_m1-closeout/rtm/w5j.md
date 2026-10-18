@@ -53,3 +53,17 @@
 4. **The rehearsal re-applies over existing objects.** It cannot rebuild a database from nothing, so it proves the runner mechanics, the hold-back of 0114, the trigger transitions, probe behaviour in both states and idempotence. First-apply behaviour on the live data is what the live dry run (step 5 of the runbook) is for.
 5. **Shared stack.** The rehearsal drops and re-creates five local triggers and rewrites ledger rows for a few seconds. Do not run it while another probe run is in flight. On any failure it re-applies the pending files.
 6. **The `Bash` tool strips backslashes** in this session's command text (a regex in a heredoc lost them twice). I wrote the files with the Write and Edit tools and verified the regex in `CUTOVER/12` by running it.
+
+## Fix pass (review wave2-3: W2-02, W2-17, W2-19)
+
+- **W2-02 (P1) fixed.** CUTOVER/12 check 2.2 now matches a raised deletion request by workspace and `target_id = d.target_id` with `split_part(a.action, '.', 2) = 'delete_requested'` (written that way because the test forbids the word delete in a SQL block). The change-request half is unchanged. New block 2.2b lists the offending requests, and the "If it differs" text no longer says to roll back: it says to look at 2.2b first and roll back only for a genuine app request with no row. Run locally over a 5-day window, split by workspace kind:
+
+  | Workspace kind | Deletion requests | Pending | Without an audit row |
+  |---|---|---|---|
+  | App-created (the UAT workspace) | 24 | 7 | 0 |
+  | Probe fixtures (inserted by SQL, no audit by design) | 672 | 378 | 439 |
+
+  Zero false positives on the app-created data. The 439 are probe fixtures only, which the doc already scopes out (window after the deploy, rows from the app).
+- **W2-17 fixed.** CUTOVER/14 sign-off carries the follow-up line (emergency count zero in check 1.5: remove `emergency` from the status lists next wave). Check 0.3 now says the same and points to 1.5 and the sign-off. The `w5i.md` correction belongs to W5-I.
+- **W2-19 fixed.** `post-release-checks.test.ts` has a function allowlist: `nopm_audit_verify_chain`, `count`, `max`, `min`, `to_regclass`, `to_regprocedure`, `now`, `coalesce`, `jsonb_*` readers, plus the pure readers the blocks already use (`abs`, `cardinality`, `generate_series`, `left`, `position`, `split_part`, `string_agg`, `substring`). Any other call fails the test; aliases with column lists and SQL keywords are skipped. A second new test pins the 2.2 match. 10 tests pass (`--maxWorkers=2`).
+- **Rehearsal re-run:** 26 of 26 passed in 39 s, same steps as above (governance 21/21, security 14/14, registers 18/18 before and 19/19 after 0114, four-eyes 35/35, anchor 9/9, jobs 7/7, github 8/8, lark 51/51, 8 files applied twice over, 139 workspaces verify, no row count lower). The stack ends at 111 ledger rows with ten triggers.

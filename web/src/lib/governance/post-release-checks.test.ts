@@ -49,6 +49,35 @@ describe("CUTOVER/12 post-release checks (R-180)", () => {
     }
   });
 
+  it("calls only allowlisted functions (no writing function can be smuggled into a select)", () => {
+    // pure readers only. nopm_audit_verify_chain is stable and writes nothing. jsonb_* readers: jsonb_each only so far.
+    const ALLOWED_EXACT = new Set([
+      "nopm_audit_verify_chain", "count", "max", "min", "to_regclass", "to_regprocedure", "now", "coalesce",
+      "abs", "cardinality", "generate_series", "left", "position", "split_part", "string_agg", "substring",
+    ]);
+    const ALLOWED_JSONB = /^jsonb_(each|each_text|typeof|array_length|object_keys|extract_path|extract_path_text|path_exists)$/;
+    const KEYWORDS = new Set(["and", "as", "exists", "filter", "from", "in", "join", "not", "on", "or", "select", "values", "with", "where", "when", "then", "else", "case", "over", "any", "all"]);
+    const seen = new Set<string>();
+    for (const block of sqlBlocks) {
+      const bare = block.replace(/--[^\n]*/g, "").replace(/'[^']*'/g, "''");
+      for (const m of bare.matchAll(/(\b[a-z_][a-z0-9_]*)\s*\(/gi)) {
+        const name = m[1].toLowerCase();
+        const prev = (bare.slice(0, m.index).trimEnd().split(/\s+/).pop() ?? "").toLowerCase();
+        if (KEYWORDS.has(name)) continue;
+        if (prev === "as" || prev === "with") continue; // an alias with a column list: g(n), wanted(name)
+        seen.add(name);
+        expect(ALLOWED_EXACT.has(name) || ALLOWED_JSONB.test(name), `function not on the allowlist: ${name}(`).toBe(true);
+      }
+    }
+    expect(seen.has("nopm_audit_verify_chain")).toBe(true); // the scan really saw the calls
+  });
+
+  it("2.2 matches a raised deletion request by its record, not by the request id", () => {
+    expect(checks).toContain("a.target_id = d.target_id");
+    expect(checks).toContain("split_part(a.action, '.', 2) = 'delete_requested'");
+    expect(checks).not.toContain("a.target_id = d.id");
+  });
+
   it("covers the live checks the builders asked for", () => {
     for (const needle of [
       "convalidated",
