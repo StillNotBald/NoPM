@@ -5,4 +5,8 @@
 // The three slices never share a file, so parallel builders never collide.
 import type { AtomicityException } from "./atomicity-exceptions";
 
+// NOT absolute: one place is still deliberately not atomic, and the scanner cannot see it (the write is an RPC):
+//   - lib/assistant/token.ts revokeEphemeralToken: when the AUDITED revoke fails, it falls back to a plain revoke with no audit
+//     row (logged) so a leaked ephemeral token can always be killed. Reason: security over audit for a 10-minute token.
+// (The identity refusal is atomic now: burn and integration.identity.link.blocked are one transaction, no swallow.)
 export const EXCEPTIONS: Record<string, AtomicityException> = {};

@@ -132,7 +132,6 @@ export const PATCH = route(async ({ actor, request }) => {
   }
 
   let rules = await loadWorkEventRules(db, actor.workspaceId);
-  const rulesBefore = rules;
   const nextRules = rulesPatch && rulesPatch.ok ? normalizeRules({ ...rules, ...rulesPatch.rules }) : null;
 
   // ONE database function (migration 0109): the connector change (status, rotated secret) AND workspaces.work_event_rules
@@ -145,7 +144,6 @@ export const PATCH = route(async ({ actor, request }) => {
     p_status: statusArg,
     p_secret_enc: secretEncArg,
     p_secret_rotated: newSecret !== null,
-    p_rules_before: rulesBefore,
     p_rules_after: nextRules,
     p_audit: buildRpcAudit(actor, "integration.connector.update", "integration_connector"),
   });

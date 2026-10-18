@@ -279,12 +279,13 @@ describe("consumeLinkCode", () => {
     expect(audit.after.external_ref).toBe(maskedExternalRef("lark", "tenant-abcdef123456", "ou_new_open_id_value"));
   });
 
-  it("a refused link is still answered if its audit row cannot be written (a refusal changes nothing)", async () => {
+  it("a refusal and its record are one transaction: if the audit row cannot be written the call fails and the code stays usable", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
     writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
-    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("conflict");
+    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("error");
+    expect(db.rows("identity_link_codes")[0].used_at).toBeNull();
     expect(db.rows("external_identities").filter((r) => r.revoked_at == null).map((r) => r.external_user_id)).toEqual(["ou_old"]);
   });
 

@@ -66,8 +66,21 @@ async function auditInsert(
   before: unknown,
   after: unknown,
 ): Promise<void> {
-  if (!audit || !ACTION.test(String(audit.action ?? ""))) throw Object.assign(new Error("INVALID_ACTION"), { code: "P0057" });
+  // Same checks and codes as nopm_audit_insert (migration 0107).
+  if (!audit || typeof audit !== "object") throw Object.assign(new Error("INVALID_AUDIT"), { code: "P0059" });
+  if (!ACTION.test(String(audit.action ?? ""))) throw Object.assign(new Error("INVALID_ACTION"), { code: "P0057" });
+  const channel = audit.channel ?? null;
+  if (channel !== null && !["ui", "api", "cli", "mcp", "assistant", "lark", "github"].includes(String(channel))) {
+    throw Object.assign(new Error("INVALID_CHANNEL"), { code: "P0005" });
+  }
+  if (!audit.target_type) throw Object.assign(new Error("INVALID_AUDIT"), { code: "P0059" });
   if (audit.actor_type !== "user" && audit.actor_type !== "token") throw Object.assign(new Error("INVALID_ACTOR"), { code: "P0058" });
+  if (typeof audit.actor_label !== "string" || audit.actor_label.trim() === "") throw Object.assign(new Error("INVALID_ACTOR"), { code: "P0058" });
+  if (audit.actor_type === "user" && !audit.actor_id) throw Object.assign(new Error("INVALID_ACTOR"), { code: "P0058" });
+  const NIL = "00000000-0000-0000-0000-000000000000";
+  if (audit.actor_id === NIL && (audit.actor_type !== "token" || !String(audit.actor_label).startsWith("system:") || audit.principal_id)) {
+    throw Object.assign(new Error("INVALID_ACTOR"), { code: "P0058" });
+  }
   await writeAudit({
     workspaceId,
     actor: actorFromAudit(workspaceId, audit),
@@ -143,11 +156,12 @@ function connectorWrite(db: SecurityFakeDb, args: Row): Promise<Result> {
     const row = rows.find((r) => r.id === args.p_connector_id && r.workspace_id === ws && r.kind === "lark");
     if (!row) throw new Raise("P0002", "CONNECTOR_NOT_FOUND");
     if (row.status === "revoked") throw new Raise("P0001", "CONNECTOR_REVOKED");
+    const beforeView = connectorView(row, args.p_before_secrets as Row); // from the locked row, like the SQL
     for (const key of ["name", "status", "config", "secret_enc", "relay_secret_hash", "tenant_key"]) {
       if (key in patch) row[key] = patch[key] ?? null;
     }
     row.updated_at = nowIso();
-    await auditInsert(ws, args.p_audit as Row, row.id as string, args.p_before ?? null, { ...connectorView(row, args.p_secrets as Row), ...((args.p_extras ?? {}) as Row) });
+    await auditInsert(ws, args.p_audit as Row, row.id as string, beforeView, { ...connectorView(row, args.p_secrets as Row), ...((args.p_extras ?? {}) as Row) });
     return ok({ ...row });
   });
 }
@@ -213,12 +227,13 @@ function githubWrite(db: SecurityFakeDb, args: Row): Promise<Result> {
     if (args.p_rules_after != null) {
       const workspace = db.rows("workspaces").find((w) => w.id === ws);
       if (!workspace) throw new Raise("P0002", "NOT_FOUND");
+      const rulesBefore = structuredClone(workspace.work_event_rules ?? null); // read under the same transaction
       workspace.work_event_rules = args.p_rules_after;
       await auditInsert(
         ws,
         { ...(args.p_audit as Row), action: "work_event_rules.update", target_type: "workspace" },
         ws,
-        args.p_rules_before ?? null,
+        rulesBefore,
         args.p_rules_after,
       );
       rulesWritten = true;
@@ -284,30 +299,22 @@ function linkIdentity(db: SecurityFakeDb, args: Row): Promise<Result> {
 
     const held = identities.find((i) => i.workspace_id === ws && i.connector_id === conn.id && i.profile_id === profile.id && i.revoked_at == null);
     if (held) {
-      // Best effort in a sub-transaction: if the blocked row cannot be written the code stays usable.
-      const snapshot = structuredClone(db.tables);
-      try {
-        code.used_at = nowIso();
-        await auditInsert(
-          ws,
-          { ...(args.p_audit as Row), action: "integration.identity.link.blocked" },
-          held.id as string,
-          null,
-          {
-            connector_id: conn.id,
-            provider: conn.kind,
-            profile_id: profile.id,
-            reason: "profile_already_linked",
-            external_ref: ref,
-            existing_external_ref: `${conn.kind}:${mask(held.external_tenant as string)}:${mask(held.external_user_id as string)}`,
-          },
-        );
-      } catch {
-        for (const name of Object.keys(snapshot)) {
-          const live = db.tables[name] ?? (db.tables[name] = []);
-          live.splice(0, live.length, ...snapshot[name]);
-        }
-      }
+      // Burn + refusal record are one transaction: a failing audit write fails the call and the code stays usable.
+      code.used_at = nowIso();
+      await auditInsert(
+        ws,
+        { ...(args.p_audit as Row), action: "integration.identity.link.blocked" },
+        held.id as string,
+        null,
+        {
+          connector_id: conn.id,
+          provider: conn.kind,
+          profile_id: profile.id,
+          reason: "profile_already_linked",
+          external_ref: ref,
+          existing_external_ref: `${conn.kind}:${mask(held.external_tenant as string)}:${mask(held.external_user_id as string)}`,
+        },
+      );
       return linked("conflict", { reason: "already_linked" });
     }
 

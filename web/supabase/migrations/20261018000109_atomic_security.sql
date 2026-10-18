@@ -44,7 +44,7 @@
 --   drop function if exists nopm_mfa_verify(uuid, uuid, text, text[], jsonb);
 --   drop function if exists nopm_mfa_disable(uuid, uuid, text, boolean, jsonb);
 --   drop function if exists nopm_connector_write(uuid, text, uuid, jsonb, uuid, jsonb, jsonb, jsonb, jsonb);
---   drop function if exists nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb, jsonb);
+--   drop function if exists nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb);
 --   drop function if exists nopm_revoke_other_invites(uuid, text, uuid, jsonb);
 --   drop function if exists nopm_link_identity(uuid, uuid, text, uuid, text, text, text, text, jsonb);
 --   drop function if exists nopm_lark_connector_audit_view(integration_connectors, jsonb);
@@ -55,9 +55,11 @@
 -- maskExternalId (store.ts): enough to recognise, not enough to reuse.
 create or replace function nopm_mask_external_id(p_id text) returns text
 language sql immutable
+set search_path = public
 as $$
   select case
     when p_id is null then null
+    when p_id = '' then ''
     when length(p_id) <= 10 then left(p_id, 2) || '…'
     else left(p_id, 6) || '…' || right(p_id, 4)
   end;
@@ -67,6 +69,7 @@ $$;
 -- decrypted blob, so the route computes them and passes p_secrets). Never contains secret_enc or the relay hash.
 create or replace function nopm_lark_connector_audit_view(r integration_connectors, p_secrets jsonb) returns jsonb
 language sql immutable
+set search_path = public
 as $$
   select jsonb_build_object(
       'id', r.id,
@@ -285,6 +288,11 @@ $$;
 -- to a live (not revoked) Lark connector. The audit row carries the MASKED public view (built here) plus
 -- p_secrets (presence flags computed by the route from the decrypted blob) plus p_extras (which secrets changed).
 -- Returns the stored row (the route needs it; it never reaches an API response unfiltered).
+-- Replaces an earlier draft of these two functions (parameter p_before became p_before_secrets, p_rules_before was
+-- dropped). Nothing live calls the draft; the drops are no-ops on a database that never had it.
+drop function if exists nopm_connector_write(uuid, text, uuid, jsonb, uuid, jsonb, jsonb, jsonb, jsonb);
+drop function if exists nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb, jsonb);
+
 create or replace function nopm_connector_write(
   p_workspace_id uuid,
   p_op           text,
@@ -292,7 +300,7 @@ create or replace function nopm_connector_write(
   p_patch        jsonb default '{}'::jsonb,
   p_created_by   uuid  default null,
   p_secrets      jsonb default '{}'::jsonb,
-  p_before       jsonb default null,
+  p_before_secrets jsonb default '{}'::jsonb,
   p_extras       jsonb default '{}'::jsonb,
   p_audit        jsonb default null
 ) returns jsonb
@@ -341,7 +349,8 @@ begin
    where c.id = p_connector_id and c.workspace_id = p_workspace_id and c.kind = 'lark'
    returning * into v_row;
 
-  perform nopm_audit_insert(p_workspace_id, p_audit, v_row.id, p_before,
+  perform nopm_audit_insert(p_workspace_id, p_audit, v_row.id,
+                            nopm_lark_connector_audit_view(v_cur, p_before_secrets),
                             nopm_lark_connector_audit_view(v_row, p_secrets) || coalesce(p_extras, '{}'::jsonb));
   return to_jsonb(v_row);
 end;
@@ -362,7 +371,6 @@ create or replace function nopm_github_connector_write(
   p_secret_enc     text        default null,
   p_secret_rotated boolean     default false,
   p_created_by     uuid        default null,
-  p_rules_before   jsonb       default null,
   p_rules_after    jsonb       default null,
   p_audit          jsonb       default null
 ) returns jsonb
@@ -374,6 +382,7 @@ declare
   v_row integration_connectors%rowtype;
   v_cur integration_connectors%rowtype;
   v_rules_written boolean := false;
+  v_rules_before  jsonb;
 begin
   if p_workspace_id is null then
     raise exception 'NOT_FOUND' using errcode = 'P0002';
@@ -428,13 +437,15 @@ begin
   end if;
 
   if p_rules_after is not null then
+    -- the rules as they are NOW, under the same transaction (not the route's earlier read)
+    select work_event_rules into v_rules_before from workspaces where id = p_workspace_id for update;
     update workspaces set work_event_rules = p_rules_after where id = p_workspace_id;
     if not found then
       raise exception 'NOT_FOUND' using errcode = 'P0002';
     end if;
     perform nopm_audit_insert(p_workspace_id,
                               p_audit || jsonb_build_object('action', 'work_event_rules.update', 'target_type', 'workspace'),
-                              p_workspace_id, p_rules_before, p_rules_after);
+                              p_workspace_id, v_rules_before, p_rules_after);
     v_rules_written := true;
   end if;
 
@@ -501,7 +512,7 @@ $$;
 --   linked (already_linked, profile_label, displaced[]) | already_used | expired | invalid_code | paused |
 --   forbidden (reason tenant_mismatch) | conflict (reason account_taken | already_linked | duplicate)
 -- A refused replacement (the profile already holds a link) burns the code and records
--- integration.identity.link.blocked in a sub-transaction, best effort like before: if that write fails the code stays usable.
+-- integration.identity.link.blocked in the same transaction: if the refusal record cannot be written the call fails and the code stays usable.
 create or replace function nopm_link_identity(
   p_workspace_id      uuid,
   p_connector_id      uuid,
@@ -578,18 +589,16 @@ begin
    where workspace_id = p_workspace_id and connector_id = p_connector_id and profile_id = v_prof.id and revoked_at is null
    limit 1;
   if found then
-    begin
-      update identity_link_codes set used_at = now()
-       where id = v_code.id and workspace_id = p_workspace_id and used_at is null;
-      perform nopm_audit_insert(
+    -- burn + refusal record are ONE statement group: if the audit row cannot be written the whole call fails and
+    -- the code stays usable (no swallowed audit failure).
+    update identity_link_codes set used_at = now()
+     where id = v_code.id and workspace_id = p_workspace_id and used_at is null;
+    perform nopm_audit_insert(
         p_workspace_id, p_audit || jsonb_build_object('action', 'integration.identity.link.blocked'), v_held.id, null,
         jsonb_build_object('connector_id', v_conn.id, 'provider', v_conn.kind, 'profile_id', v_prof.id,
                            'reason', 'profile_already_linked', 'external_ref', v_ref,
                            'existing_external_ref', v_conn.kind || ':' || nopm_mask_external_id(v_held.external_tenant)
                                                     || ':' || nopm_mask_external_id(v_held.external_user_id)));
-    exception when others then
-      null;  -- best effort: a refusal changes nothing, so a failing audit write must not turn it into an error
-    end;
     return jsonb_build_object('status', 'conflict', 'reason', 'already_linked');
   end if;
 
@@ -650,7 +659,7 @@ revoke execute on function nopm_mfa_challenge(uuid, uuid, text, text, jsonb) fro
 revoke execute on function nopm_mfa_verify(uuid, uuid, text, text[], jsonb) from public, anon, authenticated;
 revoke execute on function nopm_mfa_disable(uuid, uuid, text, boolean, jsonb) from public, anon, authenticated;
 revoke execute on function nopm_connector_write(uuid, text, uuid, jsonb, uuid, jsonb, jsonb, jsonb, jsonb) from public, anon, authenticated;
-revoke execute on function nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb, jsonb) from public, anon, authenticated;
+revoke execute on function nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb) from public, anon, authenticated;
 revoke execute on function nopm_revoke_other_invites(uuid, text, uuid, jsonb) from public, anon, authenticated;
 revoke execute on function nopm_link_identity(uuid, uuid, text, uuid, text, text, text, text, jsonb) from public, anon, authenticated;
 
@@ -661,6 +670,6 @@ grant execute on function nopm_mfa_challenge(uuid, uuid, text, text, jsonb) to s
 grant execute on function nopm_mfa_verify(uuid, uuid, text, text[], jsonb) to service_role;
 grant execute on function nopm_mfa_disable(uuid, uuid, text, boolean, jsonb) to service_role;
 grant execute on function nopm_connector_write(uuid, text, uuid, jsonb, uuid, jsonb, jsonb, jsonb, jsonb) to service_role;
-grant execute on function nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb, jsonb) to service_role;
+grant execute on function nopm_github_connector_write(uuid, text, uuid, text, text, text, boolean, uuid, jsonb, jsonb) to service_role;
 grant execute on function nopm_revoke_other_invites(uuid, text, uuid, jsonb) to service_role;
 grant execute on function nopm_link_identity(uuid, uuid, text, uuid, text, text, text, text, jsonb) to service_role;

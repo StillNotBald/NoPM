@@ -40,7 +40,6 @@ export const PATCH = route(async ({ actor, params, request }) => {
     );
   }
   const input = parsed.data;
-  const before = toAuditConnector(toPublicConnector(connector));
 
   // Non-secret config: shallow-merge over what is stored.
   const current = normalizeConfig(connector.config);
@@ -150,7 +149,8 @@ export const PATCH = route(async ({ actor, params, request }) => {
     p_connector_id: connector.id,
     p_patch: patchRecord,
     p_secrets: secretsView(typeof patchRecord.secret_enc === "string" ? patchRecord.secret_enc : connector.secret_enc),
-    p_before: before,
+    // The `before` view is built in SQL from the locked row; the route only supplies the secret presence flags.
+    p_before_secrets: secretsView(connector.secret_enc),
     p_extras: {
       // Which secrets were replaced - never their values.
       secrets_changed: secretFields,

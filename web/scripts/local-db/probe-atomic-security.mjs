@@ -171,13 +171,14 @@ await report.check("CON-3", "connector update: patch applied, one update row wit
   expectEqual((await q("select name, status from integration_connectors where id = $1", [larkId]))[0], before, "unchanged after a failed audit");
   await rpc("nopm_connector_write", {
     p_workspace_id: ws, p_op: "update", p_connector_id: larkId, p_patch: { name: "Renamed", status: "paused" }, p_secrets: flags,
-    p_before: { name: before.name }, p_extras: { secrets_changed: [], relay_secret_rotated: false, tenant_pin_cleared: false },
+    p_before_secrets: flags, p_extras: { secrets_changed: [], relay_secret_rotated: false, tenant_pin_cleared: false },
     p_audit: audit("integration.connector.update", "integration_connector", fx.admin),
   });
   const row = (await q("select name, status, secret_enc, relay_secret_hash from integration_connectors where id = $1", [larkId]))[0];
   expect(row.name === "Renamed" && row.status === "paused" && row.secret_enc === LARK_SECRET && row.relay_secret_hash === RELAY_HASH, "only the patched keys changed");
   const a = (await auditRows("integration.connector.update", larkId))[0];
   expectEqual([a.after.status, a.after.relay_secret_rotated], ["paused", false], "after carries the view and the extras");
+  expectEqual([a.before.name, a.before.status, a.before.app_id], ["Probe Lark", "active", "cli_a1…f6g7"], "before is built from the locked row, masked");
   await q("update integration_connectors set status = 'revoked', revoked_at = now() where id = $1", [larkId]);
   await rpcFails("nopm_connector_write", { p_workspace_id: ws, p_op: "update", p_connector_id: larkId, p_patch: { name: "Nope" }, p_secrets: flags, p_audit: audit("integration.connector.update", "integration_connector", fx.admin) }, /CONNECTOR_REVOKED/);
 });
@@ -203,15 +204,16 @@ await report.check("GH-2", "GitHub update writes the connector AND workspaces.wo
   const rulesBefore = (await q("select work_event_rules as r from workspaces where id = $1", [ws]))[0].r;
   const nextRules = { ...(rulesBefore ?? {}), pr_merged: "started" };
   const n = await auditCount();
-  await rpcFails("nopm_github_connector_write", { p_workspace_id: ws, p_op: "update", p_connector_id: ghId, p_status: "paused", p_rules_before: rulesBefore, p_rules_after: nextRules, p_audit: BAD(fx.admin) }, BADRE);
+  await rpcFails("nopm_github_connector_write", { p_workspace_id: ws, p_op: "update", p_connector_id: ghId, p_status: "paused", p_rules_after: nextRules, p_audit: BAD(fx.admin) }, BADRE);
   expectEqual((await q("select status from integration_connectors where id = $1", [ghId]))[0].status, "active", "connector unchanged");
   expectEqual((await q("select work_event_rules as r from workspaces where id = $1", [ws]))[0].r, rulesBefore, "rules unchanged");
   expectEqual(await auditCount(), n, "no audit row");
-  const r = await rpc("nopm_github_connector_write", { p_workspace_id: ws, p_op: "update", p_connector_id: ghId, p_status: "paused", p_secret_rotated: false, p_rules_before: rulesBefore, p_rules_after: nextRules, p_audit: audit("integration.connector.update", "integration_connector", fx.admin) });
+  const r = await rpc("nopm_github_connector_write", { p_workspace_id: ws, p_op: "update", p_connector_id: ghId, p_status: "paused", p_secret_rotated: false, p_rules_after: nextRules, p_audit: audit("integration.connector.update", "integration_connector", fx.admin) });
   expect(r.rules_written === true && r.connector.status === "paused", "both written");
   expectEqual((await auditRows("integration.connector.update", ghId))[0].after, { kind: "github", status: "paused", secret_rotated: false }, "connector row");
   const rr = (await auditRows("work_event_rules.update", ws))[0];
   expectEqual([rr.target_type, rr.after], ["workspace", nextRules], "rules row");
+  expectEqual(rr.before, rulesBefore, "rules before is read in the transaction");
   const rotated = await rpc("nopm_github_connector_write", { p_workspace_id: ws, p_op: "update", p_connector_id: ghId, p_secret_enc: "gh.enc.rotated", p_secret_rotated: true, p_audit: audit("integration.connector.update", "integration_connector", fx.admin) });
   expect(rotated.rules_written === false, "rules untouched when not sent");
 });
@@ -274,8 +276,13 @@ await report.check("ID-1", "link: code burned + identity + pin + one audit row t
   const code2 = await mkCode(fx.admin);
   const held = await rpc("nopm_link_identity", args(code2, fx.admin, "tenant-A", "ou_other_654321", audit("integration.identity.link", "external_identity", fx.admin)));
   expectEqual([held.status, held.reason], ["conflict", "already_linked"], "profile already holds a link");
+  // the refusal and its record are one transaction: a failing audit leaves the code usable
+  const code2b = await mkCode(fx.admin);
+  await rpcFails("nopm_link_identity", args(code2b, fx.admin, "tenant-A", "ou_other_654321", { ...audit("integration.identity.link", "external_identity", fx.admin), actor_type: "robot" }), BADRE);
+  expect((await q("select used_at from identity_link_codes where code_hash = $1", [code2b]))[0].used_at === null, "code stays usable when the refusal cannot be recorded");
   expect((await q("select used_at from identity_link_codes where code_hash = $1", [code2]))[0].used_at, "spent");
   expectEqual((await auditRows("integration.identity.link.blocked", ident.id)).length, 1, "blocked row");
+  expectEqual((await q("select nopm_mask_external_id('') as m"))[0].m, "", "an empty id masks to an empty string");
 
   // wrong tenant for a pinned connector, other account on the same platform account
   const code3 = await mkCode(fx.a);
