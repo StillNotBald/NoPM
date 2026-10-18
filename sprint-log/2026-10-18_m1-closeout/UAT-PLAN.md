@@ -4,7 +4,7 @@ Skeleton written at planning time. Wave 3's documentation builder fills in exact
 
 **Who runs this:** a non-developer tester, with the owner or a stand-in playing each role.
 **Where:** the local dev server with seed data (`BASE=http://localhost:3000`). Never the live site.
-**What you need:** a manager login, an admin login, a member login, a phone or a browser window at 390 px wide, one agent token created by an admin, and for wave 2 a second local Postgres started with `docker compose -f docker-compose.anchor.yml up -d`.
+**What you need:** a manager login, an admin login, a member login, a phone or a browser window at 390 px wide, one agent token created by an admin, and for wave 2 a second database `nopm_anchor` inside the existing local Postgres (the dev creates it with the anchor probe; no extra container).
 
 ## How to use these tables
 
@@ -57,7 +57,7 @@ The point of 5A to 5C: nothing looks different. Every action below must behave e
 | 5D-2 | Manager | Phone 390 px | Edit the task, set **Blocker reason** and **ETA**. | Both save and show on the detail. The fields stack with no horizontal scroll. | |
 | 5D-3 | Manager | Desktop | Set a blocker reason with no blocked-by task, then a blocked-by with no reason. | Both are accepted. | |
 | 5D-4 | Manager | Desktop | Edit the same fields on a task of a locked project. | Refused, like any other task edit on a locked project. | |
-| 5D-5 | Tester | Desktop | Read the task list through a token, lean view. | `blocker_reason` and `eta` appear only on tasks where they are set. | |
+| 5D-5 | Tester | Desktop | Read the task list through a token, lean view. | `blocker_reason` and `eta` are always present in the lean view, empty when not set. | |
 | 5D-6 | Admin | Desktop | Export the members CSV. | A `last_sign_in_at` column exists. A member who never signed in has an empty cell. | |
 | 5D-7 | Manager | Desktop | Export the members CSV. | There is no `last_sign_in_at` column. | |
 
@@ -68,14 +68,16 @@ The point of 5A to 5C: nothing looks different. Every action below must behave e
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
 | 5E-1 | Admin | Desktop, then Phone 390 px | With `NOPM_ANCHOR_DB_URL` unset, open the Trust Center. | It says **not anchored** with one line on how to turn it on. Not green. Readable at 390 px. | |
-| 5E-2 | **Dev** | n/a | Set the variable to the second local database and restart the dev server. | n/a | |
+| 5E-2 | **Dev** | n/a | Run the anchor probe's setup (creates the second local database and the insert-and-select role), set the variable and restart the dev server. | n/a | |
 | 5E-3 | Admin | Desktop | Press **Verify now**. | The line reads "anchored <time> (n rows)". | |
 | 5E-4 | **Dev** | n/a | Read the anchor table in the second database with SQL. | One row with the same chain_seq and head hash the Trust Center shows. | |
-| 5E-5 | Manager | Desktop | Make several changes, then (admin) run the daily cron or **Verify now** again. | The anchor moves forward. A quiet day adds no second row for the same head. | |
+| 5E-5 | Manager | Desktop | Make several changes, then (admin) run the daily cron or **Verify now** again. | The anchor moves forward. A quiet day adds no second row for the same head. Right after **Verify now** the line says anchored, not "1 row behind". The new `audit.verified` row records the anchor state. | |
 | 5E-6 | **Dev** | n/a | On a throwaway workspace, delete the newest audit rows (rolled back after) and verify. | The Trust Center shows a red **anchor mismatch**. An `audit.anchor_mismatch` row appears. | |
-| 5E-7 | **Dev** | n/a | Stop the second database container. Press **Verify now**. | An amber **anchor unreachable** line. The verify never says all clear. Business writes (create a task) still work. Exactly one `audit.anchor_failed` row. | |
-| 5E-8 | **Dev** | n/a | Start the container again and verify. | The state returns to anchored. The failure streak is cleared. | |
-| 5E-9 | Member | Desktop | Open the Trust Center. | The anchor line may show. There is no force-anchor control. | |
+| 5E-7 | **Dev** | n/a | Point the variable at a closed local port. Press **Verify now** twice. | An amber **anchor unreachable** line. The verify never says all clear. Business writes (create a task) still work. Exactly one `audit.anchor_failed` row for the streak, not one per verify. | |
+| 5E-8 | **Dev** | n/a | Put the real local URL back and verify. | The state returns to anchored. The failure streak is cleared. | |
+| 5E-9 | Member | Desktop | Open the Trust Center. | The anchor line may show. There is no force-anchor control and no anchor route. | |
+| 5E-10 | Admin | Desktop | Export the audit pack. | The cover has an Anchor line: "not anchored" when the variable is unset, the anchored time and row count otherwise. | |
+| 5E-11 | **Dev** | n/a | Delete the newest audit rows of a throwaway workspace, let the chain grow back past the anchored number, then verify. | **anchor mismatch**, not "anchor unreachable". One `audit.anchor_mismatch` row per streak. | |
 
 ### 5F. Agent evidence tools (MCP or curl with a token)
 
@@ -100,9 +102,11 @@ The point of 5A to 5C: nothing looks different. Every action below must behave e
 | 5G-5 | Manager | Desktop | Approve the program request. | Refused: a program needs an admin (per D15 default). | |
 | 5G-6 | Admin | Desktop | Approve the program request. | The program is removed. Its projects remain. | |
 | 5G-7 | Manager | Desktop | Request deletion of a resource that has open allocations, then add another allocation, then approve. | The approval is refused as stale (the child count changed). | |
-| 5G-8 | Tester | Desktop | Send `DELETE` on each of the five addresses with a member's token. | 403 for members. For others 202 with a request id. Nothing is deleted. | |
+| 5G-8 | Tester | Desktop | Send `DELETE` on each of the five addresses with a member's token, then with a manager's token. | 403 for members. For others 202 with the deletion request in the body (it was 204 with no body before). Nothing is deleted. | |
 | 5G-9 | **Dev** | n/a | Run the register probe (raw `DELETE` on each table). | Each raw delete fails with the "needs request" error. A project deletion commit still cascades. | |
 | 5G-10 | Tester | Desktop | Call `request_sprint_deletion` through MCP. | Same as 5G-1. | |
+| 5G-11 | Manager (second person) | Desktop | Request and approve the deletion of a task that has an allocation, and of a resource that has allocations. | Both approvals succeed, before and after the delete-refusing trigger step. The audit row of the resource lists the removed allocations. | |
+| 5G-12 | Manager | Desktop | Request deletion of a resource that has archived timesheets. | Refused with the same message as before. | |
 
 ## Wave 3: cleanup, documents, live checklist
 
@@ -113,4 +117,4 @@ The point of 5A to 5C: nothing looks different. Every action below must behave e
 | 5H-3 | **Dev** | n/a | Log in with each seed login. | Seed logins use `@example.com`. | |
 | 5H-4 | Admin | Desktop | Open `/api/openapi.json` and `/llms.txt`. | The new routes and fields are listed. | |
 | 5H-5 | Owner | Desktop | Open `CUTOVER/12-POST-RELEASE-CHECKS.md` and read the first block. | It is plain SQL, says it only reads, and says what a good result looks like. No command in it changes data. | |
-| 5H-6 | **Dev** | n/a | Run the local rehearsal script for migrations 0107 to 0112 twice. | Second run changes nothing. Row counts before and after match. | |
+| 5H-6 | **Dev** | n/a | Run the local rehearsal script for migrations 0107 to 0114 twice (0114 after the build is deployed locally). | Second run changes nothing. Row counts before and after match. | |

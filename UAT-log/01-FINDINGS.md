@@ -1,4 +1,4 @@
-# 01 — Findings
+CLOSED |CLOSED |CLOSED |CLOSED |CLOSED |# 01 — Findings
 
 Status: **OPEN** — cycle 1 (2026-10-18) intake minted below. Source rows are in `_intake/` (tester A, tester B, runner C).
 
@@ -56,11 +56,11 @@ Severity here is the reviewer's first-pass call (runner C's "High" is entered as
 - **UAT ID** — sequential, never reused, never renumbered even if a finding is later judged not-a-bug (mark it `WONT-FIX` with a reason instead of deleting the row).
 - **Severity** — reviewer's first-pass judgment (Blocker / Major / Minor / Cosmetic); triage in `02-ROOT-CAUSES.md` may reclassify it, and if so that sheet records the reclassification — this sheet keeps the original call as reported.
 - **Status** — see the legend in `UAT-log/README.md`. This sheet only ever sets a row to OPEN (new) or WONT-FIX (owner call, reason inline in a note); every other status transition is driven by the other two sheets and reflected back here.
-| UAT-035 | 2026-10-18 | UAT tester A (cycle 2) | New Project form, empty target date | A project created without a target date is complete and usable | The project is created, then the auto-created milestones fail with "Invalid milestone data / Invalid ISO datetime" and the project has no milestones | major | OPEN |
-| UAT-036 | 2026-10-18 | UAT tester A (cycle 2) | Approvals page, tier badges | Tier badges read Routine / Normal / High risk / Emergency / Strategic | Badges show the raw values high_risk and normal | minor | OPEN |
-| UAT-037 | 2026-10-18 | UAT tester A (cycle 2) | Emergency change detail, decision rationale | User-facing text never carries internal decision references | The rationale shows "(owner decision Q1)" | minor | OPEN |
-| UAT-038 | 2026-10-18 | UAT tester A (cycle 2) | Settings → Approval policy, High risk description | The description names expense deletions at or above the threshold (Q5) | Expense deletions are not mentioned | minor | OPEN |
-| UAT-039 | 2026-10-18 | UAT tester A (cycle 2); retest runner | Integrations → GitHub card intro paragraph | The intro matches the rule: a deployment never completes a task | The intro still says "a successful deployment completes it" | minor | OPEN |
+| UAT-035 | 2026-10-18 | UAT tester A (cycle 2) | New Project form, empty target date | A project created without a target date is complete and usable | The project is created, then the auto-created milestones fail with "Invalid milestone data / Invalid ISO datetime" and the project has no milestones | major | CLOSED |
+| UAT-036 | 2026-10-18 | UAT tester A (cycle 2) | Approvals page, tier badges | Tier badges read Routine / Normal / High risk / Emergency / Strategic | Badges show the raw values high_risk and normal | minor | CLOSED |
+| UAT-037 | 2026-10-18 | UAT tester A (cycle 2) | Emergency change detail, decision rationale | User-facing text never carries internal decision references | The rationale shows "(owner decision Q1)" | minor | CLOSED |
+| UAT-038 | 2026-10-18 | UAT tester A (cycle 2) | Settings → Approval policy, High risk description | The description names expense deletions at or above the threshold (Q5) | Expense deletions are not mentioned | minor | CLOSED |
+| UAT-039 | 2026-10-18 | UAT tester A (cycle 2); retest runner | Integrations → GitHub card intro paragraph | The intro matches the rule: a deployment never completes a task | The intro still says "a successful deployment completes it" | minor | CLOSED |
 
 ## Not defects (no UAT IDs)
 

@@ -92,45 +92,98 @@
   "status": 200,
   "ownerDecision": false,
   "q1": false,
-  "rationale": null,
-  "reason": null,
-  "decision_note": null
+  "decision_rationale": "Emergency: committed on raise, no approval required."
  },
  "037-api-CR-029": {
   "status": 200,
   "ownerDecision": false,
   "q1": false,
-  "rationale": null,
-  "reason": null,
-  "decision_note": null
+  "decision_rationale": "Emergency: committed on raise, no approval required."
  },
  "037-api-CR-030": {
   "status": 200,
   "ownerDecision": false,
   "q1": false,
-  "rationale": null,
-  "reason": null,
-  "decision_note": null
+  "decision_rationale": "Emergency: committed on raise, no approval required."
  },
  "037-390-CR-028": {
-  "url": "http://localhost:3000/changes/9bf74f2b-699e-4270-baf3-88bd365dde6f",
-  "hasCR": false,
+  "clicked": false,
+  "detailShown": true,
   "ownerDecision": false,
-  "q1": false,
-  "len": 113
+  "q1": false
  },
  "037-390-CR-029": {
-  "url": "http://localhost:3000/changes/e8e65fe4-faf0-46da-b051-3f2c46d1e99c",
-  "hasCR": false,
+  "clicked": false,
+  "detailShown": true,
   "ownerDecision": false,
-  "q1": false,
-  "len": 113
+  "q1": false
  },
  "037-390-CR-030": {
-  "url": "http://localhost:3000/changes/ac7f5649-297d-44d4-9398-45b76ce48535",
-  "hasCR": false,
+  "clicked": false,
+  "detailShown": true,
+  "ownerDecision": false,
+  "q1": false
+ },
+ "037-1280-CR-028": {
+  "clicked": true,
+  "detailShown": true,
   "ownerDecision": false,
   "q1": false,
-  "len": 113
+  "line": "Emergency path (no approval required)"
+ },
+ "037-1280-CR-029": {
+  "clicked": true,
+  "detailShown": true,
+  "ownerDecision": false,
+  "q1": false,
+  "line": "Emergency path (no approval required)"
+ },
+ "037-1280-CR-030": {
+  "clicked": true,
+  "detailShown": true,
+  "ownerDecision": false,
+  "q1": false,
+  "line": "Emergency path (no approval required)"
+ },
+ "037-390b-CR-028": {
+  "detail": true,
+  "ownerDecision": false,
+  "q1": false
+ },
+ "037-390b-CR-029": {
+  "detail": true,
+  "ownerDecision": false,
+  "q1": false
+ },
+ "037-390b-CR-030": {
+  "detail": true,
+  "ownerDecision": false,
+  "q1": false
+ },
+ "038-390": {
+  "around": "n\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nHigh risk\nLarge cost, deleting a whole project, or deleting an expense at or above the threshold.\nDECIDED BY\nManager or admin\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nEmergency\nCommits when raised. No approval. Flagged everywhere.\nNo approver. It commits when raised.\nFlagged in every list.\nStrategic\nOnly an admin can raise one.\nDECIDED BY\nManager or admin\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nHIGH-RISK SCHEDULE THRESHOLD (DAYS)\nA",
+  "mentionsExpense": true
+ },
+ "039-390": {
+  "intro": [
+   "Link a task to a pull request and its status follows the work: opening the pull request starts it, merging moves it to review. A deployment never completes a task; only a person marks it Completed. Only tasks whose pull request is linked are touched, never on a locked project, and every change is recorded in the audit trail as the GitHub connection.",
+   "In the GitHub repository settings, add a webhook with this address, content type application/json, the secret from when you connected, and the events Pull requests and Deployment statuses.",
+   "DEPLOYMENT SUCCEEDED",
+   "DEPLOYMENT FAILED"
+  ],
+  "stale": false
+ },
+ "038-1280": {
+  "around": "n\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nHigh risk\nLarge cost, deleting a whole project, or deleting an expense at or above the threshold.\nDECIDED BY\nManager or admin\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nEmergency\nCommits when raised. No approval. Flagged everywhere.\nNo approver. It commits when raised.\nFlagged in every list.\nStrategic\nOnly an admin can raise one.\nDECIDED BY\nManager or admin\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nHIGH-RISK SCHEDULE THRESHOLD (DAYS)\nA",
+  "mentionsExpense": true
+ },
+ "039-1280": {
+  "intro": [
+   "Link a task to a pull request and its status follows the work: opening the pull request starts it, merging moves it to review. A deployment never completes a task; only a person marks it Completed. Only tasks whose pull request is linked are touched, never on a locked project, and every change is recorded in the audit trail as the GitHub connection.",
+   "In the GitHub repository settings, add a webhook with this address, content type application/json, the secret from when you connected, and the events Pull requests and Deployment statuses.",
+   "DEPLOYMENT SUCCEEDED",
+   "DEPLOYMENT FAILED"
+  ],
+  "stale": false
  }
 }

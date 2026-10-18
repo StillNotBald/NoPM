@@ -60,6 +60,12 @@ The closure sheet. For each UAT ID that has a fix shipped against its `02-ROOT-C
 | UAT-033 | 2026-10-18 | UAT tester A (R1); retest runner (T10) | Edit a project with no start date, Save; clear the Code box, Save | Confirmed-fixed — saves with no 422 for empty dates and empty code (C2-15) | CLOSED |
 | UAT-034 | 2026-10-18 | lead | n/a | Superseded — owner decision Q1 retired the retro step and its overdue marker; the emergency flag replaces it (retest T3, T12 confirm the flag in list, detail, weekly report) | SUPERSEDED |
 
+| UAT-035 | 2026-10-18 | retest runner 2 | New Project with name only and with start date only (UI, 390 + 1280); POST /api/projects with target_date null and omitted | Confirmed-fixed — 201 in all runs, project opens, no milestone error (retest2/retest2.md) | CLOSED |
+| UAT-036 | 2026-10-18 | retest runner 2 | /approvals and /review as admin with a pending high-risk expense deletion | Confirmed-fixed — badges read High risk / Normal, Emergency stays red | CLOSED |
+| UAT-037 | 2026-10-18 | retest runner 2 | CR-028..030 detail pages and GET /api/change-requests/<id> | Confirmed-fixed — no "owner decision" or "Q1" in page text or JSON | CLOSED |
+| UAT-038 | 2026-10-18 | retest runner 2 | Settings → Approval policy, High risk description | Confirmed-fixed — names expense deletions at or above the threshold | CLOSED |
+| UAT-039 | 2026-10-18 | retest runner 2 | Integrations → GitHub card intro | Confirmed-fixed — "A deployment never completes a task; only a person marks it Completed." | CLOSED |
+
 ## Log
 
 - 2026-10-18 cycle 2: UAT-029..033 retested by tester A and the retest runner (reports in `testing-log/2026-10-18_uat-cycle-2/`); UAT-034 superseded by owner decision Q1.
