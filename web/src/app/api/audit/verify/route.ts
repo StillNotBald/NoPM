@@ -4,6 +4,9 @@ import { ok, validationError } from "@/lib/api/response";
 import { ScopeError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { anchorHead, evaluateAnchor, recordEvaluation } from "@/lib/audit/anchor/anchor";
+import { getAnchorSink } from "@/lib/audit/anchor/get-sink";
+import type { AnchorStatus } from "@/lib/audit/anchor/compare";
 
 export const runtime = "nodejs";
 
@@ -26,6 +29,14 @@ export const VERIFY_MAX_LIMIT = 200_000;
  * Verifying is a read, but it is audited like every export: one fail-closed `audit.verified` row
  * records the result. `head_hash` is the newest row_hash BEFORE that audit row; the weekly report and
  * the audit pack print it so it is kept outside the database (see the 0104 header).
+ *
+ * External anchor (R-168/R-169, migration 0112). Order: verify, compare the live chain with the newest
+ * anchor in the anchor database, write `audit.verified` (its `after.anchor` records the state before),
+ * and only when the chain verified ok and the state is not `mismatch`, anchor the head that now includes
+ * the verify row. `anchor.state` is not_anchored | anchored | behind | mismatch | unreachable; "anchored"
+ * is reported only when a comparison or a successful read-back happened. A `mismatch` makes `ok` false
+ * (`chain_ok` keeps the plain chain result); `all_clear` is true only when `ok` and the anchor is
+ * neither mismatch nor unreachable. A failed anchor write never fails the request.
  */
 export const GET = route(async ({ actor, request }) => {
   if (actor.type !== "user" || !["admin", "manager"].includes(actor.role ?? "")) {
@@ -101,8 +112,17 @@ export const GET = route(async ({ actor, request }) => {
     .maybeSingle();
   if (headError) throw headError;
 
+  const chainOk = res.ok === true;
+  const sink = getAnchorSink();
+  const anchorCtx = { db, sink, workspaceId: actor.workspaceId, actor };
+  // Compare the live chain with the newest anchor (state BEFORE this verify row exists).
+  const before = await evaluateAnchor(anchorCtx);
+  const beforeStatus = await recordEvaluation(anchorCtx, before);
+  const mismatchBefore = beforeStatus.state === "mismatch";
+
   const result = {
-    ok: res.ok === true,
+    ok: chainOk && !mismatchBefore,
+    chain_ok: chainOk,
     checked: Number(res.checked),
     first_bad_id: res.first_bad_id ?? null,
     first_bad_at: res.first_bad_at ?? null,
@@ -120,8 +140,42 @@ export const GET = route(async ({ actor, request }) => {
     targetType: "audit_log",
     targetId: null,
     before: null,
-    after: result,
+    after: {
+      ...result,
+      // The anchor state at this verify, so the chained trail itself records it (PR-16).
+      anchor: {
+        state: beforeStatus.state,
+        chain_seq: beforeStatus.chain_seq,
+        anchored_at: beforeStatus.anchored_at,
+        rows_behind: beforeStatus.rows_behind,
+      },
+    },
   });
 
-  return ok(result);
+  // Anchor the head that includes the verify row, only when the chain verified and nothing diverged.
+  let anchor: AnchorStatus = beforeStatus;
+  if (sink.kind !== "none" && chainOk && !mismatchBefore && beforeStatus.state !== "unreachable") {
+    try {
+      const out = await anchorHead(anchorCtx, before.latest);
+      if (out.outcome !== "disabled" && out.outcome !== "empty") anchor = out.status;
+    } catch (err) {
+      // Fail-open: the verify itself succeeded; an anchor that could not run is reported as not done.
+      console.error("[nopm] audit anchor could not run:", err instanceof Error ? err.message : "unknown error");
+    }
+  }
+
+  const finalOk = result.ok && anchor.state !== "mismatch";
+  return ok({
+    ...result,
+    ok: finalOk,
+    all_clear: finalOk && anchor.state !== "unreachable",
+    anchor: {
+      state: anchor.state,
+      chain_seq: anchor.chain_seq,
+      anchored_at: anchor.anchored_at,
+      row_count: anchor.row_count,
+      rows_behind: anchor.rows_behind,
+      since: anchor.since,
+    },
+  });
 });

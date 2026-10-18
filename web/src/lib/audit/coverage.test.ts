@@ -426,6 +426,8 @@ const NON_MUTATING_RPC: Record<string, string> = {
 
 /** Files (path under src/) that write business tables with no writeAudit, each with a real reason. */
 const UNAUDITED_WRITER_ALLOWLIST: Record<string, string> = {
+  "lib/audit/anchor/receipts.ts":
+    "bookkeeping of the external-anchor state per workspace (display and streak memory only, never evidence; the evidence is the anchor database); each state change carries its own audit row (audit.anchored, audit.anchor_failed, audit.anchor_mismatch) written by anchor/step.ts and the verify route (R-168..R-170)",
   "app/api/calendar/[token]/route.ts":
     "GET feed fetch stamps calendar_feeds.last_fetched_at (read telemetry on the creator's own feed); no governed field changes",
   "lib/auth/guard.ts": "stamps api_tokens.last_used_at on use; telemetry, not a governed change",

@@ -153,6 +153,9 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
   "lib/nudges/step.ts": {
     "from:workspaces": "system job: lists every workspace id once (keyset page), then each pass runs with that single workspace id",
   },
+  "lib/audit/anchor/step.ts": {
+    "from:workspaces": "system job: lists every workspace id once (keyset page), then each pass runs with that single workspace id",
+  },
   "lib/people/members.ts": {
     "rpc:nopm_revoke_user_sessions": "ends one removed person's sessions by user id (service-role function, 0087); the workspace check is the preceding member RPC",
     "from:user_mfa": "per-user row keyed by a profile id already verified in the caller's workspace (user_mfa has no workspace_id)",
