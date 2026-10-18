@@ -1,13 +1,15 @@
 # Test fixture, not a credential: the dummy password in the
 # acceptInviteSchema too-short-password test (schemas.test.ts).
-db06f291cfb7c8c39ca0a84d72c5aeea7f52cc83:web/src/app/api/schemas.test.ts:generic-api-key:765
 
 # Test fixtures, not credentials: dummy Lark connector and relay values in the
 # Integration Hub unit tests (valid-encrypt-key-0004, a made-up delivery uuid,
 # npr_test-relay-secret-…, nopm-relay-test-secret-… and its test hash, c-0123…).
-316f543a001feec8696351b1a71d8617b5517ecf:web/src/app/api/integrations/connectors/route.test.ts:generic-api-key:43
-316f543a001feec8696351b1a71d8617b5517ecf:web/src/lib/integrations/lark/client.test.ts:generic-api-key:345
-9a3ef15b891e35f54cec03e861125b06b8be8b5c:web/src/app/api/integrations/lark/[connectorId]/relay/route.test.ts:generic-api-key:23
-9a3ef15b891e35f54cec03e861125b06b8be8b5c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:43
-9a3ef15b891e35f54cec03e861125b06b8be8b5c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:44
-9a3ef15b891e35f54cec03e861125b06b8be8b5c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:380
+
+# Fingerprints are tied to the root commit of the re-created repo (2026-10-18).
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/app/api/integrations/connectors/route.test.ts:generic-api-key:43
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/app/api/integrations/lark/[connectorId]/relay/route.test.ts:generic-api-key:23
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/app/api/schemas.test.ts:generic-api-key:692
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/client.test.ts:generic-api-key:371
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:380
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:43
+6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:44
