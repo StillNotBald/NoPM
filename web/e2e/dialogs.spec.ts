@@ -69,5 +69,6 @@ test("Mint-token form is present with scope checkboxes but is not submitted", as
   await page.goto("/tokens");
   await expect(page.locator(SHELL_MARKER)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole("button", { name: /mint token/i })).toBeVisible();
-  await expect(page.locator('input[type="checkbox"]').first()).toBeVisible();
+  // The phone layout (<md) renders a second, collapsed copy of the scope list in <details>; target the visible one.
+  await expect(page.locator('input[type="checkbox"]:visible').first()).toBeVisible();
 });

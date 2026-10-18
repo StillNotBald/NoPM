@@ -14,7 +14,7 @@ import { cn } from "@/lib/cn";
 import { ChevronRight, Plus } from "lucide-react";
 import { FolderTree, type FolderTreeSelection } from "./folder-tree";
 import { DocumentViewer } from "./document-viewer";
-import { DocumentForm, type Document, type DocStatus, type DocType } from "./document-form";
+import { DocumentForm, type Document, type DocStatus, type DocType, type EvidenceTarget } from "./document-form";
 
 // ── Label maps ────────────────────────────────────────────────────────────────
 
@@ -52,6 +52,7 @@ const DOC_TYPE_LABELS: Record<DocType, string> = {
 interface DocumentsClientProps {
   documents: Document[];
   projects: { id: string; name: string }[];
+  changeRequests?: EvidenceTarget[];
   projectMap: Record<string, string>;
   ownerMap: Record<string, string>;
   /** false for viewer-role callers — see risks/page.tsx (L-46). */
@@ -65,6 +66,7 @@ interface DocumentsClientProps {
 export function DocumentsClient({
   documents,
   projects,
+  changeRequests = [],
   projectMap,
   ownerMap,
   canWrite = true,
@@ -111,6 +113,7 @@ export function DocumentsClient({
     inspector.open(
       <DocumentForm
         projects={projects}
+        changeRequests={changeRequests}
         defaultFolder={selection.folder ?? undefined}
       />,
       "New Document",
@@ -333,14 +336,16 @@ export function DocumentsClient({
 
 export function NewDocumentButton({
   projects,
+  changeRequests = [],
 }: {
   projects: { id: string; name: string }[];
+  changeRequests?: EvidenceTarget[];
 }) {
   const inspector = useInspector();
 
   function openNew() {
     inspector.open(
-      <DocumentForm projects={projects} />,
+      <DocumentForm projects={projects} changeRequests={changeRequests} />,
       "New Document",
     );
   }

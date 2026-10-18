@@ -3,6 +3,8 @@
  * Kept out of route.ts because a Next route module may only export handlers.
  */
 
+import { FieldsError } from "@/lib/api/errors";
+
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** A real calendar date (YYYY-MM-DD) or undefined — a malformed value is dropped, like the other lenient audit filters. */
@@ -35,6 +37,17 @@ export function parseExportRange(sp: URLSearchParams): ExportRange {
     to: parseExportDay(sp.get("to")),
     on: sp.get("on") === "updated" ? "updated" : "created",
   };
+}
+
+/**
+ * A reversed range (from after to) is a client error, answered 422 with a
+ * field error on `from`. Malformed days are still dropped silently, so this
+ * only fires when both days are valid.
+ */
+export function assertRangeOrder(range: ExportRange): void {
+  if (range.from !== undefined && range.to !== undefined && range.from > range.to) {
+    throw new FieldsError("from must not be after to", [{ field: "from", message: "from must not be after to" }]);
+  }
 }
 
 /**

@@ -55,7 +55,7 @@ function seed(over: { rules?: Row; connector?: Partial<Row> } = {}) {
       workspace_id: WS,
       project_id: PROJECT,
       name: "Ship it",
-      status: null,
+      status: "Backlog",
       status_type: "unstarted",
       external_ref: "github:acme/widgets#7",
       updated_at: T_UPDATED,
@@ -65,7 +65,7 @@ function seed(over: { rules?: Row; connector?: Partial<Row> } = {}) {
       workspace_id: WS,
       project_id: LOCKED_PROJECT,
       name: "Frozen",
-      status: null,
+      status: "Backlog",
       status_type: "unstarted",
       external_ref: "github:acme/widgets#9",
       updated_at: T_UPDATED,
@@ -207,7 +207,7 @@ describe("status mapping", () => {
     expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
 
     await post(request("deployment_status", deployPayload("success", { pr: 7 })));
-    expect(task(TASK)).toMatchObject({ status_type: "completed", status: null });
+    expect(task(TASK)).toMatchObject({ status_type: "completed", status: "Done" });
     expect(events().map((e) => e.kind)).toEqual(["pr_merged", "deploy_success"]);
     expect(auditActions()).toEqual(["task.update", "task.update"]);
   });
@@ -297,7 +297,7 @@ describe("status mapping", () => {
 
   it("only ever touches tasks of the connector's own workspace", async () => {
     db.seed("tasks", [
-      { id: "t0000000-0000-4000-8000-000000000099", workspace_id: "22222222-2222-4222-8222-222222222222", project_id: PROJECT, status_type: "unstarted", status: null, external_ref: "github:acme/widgets#55", updated_at: T_UPDATED },
+      { id: "t0000000-0000-4000-8000-000000000099", workspace_id: "22222222-2222-4222-8222-222222222222", project_id: PROJECT, status_type: "unstarted", status: "Backlog", external_ref: "github:acme/widgets#55", updated_at: T_UPDATED },
     ]);
     await post(request("pull_request", prPayload("opened", 55)));
     expect(db.rows("tasks").find((t) => t.id === "t0000000-0000-4000-8000-000000000099")!.status_type).toBe("unstarted");
@@ -321,7 +321,7 @@ describe("replay and limits", () => {
   it("handles at most five pull requests named by one deployment", async () => {
     const tasks: Row[] = [];
     for (let n = 101; n <= 107; n++) {
-      tasks.push({ id: `t0000000-0000-4000-8000-0000000001${n}`, workspace_id: WS, project_id: PROJECT, status_type: "started", status: null, external_ref: `github:acme/widgets#${n}`, updated_at: T_UPDATED });
+      tasks.push({ id: `t0000000-0000-4000-8000-0000000001${n}`, workspace_id: WS, project_id: PROJECT, status_type: "started", status: "In progress", external_ref: `github:acme/widgets#${n}`, updated_at: T_UPDATED });
     }
     db.seed("tasks", tasks);
     await post(request("deployment_status", deployPayload("success", { prs: [101, 102, 103, 104, 105, 106, 107] })));
@@ -442,5 +442,55 @@ describe("pure helpers", () => {
   it("types a github connector row", () => {
     const row: GithubConnectorRow["kind"] = "github";
     expect(row).toBe("github");
+  });
+});
+
+describe("status labels (tasks.status is NOT NULL)", () => {
+  it("sets the label that matches each new status, through open, merge and a successful deployment", async () => {
+    await post(request("pull_request", prPayload("opened", 7)));
+    expect(task(TASK)).toMatchObject({ status_type: "started", status: "In progress" });
+    await post(request("pull_request", prPayload("closed", 7, { merged: true })));
+    expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
+    // The case that wrote NULL into tasks.status: completed has no review label, and the task read "In review".
+    await post(request("deployment_status", deployPayload("success", { pr: 7 })));
+    expect(task(TASK)).toMatchObject({ status_type: "completed", status: "Done" });
+    expect(events().map((e) => e.reason)).toEqual(["applied", "applied", "applied"]);
+    expect(db.rows("tasks").every((t) => t.status !== null && t.status !== undefined)).toBe(true);
+  });
+
+  it("keeps a label a person typed", async () => {
+    task(TASK).status = "Waiting on vendor";
+    await post(request("pull_request", prPayload("opened", 7)));
+    expect(task(TASK)).toMatchObject({ status_type: "started", status: "Waiting on vendor" });
+  });
+
+  it("never sends a null label to the database", async () => {
+    const calls: Row[] = [];
+    const original = db.rpc.bind(db);
+    db.rpc = (async (name?: string, args?: Record<string, unknown>) => {
+      calls.push({ name, ...args });
+      return original(name, args);
+    }) as typeof db.rpc;
+    task(TASK).status = "In review";
+    task(TASK).status_type = "started";
+    await post(request("deployment_status", deployPayload("success", { pr: 7 })));
+    const move = calls.find((c) => c.name === "nopm_apply_task_status_from_event")!;
+    expect(move.p_set_label).toBe(true);
+    expect(move.p_status_label).toBe("Done");
+  });
+
+  it("the fake of the 0105 function mirrors the SQL: a null label keeps the current one", async () => {
+    const res = await db.rpc("nopm_apply_task_status_from_event", {
+      p_workspace_id: WS,
+      p_task_id: TASK,
+      p_expected_updated_at: T_UPDATED,
+      p_status_type: "completed",
+      p_set_label: true,
+      p_status_label: null,
+      p_audit: {},
+      p_skip_audit: {},
+    });
+    expect((res.data as { result: string }).result).toBe("applied");
+    expect(task(TASK).status).toBe("Backlog");
   });
 });

@@ -109,3 +109,12 @@ describe("parseListSelection", () => {
     expect(() => parseListSelection(sp("fields=*"), "tasks")).toThrow(RuleError);
   });
 });
+
+describe("risks output carries impact_areas only (UAT-028)", () => {
+  it("the single impact_area is accepted on input but never selected or returned", () => {
+    expect(FULL_COLUMNS.risks).not.toContain("impact_area");
+    expect(RISK_SELECT.split(",")).not.toContain("impact_area");
+    expect(parseListSelection(sp("view=full"), "risks").select.split(",")).not.toContain("impact_area");
+    expect(FULL_COLUMNS.risks).toContain("impact_areas");
+  });
+});

@@ -106,6 +106,21 @@ export function RequestDeletionDialog({
   );
 }
 
+type PendingRow = { target_type: string; target_id: string };
+let pendingLoad: { at: number; promise: Promise<PendingRow[]> } | null = null;
+
+/** One shared read of the pending requests, so a table of rows asks the API once, not once per row. */
+function loadPendingRows(): Promise<PendingRow[]> {
+  const now = Date.now();
+  if (pendingLoad && now - pendingLoad.at < 3000) return pendingLoad.promise;
+  const promise = apiGet<PendingRow[]>("/api/deletion-requests?status=pending&limit=100").then((r) => (Array.isArray(r) ? r : []));
+  pendingLoad = { at: now, promise };
+  promise.catch(() => {
+    pendingLoad = null;
+  });
+  return promise;
+}
+
 /** The ids of records of this type with a pending deletion request (fail-soft: empty on any error). */
 export function usePendingDeletionIds(entity: DeletionEntity): {
   pending: ReadonlySet<string>;
@@ -117,10 +132,8 @@ export function usePendingDeletionIds(entity: DeletionEntity): {
     let live = true;
     (async () => {
       try {
-        const res = await apiGet<{ target_type: string; target_id: string }[]>(
-          "/api/deletion-requests?status=pending&limit=100",
-        );
-        if (!live || !Array.isArray(res)) return;
+        const res = await loadPendingRows();
+        if (!live) return;
         setPending(new Set(res.filter((r) => r.target_type === entity).map((r) => r.target_id)));
       } catch {
         // The control still works without it: the API answers a duplicate request with a clear 422.
@@ -131,7 +144,10 @@ export function usePendingDeletionIds(entity: DeletionEntity): {
     };
   }, [entity]);
 
-  const markRequested = useCallback((id: string) => setPending((prev) => new Set(prev).add(id)), []);
+  const markRequested = useCallback((id: string) => {
+    pendingLoad = null;
+    setPending((prev) => new Set(prev).add(id));
+  }, []);
   return { pending, markRequested };
 }
 
@@ -187,5 +203,73 @@ export function DeletionRequestedBadge({ className }: { className?: string }) {
     <Badge tone="warning" size="sm" className={className}>
       Deletion requested
     </Badge>
+  );
+}
+
+/**
+ * One control for the detail panels and tables of risks, issues, expenses and documents (UAT-006, UAT-011):
+ * a "Request deletion" button that opens the reason dialog, or the "Deletion requested" note once a request waits.
+ * `variant="icon"` is the compact form for table rows. The pending state is read once per panel from the API.
+ */
+export function RequestDeletionControl({
+  entity,
+  id,
+  name,
+  consequence,
+  variant = "button",
+  className,
+  requested = false,
+}: {
+  entity: DeletionEntity;
+  id: string;
+  name?: string | null;
+  consequence?: string;
+  variant?: "button" | "icon";
+  className?: string;
+  /** Known to be waiting already (e.g. the page just read it); otherwise the control asks the API. */
+  requested?: boolean;
+}) {
+  const { pending, markRequested } = usePendingDeletionIds(entity);
+  const [error, setError] = useState<string | null>(null);
+  const request = useRequestDeletion(entity, { consequence, onRequested: markRequested, onError: setError });
+
+  if (requested || pending.has(id)) {
+    return <DeletionRequestedBadge className={variant === "icon" ? undefined : className} />;
+  }
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      {variant === "icon" ? (
+        <button
+          type="button"
+          onClick={() => {
+            setError(null);
+            request(id, name);
+          }}
+          className={className ?? "focus-ring inline-flex h-11 w-11 items-center justify-center rounded-md text-ink-muted hover:bg-well hover:text-danger-ink sm:h-8 sm:w-8"}
+          aria-label={`Request deletion of ${entity}${name ? ` ${name}` : ""}`}
+          title="Request deletion (a different person approves it)"
+        >
+          <Trash2 size={14} aria-hidden="true" />
+        </button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          className={className ?? "h-11 px-3 text-xs text-danger-ink hover:bg-danger/10 sm:h-9"}
+          onClick={() => {
+            setError(null);
+            request(id, name);
+          }}
+        >
+          <Trash2 size={13} className="mr-1.5" aria-hidden="true" />
+          Request deletion
+        </Button>
+      )}
+      {error && (
+        <span role="alert" className="text-xs text-danger-ink">
+          {error}
+        </span>
+      )}
+    </span>
   );
 }

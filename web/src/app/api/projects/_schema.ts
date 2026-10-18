@@ -14,7 +14,7 @@ export const createProjectSchema = z.object({
   code: z.string().min(1).max(32),
   name: z.string().min(1).max(255),
   description: z.string().optional(),
-  program: z.string().optional(),
+  program: z.string().nullable().optional(),
   // D-WRK-4: program membership write path (must belong to the caller's workspace).
   program_id: z.string().uuid().nullable().optional(),
   owner_id: z.string().uuid().optional(),
@@ -54,7 +54,7 @@ export const updateProjectSchema = z.object({
   code: z.string().min(1).max(32).optional(),
   name: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
-  program: z.string().optional(),
+  program: z.string().nullable().optional(),
   program_id: z.string().uuid().nullable().optional(),
   owner_id: z.string().uuid().optional(),
   backup_owner_id: z.string().uuid("backup_owner_id must be a valid UUID").nullable().optional(),

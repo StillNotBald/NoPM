@@ -4,8 +4,8 @@ import { applyTaskStatus, type StatusMoveTask } from "@/lib/work/apply-task-stat
 import { MAX_EVENTS_PER_DELIVERY, parseGithubDelivery, type ParsedWorkEvent } from "./parse";
 import { lookupCandidates } from "./refs";
 import {
-  IN_REVIEW_LABEL,
   RULE_TARGET_LABELS,
+  labelForMove,
   normalizeRules,
   statusRank,
   targetRank,
@@ -98,7 +98,7 @@ async function decide(
 
   const target: RuleTarget | null = rules[event.kind];
   if (!target) return { reason: "no_rule", applied: false, taskId: tasks[0].id, appliedStatus: null };
-  const { statusType, label } = targetToStatus(target);
+  const { statusType } = targetToStatus(target);
 
   let appliedAny = false;
   let skipReason: WorkEventReason = "already_at_or_beyond";
@@ -125,8 +125,8 @@ async function decide(
       actor: githubActor(connector, deliveryId, event.login),
       task,
       statusType,
-      // "In review" is ours to set and to clear; any other label a person typed stays.
-      statusLabel: label ?? (task.status === IN_REVIEW_LABEL ? null : undefined),
+      // System labels follow the new status ("In progress", "In review", "Done"); a label a person typed stays.
+      statusLabel: labelForMove(target, statusType, task.status),
       skipContext: { kind: event.kind, ref: `${event.repo}#${event.number}` },
     });
     if (moved.ok) appliedAny = true;

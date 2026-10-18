@@ -115,7 +115,7 @@ export default async function ChangeControlPage({
     const decisions = decisionsByCr.get(row.id);
     const extra = decisions ? { decisions } : {};
     return open
-      ? { ...row, ...extra, retro_overdue: isRetroOverdue(row, new Date()), canEdit, canStartReview, canImplement, decide: judgeDecision({ viewer, kind: "change_request", row: raw, singleAdmin }) }
+      ? { ...row, ...extra, retro_overdue: isRetroOverdue(row, new Date()), deadline_overdue: !!row.approval_deadline_at && new Date(row.approval_deadline_at).getTime() < new Date().getTime(), canEdit, canStartReview, canImplement, decide: judgeDecision({ viewer, kind: "change_request", row: raw, singleAdmin }) }
       : { ...row, ...extra, canEdit, canReopen, canImplement };
   });
   const projectId =
@@ -152,6 +152,7 @@ export default async function ChangeControlPage({
           <Suspense fallback={null}>
             <UrlFilter
               label="Filter by status"
+              wrap
               value={status}
               defaultValue="all"
               options={[

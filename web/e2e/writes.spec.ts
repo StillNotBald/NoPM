@@ -171,8 +171,8 @@ test("mint and revoke a PAT through the tokens UI", async ({ page }) => {
   await page.goto("/tokens");
   await expect(page.locator(SHELL_MARKER)).toBeVisible({ timeout: 20_000 });
   await page.getByPlaceholder("e.g. ci-risk-scanner").fill(`e2e-token-${STAMP}`);
-  // Pick the first scope checkbox
-  await page.locator('input[type="checkbox"]').first().check();
+  // Pick the first VISIBLE scope checkbox (the phone layout keeps a hidden collapsed copy first in the DOM)
+  await page.locator('input[type="checkbox"]:visible').first().check();
   await page.getByRole("button", { name: /mint token/i }).click();
   // One-time reveal banner with the raw npm_ token
   await expect(page.getByText(/npm_/).first()).toBeVisible({ timeout: 15_000 });

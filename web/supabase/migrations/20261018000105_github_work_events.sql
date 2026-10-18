@@ -177,7 +177,8 @@ begin
 
   update tasks
      set status_type = p_status_type::task_status_type,
-         status      = case when p_set_label then p_status_label else status end,
+         -- tasks.status is NOT NULL: a null label means "keep the current one", never "clear it"
+         status      = case when p_set_label and p_status_label is not null then p_status_label else status end,
          updated_at  = now()
    where id = p_task_id and workspace_id = p_workspace_id
    returning * into v_after;

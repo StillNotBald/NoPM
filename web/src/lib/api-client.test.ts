@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiPost, type ApiError } from "./api-client";
+import { apiGetList, apiPost, type ApiError } from "./api-client";
 
 function stubFetch(status: number, body: unknown) {
   vi.stubGlobal(
@@ -46,5 +46,18 @@ describe("api-client error contract", () => {
   it("returns the unwrapped data on success", async () => {
     stubFetch(200, { data: { ok: 1 } });
     await expect(apiPost("/api/x")).resolves.toEqual({ ok: 1 });
+  });
+});
+
+describe("apiGetList (notification bell, UAT-002)", () => {
+  it("returns the rows and the envelope total, which apiGet drops", async () => {
+    stubFetch(200, { data: [{ id: "n1" }], total: 7, page: 1, limit: 1 });
+    expect(await apiGetList("/api/notifications?unread=1&limit=1")).toEqual({ data: [{ id: "n1" }], total: 7 });
+  });
+  it("falls back to the row count and tolerates an empty body", async () => {
+    stubFetch(200, { data: [{ id: "a" }, { id: "b" }] });
+    expect((await apiGetList("/x")).total).toBe(2);
+    stubFetch(200, {});
+    expect(await apiGetList("/x")).toEqual({ data: [], total: 0 });
   });
 });

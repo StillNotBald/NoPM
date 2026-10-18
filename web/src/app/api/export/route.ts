@@ -17,7 +17,7 @@ import { RISK_SORT_FIELDS, parseRiskFilters, parseImpactAreaFilter } from "@/app
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
 import { parseAuditFilters } from "@/app/api/audit/_query";
 import { assertCanListMembers, memberMfaEnabled } from "@/lib/people/members";
-import { parseExportRange, rangeColumn, applyExportRange, type ExportRange } from "./_audit-range";
+import { parseExportRange, assertRangeOrder, rangeColumn, applyExportRange, type ExportRange } from "./_audit-range";
 
 export const runtime = "nodejs";
 
@@ -513,6 +513,7 @@ async function fetchEntityRows(
 ): Promise<FetchResult> {
   const sp = url.searchParams;
   const range = parseExportRange(sp);
+  assertRangeOrder(range);
   switch (entity) {
     case "tasks":
       return fetchTasksRows(sp, workspaceId, db, today, range);
@@ -554,6 +555,7 @@ async function auditPackResponse(
   const format = url.searchParams.get("format") ?? "csv";
   if (format !== "csv" && format !== "pdf") throw new RuleError("format must be csv or pdf");
   const range = parseExportRange(url.searchParams);
+  assertRangeOrder(range);
   const pack = await gatherAuditPack(
     createAdminClient() as unknown as ExportDb,
     actor.workspaceId,

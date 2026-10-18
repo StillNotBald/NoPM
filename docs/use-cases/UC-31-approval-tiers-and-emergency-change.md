@@ -10,7 +10,7 @@
 
 ## Main flow
 
-1. An admin opens **Settings**, then the **Approval policy** card. Five rows show who decides each tier, the turnaround hours, and a routine-only auto-approve checkbox with a warning. Below them sit the cost threshold, the currency and the emergency retro window. The rows stack at phone width.
+1. An admin opens **Settings**, then the **Approval policy** card below the Invites section. Managers see it too, but only an admin can edit it. Five rows show who decides each tier, the turnaround hours, and a routine-only auto-approve checkbox with a warning. Below them sit the cost threshold, the currency and the emergency retro window. The rows stack at phone width.
 2. The admin changes a row and saves. The change is audited once, with the before and after values of the policy.
 3. A team member raises a change request under a project. The form asks for a tier. Leave it as normal, or pick routine, high risk or strategic. Routine is offered only when the change has no cost and no schedule impact.
 4. The change is raised with the tier stored and an approval deadline set. Approvers who may decide that tier are notified. The requester is not.

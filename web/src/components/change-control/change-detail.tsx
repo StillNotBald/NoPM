@@ -131,6 +131,7 @@ export type ChangeFactsData = Pick<
       | "retro_decided_at"
       | "retro_outcome"
       | "retro_overdue"
+      | "deadline_overdue"
     >
   >;
 
@@ -180,8 +181,9 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
         <Badge tone={statusTone(cr.status)}>{statusLabel(cr.status)}</Badge>
         <Badge tone={priorityTone(cr.priority)}>{cr.priority}</Badge>
         <Badge tone="neutral">{CATEGORY_LABELS[cr.category] ?? cr.category}</Badge>
-        {cr.tier && cr.tier !== "normal" && cr.tier !== "emergency" && (
-          <Badge tone={cr.tier === "routine" ? "neutral" : "warning"}>{TIER_LABEL[cr.tier] ?? cr.tier}</Badge>
+        {/* UAT-005: the tier is always shown (a Normal request included) */}
+        {cr.tier && cr.tier !== "emergency" && (
+          <Badge tone={cr.tier === "routine" || cr.tier === "normal" ? "neutral" : "warning"}>{TIER_LABEL[cr.tier] ?? cr.tier}</Badge>
         )}
       </div>
 
@@ -200,6 +202,15 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
         <DetailRow label="Raised">
           <span className="tabular-nums">{formatDate(cr.raised_at)}</span>
         </DetailRow>
+
+        {cr.approval_deadline_at && ["raised", "under_review", "emergency"].includes(cr.status) && (
+          <DetailRow label="Decision due">
+            <span className={cr.deadline_overdue ? "font-medium text-danger-ink tabular-nums" : "tabular-nums"}>
+              {formatDate(cr.approval_deadline_at)}
+              {cr.deadline_overdue ? " (overdue)" : ""}
+            </span>
+          </DetailRow>
+        )}
 
         <DetailRow label="Target Date">
           <span className="tabular-nums">{formatDate(cr.target_date)}</span>

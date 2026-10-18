@@ -1,5 +1,6 @@
 "use client";
 
+import { RequestDeletionControl } from "@/components/governance/request-deletion";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
@@ -460,6 +461,10 @@ export function DocumentViewer({
         <Button variant="ghost" onClick={openEdit} className="h-11 shrink-0 px-3 text-xs sm:h-9">
           Edit
         </Button>
+      </div>
+      {/* G8: a document is deleted by request (an approved one only on an admin's request). */}
+      <div className="flex flex-wrap items-center justify-end gap-2 py-2 border-b border-border-subtle">
+        <RequestDeletionControl entity="document" id={document.id} name={document.title} />
       </div>
 
       {/* Status / type chips */}

@@ -274,4 +274,12 @@ describe("GET /api/export risks and chunking", () => {
       expect(ids.length).toBeLessThanOrEqual(100);
     }
   });
+
+  it("422s a reversed range on any entity export", async () => {
+    requireAuthMock.mockResolvedValueOnce(token(["risk:read"]));
+    const res = await call("?entity=risks&from=2026-10-31&to=2026-10-01");
+    expect(res.status).toBe(422);
+    expect((await res.json()).fields[0].field).toBe("from");
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
 });

@@ -303,7 +303,7 @@ export function DecisionForm({
               <button
                 type="button"
                 onClick={() => setShowContext(true)}
-                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+                className="mr-4 text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
               >
                 + Add context
               </button>
@@ -325,7 +325,7 @@ export function DecisionForm({
               <button
                 type="button"
                 onClick={() => setShowOptions(true)}
-                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+                className="mr-4 text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
               >
                 + Add options considered
               </button>
@@ -402,7 +402,7 @@ export function DecisionForm({
               <button
                 type="button"
                 onClick={() => setShowRationale(true)}
-                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+                className="mr-4 text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
               >
                 + Add rationale
               </button>

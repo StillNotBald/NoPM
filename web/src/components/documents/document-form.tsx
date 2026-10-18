@@ -102,6 +102,7 @@ export function DocumentForm({
   defaultProjectId,
   defaultFolder,
   evidenceFor,
+  changeRequests,
 }: {
   document?: Document;
   projects?: Project[];
@@ -109,6 +110,8 @@ export function DocumentForm({
   defaultFolder?: string;
   /** Pre-fills the form to attach this document as evidence for a change request. */
   evidenceFor?: EvidenceTarget;
+  /** Change requests a new document can be attached to as evidence (optional picker). */
+  changeRequests?: EvidenceTarget[];
 }) {
   const inspector = useInspector();
   const router = useRouter();
@@ -136,7 +139,8 @@ export function DocumentForm({
   const [externalUrl, setExternalUrl] = useState(document?.external_url ?? "");
 
   // Evidence: shown when the document is (or is about to be) linked to a change request.
-  const changeRequestId = document?.change_request_id ?? evidenceFor?.id ?? null;
+  const [pickedCr, setPickedCr] = useState("");
+  const changeRequestId = document?.change_request_id ?? evidenceFor?.id ?? (pickedCr || null);
   const [evidenceType, setEvidenceType] = useState(document?.evidence_type ?? (evidenceFor ? "test_result" : ""));
   const [evidenceResult, setEvidenceResult] = useState(document?.evidence_result ?? "");
   const [testedBy, setTestedBy] = useState(document?.tested_by_label ?? "");
@@ -313,6 +317,34 @@ export function DocumentForm({
         />
       </Field>
 
+      {/* Optional link to a change request (new documents only; the Evidence section follows) */}
+      {!document && !evidenceFor && changeRequests && changeRequests.length > 0 && (
+        <Field label="Attach as evidence for a change request (optional)">
+          <SelectInput
+            value={pickedCr}
+            onChange={(e) => {
+              const id = e.target.value;
+              setPickedCr(id);
+              const cr = changeRequests.find((x) => x.id === id);
+              if (cr) {
+                if (cr.project_id) setProjectId(cr.project_id);
+                if (!evidenceType) setEvidenceType("test_result");
+              }
+            }}
+          >
+            <option value="">— Not evidence —</option>
+            {changeRequests
+              .filter((cr) => !projectId || cr.project_id === projectId || pickedCr === cr.id)
+              .map((cr) => (
+                <option key={cr.id} value={cr.id}>
+                  {cr.reference_id ? `${cr.reference_id} · ` : ""}
+                  {cr.title}
+                </option>
+              ))}
+          </SelectInput>
+        </Field>
+      )}
+
       {/* Evidence — only when linked to a change request */}
       {changeRequestId && (
         <fieldset className="space-y-3 rounded-lg border border-border-subtle bg-well p-3">
@@ -386,7 +418,7 @@ export function DocumentForm({
         <button
           type="button"
           onClick={() => setShowSummary(true)}
-          className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
+          className="focus-ring mr-4 inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
         >
           + Add summary
         </button>
@@ -407,7 +439,7 @@ export function DocumentForm({
         <button
           type="button"
           onClick={() => setShowBody(true)}
-          className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
+          className="focus-ring mr-4 inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
         >
           + Add body content
         </button>

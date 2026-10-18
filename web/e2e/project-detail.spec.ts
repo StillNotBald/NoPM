@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { ADMIN_STATE, SHELL_MARKER } from "./helpers";
 
 // The richest page: /projects/[id] with its 8 tabs, gantt switcher and kanban board.
-// Tabs are plain buttons; Risks/Issues carry a count badge in the accessible name
+// Tabs are role="tab" buttons (project-tabs.tsx); Risks/Issues carry a count badge in the accessible name
 // ("Risks 3"), so tab locators anchor on the label with an optional trailing count.
 
 test.use({ storageState: ADMIN_STATE });
@@ -13,7 +13,7 @@ const TABS = ["Charter", "Overview", "Activity", "Board", "Gantt", "Risks", "Iss
 
 function tabButton(page: Page, label: string) {
   // Count badges concatenate into the accessible name with no separator ("Risks0")
-  return page.getByRole("button", { name: new RegExp(`^${label}\\s?\\d*$`) }).first();
+  return page.getByRole("tab", { name: new RegExp(`^${label}\\s?\\d*$`) }).first();
 }
 
 async function openFirstProject(page: Page) {

@@ -14,12 +14,14 @@ export function UrlFilter({
   options,
   value,
   defaultValue,
+  wrap,
 }: {
   param?: string;
   label: string;
   options: SegmentOption[];
   value: string;
   defaultValue: string;
+  wrap?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -33,5 +35,5 @@ export function UrlFilter({
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }
 
-  return <SegmentedControl label={label} options={options} value={value} onChange={onChange} size="sm" />;
+  return <SegmentedControl label={label} options={options} value={value} onChange={onChange} size="sm" wrap={wrap} />;
 }

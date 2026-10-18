@@ -13,8 +13,7 @@ import type { WeeklySnapshot } from "@/lib/reports/weekly-html";
 /**
  * Weekly status report (R-142, audit item A3).
  *
- * On the configured weekday (workspace time zone), or the first daily run after it
- * in the same ISO week if that day was missed, the cron step builds
+ * On the configured weekday (workspace time zone) and only then, the cron step builds
  * the same data the Lark weekly card uses, stores it as a `weekly_reports`
  * snapshot, and drops an in-app notification on every admin and manager that
  * links to the rendered HTML view (`GET /api/reports/weekly?week=`). The
@@ -143,14 +142,15 @@ export async function generateWeeklyReport(workspaceId: string, opts: RunOpts): 
 
     if (opts.trigger === "scheduled") {
       if (!settings.weekly_report_enabled) return { status: "disabled" };
-      // On the chosen day, or any later day of the same ISO week if that tick was missed (catch-up).
-      if (isoWeekdayInZone(now, timeZone) < settings.weekly_report_day) return { status: "not_today" };
+      // Only on the chosen weekday (owner decision D2: no catch-up). A missed day is made up by hand
+      // with "Send weekly report now".
+      if (isoWeekdayInZone(now, timeZone) !== settings.weekly_report_day) return { status: "not_today" };
     }
 
     const recipients = await resolveWorkspaceApprovers(workspaceId);
     if (recipients.length === 0) return { status: "no_recipients" };
 
-    // Scheduled runs take a ledger row per recipient; one earlier this ISO week means this week is done.
+    // Scheduled runs take a ledger row per recipient; one earlier this ISO week (a repeat tick) means this week is done.
     let toNotify = recipients;
     if (opts.trigger === "scheduled") {
       const { data, error } = await db

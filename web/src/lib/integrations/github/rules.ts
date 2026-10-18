@@ -33,6 +33,32 @@ export const IN_REVIEW_LABEL = "In review";
 
 export type TaskStatusType = "backlog" | "unstarted" | "started" | "completed" | "canceled";
 
+/** The label the board shows for each status type when nobody typed one (tasks.status is NOT NULL, default "Backlog"). */
+export const DEFAULT_STATUS_LABELS: Record<TaskStatusType, string> = {
+  backlog: "Backlog",
+  unstarted: "To do",
+  started: "In progress",
+  completed: "Done",
+  canceled: "Canceled",
+};
+
+const SYSTEM_LABELS = new Set([...Object.values(DEFAULT_STATUS_LABELS), IN_REVIEW_LABEL].map((l) => l.toLowerCase()));
+
+/** True for a label the system itself uses (or an empty one); a label a person typed is custom and is kept. */
+export function isSystemLabel(label: string | null | undefined): boolean {
+  return !label || SYSTEM_LABELS.has(label.trim().toLowerCase());
+}
+
+/**
+ * The label a work-event move should write: "In review" for the review target, otherwise the default
+ * label of the new type, but only when the task's current label is a system label. undefined = keep
+ * the current label (a custom one). Never null: tasks.status cannot be NULL.
+ */
+export function labelForMove(target: RuleTarget, statusType: TaskStatusType, currentLabel: string | null | undefined): string | undefined {
+  if (target === "in_review") return IN_REVIEW_LABEL;
+  return isSystemLabel(currentLabel) ? DEFAULT_STATUS_LABELS[statusType] : undefined;
+}
+
 /** What a rule target means on the task row. */
 export function targetToStatus(target: RuleTarget): { statusType: TaskStatusType; label: string | null } {
   if (target === "in_review") return { statusType: "started", label: IN_REVIEW_LABEL };

@@ -1,0 +1,6 @@
+# UAT intake - runner C (automated)
+
+| Date | Reported by (UAT runner C) | Page / journey | What was expected | What happened | Severity | Evidence |
+|---|---|---|---|---|---|---|
+| 2026-10-18 | UAT runner C | GitHub work events: PR merged, then successful deployment | After the PR merge the task shows "In review". A successful deployment naming that PR completes the task and clears the label. | The deployment delivery is recorded as `applied=false, reason=error` and the task stays "In review". Clearing the label writes NULL into `tasks.status`, which is NOT NULL (`process.ts:129` passes a null label, migration 0105 RPC sets `status = p_status_label`). | High | `probe-github.mjs` GH4 (wanted completed, got started); `work_events` row for `deploy_success` has reason `error`; `testing-log/2026-10-18_uat-cycle-1/automated.md` |
+| 2026-10-18 | UAT runner C | Change request: replayed approval through a PAT | A second approve on an already decided request is refused (the probe expects 422). | The replay answers 200 `{"data":{"committed":true}}`. This may be intended idempotency. The owner or builder should confirm which behaviour is right and align probe and docs. | Low | `probe-api.mjs` API8 |

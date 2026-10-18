@@ -40,7 +40,7 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
   risks: [
     "id", "workspace_id", "project_id", "reference_id", "title", "description", "severity", "likelihood",
     "mitigation", "owner_id", "backup_owner_id", "status", "raised_at", "due_date", "created_at", "updated_at", "probability_pct",
-    "impact_score", "response_strategy", "risk_category", "impact_area", "impact_areas", "trigger",
+    "impact_score", "response_strategy", "risk_category", "impact_areas", "trigger",
     "residual_risk", "resolution", "source", "external_ref", "external_url",
   ],
   issues: [

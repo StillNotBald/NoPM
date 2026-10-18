@@ -13,7 +13,9 @@ export function assertBackupDiffers(
   primaryField: string,
 ): void {
   if (primaryId && backupId && primaryId.toLowerCase() === backupId.toLowerCase()) {
-    const message = `${backupField} must be a different person from ${primaryField}`;
+    // Plain language for the person; the raw field name stays in `fields[].field` for callers.
+    const label = (f: string) => (f === "backup_assignee_id" ? "backup assignee" : f === "assignee_id" ? "assignee" : f === "backup_owner_id" ? "backup owner" : "owner");
+    const message = `The ${label(backupField)} must be a different person from the ${label(primaryField)}.`;
     throw new FieldsError(message, [{ field: backupField, message }]);
   }
 }

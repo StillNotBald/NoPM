@@ -23,7 +23,11 @@ test.describe("demo login funnel", () => {
     }
   });
 
+  // Opt-in: sign-out revokes EVERY session of the demo account. Where the demo identity is the admin
+  // account (DEMO_EMAIL == ADMIN_EMAIL, as on a local stack) it kills the admin storage state every other
+  // spec reuses and any other runner signed in as that user. Run it last and alone: E2E_SIGNOUT=1.
   test("demo user can sign out again", async ({ page }) => {
+    test.skip(!process.env.E2E_SIGNOUT, "revokes all sessions of the demo account: set E2E_SIGNOUT=1 and run it last");
     await page.goto("/login");
     await page.getByRole("button", { name: /try the live demo/i }).click();
     await expect(page).toHaveURL(/\/dashboard/, { timeout: 20_000 });

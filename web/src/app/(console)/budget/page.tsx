@@ -14,6 +14,7 @@ import { computeEvm, type EvmResult } from "@/lib/evm";
 import { DEFAULT_WARN_PCT, OVERSPEND_AUDIT_ACTION, overspendLevel, type OverspendLevel } from "@/lib/insight/overspend";
 import { EvmTable, BudgetTable, type EvmTableRow, type BudgetTableRow } from "@/components/budget/budget-tables";
 import { ForecastPanel, type ForecastRow } from "@/components/budget/forecast-panel";
+import { ExpenseLedger, type LedgerExpense } from "@/components/budget/expense-ledger";
 import { computeTrend, TREND_WINDOW, type SnapshotPoint } from "@/lib/insight/trend";
 
 interface ProjectBudget {
@@ -158,6 +159,16 @@ export default async function BudgetPage() {
     .in("project_id", projectIds);
 
   if (expenseError) return <QueryError what="expenses" message={expenseError.message} />;
+
+  // The latest expenses, one row each, so a wrong entry can be requested for deletion (UAT-006). Read-only list:
+  // a failure here leaves the rest of the page intact.
+  const { data: ledgerData } = await db
+    .from("expenses")
+    .select("id, project_id, description, amount, category, incurred_on")
+    .in("project_id", projectIds)
+    .order("incurred_on", { ascending: false })
+    .limit(50);
+  const ledgerExpenses = (ledgerData ?? []) as LedgerExpense[];
 
   const expensesByProject: Record<string, number> = {};
   for (const exp of (expenses ?? []) as ExpenseRow[]) {
@@ -501,6 +512,20 @@ export default async function BudgetPage() {
                 }
               : null
           }
+        />
+      </Card>
+
+      {/* Expenses behind the Actual figures; removing one is a request a different person approves */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent expenses</CardTitle>
+          <span className="text-xs text-ink-muted">Deleting an expense needs a second person to approve.</span>
+        </CardHeader>
+        <ExpenseLedger
+          expenses={ledgerExpenses}
+          projectNames={Object.fromEntries(projectList.map((p) => [p.id, p.name]))}
+          currencies={Object.fromEntries(projectList.map((p) => [p.id, p.currency ?? ""]))}
+          canRequest
         />
       </Card>
       </div>

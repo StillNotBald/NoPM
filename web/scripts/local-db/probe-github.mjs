@@ -110,6 +110,7 @@ await report.check("GH2", "PR opened moves the linked task to started, with one 
   const r = await deliver("pull_request", pr("opened", 1));
   expectEqual(r.status, 200, "delivery");
   expectEqual((await taskRow(t1.id)).status_type, "started", "status_type");
+  expectEqual((await taskRow(t1.id)).status, "In progress", "label follows the status (UAT-012)");
   const audit = await auditFor(t1.id);
   const rows = audit.filter((a) => a.action === "task.update");
   expectEqual(rows.length, 1, "exactly one task.update audit row");
@@ -123,10 +124,10 @@ await report.check("GH3", "a replayed delivery id answers 200 and changes nothin
   const first = await deliver("pull_request", pr("closed", 1, true));
   expectEqual(first.status, 200, "merge delivery");
   expectEqual((await taskRow(t1.id)).status, "In review", "label after merge");
-  await pgc.query("update tasks set status_type = 'started', status = null where id = $1", [t1.id]);
+  await pgc.query("update tasks set status_type = 'started', status = 'In progress' where id = $1", [t1.id]);
   const again = await deliver("pull_request", pr("closed", 1, true), { delivery: first.id });
   expectEqual(again.status, 200, "replay");
-  expectEqual((await taskRow(t1.id)).status, null, "replay must not move the task again");
+  expectEqual((await taskRow(t1.id)).status, "In progress", "replay must not move the task again");
   const n = (await pgc.query("select count(*)::int as n from work_events where connector_id = $1 and external_event_id = $2", [connector.id, first.id])).rows[0].n;
   expectEqual(n, 1, "one work_events row for the delivery");
 });
@@ -134,7 +135,11 @@ await report.check("GH3", "a replayed delivery id answers 200 and changes nothin
 await report.check("GH4", "a successful deployment naming the PR completes the task; a failed one only records", async () => {
   const done = await deliver("deployment_status", deploy("success", 1));
   expectEqual(done.status, 200, "deployment");
-  expectEqual((await taskRow(t1.id)).status_type, "completed", "completed");
+  const after = await taskRow(t1.id);
+  expectEqual(after.status_type, "completed", "completed");
+  expectEqual(after.status, "Done", "label is a real label, never null (UAT-001)");
+  const ev1 = (await pgc.query("select reason from work_events where connector_id = $1 and external_event_id = $2", [connector.id, done.id])).rows[0];
+  expectEqual(ev1.reason, "applied", "the deployment event must be applied, not recorded as an error");
   const t2 = await newLinkedTask(2);
   const failed = await deliver("deployment_status", deploy("failure", 2));
   expectEqual(failed.status, 200, "failure delivery");
@@ -157,7 +162,7 @@ await report.check("GH6", "a task on a locked project is skipped with a work_eve
     "project",
   );
   const t = await newLinkedTask(3, locked.id);
-  await pgc.query("update projects set is_locked = true where id = $1", [locked.id]);
+  await pgc.query("update projects set is_locked = true, locked_at = now(), locked_by_actor_type = 'user', locked_by_actor_id = $2, locked_by_label = 'probe' where id = $1", [locked.id, fx.admin.id]);
   const r = await deliver("pull_request", pr("opened", 3));
   expectEqual(r.status, 200, "delivery");
   expectEqual((await taskRow(t.id)).status_type, "backlog", "locked project's task must not move");

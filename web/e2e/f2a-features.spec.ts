@@ -102,6 +102,7 @@ test.describe("admin-authenticated journeys", () => {
         // LITERAL text (FilterBar's own status_type <select> options are the
         // enum values — Backlog/Unstarted/Started/Completed/Canceled — none
         // of which contain the substring "Status").
+        await page.waitForLoadState("networkidle"); // hydrate before driving the select (dev server)
         const groupBySelect = page.locator("select").filter({ hasText: "Status" });
         await expect(groupBySelect).toBeVisible();
         await groupBySelect.selectOption("status_type");
@@ -122,19 +123,19 @@ test.describe("admin-authenticated journeys", () => {
 
       // "Priority" is one of the DEFAULT_COLUMNS — visible in the table
       // header before any change.
-      await expect(page.locator("thead").getByText("Priority", { exact: true })).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: /priority/i }).first()).toBeVisible();
 
       await page.getByRole("button", { name: /^columns$/i }).click();
       try {
-        await page.getByLabel("Priority", { exact: true }).uncheck();
+        await page.getByRole("checkbox", { name: "Priority", exact: true }).uncheck();
 
-        await expect(page.locator("thead").getByText("Priority", { exact: true })).toHaveCount(0);
+        await expect(page.getByRole("columnheader", { name: /priority/i })).toHaveCount(0);
       } finally {
         // The chooser persists to the account's user_preferences row
         // (merge-upsert, keys are never removed) — re-check so the shared
         // admin identity does not leak a hidden column into later runs.
-        await page.getByLabel("Priority", { exact: true }).check().catch(() => {});
-        await expect(page.locator("thead").getByText("Priority", { exact: true }))
+        await page.getByRole("checkbox", { name: "Priority", exact: true }).check().catch(() => {});
+        await expect(page.getByRole("columnheader", { name: /priority/i }).first())
           .toBeVisible()
           .catch(() => {});
       }

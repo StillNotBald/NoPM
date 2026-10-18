@@ -37,6 +37,8 @@ test.describe("f2b admin-authenticated journeys", () => {
     test("sidebar exposes the /sprints link (sidebar-links-f2b)", async ({ page }) => {
       await page.goto("/dashboard");
       await expect(page.locator(SHELL_MARKER)).toBeVisible({ timeout: 20_000 });
+      // The sidebar defaults to Essentials (R-78); /sprints lives behind "Show all modules".
+      await page.getByRole("button", { name: /show all modules/i }).click();
       await expect(page.locator('nav a[href="/sprints"]').first()).toBeVisible();
       await expect(page.locator('nav a[href="/timesheets"]')).toHaveCount(0);
     });

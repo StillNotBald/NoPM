@@ -1,5 +1,6 @@
 "use client";
 
+import { RequestDeletionControl } from "@/components/governance/request-deletion";
 import Link from "next/link";
 import { History } from "lucide-react";
 import { useInspector } from "@/components/layout/app-shell";
@@ -133,6 +134,10 @@ export function RiskDetail({ risk, projectName, ownerName, dateDisplayPref = "ab
             Edit
           </Button>
         </div>
+      </div>
+      {/* G8: a risk is deleted by request; a different person approves it. */}
+      <div className="flex flex-wrap items-center justify-end gap-2 py-2 border-b border-border-subtle">
+        <RequestDeletionControl entity="risk" id={risk.id} name={risk.title} />
       </div>
 
       {/* Status / severity chips */}

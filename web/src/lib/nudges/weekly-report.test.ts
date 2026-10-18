@@ -89,34 +89,35 @@ describe("scheduled weekly report", () => {
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
   });
 
-  it("does nothing before the chosen day, and when disabled", async () => {
+  it("does nothing on any other weekday, and when disabled", async () => {
     db.rows("workspaces").find((w) => w.id === WS)!.weekly_report_day = 2;
     expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("not_today");
+    db.rows("workspaces").find((w) => w.id === WS)!.weekly_report_day = 1;
 
     db.rows("workspaces").find((w) => w.id === WS)!.weekly_report_enabled = false;
     expect((await generateWeeklyReport(WS, { now: TUESDAY, trigger: "scheduled" })).status).toBe("disabled");
     expect(db.rows("notifications")).toHaveLength(0);
   });
 
-  it("on the chosen day sends once; later days of the same week add nothing", async () => {
+  it("on the chosen day sends once; a repeat tick the same day adds nothing", async () => {
     expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("generated");
-    expect((await generateWeeklyReport(WS, { now: TUESDAY, trigger: "scheduled" })).status).toBe("already_sent");
+    expect((await generateWeeklyReport(WS, { now: new Date(MONDAY.getTime() + 3600_000), trigger: "scheduled" })).status).toBe("already_sent");
     expect(db.rows("notifications").filter((n) => n.type === "report.weekly")).toHaveLength(4);
   });
 
-  it("catches up: a missed day is sent on the next daily run of the same ISO week, once", async () => {
-    // Monday's tick never ran. Tuesday's does.
-    const late = await generateWeeklyReport(WS, { now: TUESDAY, trigger: "scheduled" });
-    expect(late).toMatchObject({ status: "generated", weekStart: "2026-10-19" });
-    expect((await generateWeeklyReport(WS, { now: new Date(TUESDAY.getTime() + 86_400_000), trigger: "scheduled" })).status).toBe("already_sent");
-    // The next ISO week is not covered by this week's send.
-    const nextMonday = new Date("2026-10-26T01:00:00.000Z");
-    expect((await generateWeeklyReport(WS, { now: nextMonday, trigger: "scheduled" })).status).toBe("generated");
+  it("does not catch up: a missed day stays missed on later days of the week (owner decision D2)", async () => {
+    // Monday's tick never ran; Tuesday's must not send it.
+    expect((await generateWeeklyReport(WS, { now: TUESDAY, trigger: "scheduled" })).status).toBe("not_today");
+    expect(db.rows("notifications")).toHaveLength(0);
+    // The manual button is the catch-up.
+    expect((await generateWeeklyReport(WS, { now: TUESDAY, trigger: "manual", actor: { type: "user", id: ids.admin, label: "Ada", workspaceId: WS, role: "admin", principalId: ids.admin } as never })).status).toBe("generated");
+    // The next chosen day still sends.
+    expect((await generateWeeklyReport(WS, { now: new Date("2026-10-26T01:00:00.000Z"), trigger: "scheduled" })).status).toBe("generated");
   });
 
-  it("a manual send earlier in the week does not stop the scheduled one", async () => {
+  it("a manual send earlier the same day does not stop the scheduled one", async () => {
     await generateWeeklyReport(WS, { now: MONDAY, trigger: "manual", actor: { type: "user", id: ids.admin, label: "Ada", workspaceId: WS, role: "admin", principalId: ids.admin } as never });
-    expect((await generateWeeklyReport(WS, { now: TUESDAY, trigger: "scheduled" })).status).toBe("generated");
+    expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("generated");
   });
 
   it("frees the day's slot when the audit row cannot be written", async () => {

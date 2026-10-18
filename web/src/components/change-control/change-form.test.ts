@@ -15,6 +15,7 @@ import {
   buildChangePayload,
   validateChangeForm,
   draftToImpactScope,
+  impactCellText,
   impactScopeToDraft,
   type CRStatus,
   type ChangeFormValues,
@@ -142,5 +143,21 @@ describe("B2 - structured impact by area", () => {
     });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(bad.errors).toHaveProperty("impact_scope");
+  });
+});
+
+describe("UAT-023 - Impact column falls back to the affected areas", () => {
+  it("prefers the summary, then names the areas, then a dash", () => {
+    expect(impactCellText({ impact_summary: "Two more screens", impact_scope: null })).toBe("Two more screens");
+    expect(
+      impactCellText({
+        impact_summary: null,
+        impact_scope: [
+          { area: "scope", direction: "increase", note: null },
+          { area: "cost", direction: "decrease", note: null },
+        ],
+      }),
+    ).toBe("Scope up, Cost down");
+    expect(impactCellText({ impact_summary: "  ", impact_scope: [] })).toBe("—");
   });
 });

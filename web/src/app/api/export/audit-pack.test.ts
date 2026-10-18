@@ -217,6 +217,22 @@ describe("GET /api/export?entity=audit_pack", () => {
     });
   }
 
+  it("422s a reversed range with a field error on from, before reading or auditing", async () => {
+    requireAuthMock.mockResolvedValueOnce(session("admin"));
+    const res = await call("?entity=audit_pack&from=2026-10-31&to=2026-10-01");
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.error).toBe("from must not be after to");
+    expect(body.fields).toEqual([{ field: "from", message: "from must not be after to" }]);
+    expect(queried).toHaveLength(0);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts from equal to to", async () => {
+    requireAuthMock.mockResolvedValueOnce(session("admin"));
+    expect((await call("?entity=audit_pack&from=2026-10-05&to=2026-10-05")).status).toBe(200);
+  });
+
   it("rejects an unknown format with 422", async () => {
     requireAuthMock.mockResolvedValueOnce(session("admin"));
     expect((await call("?entity=audit_pack&format=xml")).status).toBe(422);

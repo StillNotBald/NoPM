@@ -37,10 +37,10 @@
 
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| 1C-1 | Manager | Phone 390 px | Open a project, go to **Risks**, tap **New risk**. Enter a title. Select at least three impact areas (for example schedule, cost, safety). Save. | The risk saves. The new risk lists all three impact areas. | |
+| 1C-1 | Manager | Phone 390 px | Open a project, go to **Risks**, tap **New risk**. Enter a title. Select at least three impact areas (for example schedule, cost, quality). Save. | The risk saves. The new risk lists all three impact areas. | |
 | 1C-2 | Manager | Phone 390 px | Look at the create form on the phone. | No field is cut off on the right. The impact-area chips wrap onto new lines. There is no horizontal page scroll. | |
 | 1C-3 | Manager | Desktop | Repeat step 1C-1 on desktop. | The same three impact areas appear on the saved risk. | |
-| 1C-4 | Manager | Desktop | Look at the create form for a **Category** field. | There is no **Category** field. Risk categories are no longer shown. | |
+| 1C-4 | Manager | Desktop | Look at the create form for a **Category** field. | The free-text **Category** field is gone. A **Risk category** dropdown with its fixed values is shown, and that is correct. Impact areas are a checkbox group. | |
 
 ### 1D. Lean list payloads (through `curl` with a token)
 
@@ -60,9 +60,9 @@ If you use the MCP server instead of `curl`, call the `list_projects` tool and a
 
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| 1E-1 | Admin | Desktop | Open **Settings** → **Members**. Click **Export members (CSV)**. | A `.csv` file downloads. Open it. It has one row per member and a header row. | |
-| 1E-2 | Member | Desktop | Log in as a member. Open **Settings** → **Members**. | The export button is not shown. | |
-| 1E-3 | Member | Desktop | Enter the members export address directly in the address bar: `<NoPM URL>/api/export/members`. | The page refuses with a message that names the permission needed. No file downloads. | |
+| 1E-1 | Admin | Desktop | Open the **People** page. Click **Export people (CSV)**. | A `.csv` file downloads. Open it. It has one row per member and a header row. | |
+| 1E-2 | Member | Desktop | Log in as a member. Open the **People** page. | The export button is not shown. | |
+| 1E-3 | Member | Desktop | Enter the members export address directly in the address bar: `<NoPM URL>/api/export?entity=members`. | The page refuses with a message that names the permission needed. No file downloads. | |
 | 1E-4 | Admin | Desktop | Open the downloaded CSV. | No email addresses of people who have left the workspace appear, unless the admin still has them as members. | |
 
 ### 1F. Tokens CSV export
@@ -77,7 +77,7 @@ If you use the MCP server instead of `curl`, call the `list_projects` tool and a
 
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| 1G-1 | Admin | Desktop | Open **Trust Center** → **Audit**. Click **Export audit (CSV)**. | A `.csv` file downloads. | |
+| 1G-1 | Admin | Desktop | Open **Trust Center** → **Audit**. Click **Export CSV**. | A `.csv` file downloads. | |
 | 1G-2 | Admin | Desktop | Open the CSV and find a row created by the agent token from step 1B-1. | The row has a `principal_id` column. The value identifies the human who created the token, so the row is traceable to a person. | |
 | 1G-3 | Admin | Desktop | Find the same lock row from step 1B-4 in the CSV. | The `principal_id` matches the human who created the token. | |
 
@@ -87,7 +87,18 @@ Scope: a change request records when it was implemented, links to its decision, 
 
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| | | | | | |
+| 2-1 | Admin | Desktop, then Phone 390 px | Open **Change Control**. Read the status chips. Then look at the chips at 390 px. | Chips for Raised, Under review, Approved, Implemented, Rejected, Deferred and All show, each with a count. At 390 px all of them are visible without scrolling the chip row sideways. | |
+| 2-2 | Admin (a different person from the requester) | Desktop | Open a change request that a second person has approved, not a seed record you need to keep. Read the **Go live** block. Add an optional note and press **Mark implemented**. | The status becomes Implemented, with the date and the person. The Edit and Delete controls are gone. Note: this cannot be undone, so use a throwaway request. | |
+| 2-3 | Manager | Desktop, then Phone 390 px | Raise a change request. Under **Impact by area**, choose Schedule (decrease) and Cost (increase), type a note for the Cost area, and save. Open the list. | The saved request shows Schedule: decrease and Cost: increase, with the note. The Impact column in the list shows the impact. At 390 px the raise form fits, and no field is cut off. | |
+| 2-4 | Manager | Desktop | Open **Decisions** and add a decision. Choose the change request in the **Change request** picker, mark one option as Chosen, and save. Open the change request. | The decision saves. The change request shows "Decisions: 1" with a link to the decision. The Chosen option is shown on the decision. The phone form has no horizontal scroll. | |
+| 2-5 | Manager | Desktop, then Phone 390 px | On a change request, open the **Test and UAT evidence** panel, press **Attach evidence**, and enter a test result, the tester, a date and a note. Save. | The evidence is listed on the change request. The phone form fits at 390 px. | |
+| 2-6a | Manager | Desktop, then Phone 390 px | Open the document that holds the evidence from 2-5 (the document created for that change request). | The viewer shows the evidence type, result, tester, note and the linked change request, as well as its folder, project and history. | |
+| 2-6b | Manager | Desktop | Open **New document**. Look for a change request field and an Evidence section. | The form has a change request field and an Evidence section. | |
+| 2-6c | Tester | Desktop, address bar or curl | Request the documents list filtered by `change_request_id` for the request from 2-5. Then send evidence fields in a document with no change request. | The filter returns only that request's documents, with all the evidence fields. Evidence fields without a change request are refused with "Evidence fields need a change request". | |
+| 2-7 | Admin | Desktop | Open **Change Control**, then the **Audit pack** panel. Choose a from and to date. Download the PDF and then the CSV. | Both files download. The CSV has the sections change_requests, evidence, decisions and approvals_audit. Each download adds an export.audit_pack row to the audit log. A reversed date range is refused. | |
+| 2-8 | Tester | Desktop, address bar or curl | Request the change requests export (`/api/export?entity=change_requests`). | The CSV has approver, decision, impact scope, implemented date, evidence counts and linked decisions, plus the tier and retro columns. | |
+| 2-9 | Tester | Desktop, address bar or curl | Read the change requests list and the decisions list. Read the EVM figures for a project. | Both lists are lean by default. Each decision carries `change_request_id`. The EVM figures include bac, pv, ev, ac, cpi and spi. | |
+| 2-10 | Tester | Desktop, with an MCP client connected to the local stack | Call list_change_requests, get_change_request, list_decisions, get_document and get_evm. | Each tool returns the same data as the matching REST read in 2-8 and 2-9. Nothing is written. | |
 
 ## Wave 3 — runs without you
 
@@ -122,7 +133,7 @@ Steps 4-19 to 4-23 need a GitHub repository that the tester can change, and a ta
 
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| 4-1 | Admin | Phone 390 px | Open **Settings** and find the **Approval policy** card. | Five rows, one per tier, each showing who decides it and its turnaround hours. Below them: a routine-only auto-approve checkbox with a warning, the cost threshold, the currency and the emergency window. The rows stack, and nothing scrolls sideways. | |
+| 4-1 | Admin | Phone 390 px | Open **Settings** and find the **Approval policy** card, below the Invites section. Admins and managers see it, and only admins can edit it. | Five rows, one per tier, each showing who decides it and its turnaround hours. Below them: a routine-only auto-approve checkbox with a warning, the cost threshold, the currency and the emergency window. The rows stack, and nothing scrolls sideways. | |
 | 4-2 | Admin | Desktop | Change the cost threshold to 20000 and save. Reload the page. | The field shows 20000 after the reload. The save writes one audit row. | |
 | 4-3 | Manager | Desktop | Raise a change request on a test project with an impact cost of 10000 and the default tier. | The change shows the tier **Normal** and an approval deadline. | |
 | 4-4 | Manager | Desktop | Raise a change request on the same project with an impact cost of 60000. | The change shows the tier **High risk**, because the cost is over the threshold you set in 4-2. | |
@@ -133,7 +144,7 @@ Steps 4-19 to 4-23 need a GitHub repository that the tester can change, and a ta
 | 4-9 | Manager | Desktop | Open the emergency change and press **Mark implemented**. | The status becomes implemented. An emergency note shows the retro deadline. | |
 | 4-10 | Admin | Desktop | Open the emergency change and record an approve retro decision. | The note shows the retro decision as given. The change stays implemented. | |
 | 4-11 | Admin | Desktop | Open **Approvals**. Find an emergency whose retro deadline has passed and has no retro decision. (Ask the developer to set one up with a past deadline if none exists.) | The item shows a red **Overdue** marker. The same item is named in the digest and the weekly report. | |
-| 4-12 | Admin | Desktop | Open **Settings**. Confirm the routine auto-approve checkbox is unchecked. Then look at a routine change nobody has decided, after its deadline has passed. | The routine change is still waiting. It is not approved. Admins receive an escalation notice. | |
+| 4-12 | Admin | Desktop | Open **Settings**, and the Approval policy card there. Confirm the routine auto-approve checkbox is unchecked. Then look at a routine change nobody has decided, after its deadline has passed. | The routine change is still waiting. It is not approved. Admins receive an escalation notice. | |
 | 4-13 | Manager | Desktop | On a test risk, press **Request deletion**, enter a reason and submit. | The risk stays in the register, with a **Deletion requested** note. No risk is removed. | |
 | 4-14 | Manager | Desktop | Sign in as a different manager. Open **Approvals**. Find the risk deletion. Read what approving removes, then approve it. | The request shows the risk and its reason, and the approval removes the risk. | |
 | 4-15 | Manager | Desktop | Open a milestone that has tasks, and request its deletion with a reason. | The request shows the number of tasks the milestone holds, as "removes N tasks". | |

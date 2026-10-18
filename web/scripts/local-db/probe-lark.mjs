@@ -376,9 +376,10 @@ await report.check("LK-X1", "decided in the console first: B's later card click 
   const req = await seedRequest("change_request");
   const token = await seedActionToken(req, fx.b);
   // B decides through the REST API with their PAT (a different channel).
+  const ver = (await pgc.query(`select to_char(updated_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as v from change_requests where id = $1`, [req.id])).rows[0].v;
   const decided = await call("POST", `/api/change-requests/${req.id}/decision`, {
     token: fx.tokens.b.raw,
-    body: { decision: "approve", rationale: "probe: decided in the console" },
+    body: { decision: "approve", rationale: "probe: decided in the console", expected_updated_at: ver },
   });
   expectEqual(decided.status, 200, `REST decision (body ${decided.text.slice(0, 200)})`);
   // The hub kills open action tokens in an after() hook; give it a moment.

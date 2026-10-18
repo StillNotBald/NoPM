@@ -6,6 +6,8 @@ import { APPEARANCE_COOKIE_NAME, parseAppearancePrefs } from "@/lib/theme/appear
 import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContainer } from "@/components/ui/page-container";
+import type { Document as DocumentRow } from "@/components/documents/document-form";
+import { DOCUMENT_REGISTER_COLUMNS } from "@/lib/documents/columns";
 import { DocumentsClient, NewDocumentButton } from "@/components/documents/documents-client";
 
 export const metadata = { title: "Documents" };
@@ -17,14 +19,13 @@ export default async function DocumentsPage() {
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: documents }, { data: projects }, { data: members }, { data: viewerProfile }] =
+  const [{ data: documents }, { data: changeRequests }, { data: projects }, { data: members }, { data: viewerProfile }] =
     await Promise.all([
       db
         .from("documents")
-        .select(
-          "id, workspace_id, project_id, reference_id, folder, title, doc_type, status, version, summary, body, external_url, owner_id, created_by, created_at, updated_at",
-        )
+        .select(DOCUMENT_REGISTER_COLUMNS)
         .order("updated_at", { ascending: false }),
+      db.from("change_requests").select("id, reference_id, title, project_id").order("created_at", { ascending: false }),
       db.from("projects").select("id, name").order("name"),
       db.from("profiles").select("id, display_name, email"),
       // caller's own role — see risks/page.tsx for the pattern (L-46).
@@ -49,15 +50,16 @@ export default async function DocumentsPage() {
     <PageContainer width="wide" className="space-y-6">
       <PageHeader
         title="Documents"
-        action={<NewDocumentButton projects={projects ?? []} />}
+        action={<NewDocumentButton projects={projects ?? []} changeRequests={changeRequests ?? []} />}
       />
 
       <Card className="overflow-hidden">
         {/* Suspense boundary required by useSearchParams inside DocumentsClient */}
         <Suspense>
           <DocumentsClient
-            documents={documents ?? []}
+            documents={(documents ?? []) as unknown as DocumentRow[]}
             projects={projects ?? []}
+            changeRequests={changeRequests ?? []}
             projectMap={projectMap}
             ownerMap={ownerMap}
             canWrite={canWrite}

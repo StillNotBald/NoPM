@@ -65,3 +65,9 @@ describe("0105 github work events", () => {
     expect(sql).not.toMatch(/create policy[^;]*for (insert|update|delete|all)/i);
   });
 });
+
+describe("0105 status label safety", () => {
+  it("never writes a null label into tasks.status", () => {
+    expect(sql).toMatch(/case when p_set_label and p_status_label is not null then p_status_label else status end/);
+  });
+});

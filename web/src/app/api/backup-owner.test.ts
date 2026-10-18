@@ -158,3 +158,27 @@ describe("a valid backup is saved, returned and audited", () => {
     expect(res.status).toBe(422);
   });
 });
+
+describe("post-UAT fixes", () => {
+  it("UAT-003: a project edit that sends program: null saves and clears the program", async () => {
+    db.rows("projects")[0].program = "Global";
+    const res = await call(patchProject, "PATCH", { name: "Billing", program: null, backup_owner_id: BOB }, { id: PROJ });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(db.rows("projects")[0].program).toBeNull();
+    expect(db.rows("projects")[0].backup_owner_id).toBe(BOB);
+  });
+
+  it("UAT-003: creating a project with program: null is accepted", async () => {
+    const res = await call(createProject, "POST", { code: "NEW", name: "New", program: null }, {});
+    expect(res.status, await res.clone().text()).toBe(201);
+  });
+
+  it("UAT-022: the refusal is plain language, the field name stays in fields", async () => {
+    const res = await call(patchProject, "PATCH", { backup_owner_id: ALICE }, { id: PROJ });
+    expect(res.status).toBe(422);
+    const json = await res.json();
+    expect(json.fields[0].field).toBe("backup_owner_id");
+    expect(json.fields[0].message).toBe("The backup owner must be a different person from the owner.");
+    expect(json.fields[0].message).not.toMatch(/_id/);
+  });
+});

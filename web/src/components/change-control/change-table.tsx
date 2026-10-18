@@ -13,7 +13,7 @@ import {
   statusTone,
 } from "@/components/change-control/change-detail";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
-import type { ChangeRequest } from "@/components/change-control/change-form";
+import { impactCellText, type ChangeRequest } from "@/components/change-control/change-form";
 
 // ── ChangeTable ───────────────────────────────────────────────────────────────
 
@@ -73,7 +73,7 @@ export function ChangeTable({ rows, projectMap, projects, canWrite = true }: Cha
       header: "Title",
       primary: true,
       cell: (cr) => (
-        <span className="line-clamp-2 min-w-0 max-w-[220px] break-words font-medium text-ink" title={cr.title}>
+        <span className="line-clamp-2 min-w-[8.5rem] max-w-[22rem] font-medium text-ink" title={cr.title}>
           {cr.title}
         </span>
       ),
@@ -84,7 +84,7 @@ export function ChangeTable({ rows, projectMap, projects, canWrite = true }: Cha
       hideOnMobile: true,
       cell: (cr) =>
         cr.project_id ? (
-          <span className="block min-w-0 max-w-[140px]">
+          <span className="block min-w-0 max-w-[70px]">
             <EntityLink kind="project" id={cr.project_id} muted>
               <span className="truncate">{projectMap[cr.project_id] ?? cr.project_id.slice(0, 8) + "…"}</span>
             </EntityLink>
@@ -125,15 +125,15 @@ export function ChangeTable({ rows, projectMap, projects, canWrite = true }: Cha
       key: "impact",
       header: "Impact",
       cell: (cr) => (
-        <span className="block min-w-0 max-w-[160px] truncate text-ink-secondary">
-          {cr.impact_summary ?? "—"}
+        <span className="block min-w-0 max-w-[80px] truncate text-ink-secondary" title={impactCellText(cr)}>
+          {impactCellText(cr)}
         </span>
       ),
     },
     {
       key: "requested_by",
       header: "Requested By",
-      cell: (cr) => <span className="text-ink-secondary">{cr.requested_by_label ?? "—"}</span>,
+      cell: (cr) => <span className="block max-w-[90px] truncate text-ink-secondary" title={cr.requested_by_label ?? undefined}>{cr.requested_by_label ?? "—"}</span>,
     },
   ];
 

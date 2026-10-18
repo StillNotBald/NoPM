@@ -302,7 +302,8 @@ export class FakeDb {
       }
       const before = { ...task };
       task.status_type = args.p_status_type;
-      if (args.p_set_label) task.status = args.p_status_label;
+      // tasks.status is NOT NULL: a null label keeps the current one (mirrors the SQL)
+      if (args.p_set_label && args.p_status_label != null) task.status = args.p_status_label;
       task.updated_at = nowIso();
       this.seed("audit_log", [{ ...provenance(audit), action: "task.update", before, after: { ...task } }]);
       return { data: { result: "applied", after: { ...task } }, error: null, count: null };
