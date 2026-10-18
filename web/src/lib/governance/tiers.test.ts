@@ -21,14 +21,14 @@ const policy = policyOf({});
 const base = { kind: "change_request" as const, policy, requester_role: "manager" };
 
 describe("policyOf: the CR A3 defaults", () => {
-  it("an empty policy is the defaults: routine and normal -> manager, high_risk and strategic -> admin, emergency retro -> admin", () => {
+  it("an empty policy is the defaults: routine and normal -> manager, high_risk and strategic -> admin, emergency -> admin (nobody decides it)", () => {
     expect(approverRoleFor("routine", policy)).toBe("manager");
     expect(approverRoleFor("normal", policy)).toBe("manager");
     expect(approverRoleFor("high_risk", policy)).toBe("admin");
     expect(approverRoleFor("emergency", policy)).toBe("admin");
     expect(approverRoleFor("strategic", policy)).toBe("admin");
     expect(policy.currency_threshold).toBe(50_000);
-    expect(policy.emergency_retro_hours).toBe(48);
+    expect(policy).not.toHaveProperty("emergency_retro_hours"); // retired (D17)
   });
 
   it("auto-approve is OFF by default on every tier", () => {
@@ -44,7 +44,7 @@ describe("policyOf: the CR A3 defaults", () => {
     expect(p.tiers.normal).toMatchObject({ approver_role: "admin", turnaround_hours: 12 });
     expect(p.tiers.high_risk).toMatchObject({ approver_role: "admin", turnaround_hours: DEFAULT_POLICY.tiers.high_risk.turnaround_hours });
     expect(p.currency_threshold).toBe(50_000);
-    expect(p.emergency_retro_hours).toBe(48);
+    expect(p).not.toHaveProperty("emergency_retro_hours"); // retired: read, ignored, never returned
   });
 
   it("auto_approve is honoured for routine only, whatever a hand-edited row says", () => {

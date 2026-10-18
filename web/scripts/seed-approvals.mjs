@@ -59,7 +59,7 @@ const profiles = (
 ).data ?? [];
 const demoEmail = env.DEMO_EMAIL ?? "";
 const requester =
-  profiles.find((p) => p.email === "priya.nair@stillnotbald.com") ??
+  profiles.find((p) => p.email === "priya.nair@example.com") ??
   profiles.find((p) => p.role !== "admin" && p.role !== "viewer" && p.email !== demoEmail);
 if (!requester) {
   throw new Error("No eligible requester profile (non-admin, non-viewer, not the demo login) — run seed-members.mjs first");

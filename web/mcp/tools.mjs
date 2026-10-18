@@ -63,6 +63,8 @@ export const PENDING_APPROVAL_KINDS = [
   "rebaseline",
 ];
 
+// "emergency" is a LEGACY filter value only: new emergency changes commit as approved and never sit in this status.
+// It stays so a read of old rows still validates (it leaves after the CUTOVER/12 live check shows none).
 export const CHANGE_REQUEST_STATUSES = ["raised", "under_review", "emergency", "approved", "rejected", "deferred", "implemented"];
 export const DOCUMENT_TYPES = ["charter", "plan", "raid", "status_report", "change_request", "minutes", "spec", "other"];
 export const DOCUMENT_STATUSES = ["draft", "in_review", "approved", "archived"];

@@ -54,6 +54,7 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
     "impact_summary", "impact_schedule_days", "impact_cost", "impact_scope", "requested_by", "requested_by_label",
     "decided_by", "decided_by_label", "decision_rationale", "raised_at", "decided_at", "implemented_at",
     "implemented_by_label", "implemented_note", "target_date", "tier", "approval_deadline_at", "is_emergency",
+    // retro_* are HISTORY columns: set only on emergencies raised before the retro was retired (Q1). Nothing new writes them.
     "retro_due_at", "retro_decided_at", "retro_outcome", "created_at", "updated_at",
   ],
   decisions: [

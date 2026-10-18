@@ -47,7 +47,7 @@ describe("approval_policy in /api/workspace-settings", () => {
     expect(p.tiers.high_risk.approver_role).toBe("admin");
     expect(p.tiers.emergency.approver_role).toBe("admin");
     expect(p.currency_threshold).toBe(50_000);
-    expect(p.emergency_retro_hours).toBe(48);
+    expect(p).not.toHaveProperty("emergency_retro_hours"); // retired (D17)
   });
 
   it("PATCH changes only what was sent, stores the complete policy, and writes ONE audit row with before and after", async () => {
@@ -140,10 +140,10 @@ describe("approval_policy in /api/workspace-settings", () => {
     expect((await patch({ approval_policy: { schedule_threshold_days: -2 } })).status).toBe(422);
   });
 
-  it("the deprecated emergency_retro_hours is accepted and ignored, even when out of range", async () => {
+  it("the retired emergency_retro_hours is accepted and ignored, even when out of range, and never returned", async () => {
     const res = await patch({ approval_policy: { emergency_retro_hours: 0, currency: "MYR" } });
     expect(res.status).toBe(200);
-    expect((await get()).approval_policy.emergency_retro_hours).toBe(48);
+    expect((await get()).approval_policy).not.toHaveProperty("emergency_retro_hours");
     expect((await get()).approval_policy.currency).toBe("MYR");
   });
 
@@ -151,8 +151,8 @@ describe("approval_policy in /api/workspace-settings", () => {
     const res = await patch({ stale_days: 30, approval_policy: { emergency_retro_hours: 24 } });
     expect(res.status).toBe(200);
     expect(db.rows("workspaces").find((w) => w.id === WS)).toMatchObject({ stale_days: 30 });
-    // deprecated (Q1): accepted, not stored
-    expect((await get()).approval_policy.emergency_retro_hours).toBe(48);
+    // retired (Q1, D17): accepted, not stored, not returned
+    expect((await get()).approval_policy).not.toHaveProperty("emergency_retro_hours");
     expect(audits()).toHaveLength(1);
   });
 });
