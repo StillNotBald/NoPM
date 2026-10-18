@@ -87,7 +87,6 @@ describe("/risks: columns that fit, labelled controls", () => {
           description: "",
           severity: "high",
           likelihood: "high",
-          category: "",
           mitigation: "",
           status: "open",
           raised_at: "2026-10-01T00:00:00Z",

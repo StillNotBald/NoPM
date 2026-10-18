@@ -8,11 +8,13 @@ import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolution";
-import { createRiskSchema } from "@/app/api/risks/_schema";
+import { createRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
+import { RISK_SELECT } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { parseListSelection } from "@/lib/api/views";
 import { nextRefId } from "@/lib/ref-id";
 import { parseSort, orderOptions } from "@/lib/api/sort";
-import { RISK_SORT_FIELDS, parseRiskFilters } from "@/app/api/risks/_query";
+import { RISK_SORT_FIELDS, parseRiskFilters, parseImpactAreaFilter } from "@/app/api/risks/_query";
 
 export { RISK_SORT_FIELDS };
 
@@ -49,10 +51,11 @@ export const GET = route(async ({ actor, params, request }) => {
   });
 
   const filters = parseRiskFilters(url.searchParams);
+  const selection = parseListSelection(url.searchParams, "risks"); // view=summary|full, fields= (R-129)
 
   let query = db
     .from("risks")
-    .select("*", { count: "exact" })
+    .select(selection.select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
     .eq("project_id", projectId);
 
@@ -64,6 +67,9 @@ export const GET = route(async ({ actor, params, request }) => {
   if (filters.severity) query = query.eq("severity", filters.severity);
   if (filters.source) query = query.eq("source", filters.source);
   if (filters.external_ref) query = query.eq("external_ref", filters.external_ref);
+  // K2: any-of across the risk's impact areas (?impact_area=cost,schedule).
+  const impactAreas = parseImpactAreaFilter(url.searchParams);
+  if (impactAreas.length > 0) query = query.overlaps("impact_areas", impactAreas);
   query = query.order(sort.field, orderOptions(sort));
   query = query.range(offset, offset + limit - 1);
 
@@ -115,6 +121,7 @@ export const POST = route(async ({ actor, params, request }) => {
   ]);
 
   const refId = await nextRefId(db, actor.workspaceId, "risks", "R");
+  const impactAreasInput = resolveImpactAreas(input) ?? [];
 
   const { data: row, error } = await db
     .from("risks")
@@ -126,7 +133,6 @@ export const POST = route(async ({ actor, params, request }) => {
       description: input.description ?? null,
       severity: input.severity,
       likelihood: input.likelihood,
-      category: input.category ?? null,
       mitigation: input.mitigation ?? null,
       owner_id: input.owner_id ?? null,
       status: input.status,
@@ -137,7 +143,8 @@ export const POST = route(async ({ actor, params, request }) => {
       impact_score: input.impact_score ?? null,
       response_strategy: input.response_strategy,
       risk_category: input.risk_category ?? null,
-      impact_area: input.impact_area ?? null,
+      impact_areas: impactAreasInput,
+      impact_area: impactAreasInput[0] ?? null,
       trigger: input.trigger ?? null,
       residual_risk: input.residual_risk ?? null,
       resolution: input.resolution ?? null,
@@ -146,7 +153,7 @@ export const POST = route(async ({ actor, params, request }) => {
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
     })
-    .select()
+    .select(RISK_SELECT)
     .single();
 
   if (error || !row) throw new Error(error?.message ?? "Insert failed");

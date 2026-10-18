@@ -36,7 +36,7 @@ export async function run(rest, ctx) {
       if (!projectId) ctx.die("usage: nopm issues ls --project <project-id>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      let url = `/api/projects/${projectId}/issues?page=${page}&limit=${limit}`;
+      let url = `/api/projects/${projectId}/issues?page=${page}&limit=${limit}&view=full`;
       if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
       const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);

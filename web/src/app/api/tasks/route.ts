@@ -4,6 +4,7 @@ import { okList } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workspaceToday } from "@/lib/integrations/time-zone";
 import { parseSort, orderOptions } from "@/lib/api/sort";
+import { parseListSelection } from "@/lib/api/views";
 import { TASK_SORT_FIELDS, parseTaskFilters } from "./_query";
 
 export const runtime = "nodejs";
@@ -35,12 +36,13 @@ export const GET = route(async ({ actor, request }) => {
   });
 
   const filters = parseTaskFilters(url.searchParams);
+  const selection = parseListSelection(url.searchParams, "tasks"); // view=summary|full, fields= (R-129)
   // Workspace-zone date; only looked up when the overdue filter needs it.
   const todayIso = filters.overdue ? await workspaceToday(actor.workspaceId) : "";
 
   let query = db
     .from("tasks")
-    .select("*", { count: "exact" })
+    .select(selection.select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId);
 
   // Inlined (not applyTaskFilters<Q>/applySort<Q>): the generic helpers trip

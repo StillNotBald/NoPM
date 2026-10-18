@@ -137,7 +137,8 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
 /** DELETE /api/issues/:id — delete an issue */
 export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "issue:write");
+  // Hard delete needs its own scope: the agent preset holds issue:write but not issue:delete (W1-06).
+  requireScope(actor, "issue:delete");
 
   const db = createAdminClient();
 

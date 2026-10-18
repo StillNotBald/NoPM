@@ -8,6 +8,7 @@ import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { EntityLink } from "@/components/ui/entity-link";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { impactAreaLabel } from "@/lib/risk/impact-areas";
 import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { RiskForm, type Risk, type RiskResponseStrategy } from "@/components/forms/risk-form";
 import {
@@ -60,14 +61,6 @@ const RISK_CATEGORY_LABELS: Record<string, string> = {
   organisational: "Organisational / Change",
 };
 
-const IMPACT_AREA_LABELS: Record<string, string> = {
-  schedule: "Schedule",
-  cost: "Cost",
-  scope: "Scope",
-  quality: "Quality",
-  reputation: "Reputation",
-  compliance: "Compliance",
-};
 
 
 // ── RiskDetailRow — a labelled field row ──────────────────────────────────────
@@ -218,13 +211,16 @@ export function RiskDetail({ risk, projectName, ownerName, dateDisplayPref = "ab
           />
         </DetailRow>
 
-        <DetailRow label="Impact Area">
+        <DetailRow label="Impact Areas">
           <TextValue
-            value={
-              risk.impact_area
-                ? (IMPACT_AREA_LABELS[risk.impact_area] ?? risk.impact_area)
-                : null
-            }
+            value={(() => {
+              const areas = risk.impact_areas?.length
+                ? risk.impact_areas
+                : risk.impact_area
+                  ? [risk.impact_area]
+                  : [];
+              return areas.length > 0 ? areas.map((a) => impactAreaLabel(a)).join(", ") : null;
+            })()}
           />
         </DetailRow>
 

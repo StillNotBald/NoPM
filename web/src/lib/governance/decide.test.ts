@@ -55,6 +55,7 @@ import {
   NO_PRINCIPAL_MESSAGE,
   TARGET_CHANGED_MESSAGE,
   TARGET_GONE_MESSAGE,
+  noteLegacyRequesterUnknown,
 } from "./decide";
 
 // ── fixtures ──────────────────────────────────────────────────────────────
@@ -405,6 +406,40 @@ describe("approveDeletion", () => {
     ];
     const err = await caught(approveDeletion(bobPat(), "del-2"));
     expect(err.code).toBe("self_approval");
+  });
+
+  it("G6: deciding a legacy request with no requester principal writes a four_eyes.legacy_requester_unknown audit row", async () => {
+    db.tables.deletion_requests = [
+      deletionRow({ requested_by_type: "token", requested_by_id: "tok-legacy", requested_principal_id: null }),
+    ];
+    await approveDeletion(bobPat(), "del-1");
+    const rows = db.rows("audit_log").filter((a) => a.action === "four_eyes.legacy_requester_unknown");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ target_type: "deletion_request", target_id: "del-1" });
+  });
+
+  it("G6: a refused attempt (reject with no reason) writes no legacy row; the committed reject writes exactly one", async () => {
+    db.tables.deletion_requests = [
+      deletionRow({ requested_by_type: "token", requested_by_id: "tok-legacy", requested_principal_id: null }),
+    ];
+    const err = await caught(rejectDeletion(bobPat(), "del-1", {}));
+    expect(err.code).toBe("rationale_required");
+    expect(db.rows("audit_log").filter((a) => a.action === "four_eyes.legacy_requester_unknown")).toHaveLength(0);
+    await rejectDeletion(bobPat(), "del-1", { reason: "not needed" });
+    expect(db.rows("audit_log").filter((a) => a.action === "four_eyes.legacy_requester_unknown")).toHaveLength(1);
+  });
+
+  it("G6: a request that has a requester principal writes no legacy row; a failing audit write never blocks", async () => {
+    await noteLegacyRequesterUnknown(bobPat(), "change_request", { id: "cr-1", requested_principal_id: ALICE }, "decide");
+    expect(db.rows("audit_log").filter((a) => a.action === "four_eyes.legacy_requester_unknown")).toHaveLength(0);
+    const original = db.client.from;
+    db.client.from = (() => {
+      throw new Error("audit down");
+    }) as typeof db.client.from;
+    await expect(
+      noteLegacyRequesterUnknown(bobPat(), "change_request", { id: "cr-1", requested_principal_id: null }, "decide"),
+    ).resolves.toBeUndefined();
+    db.client.from = original;
   });
 
   it("already decided -> 422 already_decided", async () => {

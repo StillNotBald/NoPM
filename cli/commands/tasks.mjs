@@ -33,7 +33,7 @@ export async function run(rest, ctx) {
       if (!f.project) ctx.die("usage: nopm tasks ls --project <projectId>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      let url = `/api/projects/${f.project}/tasks?page=${page}&limit=${limit}`;
+      let url = `/api/projects/${f.project}/tasks?page=${page}&limit=${limit}&view=full`;
       if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
       const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);

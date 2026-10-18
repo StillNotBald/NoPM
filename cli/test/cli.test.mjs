@@ -144,7 +144,7 @@ test("tasks ls passes --external-ref through as a query filter", async () => {
   const ctx = makeCtx({ _: ["ls"], project: "proj_1", "external-ref": "PROJ-123" });
   await tasks.run([], ctx);
   assert.deepEqual(ctx.calls, [
-    { method: "GET", path: "/api/projects/proj_1/tasks?page=1&limit=100&external_ref=PROJ-123", body: undefined },
+    { method: "GET", path: "/api/projects/proj_1/tasks?page=1&limit=100&view=full&external_ref=PROJ-123", body: undefined },
   ]);
 });
 
@@ -589,4 +589,54 @@ test("sprints close sends move_unfinished_to and guards a missing id", async () 
   assert.equal(ctx.calls[0].path, "/api/sprints/s1/close");
   assert.deepEqual(ctx.calls[0].body, { move_unfinished_to: "backlog" });
   await expectDies(() => sp.run([], makeCtx({ _: ["close"] })), /usage/);
+});
+
+// ── Lean list payloads (R-129) + risk taxonomy (K1/K2) ──────────────────────
+
+test("list commands ask for view=full so --json keeps every column", async () => {
+  for (const [mod, flags, path] of [
+    ["projects", { _: ["ls"] }, "/api/projects?page=1&limit=100&view=full"],
+    ["tasks", { _: ["ls"], project: "p1" }, "/api/projects/p1/tasks?page=1&limit=100&view=full"],
+    ["risks", { _: ["ls"], project: "p1" }, "/api/projects/p1/risks?page=1&limit=100&view=full"],
+    ["issues", { _: ["ls"], project: "p1" }, "/api/projects/p1/issues?page=1&limit=100&view=full"],
+    ["milestones", { _: ["ls"], project: "p1" }, "/api/projects/p1/milestones?page=1&limit=100&view=full"],
+  ]) {
+    const m = await import(`../commands/${mod}.mjs`);
+    const ctx = makeCtx(flags);
+    await m.run([], ctx);
+    assert.deepEqual(ctx.calls, [{ method: "GET", path, body: undefined }], mod);
+  }
+});
+
+test("risks create sends risk_category and impact_areas (array), never the retired category", async () => {
+  const risks = await import("../commands/risks.mjs");
+  const ctx = makeCtx(
+    { _: ["create"], project: "p1", title: "Vendor slips", severity: "high", likelihood: "medium", "risk-category": "supplier_external", "impact-area": "cost, schedule" },
+    { data: { id: "r1", reference_id: "R-1" } },
+  );
+  await risks.run([], ctx);
+  assert.deepEqual(ctx.calls[0].body, {
+    title: "Vendor slips",
+    severity: "high",
+    likelihood: "medium",
+    risk_category: "supplier_external",
+    impact_areas: ["cost", "schedule"],
+  });
+  assert.ok(!("category" in ctx.calls[0].body));
+});
+
+test("risks update --impact-area sends impact_areas", async () => {
+  const risks = await import("../commands/risks.mjs");
+  const ctx = makeCtx({ _: ["update", "r1"], "impact-area": "quality" }, { data: { id: "r1" } });
+  await risks.run([], ctx);
+  assert.deepEqual(ctx.calls[0], { method: "PATCH", path: "/api/risks/r1", body: { impact_areas: ["quality"] } });
+});
+
+test("risks create/update die on the retired --category and point to --risk-category", async () => {
+  const risks = await import("../commands/risks.mjs");
+  for (const sub of ["create", "update"]) {
+    const ctx = makeCtx({ _: [sub, "r1"], project: "p1", title: "t", severity: "low", likelihood: "low", category: "Technical" });
+    await assert.rejects(() => risks.run([], ctx), /--risk-category/);
+    assert.equal(ctx.calls.length, 0);
+  }
 });

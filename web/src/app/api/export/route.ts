@@ -5,12 +5,14 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { workspaceToday } from "@/lib/integrations/time-zone";
 import { toCsv } from "@/lib/export/csv";
+import { RISK_SELECT } from "@/lib/api/views";
 import { parseSort, orderOptions } from "@/lib/api/sort";
 import { TASK_SORT_FIELDS, parseTaskFilters } from "@/app/api/tasks/_query";
-import { RISK_SORT_FIELDS, parseRiskFilters } from "@/app/api/risks/_query";
+import { RISK_SORT_FIELDS, parseRiskFilters, parseImpactAreaFilter } from "@/app/api/risks/_query";
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
 import { parseAuditFilters } from "@/app/api/audit/_query";
-import { parseExportDay, dayAfter } from "./_audit-range";
+import { assertCanListMembers, memberMfaEnabled } from "@/lib/people/members";
+import { parseExportRange, rangeColumn, applyExportRange, type ExportRange } from "./_audit-range";
 
 export const runtime = "nodejs";
 
@@ -37,6 +39,8 @@ export const runtime = "nodejs";
  */
 
 const MAX_EXPORT_ROWS = 10_000;
+/** Ids per .in() lookup, so a 10,000-row export never builds an oversized URL. */
+const ID_CHUNK = 100;
 
 const ENTITY_SCOPES = {
   tasks: "task:read",
@@ -48,9 +52,53 @@ const ENTITY_SCOPES = {
   projects: "project:read",
 } as const;
 
-type Entity = keyof typeof ENTITY_SCOPES;
+/**
+ * Access-review entities (M5). There is no read scope for people, tokens or
+ * connector identities: GET /api/members and GET /api/tokens are admin or
+ * manager SESSION only, so these exports follow the same rule. A token
+ * (whatever its scopes) or a member/viewer session gets 403.
+ */
+const ADMIN_ENTITIES = ["members", "tokens", "identities"] as const;
+type AdminEntity = (typeof ADMIN_ENTITIES)[number];
+
+type ScopedEntity = keyof typeof ENTITY_SCOPES;
+type Entity = ScopedEntity | AdminEntity;
+
+/** Entities that carry an updated_at, so `on=updated` can filter on it. */
+const HAS_UPDATED_AT: ReadonlySet<Entity> = new Set<Entity>([
+  "tasks", "risks", "issues", "clashes", "projects",
+]);
+
+function isAdminEntity(e: Entity): e is AdminEntity {
+  return (ADMIN_ENTITIES as readonly string[]).includes(e);
+}
+
+/** Column the date range filters on for this entity. */
+function rangeColumnFor(entity: Entity, range: ExportRange): string {
+  return rangeColumn(range.on, {
+    hasUpdatedAt: HAS_UPDATED_AT.has(entity),
+    createdColumn: entity === "identities" ? "linked_at" : "created_at",
+  });
+}
 
 const ENTITY_COLUMNS: Record<Entity, string[]> = {
+  // M5 access review. Email is exported because GET /api/members returns it
+  // to the same admin/manager audience. No secrets, no backup codes.
+  members: [
+    "id", "display_name", "email", "role", "status", "mfa_enabled", "created_at",
+    "removed_at", "last_role_change_at", "last_role_change_by",
+  ],
+  // Never token_hash. The API has no revoked_at, only a revoked flag.
+  tokens: [
+    "id", "label", "prefix", "scopes", "created_by", "created_by_label",
+    "created_at", "expires_at", "revoked", "last_used_at",
+  ],
+  // Connector identities: profile, provider, linked_at. The external platform
+  // user id is deliberately not exported.
+  identities: [
+    "id", "profile_id", "profile_label", "provider", "connector_id", "linked_at",
+    "revoked_at",
+  ],
   tasks: [
     "id", "workspace_id", "project_id", "milestone_id", "name", "description",
     "status", "status_type", "assignee_id", "priority", "start_date", "due_date",
@@ -58,8 +106,8 @@ const ENTITY_COLUMNS: Record<Entity, string[]> = {
   ],
   risks: [
     "id", "workspace_id", "project_id", "reference_id", "title", "description",
-    "severity", "likelihood", "category", "mitigation", "owner_id", "status",
-    "raised_at", "due_date", "created_at", "updated_at",
+    "severity", "likelihood", "risk_category", "impact_areas", "mitigation", "owner_id",
+    "status", "raised_at", "due_date", "created_at", "updated_at",
   ],
   issues: [
     "id", "workspace_id", "project_id", "reference_id", "title", "description",
@@ -75,6 +123,9 @@ const ENTITY_COLUMNS: Record<Entity, string[]> = {
     "id", "workspace_id", "actor_type", "actor_id", "actor_label", "action",
     "target_type", "target_id", "before", "after", "channel", "request_id",
     "created_at",
+    // M3 provenance: who really acted (principal), through which connector.
+    "principal_id", "principal_label", "via_connector_id", "external_event_id",
+    "external_actor_ref",
   ],
   programs: [
     "id", "workspace_id", "code", "name", "rag_status", "owner_id", "created_at",
@@ -95,7 +146,11 @@ function ilikeTerm(q: string): string {
 }
 
 function isEntity(value: string | null): value is Entity {
-  return !!value && Object.prototype.hasOwnProperty.call(ENTITY_SCOPES, value);
+  return (
+    !!value &&
+    (Object.prototype.hasOwnProperty.call(ENTITY_SCOPES, value) ||
+      (ADMIN_ENTITIES as readonly string[]).includes(value))
+  );
 }
 
 type Db = ReturnType<typeof createAdminClient>;
@@ -111,6 +166,7 @@ async function fetchTasksRows(
   workspaceId: string,
   db: Db,
   todayIso: string,
+  range: ExportRange,
 ): Promise<FetchResult> {
   const sort = parseSort(sp.get("sort"), TASK_SORT_FIELDS, { field: "due_date", ascending: true });
   const filters = parseTaskFilters(sp);
@@ -130,6 +186,7 @@ async function fetchTasksRows(
     query = query.lt("due_date", todayIso).not("status_type", "in", '("completed","canceled")');
   }
   if (filters.q) query = query.ilike("name", `%${filters.q}%`);
+  query = applyExportRange(query, range, rangeColumnFor("tasks", range));
   const { data, error, count } = await query
     .order(sort.field, orderOptions(sort))
     .range(0, MAX_EXPORT_ROWS - 1);
@@ -137,7 +194,7 @@ async function fetchTasksRows(
   return {
     rows: (data ?? []) as Record<string, unknown>[],
     total: count ?? (data ?? []).length,
-    filters: { ...filters, sort: sp.get("sort") ?? undefined },
+    filters: { ...filters, sort: sp.get("sort") ?? undefined, ...rangeFilters(range) },
   };
 }
 
@@ -151,7 +208,12 @@ async function assertProjectInWorkspace(db: Db, projectId: string, workspaceId: 
   if (!project) throw new NotFoundError("Project not found");
 }
 
-async function fetchRisksRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+async function fetchRisksRows(
+  sp: URLSearchParams,
+  workspaceId: string,
+  db: Db,
+  range: ExportRange,
+): Promise<FetchResult> {
   // project_id is OPTIONAL: given -> that project's risks (validated in-workspace);
   // omitted -> every risk in the actor's workspace (cross-project register).
   const projectId = sp.get("project_id");
@@ -160,23 +222,41 @@ async function fetchRisksRows(sp: URLSearchParams, workspaceId: string, db: Db):
   const sort = parseSort(sp.get("sort"), RISK_SORT_FIELDS, { field: "created_at", ascending: false });
   const filters = parseRiskFilters(sp);
   const q = sp.get("q")?.trim() || undefined;
-  let query = db.from("risks").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
+  let query = db.from("risks").select(RISK_SELECT, { count: "exact" }).eq("workspace_id", workspaceId);
   if (projectId) query = query.eq("project_id", projectId);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.severity) query = query.eq("severity", filters.severity);
   if (q) query = query.ilike("title", ilikeTerm(q));
+  // Any-of impact area, same as the list route (a risk matches if it touches ANY listed area).
+  const impactAreas = parseImpactAreaFilter(sp);
+  if (impactAreas.length > 0) {
+    query = (query as unknown as { overlaps(c: string, v: string[]): typeof query }).overlaps("impact_areas", impactAreas);
+  }
+  query = applyExportRange(query, range, rangeColumnFor("risks", range));
   const { data, error, count } = await query
     .order(sort.field, orderOptions(sort))
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
+  const riskRows = (data ?? []) as Record<string, unknown>[];
+  for (const r of riskRows) {
+    if (Array.isArray(r.impact_areas)) r.impact_areas = (r.impact_areas as string[]).join(" ");
+  }
   return {
-    rows: (data ?? []) as Record<string, unknown>[],
-    total: count ?? (data ?? []).length,
-    filters: { project_id: projectId ?? undefined, ...filters, q, sort: sp.get("sort") ?? undefined },
+    rows: riskRows,
+    total: count ?? riskRows.length,
+    filters: {
+      project_id: projectId ?? undefined, ...filters, q, sort: sp.get("sort") ?? undefined,
+      impact_area: impactAreas.length > 0 ? impactAreas : undefined, ...rangeFilters(range),
+    },
   };
 }
 
-async function fetchIssuesRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+async function fetchIssuesRows(
+  sp: URLSearchParams,
+  workspaceId: string,
+  db: Db,
+  range: ExportRange,
+): Promise<FetchResult> {
   // project_id OPTIONAL — same posture as fetchRisksRows.
   const projectId = sp.get("project_id");
   if (projectId) await assertProjectInWorkspace(db, projectId, workspaceId);
@@ -190,6 +270,7 @@ async function fetchIssuesRows(sp: URLSearchParams, workspaceId: string, db: Db)
   if (filters.severity) query = query.eq("severity", filters.severity);
   if (filters.priority) query = query.eq("priority", filters.priority);
   if (q) query = query.ilike("title", ilikeTerm(q));
+  query = applyExportRange(query, range, rangeColumnFor("issues", range));
   const { data, error, count } = await query
     .order(sort.field, orderOptions(sort))
     .range(0, MAX_EXPORT_ROWS - 1);
@@ -197,23 +278,30 @@ async function fetchIssuesRows(sp: URLSearchParams, workspaceId: string, db: Db)
   return {
     rows: (data ?? []) as Record<string, unknown>[],
     total: count ?? (data ?? []).length,
-    filters: { project_id: projectId ?? undefined, ...filters, q, sort: sp.get("sort") ?? undefined },
+    filters: { project_id: projectId ?? undefined, ...filters, q, sort: sp.get("sort") ?? undefined, ...rangeFilters(range) },
   };
 }
 
-async function fetchClashesRows(_sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+async function fetchClashesRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
   // GET /clashes takes no filter/sort params — export mirrors that: fixed created_at desc.
-  const { data, error, count } = await db
-    .from("clashes")
-    .select("*", { count: "exact" })
-    .eq("workspace_id", workspaceId)
+  const base = db.from("clashes").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
+  const { data, error, count } = await applyExportRange(base, range, rangeColumnFor("clashes", range))
     .order("created_at", { ascending: false })
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
-  return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters: {} };
+  return {
+    rows: (data ?? []) as Record<string, unknown>[],
+    total: count ?? (data ?? []).length,
+    filters: rangeFilters(range),
+  };
 }
 
-async function fetchProjectsRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+async function fetchProjectsRows(
+  sp: URLSearchParams,
+  workspaceId: string,
+  db: Db,
+  range: ExportRange,
+): Promise<FetchResult> {
   const sort = parseSort(sp.get("sort"), PROJECT_SORT_FIELDS, { field: "created_at", ascending: false });
   const q = sp.get("q")?.trim() || undefined;
   const ragStatus = sp.get("rag_status") || undefined;
@@ -224,6 +312,7 @@ async function fetchProjectsRows(sp: URLSearchParams, workspaceId: string, db: D
   if (phase) query = query.eq("phase", phase);
   if (programId) query = query.eq("program_id", programId);
   if (q) query = query.ilike("name", ilikeTerm(q));
+  query = applyExportRange(query, range, rangeColumnFor("projects", range));
   const { data, error, count } = await query
     .order(sort.field, orderOptions(sort))
     .range(0, MAX_EXPORT_ROWS - 1);
@@ -231,24 +320,34 @@ async function fetchProjectsRows(sp: URLSearchParams, workspaceId: string, db: D
   return {
     rows: (data ?? []) as Record<string, unknown>[],
     total: count ?? (data ?? []).length,
-    filters: { rag_status: ragStatus, phase, program_id: programId, q, sort: sp.get("sort") ?? undefined },
+    filters: {
+      rag_status: ragStatus, phase, program_id: programId, q, sort: sp.get("sort") ?? undefined,
+      ...rangeFilters(range),
+    },
   };
 }
 
-async function fetchProgramsRows(_sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+async function fetchProgramsRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
   // GET /programs takes no filter/sort params today — export mirrors that:
   // fixed name asc, same posture as fetchClashesRows above.
-  const { data, error, count } = await db
-    .from("programs")
-    .select("*", { count: "exact" })
-    .eq("workspace_id", workspaceId)
+  const base = db.from("programs").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
+  const { data, error, count } = await applyExportRange(base, range, rangeColumnFor("programs", range))
     .order("name", { ascending: true })
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
-  return { rows: (data ?? []) as Record<string, unknown>[], total: count ?? (data ?? []).length, filters: {} };
+  return {
+    rows: (data ?? []) as Record<string, unknown>[],
+    total: count ?? (data ?? []).length,
+    filters: rangeFilters(range),
+  };
 }
 
-async function fetchAuditRows(sp: URLSearchParams, workspaceId: string, db: Db): Promise<FetchResult> {
+async function fetchAuditRows(
+  sp: URLSearchParams,
+  workspaceId: string,
+  db: Db,
+  range: ExportRange,
+): Promise<FetchResult> {
   const filters = parseAuditFilters(sp);
   let query = db.from("audit_log").select("*", { count: "exact" }).eq("workspace_id", workspaceId);
   // Same TS2589 workaround as GET /audit — inline .eq() instead of the
@@ -274,19 +373,135 @@ async function fetchAuditRows(sp: URLSearchParams, workspaceId: string, db: Db):
   // filter writes, so the downloaded file matches the on-screen view. `from` is
   // a day-granular alias of `since` (both may be given; both narrow). Malformed
   // days are dropped, same leniency as `since`.
-  const from = parseExportDay(sp.get("from"));
-  const to = parseExportDay(sp.get("to"));
-  if (from !== undefined) query = query.gte("created_at", `${from}T00:00:00Z`);
-  if (to !== undefined) query = query.lt("created_at", dayAfter(to));
+  query = applyExportRange(query, range, "created_at");
   const { data, error, count } = await query
     .order("created_at", { ascending: filters.order === "asc" })
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  // principal_label: ONE profiles lookup for every distinct principal on the
+  // page (no N+1). Unknown principals (deleted profile, system) stay blank.
+  const labels = await profileLabels(
+    db,
+    workspaceId,
+    rows.map((r) => r.principal_id),
+  );
+  for (const r of rows) {
+    r.principal_label = typeof r.principal_id === "string" ? (labels.get(r.principal_id) ?? "") : "";
+  }
   return {
-    rows: (data ?? []) as Record<string, unknown>[],
-    total: count ?? (data ?? []).length,
-    filters: { ...filters, from, to },
+    rows,
+    total: count ?? rows.length,
+    filters: { ...filters, ...rangeFilters(range) },
   };
+}
+
+/** The range as it is recorded in the export.csv audit row. */
+function rangeFilters(range: ExportRange): Record<string, unknown> {
+  return { from: range.from, to: range.to, on: range.from || range.to ? range.on : undefined };
+}
+
+/** profile id -> display name for the given ids, one query, workspace-scoped. */
+async function profileLabels(db: Db, workspaceId: string, ids: unknown[]): Promise<Map<string, string>> {
+  const distinct = [...new Set(ids.filter((v): v is string => typeof v === "string" && v.length > 0))];
+  const out = new Map<string, string>();
+  if (distinct.length === 0) return out;
+  for (let i = 0; i < distinct.length; i += ID_CHUNK) {
+    const { data, error } = await db
+      .from("profiles")
+      .select("id, display_name, email")
+      .eq("workspace_id", workspaceId)
+      .in("id", distinct.slice(i, i + ID_CHUNK));
+    if (error) throw new Error(`Export query failed: ${error.message}`);
+    for (const p of (data ?? []) as { id: string; display_name: string | null; email: string | null }[]) {
+      out.set(p.id, p.display_name || p.email || "");
+    }
+  }
+  return out;
+}
+
+async function fetchMembersRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
+  // Same columns and workspace filter as GET /api/members (listMembers), plus
+  // the date range on profiles.created_at.
+  const base = db
+    .from("profiles")
+    .select("id, email, display_name, role, status, created_at, removed_at", { count: "exact" })
+    .eq("workspace_id", workspaceId);
+  const { data, error, count } = await applyExportRange(base, range, "created_at")
+    .order("created_at", { ascending: true })
+    .range(0, MAX_EXPORT_ROWS - 1);
+  if (error) throw new Error(`Export query failed: ${error.message}`);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const ids = rows.map((r) => r.id as string);
+  if (ids.length > 0) {
+    // Chunked by ID_CHUNK ids so no lookup builds an oversized PostgREST URL.
+    const mfa = new Set<string>();
+    // Last role change comes from the audit log (member.role_change): newest
+    // first, first hit per person wins. Chunks hold disjoint ids.
+    const last = new Map<string, { at: unknown; by: unknown }>();
+    for (let i = 0; i < ids.length; i += ID_CHUNK) {
+      const chunk = ids.slice(i, i + ID_CHUNK);
+      for (const id of await memberMfaEnabled(chunk)) mfa.add(id);
+      const { data: a, error: aErr } = await db
+        .from("audit_log")
+        .select("target_id, actor_label, created_at")
+        .eq("workspace_id", workspaceId)
+        .eq("action", "member.role_change")
+        .in("target_id", chunk)
+        .order("created_at", { ascending: false })
+        .limit(MAX_EXPORT_ROWS);
+      if (aErr) throw new Error(`Export query failed: ${aErr.message}`);
+      for (const x of (a ?? []) as { target_id: string; actor_label: unknown; created_at: unknown }[]) {
+        if (!last.has(x.target_id)) last.set(x.target_id, { at: x.created_at, by: x.actor_label });
+      }
+    }
+    for (const r of rows) {
+      const id = r.id as string;
+      r.mfa_enabled = mfa.has(id);
+      r.last_role_change_at = last.get(id)?.at ?? "";
+      r.last_role_change_by = last.get(id)?.by ?? "";
+    }
+  }
+  return { rows, total: count ?? rows.length, filters: rangeFilters(range) };
+}
+
+async function fetchTokensRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
+  // Same inventory as GET /api/tokens: this workspace, the assistant's
+  // ephemeral per-turn tokens hidden. token_hash is never selected.
+  const base = db
+    .from("api_tokens")
+    .select("id, name, prefix, scopes, created_by, expires_at, revoked, last_used_at, created_at", { count: "exact" })
+    .eq("workspace_id", workspaceId)
+    .neq("kind", "assistant");
+  const { data, error, count } = await applyExportRange(base, range, "created_at")
+    .order("created_at", { ascending: false })
+    .range(0, MAX_EXPORT_ROWS - 1);
+  if (error) throw new Error(`Export query failed: ${error.message}`);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const labels = await profileLabels(db, workspaceId, rows.map((r) => r.created_by));
+  for (const r of rows) {
+    r.label = r.name;
+    r.scopes = Array.isArray(r.scopes) ? (r.scopes as string[]).join(" ") : "";
+    r.created_by_label = typeof r.created_by === "string" ? (labels.get(r.created_by) ?? "") : "";
+  }
+  return { rows, total: count ?? rows.length, filters: rangeFilters(range) };
+}
+
+async function fetchIdentitiesRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
+  const base = db
+    .from("external_identities")
+    .select("id, profile_id, provider, connector_id, linked_at, revoked_at", { count: "exact" })
+    .eq("workspace_id", workspaceId);
+  const { data, error, count } = await applyExportRange(base, range, "linked_at")
+    .order("linked_at", { ascending: false })
+    .range(0, MAX_EXPORT_ROWS - 1);
+  if (error) throw new Error(`Export query failed: ${error.message}`);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  const labels = await profileLabels(db, workspaceId, rows.map((r) => r.profile_id));
+  for (const r of rows) {
+    r.profile_label = typeof r.profile_id === "string" ? (labels.get(r.profile_id) ?? "") : "";
+  }
+  return { rows, total: count ?? rows.length, filters: rangeFilters(range) };
 }
 
 async function fetchEntityRows(
@@ -297,21 +512,28 @@ async function fetchEntityRows(
   today: string,
 ): Promise<FetchResult> {
   const sp = url.searchParams;
+  const range = parseExportRange(sp);
   switch (entity) {
     case "tasks":
-      return fetchTasksRows(sp, workspaceId, db, today);
+      return fetchTasksRows(sp, workspaceId, db, today, range);
     case "risks":
-      return fetchRisksRows(sp, workspaceId, db);
+      return fetchRisksRows(sp, workspaceId, db, range);
     case "issues":
-      return fetchIssuesRows(sp, workspaceId, db);
+      return fetchIssuesRows(sp, workspaceId, db, range);
     case "clashes":
-      return fetchClashesRows(sp, workspaceId, db);
+      return fetchClashesRows(workspaceId, db, range);
     case "audit":
-      return fetchAuditRows(sp, workspaceId, db);
+      return fetchAuditRows(sp, workspaceId, db, range);
     case "programs":
-      return fetchProgramsRows(sp, workspaceId, db);
+      return fetchProgramsRows(workspaceId, db, range);
     case "projects":
-      return fetchProjectsRows(sp, workspaceId, db);
+      return fetchProjectsRows(sp, workspaceId, db, range);
+    case "members":
+      return fetchMembersRows(workspaceId, db, range);
+    case "tokens":
+      return fetchTokensRows(workspaceId, db, range);
+    case "identities":
+      return fetchIdentitiesRows(workspaceId, db, range);
   }
 }
 
@@ -320,11 +542,18 @@ export const GET = route(async ({ actor, request }) => {
   const entityParam = url.searchParams.get("entity");
 
   if (!isEntity(entityParam)) {
-    throw new RuleError(`entity must be one of: ${Object.keys(ENTITY_SCOPES).join(", ")}`);
+    throw new RuleError(
+      `entity must be one of: ${[...Object.keys(ENTITY_SCOPES), ...ADMIN_ENTITIES].join(", ")}`,
+    );
   }
   const entity = entityParam;
 
-  requireScope(actor, ENTITY_SCOPES[entity]);
+  if (isAdminEntity(entity)) {
+    // Access review: admin or manager session only (same gate as GET /api/members).
+    assertCanListMembers(actor);
+  } else {
+    requireScope(actor, ENTITY_SCOPES[entity]);
+  }
 
   const db = createAdminClient();
   const columns = ENTITY_COLUMNS[entity];

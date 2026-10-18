@@ -19,6 +19,7 @@ import { type GroupByOption } from "@/components/registers/group-by-select";
 import { riskScore, exposureBand } from "@/components/registers/risk-heatmap";
 import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { cn } from "@/lib/cn";
+import { IMPACT_AREA_OPTIONS } from "@/lib/risk/impact-areas";
 
 /**
  * Risk register body: toolbar + table. The page is a server component that
@@ -115,6 +116,8 @@ export function RiskRegister({
     () => [
       { key: "status", label: "Status", type: "select", options: STATUS_OPTIONS },
       { key: "severity", label: "Severity", type: "select", options: SEVERITY_OPTIONS },
+      // K2: matches a risk touching this area (a URL with ?impact_area=cost,schedule matches either).
+      { key: "impact_area", label: "Impact area", type: "select", options: IMPACT_AREA_OPTIONS },
       {
         key: "project_id",
         label: "Project",

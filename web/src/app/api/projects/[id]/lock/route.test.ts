@@ -100,6 +100,52 @@ describe("Q-GOV-9 — locking an already locked project", () => {
   });
 });
 
+describe("M7 / K3 — a lock always records who locked it", () => {
+  it("a person lock records the user as locked_by and as the actor", async () => {
+    await post(lock, user(ALICE, "admin"), { reason: "freeze" });
+    expect(project()).toMatchObject({
+      is_locked: true,
+      locked_by: ALICE,
+      locked_by_actor_type: "user",
+      locked_by_actor_id: ALICE,
+    });
+    expect(project().locked_at).toBeTruthy();
+    expect(project().locked_by_label).toBeTruthy();
+  });
+
+  it("a token lock keeps locked_by = the token's owner and always sets the actor columns", async () => {
+    db.rows("api_tokens").push({ id: "tok-1", workspace_id: WS, created_by: BOB });
+    await post(lock, token(["project:write"]), { reason: "agent freeze" });
+    expect(project()).toMatchObject({
+      is_locked: true,
+      locked_by: BOB,
+      locked_by_actor_type: "token",
+      locked_by_actor_id: "tok-1",
+      locked_by_label: "agent",
+    });
+    expect(project().locked_at).toBeTruthy();
+  });
+
+  it("a token with no recorded owner still leaves locked_by_actor_id set (the CHECK keys on it)", async () => {
+    await post(lock, token(["project:write"]));
+    expect(project().locked_by).toBeNull();
+    expect(project().locked_by_actor_id).toBe("tok-1");
+  });
+
+  it("unlock clears the locker columns", async () => {
+    await post(lock, user(ALICE, "admin"));
+    await post(unlock, user(BOB, "manager"), { reason: "fix dates" });
+    expect(project()).toMatchObject({
+      is_locked: false,
+      locked_by: null,
+      locked_by_actor_type: null,
+      locked_by_actor_id: null,
+      locked_by_label: null,
+      locked_at: null,
+    });
+  });
+});
+
 describe("Q-GOV-10 — who may lock and unlock", () => {
   it("a manager and an admin lock; a member does not; a write token does", async () => {
     expect((await post(lock, user(BOB, "manager"))).status).toBe(200);
@@ -116,10 +162,12 @@ describe("Q-GOV-10 — who may lock and unlock", () => {
     const member = await post(unlock, user(ALICE, "member"), { reason: "x" });
     expect([member.status, (await member.json()).error]).toEqual([
       403,
-      "Only a manager or admin can unlock a project. Agents cannot.",
+      "Only a manager or admin can unlock a project, in person.",
     ]);
     const agent = await post(unlock, token(["project:write", "rebaseline:approve"]), { reason: "x" });
-    expect([agent.status, (await agent.json()).code]).toEqual([403, "agents_cannot_unlock"]);
+    const agentBody = await agent.json();
+    expect([agent.status, agentBody.code]).toEqual([403, "agents_cannot_unlock"]);
+    expect(agentBody.error).toBe("Only a manager or admin can unlock a project, in person. Agents and API tokens cannot.");
     expect(project().is_locked).toBe(true);
     expect((await post(unlock, user(BOB, "manager"), { reason: "fix dates" })).status).toBe(200);
     expect(project().is_locked).toBe(false);

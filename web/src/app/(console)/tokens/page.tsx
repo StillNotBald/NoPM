@@ -8,6 +8,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { ExportCsvButton } from "@/components/export-csv-button";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContainer } from "@/components/ui/page-container";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -224,7 +225,7 @@ export default function TokensPage() {
     }
   };
 
-  // Least-privilege agent preset (L-49): read-only + task:write, asserted
+  // Least-privilege agent preset (L-49, K4): read-only + task/risk/issue/project:write, asserted
   // against the scopes registry in scopes.test.ts — never approve/admin.
   const handleMintAgentPreset = async () => {
     await mintToken(agentTokenName, [...AGENT_PRESET_SCOPES]);
@@ -374,7 +375,10 @@ export default function TokensPage() {
 
   return (
     <PageContainer width="narrow" className="space-y-6">
-      <PageHeader title="API Tokens" />
+      <PageHeader
+        title="API Tokens"
+        action={<ExportCsvButton href="/api/export?entity=tokens" label="Export tokens (CSV)" />}
+      />
 
       {/* One-time reveal. Takes focus and scrolls itself into view (the mint
           forms can be a long way down the page, esp. on a phone). */}
@@ -438,9 +442,10 @@ export default function TokensPage() {
             >
               <p className="text-sm text-ink-secondary">
                 Mint a token pre-scoped to least privilege: it can read every
-                register and edit/move tasks, but it can never request or
-                approve a deletion, approve a rebaseline, or manage other
-                tokens.
+                register and create or edit tasks, risks, issues and projects.
+                It can lock a project (never unlock one). It cannot delete a risk
+                or issue, request or approve a deletion, decide a change
+                request, approve a rebaseline, or manage other tokens.
               </p>
               <div className="flex flex-wrap gap-1">
                 {AGENT_PRESET_SCOPES.map((s) => (

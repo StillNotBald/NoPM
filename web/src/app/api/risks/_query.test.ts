@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseRiskFilters, applyRiskFilters, RISK_SORT_FIELDS } from "./_query";
+import { parseRiskFilters, applyRiskFilters, parseImpactAreaFilter, RISK_SORT_FIELDS } from "./_query";
 
 describe("parseRiskFilters", () => {
   it("returns an empty object with no params", () => {
@@ -64,5 +64,17 @@ describe("RISK_SORT_FIELDS", () => {
       "title",
       "created_at",
     ]);
+  });
+});
+
+describe("parseImpactAreaFilter (K2 any-of)", () => {
+  it("is empty with no param", () => {
+    expect(parseImpactAreaFilter(new URLSearchParams())).toEqual([]);
+  });
+  it("splits a comma list, trims, de-duplicates and drops unknown areas", () => {
+    expect(parseImpactAreaFilter(new URLSearchParams({ impact_area: "cost, schedule,cost,morale" }))).toEqual(["cost", "schedule"]);
+  });
+  it("stays out of RiskFilters so the export echo cannot claim it was applied", () => {
+    expect(parseRiskFilters(new URLSearchParams({ impact_area: "cost" }))).toEqual({});
   });
 });

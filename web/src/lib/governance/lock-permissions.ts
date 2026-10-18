@@ -11,7 +11,8 @@ import type { Actor } from "@/lib/auth/guard";
  *            an agent (any token) can never do it.
  */
 export const LOCK_ROLE_MESSAGE = "Only a manager or admin can lock a project.";
-export const UNLOCK_ROLE_MESSAGE = "Only a manager or admin can unlock a project. Agents cannot.";
+export const UNLOCK_ROLE_MESSAGE = "Only a manager or admin can unlock a project, in person.";
+export const UNLOCK_AGENT_MESSAGE = "Only a manager or admin can unlock a project, in person. Agents and API tokens cannot.";
 
 function isManagerOrAdmin(role: string | null | undefined): boolean {
   return role === "admin" || role === "manager";
@@ -26,6 +27,6 @@ export function requireCanLock(actor: Actor): void {
 
 /** Only a manager or admin in person; every token is refused (403 `agents_cannot_unlock`). */
 export function requireCanUnlock(actor: Actor): void {
-  if (actor.type !== "user") throw new ScopeError(UNLOCK_ROLE_MESSAGE, "agents_cannot_unlock");
+  if (actor.type !== "user") throw new ScopeError(UNLOCK_AGENT_MESSAGE, "agents_cannot_unlock");
   if (!isManagerOrAdmin(actor.role)) throw new ScopeError(UNLOCK_ROLE_MESSAGE, "role_not_permitted");
 }

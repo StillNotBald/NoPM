@@ -116,7 +116,7 @@ export function unlockProjectAuditedRpc(args: Record<string, unknown>, db: FakeD
       x.status = "cancelled";
       return { id: x.id, version: x.version, previous_status };
     });
-  Object.assign(proj, { is_locked: false, locked_by: null, locked_at: null, lock_reason: null });
+  Object.assign(proj, { is_locked: false, locked_by: null, locked_by_actor_type: null, locked_by_actor_id: null, locked_by_label: null, locked_at: null, lock_reason: null });
   pushAudit(db, args, {
     action: "project.unlock",
     target_type: "project",
@@ -280,7 +280,10 @@ export function lockProjectRpc(args: Record<string, unknown>, db: FakeDb): RpcRe
   }
   Object.assign(proj, {
     is_locked: true,
-    locked_by: args.p_actor_type === "user" ? args.p_actor_id : null,
+    locked_by: args.p_actor_type === "user" ? args.p_actor_id : (db.rows("api_tokens").find((t) => t.id === args.p_actor_id)?.created_by ?? null),
+    locked_by_actor_type: args.p_actor_type,
+    locked_by_actor_id: args.p_actor_id,
+    locked_by_label: args.p_actor_label ?? `${args.p_actor_type} ${args.p_actor_id}`,
     locked_at: new Date().toISOString(),
     lock_reason: args.p_reason ?? null,
   });

@@ -114,6 +114,13 @@ export default async function BaselinesPage({
       db.from("rebaseline_signoffs").select("rebaseline_id, vote"),
       db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
     ]);
+  // Who locked (migration 0088). Separate and fail-soft: a build live a moment before the
+  // migration still renders, falling back to the locked_by profile name.
+  const { data: lockLabelRows } = await db.from("projects").select("id, locked_by_label");
+  const lockLabelById = new Map<string, string>();
+  for (const r of (lockLabelRows ?? []) as { id: string; locked_by_label?: string | null }[]) {
+    if (r.locked_by_label) lockLabelById.set(r.id, r.locked_by_label);
+  }
   const viewerRole = (viewerProfile?.role as string | null | undefined) ?? null;
   const canPropose = viewerRole !== null && viewerRole !== "viewer";
 
@@ -156,7 +163,7 @@ export default async function BaselinesPage({
       // A lock with no timestamp (seed data, older rows) says so instead of a bare dash.
       lockedAtText: p.locked_at ? lockedAt.text : "Not recorded",
       lockedAtTitle: p.locked_at ? lockedAt.title : "No lock time was recorded",
-      lockedByLabel: labelFor(p.locked_by),
+      lockedByLabel: lockLabelById.get(p.id) ?? labelFor(p.locked_by),
       lockReason: p.lock_reason,
       canPropose,
       proposeDisabledReason: pendingProjects.has(p.id) ? "A rebaseline is already awaiting sign-off for this project." : null,

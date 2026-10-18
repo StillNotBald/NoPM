@@ -25,6 +25,17 @@ export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"];
 export const MILESTONE_STATUSES = ["not_started", "on_track", "at_risk", "delayed", "completed"];
 export const RISK_LEVELS = ["low", "medium", "high", "critical"];
 export const RISK_STATUSES = ["open", "mitigating", "closed", "accepted"];
+export const RISK_CATEGORIES = [
+  "technical",
+  "schedule",
+  "cost",
+  "resourcing",
+  "scope_requirements",
+  "supplier_external",
+  "regulatory_legal",
+  "organisational",
+];
+export const RISK_IMPACT_AREAS = ["schedule", "cost", "scope", "quality", "reputation", "compliance"];
 export const ISSUE_PRIORITIES = ["low", "medium", "high", "urgent"];
 export const ISSUE_STATUSES = ["open", "in_progress", "resolved", "closed"];
 export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"];
@@ -46,6 +57,28 @@ const DATE = "ISO date, YYYY-MM-DD";
 const DATETIME = "ISO 8601 datetime with timezone, e.g. 2026-09-30T00:00:00Z";
 
 const page = { type: "number", description: "Page number (default 1)" };
+// Lean list payloads (A7/K5, R-129). Lists default to a SUMMARY column set.
+// Mirrors the allow-lists in web/src/lib/api/views.ts (locked by views tests).
+const view = {
+  type: "string",
+  enum: ["summary", "full"],
+  description:
+    "Payload size: summary (default; the columns needed to scan and link) or full (every column, including long text). " +
+    "Prefer summary, then call the matching get_* tool for one record in full.",
+};
+const fields = {
+  type: "string",
+  description:
+    "Optional comma-separated column list, e.g. \"id,name,rag_status\". Overrides view. id is always included; an unknown column is a 422.",
+};
+
+/** Query-string suffix for view / fields. Never throws; values are encoded so they cannot add a parameter. */
+function qview(args) {
+  let out = "";
+  if (args.view !== undefined && args.view !== null) out += `&view=${encodeURIComponent(String(args.view))}`;
+  if (args.fields !== undefined && args.fields !== null) out += `&fields=${encodeURIComponent(String(args.fields))}`;
+  return out;
+}
 const limit = { type: "number", description: "Results per page (default 20, max 100)" };
 
 // ── Complement seam (0041, R-81) — mirrors the create/update Zod validators
@@ -158,15 +191,17 @@ const RAW_TOOLS = [
   // ── Projects ─────────────────────────────────────────────────────────────
   {
     name: "list_projects",
-    description: "List all projects in the workspace.",
+    description:
+      "List all projects in the workspace. Returns a lean summary by default (no charter text or lock detail); " +
+      "pass view=full or fields=... for more, or get_project for one project in full.",
     parameters: {
       type: "object",
-      properties: { page, limit },
+      properties: { page, limit, view, fields },
       required: [],
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      path: `/api/projects?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}${qview(args)}`,
       method: "GET",
     }),
   },
@@ -257,15 +292,15 @@ const RAW_TOOLS = [
   // ── Milestones ────────────────────────────────────────────────────────────
   {
     name: "list_milestones",
-    description: "List milestones for a project.",
+    description: "List milestones for a project (lean summary by default; view=full or fields=... for more).",
     parameters: {
       type: "object",
-      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit },
+      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
       required: ["project_id"],
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${idSeg("project_id", args.project_id)}/milestones?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/milestones?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}${qview(args)}`,
       method: "GET",
     }),
   },
@@ -324,15 +359,15 @@ const RAW_TOOLS = [
   // ── Tasks ─────────────────────────────────────────────────────────────────
   {
     name: "list_tasks",
-    description: "List tasks for a project.",
+    description: "List tasks for a project (lean summary by default; view=full or fields=... for more, get_task for one in full).",
     parameters: {
       type: "object",
-      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit },
+      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
       required: ["project_id"],
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${idSeg("project_id", args.project_id)}/tasks?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/tasks?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}${qview(args)}`,
       method: "GET",
     }),
   },
@@ -453,15 +488,15 @@ const RAW_TOOLS = [
   // ── Risks ─────────────────────────────────────────────────────────────────
   {
     name: "list_risks",
-    description: "List risks for a project.",
+    description: "List risks for a project (lean summary by default; view=full or fields=... for more).",
     parameters: {
       type: "object",
-      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit },
+      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
       required: ["project_id"],
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${idSeg("project_id", args.project_id)}/risks?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/risks?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}${qview(args)}`,
       method: "GET",
     }),
   },
@@ -479,6 +514,13 @@ const RAW_TOOLS = [
         status: { type: "string", enum: RISK_STATUSES },
         mitigation: { type: "string", description: "Mitigation plan" },
         resolution: { type: "string", description: "How the risk was closed (needed if created already closed), up to 4000 chars" },
+        risk_category: { type: "string", enum: RISK_CATEGORIES, description: "PMBOK-style risk category" },
+        impact_areas: {
+          type: "array",
+          items: { type: "string", enum: RISK_IMPACT_AREAS },
+          maxItems: 6,
+          description: "Every area this risk touches, e.g. [\"schedule\",\"cost\"]",
+        },
         owner_id: { type: "string", description: "Profile UUID of owner" },
         due_date: { type: "string", description: DATETIME },
         source,
@@ -509,6 +551,13 @@ const RAW_TOOLS = [
         status: { type: "string", enum: RISK_STATUSES },
         mitigation: { type: "string" },
         resolution: { type: "string", description: "How the risk was closed (required when status becomes closed), up to 4000 chars" },
+        risk_category: { type: "string", enum: RISK_CATEGORIES, description: "PMBOK-style risk category" },
+        impact_areas: {
+          type: "array",
+          items: { type: "string", enum: RISK_IMPACT_AREAS },
+          maxItems: 6,
+          description: "Every area this risk touches (replaces the stored list)",
+        },
         owner_id: { type: "string", description: "Profile UUID of owner" },
         source,
         external_ref: externalRef,
@@ -527,15 +576,15 @@ const RAW_TOOLS = [
   // ── Issues ────────────────────────────────────────────────────────────────
   {
     name: "list_issues",
-    description: "List issues for a project.",
+    description: "List issues for a project (lean summary by default; view=full or fields=... for more).",
     parameters: {
       type: "object",
-      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit },
+      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
       required: ["project_id"],
       additionalProperties: false,
     },
     toRequest: (args) => ({
-      path: `/api/projects/${idSeg("project_id", args.project_id)}/issues?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/issues?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}${qview(args)}`,
       method: "GET",
     }),
   },

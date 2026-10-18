@@ -10,6 +10,7 @@ import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolut
 import { createIssueSchema } from "@/app/api/issues/_schema";
 import { nextRefId } from "@/lib/ref-id";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { parseListSelection } from "@/lib/api/views";
 import { parseSort, orderOptions } from "@/lib/api/sort";
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
 
@@ -48,10 +49,11 @@ export const GET = route(async ({ actor, params, request }) => {
   });
 
   const filters = parseIssueFilters(url.searchParams);
+  const selection = parseListSelection(url.searchParams, "issues"); // view=summary|full, fields= (R-129)
 
   let query = db
     .from("issues")
-    .select("*", { count: "exact" })
+    .select(selection.select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
     .eq("project_id", projectId);
 

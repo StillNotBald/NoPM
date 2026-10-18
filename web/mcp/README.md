@@ -109,6 +109,20 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `query_audit` | GET /api/audit | `audit:read` |
 | `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
 
+### Lean list payloads (`view` / `fields`)
+
+`list_projects`, `list_tasks`, `list_milestones`, `list_risks` and `list_issues` return a **summary** column set by default (ids, names or titles, status, owner, dates, completion, `updated_at`; no charter text, lock detail or `source` / `external_ref`). This keeps a 20-row page small enough to leave room for the agent's own reasoning.
+
+| Argument | Effect |
+|---|---|
+| `view: "summary"` (default) | The lean column set. |
+| `view: "full"` | Every column, including long text. |
+| `fields: "id,name,rag_status"` | Exactly those columns (`id` is always added). Overrides `view`. A column outside the entity's allow-list is a 422. |
+
+Use the matching `get_*` tool to read one record in full. The column lists live in `web/src/lib/api/views.ts`.
+
+`create_risk` / `update_risk` take `risk_category` (enum) and `impact_areas` (array). The old free-text `category` is gone.
+
 ### Recommended minimum scopes for a read-only agent
 
 ```

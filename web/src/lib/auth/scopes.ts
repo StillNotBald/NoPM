@@ -23,8 +23,8 @@ export const SCOPES = [
   "task:read", "task:write", "task:delete:request", "task:delete:approve",
   "project:delete:request", "project:delete:approve",
   "sprint:read", "sprint:write",
-  "risk:read", "risk:write",
-  "issue:read", "issue:write",
+  "risk:read", "risk:write", "risk:delete",
+  "issue:read", "issue:write", "issue:delete",
   "clash:read", "clash:write",
   "resource:read", "resource:write",
   "budget:read", "budget:write",
@@ -82,16 +82,19 @@ export function isValidScope(scope: string): boolean {
 
 /**
  * Least-privilege preset for the "Connect your agent" onboarding flow
- * (F1e / L-49) — every read scope in the registry plus `task:write`, so a
- * freshly-minted agent PAT can read the whole workspace and move/edit tasks
- * but can never request/approve a deletion, approve a rebaseline, or write
- * anything else. Derived from SCOPES (not hand-listed) so it can never drift
+ * (F1e / L-49) — every read scope in the registry plus `task:write`,
+ * `risk:write`, `issue:write` and `project:write` (audit gap K4, CR-2026-10-18-01
+ * A5), so a freshly-minted agent PAT can read the whole workspace and create/edit
+ * tasks, risks, issues and projects but can never request/approve a deletion,
+ * approve a rebaseline, decide a change request, or write anything else. It holds NO
+ * delete scope: hard DELETE of a risk or issue needs `risk:delete` / `issue:delete`
+ * (not in this preset). `project:write` can LOCK a project, never unlock (Q-GOV-10). Derived from SCOPES (not hand-listed) so it can never drift
  * onto a scope the registry doesn't recognise; scopes.test.ts asserts the
  * least-privilege shape directly against this constant.
  */
 export const AGENT_PRESET_SCOPES: readonly Scope[] = SCOPES.filter((s) =>
   s.endsWith(":read"),
-).concat(["task:write"]);
+).concat(["task:write", "risk:write", "issue:write", "project:write"]);
 
 /**
  * Full scope choice list for the manual token-mint UI (tokens/page.tsx),

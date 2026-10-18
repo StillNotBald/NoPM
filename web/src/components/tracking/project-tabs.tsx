@@ -81,7 +81,6 @@ interface Risk {
   description: string;
   severity: "low" | "medium" | "high" | "critical";
   likelihood: "low" | "medium" | "high" | "critical";
-  category: string;
   mitigation: string;
   status: "open" | "mitigating" | "closed" | "accepted";
   raised_at: string;
@@ -91,6 +90,7 @@ interface Risk {
   response_strategy?: RiskResponseStrategy;
   risk_category?: RiskCategoryValue | null;
   impact_area?: RiskImpactArea | null;
+  impact_areas?: RiskImpactArea[];
   trigger?: string | null;
   residual_risk?: string | null;
 }
@@ -678,8 +678,8 @@ function RisksTab({ project, risks }: { project: Project; risks: Risk[] }) {
                         {r.title}
                       </button>
                     </div>
-                    {r.category && (
-                      <p className="text-xs text-ink-muted mt-0.5 truncate">{r.category}</p>
+                    {r.risk_category && (
+                      <p className="text-xs text-ink-muted mt-0.5 truncate capitalize">{r.risk_category.replace(/_/g, " ")}</p>
                     )}
                   </td>
                   <td className="py-3 px-4">

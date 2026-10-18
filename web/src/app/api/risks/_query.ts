@@ -30,6 +30,20 @@ export function parseRiskFilters(searchParams: URLSearchParams): RiskFilters {
   return filters;
 }
 
+import { RISK_IMPACT_AREAS } from "@/lib/risk/impact-areas";
+
+/**
+ * `impact_area=cost,schedule` -> any-of filter (a risk matches when it touches ANY listed area).
+ * Unknown values are dropped. Kept out of RiskFilters on purpose: the export route echoes
+ * RiskFilters into its metadata and does not apply this one.
+ */
+export function parseImpactAreaFilter(searchParams: URLSearchParams): string[] {
+  const raw = searchParams.get("impact_area");
+  if (!raw) return [];
+  const wanted = raw.split(",").map((v) => v.trim()).filter(Boolean);
+  return Array.from(new Set(wanted.filter((v) => (RISK_IMPACT_AREAS as readonly string[]).includes(v))));
+}
+
 /** Minimal shape of the Supabase/PostgREST chain steps this filter set uses. */
 export type FilterableRiskQuery<Q> = { eq: (col: string, val: unknown) => Q };
 

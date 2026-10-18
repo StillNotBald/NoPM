@@ -209,6 +209,17 @@ export type MemberRow = {
   mfa_enabled: boolean;
 };
 
+/** Which of these profile ids (already verified in the caller's workspace) have two-step on. */
+export async function memberMfaEnabled(profileIds: string[]): Promise<Set<string>> {
+  const mfa = new Set<string>();
+  if (profileIds.length === 0) return mfa;
+  const db = createAdminClient();
+  const { data, error } = await db.from("user_mfa").select("user_id").eq("enabled", true).in("user_id", profileIds);
+  if (error) throw error;
+  for (const x of data ?? []) mfa.add(x.user_id);
+  return mfa;
+}
+
 export async function listMembers(workspaceId: string): Promise<MemberRow[]> {
   const db = createAdminClient();
   const { data, error } = await db

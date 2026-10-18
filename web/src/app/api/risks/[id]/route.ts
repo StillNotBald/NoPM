@@ -5,7 +5,8 @@ import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { updateRiskSchema } from "@/app/api/risks/_schema";
+import { updateRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
+import { RISK_SELECT } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
@@ -21,7 +22,7 @@ export const GET = route(async ({ actor, params }) => {
 
   const { data: row, error } = await db
     .from("risks")
-    .select("*")
+    .select(RISK_SELECT)
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -40,7 +41,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const { data: existing, error: fetchError } = await db
     .from("risks")
-    .select("*")
+    .select(RISK_SELECT)
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -85,7 +86,6 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.description !== undefined) updates.description = input.description;
   if (input.severity !== undefined) updates.severity = input.severity;
   if (input.likelihood !== undefined) updates.likelihood = input.likelihood;
-  if (input.category !== undefined) updates.category = input.category;
   if (input.mitigation !== undefined) updates.mitigation = input.mitigation;
   if (input.owner_id !== undefined) updates.owner_id = input.owner_id;
   if (input.status !== undefined) updates.status = input.status;
@@ -96,7 +96,13 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.impact_score !== undefined) updates.impact_score = input.impact_score;
   if (input.response_strategy !== undefined) updates.response_strategy = input.response_strategy;
   if (input.risk_category !== undefined) updates.risk_category = input.risk_category;
-  if (input.impact_area !== undefined) updates.impact_area = input.impact_area;
+  // K2: impact_areas is the source of truth; impact_area mirrors its first element
+  // (the DB trigger from 0091 also enforces this).
+  const areas = resolveImpactAreas(input);
+  if (areas !== undefined) {
+    updates.impact_areas = areas;
+    updates.impact_area = areas[0] ?? null;
+  }
   if (input.trigger !== undefined) updates.trigger = input.trigger;
   if (input.residual_risk !== undefined) updates.residual_risk = input.residual_risk;
   if (input.resolution !== undefined) updates.resolution = input.resolution;
@@ -117,7 +123,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.expected_updated_at !== undefined) {
     query = query.eq("updated_at", existing.updated_at);
   }
-  const { data: updated, error: updateError } = await query.select().maybeSingle();
+  const { data: updated, error: updateError } = await query.select(RISK_SELECT).maybeSingle();
 
   if (updateError) throw new Error(updateError.message);
   if (!updated) {
@@ -168,13 +174,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
 /** DELETE /api/risks/:id — delete a risk */
 export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "risk:write");
+  // Hard delete needs its own scope: the agent preset holds risk:write but not risk:delete (W1-06).
+  requireScope(actor, "risk:delete");
 
   const db = createAdminClient();
 
   const { data: existing, error: fetchError } = await db
     .from("risks")
-    .select("*")
+    .select(RISK_SELECT)
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();

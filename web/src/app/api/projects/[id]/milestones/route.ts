@@ -5,6 +5,7 @@ import { okList, created, validationError, safeJson } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
+import { parseListSelection } from "@/lib/api/views";
 import { createMilestoneSchema } from "@/app/api/milestones/_schema";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -35,6 +36,7 @@ export const GET = route(async ({ actor, params, request }) => {
   const limit = Math.min(Math.max(rawLimit, 1), 100);
   const page = Math.max(rawPage, 1);
   const offset = (page - 1) * limit;
+  const selection = parseListSelection(url.searchParams, "milestones"); // view=summary|full, fields= (R-129)
 
   // Count query
   const { count } = await db
@@ -46,7 +48,7 @@ export const GET = route(async ({ actor, params, request }) => {
   // Data query
   const { data: milestones, error } = await db
     .from("milestones")
-    .select("*")
+    .select(selection.select)
     .eq("project_id", projectId)
     .eq("workspace_id", actor.workspaceId)
     .order("sort_order", { ascending: true })

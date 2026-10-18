@@ -35,7 +35,7 @@ export async function run(rest, ctx) {
       if (!projectId) ctx.die("usage: nopm milestones ls --project <project-id>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      const { data } = await ctx.api("GET", `/api/projects/${projectId}/milestones?page=${page}&limit=${limit}`);
+      const { data } = await ctx.api("GET", `/api/projects/${projectId}/milestones?page=${page}&limit=${limit}&view=full`);
       ctx.out(data, ctx, LIST_COLS);
       break;
     }

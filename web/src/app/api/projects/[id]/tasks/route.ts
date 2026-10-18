@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { parseListSelection } from "@/lib/api/views";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
@@ -42,10 +43,11 @@ export const GET = route(async ({ actor, params, request }) => {
   // `nopm tasks ls --external-ref` targets this route.
   const source = url.searchParams.get("source");
   const externalRef = url.searchParams.get("external_ref");
+  const selection = parseListSelection(url.searchParams, "tasks"); // view=summary|full, fields= (R-129)
 
   let query = db
     .from("tasks")
-    .select("*", { count: "exact" })
+    .select(selection.select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
     .eq("project_id", projectId);
   if (source) query = query.eq("source", source);

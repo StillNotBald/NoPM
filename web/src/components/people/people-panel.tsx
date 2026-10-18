@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Spinner } from "@/components/ui/spinner";
+import { ExportCsvButton } from "@/components/export-csv-button";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { ShowOncePanel } from "@/components/governance/show-once-panel";
@@ -138,6 +139,10 @@ export function PeoplePanel() {
   return (
     <div className="space-y-4">
       {error ? <InlineAlert>{error}</InlineAlert> : null}
+      <div className="flex flex-wrap justify-end gap-2">
+        <ExportCsvButton href="/api/export?entity=members" label="Export people (CSV)" />
+        <ExportCsvButton href="/api/export?entity=identities" label="Export chat links (CSV)" />
+      </div>
       {codes ? (
         <ShowOncePanel
           heading={`Backup codes for ${codes.name}`}

@@ -49,6 +49,24 @@ const larkSignatureHeaders = [
   { name: "X-Lark-Signature", in: "header", required: false, schema: { type: "string" }, description: "Lowercase-hex SHA-256 of timestamp + nonce + EncryptKey + raw body. Once an Encrypt Key is set it is required on every request except the one-off url_verification handshake." },
 ];
 
+// Lean list payloads (A7/K5, R-129) - allow-lists live in src/lib/api/views.ts.
+const listViewParams = [
+  {
+    name: "view",
+    in: "query",
+    schema: { type: "string", enum: ["summary", "full"], default: "summary" },
+    description:
+      "Payload size. summary (default) returns the columns needed to scan and link; full returns every column including long text. GET /<entity>/{id} always returns the full record.",
+  },
+  {
+    name: "fields",
+    in: "query",
+    schema: { type: "string" },
+    description:
+      "Comma-separated column list (e.g. id,name,rag_status). Overrides view; id is always included; a column outside the entity's allow-list is a 422.",
+  },
+];
+
 const spec = {
   openapi: "3.1.0",
   info: {
@@ -819,6 +837,7 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this project mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated project list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1220,6 +1239,7 @@ const spec = {
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated milestone list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1287,6 +1307,7 @@ const spec = {
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated task list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1325,6 +1346,7 @@ const spec = {
           { name: "q", in: "query", schema: { type: "string" }, description: "Case-insensitive substring match against task name" },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this task mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated cross-project task list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1384,6 +1406,8 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this risk mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
+          { name: "impact_area", in: "query", schema: { type: "string" }, description: "Any-of filter on impact areas, comma-separated (e.g. cost,schedule): a risk matches when it touches ANY listed area. Values: schedule | cost | scope | quality | reputation | compliance" },
         ],
         responses: {
           "200": { description: "Paginated risk list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1392,7 +1416,7 @@ const spec = {
       post: {
         tags: ["risks"],
         summary: "Create a risk under a project",
-        description: "scope: risk:write. Saves every schema field: probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_area, trigger, residual_risk.",
+        description: "scope: risk:write. Saves every schema field: probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_areas (array of schedule | cost | scope | quality | reputation | compliance; impact_area is accepted as a one-element shorthand), trigger, residual_risk. The legacy free-text category is no longer accepted (use risk_category).",
         operationId: "createRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createRiskSchema),
@@ -1417,7 +1441,7 @@ const spec = {
       patch: {
         tags: ["risks"],
         summary: "Update a risk",
-        description: "scope: risk:write. Saves every schema field (probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_area, trigger, residual_risk). Raising severity to high or critical sends the same risk.escalated notification as create. Setting status to closed needs a resolution note (up to 4000 chars, sent in the same PATCH or already stored): otherwise 422 with the field error on resolution.",
+        description: "scope: risk:write. Saves every schema field (probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_areas (array; impact_area is accepted as a one-element shorthand), trigger, residual_risk). The legacy free-text category is no longer accepted. Raising severity to high or critical sends the same risk.escalated notification as create. Setting status to closed needs a resolution note (up to 4000 chars, sent in the same PATCH or already stored): otherwise 422 with the field error on resolution.",
         operationId: "updateRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateRiskSchema),
@@ -1430,7 +1454,7 @@ const spec = {
       delete: {
         tags: ["risks"],
         summary: "Delete a risk",
-        description: "scope: risk:write",
+        description: "scope: risk:delete (the agent preset and plain risk:write cannot delete; risk:* can)",
         operationId: "deleteRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -1451,6 +1475,7 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this issue mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated issue list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1497,7 +1522,7 @@ const spec = {
       delete: {
         tags: ["issues"],
         summary: "Delete an issue",
-        description: "scope: issue:write",
+        description: "scope: issue:delete (the agent preset and plain issue:write cannot delete; issue:* can)",
         operationId: "deleteIssue",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -1922,7 +1947,12 @@ const spec = {
         summary: "Governed CSV export (L-27 / L-36)",
         description:
           "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
-          "audit:read, program:read, or project:read). Streams text/csv with Content-Disposition " +
+          "audit:read, program:read, or project:read). entity=members|tokens|identities (access review, R-132) have no scope: " +
+          "an admin or manager SESSION only, 403 for any token, member or viewer. members = role/status/mfa_enabled/removed_at/last role change; " +
+          "tokens = label/prefix/scopes/creator/expiry/revoked/last_used_at, never the hash; identities = chat-connector links (profile, provider, linked_at, revoked_at). " +
+          "from/to (UTC days, inclusive) apply to EVERY entity on created_at, or updated_at with on=updated where the entity has one (R-133). " +
+          "entity=audit also carries principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref. " +
+          "entity=risks takes impact_area=a,b (any-of) and exports risk_category and impact_areas. Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
@@ -1943,7 +1973,11 @@ const spec = {
           "audited (L-36).",
         operationId: "exportCsv",
         parameters: [
-          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects"] } },
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects", "members", "tokens", "identities"] } },
+          { name: "from", in: "query", schema: { type: "string", format: "date" }, description: "Inclusive UTC start day, every entity (malformed ignored)" },
+          { name: "to", in: "query", schema: { type: "string", format: "date" }, description: "Inclusive UTC end day, every entity (malformed ignored)" },
+          { name: "on", in: "query", schema: { type: "string", enum: ["created", "updated"], default: "created" }, description: "Which date the range filters; updated applies to tasks|risks|issues|clashes|projects only" },
+          { name: "impact_area", in: "query", schema: { type: "string" }, description: "entity=risks: comma list, any-of (schedule|cost|scope|quality|reputation|compliance)" },
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Optional filter for entity=tasks|risks|issues (risks/issues: omitted = whole workspace; a project outside the workspace 404s)" },
           { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues|projects (whitelisted per entity, same as the list API)" },
           { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=tasks" },
@@ -2544,7 +2578,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Lock a project timeline",
-        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined, and captures the project's own baseline_start_date / baseline_target_date from its start_date / target_date where those are still null (an existing project baseline is never overwritten) — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. The project.lock audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }). Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
+        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason plus locked_by_actor_type, locked_by_actor_id and locked_by_label (who really locked, including an agent token). Snapshots baseline dates for milestones and tasks if not yet baselined, and captures the project's own baseline_start_date / baseline_target_date from its start_date / target_date where those are still null (an existing project baseline is never overwritten) — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. The project.lock audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }). Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
         operationId: "lockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
@@ -2558,7 +2592,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Unlock a project timeline",
-        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row. Unlock stays a single-person act (no four-eyes), but it CANCELS the project's pending_approval and approved rebaselines in the same transaction (status cancelled, terminal; owner decision 2026-10-17, migration 0058) — a sign-off can never be applied to dates edited after it, so a fresh proposal and fresh sign-off are needed. Applied, rejected and draft rebaselines are left alone. The project.unlock audit row's after lists cancelled_rebaselines (ids) and each one also gets a rebaseline.cancelled audit row (reason project_unlocked, plus unlock_reason). Atomic: if the cancellation cannot happen, the project stays locked.",
+        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason and locked_by_actor_type/locked_by_actor_id/locked_by_label. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row. Unlock stays a single-person act (no four-eyes), but it CANCELS the project's pending_approval and approved rebaselines in the same transaction (status cancelled, terminal; owner decision 2026-10-17, migration 0058) — a sign-off can never be applied to dates edited after it, so a fresh proposal and fresh sign-off are needed. Applied, rejected and draft rebaselines are left alone. The project.unlock audit row's after lists cancelled_rebaselines (ids) and each one also gets a rebaseline.cancelled audit row (reason project_unlocked, plus unlock_reason). Atomic: if the cancellation cannot happen, the project stays locked.",
         operationId: "unlockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", minLength: 1, maxLength: 1000 } } } } } },

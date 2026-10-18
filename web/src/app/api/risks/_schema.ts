@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { RISK_IMPACT_AREAS } from "@/lib/risk/impact-areas";
 
 const severityEnum = z.enum(["low", "medium", "high", "critical"]);
 const likelihoodEnum = z.enum(["low", "medium", "high", "critical"]);
@@ -17,14 +18,8 @@ const riskCategoryEnum = z.enum([
   "regulatory_legal",
   "organisational",
 ]);
-const impactAreaEnum = z.enum([
-  "schedule",
-  "cost",
-  "scope",
-  "quality",
-  "reputation",
-  "compliance",
-]);
+const impactAreaEnum = z.enum(RISK_IMPACT_AREAS);
+const impactAreasSchema = z.array(impactAreaEnum).max(6, "impact_areas has at most 6 entries");
 const probabilityPctSchema = z
   .number()
   .int("probability_pct must be an integer")
@@ -36,12 +31,13 @@ const impactScoreSchema = z
   .min(1, "impact_score must be between 1 and 5")
   .max(5, "impact_score must be between 1 and 5");
 
+// K1 (0090): the legacy free-text `category` is no longer accepted - use `risk_category`.
+// The unknown-field guard (Q-WRK-18) turns a stale `category` into a 422, not a silent drop.
 export const createRiskSchema = z.object({
   title: z.string().min(1, "title is required").max(255),
   description: z.string().optional().nullable(),
   severity: severityEnum,
   likelihood: likelihoodEnum,
-  category: z.string().max(100).optional().nullable(),
   mitigation: z.string().optional().nullable(),
   owner_id: z.string().uuid("owner_id must be a valid UUID").optional().nullable(),
   status: statusEnum.optional().default("open"),
@@ -52,7 +48,10 @@ export const createRiskSchema = z.object({
   impact_score: impactScoreSchema.optional().nullable(),
   response_strategy: responseStrategyEnum.optional().default("mitigate"),
   risk_category: riskCategoryEnum.optional().nullable(),
+  // K2 (0091): a risk can touch several areas. `impact_areas` is the source of truth;
+  // `impact_area` stays as a one-element shorthand (the array wins if both are sent).
   impact_area: impactAreaEnum.optional().nullable(),
+  impact_areas: impactAreasSchema.optional(),
   trigger: z.string().optional().nullable(),
   residual_risk: z.string().optional().nullable(),
   // Q-WRK-19 (migration 0080): how a closed risk was resolved - required to close.
@@ -74,7 +73,6 @@ export const updateRiskSchema = z.object({
   description: z.string().optional().nullable(),
   severity: severityEnum.optional(),
   likelihood: likelihoodEnum.optional(),
-  category: z.string().max(100).optional().nullable(),
   mitigation: z.string().optional().nullable(),
   owner_id: z.string().uuid("owner_id must be a valid UUID").optional().nullable(),
   status: statusEnum.optional(),
@@ -85,7 +83,10 @@ export const updateRiskSchema = z.object({
   impact_score: impactScoreSchema.optional().nullable(),
   response_strategy: responseStrategyEnum.optional(),
   risk_category: riskCategoryEnum.optional().nullable(),
+  // K2 (0091): a risk can touch several areas. `impact_areas` is the source of truth;
+  // `impact_area` stays as a one-element shorthand (the array wins if both are sent).
   impact_area: impactAreaEnum.optional().nullable(),
+  impact_areas: impactAreasSchema.optional(),
   trigger: z.string().optional().nullable(),
   residual_risk: z.string().optional().nullable(),
   // Q-WRK-19 (migration 0080): how a closed risk was resolved - required to close.
@@ -104,6 +105,16 @@ export const updateRiskSchema = z.object({
   // current updated_at or the PATCH is rejected with 412 (see @/lib/api/occ).
   expected_updated_at: z.string().datetime({ offset: true }).optional(),
 });
+
+/** Normalise the two impact-area inputs to one array (array wins; shorthand becomes one element; duplicates removed). */
+export function resolveImpactAreas(input: {
+  impact_areas?: string[];
+  impact_area?: string | null;
+}): string[] | undefined {
+  if (input.impact_areas !== undefined) return Array.from(new Set(input.impact_areas));
+  if (input.impact_area !== undefined) return input.impact_area ? [input.impact_area] : [];
+  return undefined;
+}
 
 export type CreateRiskInput = z.infer<typeof createRiskSchema>;
 export type UpdateRiskInput = z.infer<typeof updateRiskSchema>;

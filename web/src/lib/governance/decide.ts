@@ -140,6 +140,37 @@ export function assertNotRequesterPrincipal(
   }
 }
 
+/**
+ * G6 caveat: a legacy request whose requester principal is NULL cannot be compared
+ * to the decider, so assertNotRequesterPrincipal lets it through (blocking it would
+ * strand those requests). That pass must not be silent: write a
+ * `four_eyes.legacy_requester_unknown` audit row so an auditor can list every
+ * decision taken without a provable requester. Fail-soft: the decision itself is
+ * audited atomically elsewhere, so a failure here is logged, never thrown.
+ * New rows cannot reach this path (requireMakerPrincipal fails closed at raise time).
+ */
+export async function noteLegacyRequesterUnknown(
+  actor: Actor,
+  targetType: "change_request" | "deletion_request",
+  row: { id: string; requested_principal_id?: string | null },
+  verb: "approve" | "reject" | "decide",
+): Promise<void> {
+  if (row.requested_principal_id) return;
+  try {
+    await writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "four_eyes.legacy_requester_unknown",
+      targetType,
+      targetId: row.id,
+      before: null,
+      after: { verb, requested_principal_id: null, reason: "legacy request with no recorded requester principal" },
+    });
+  } catch (err) {
+    console.error("four_eyes.legacy_requester_unknown audit failed", err);
+  }
+}
+
 /** Legacy actor-identity compare (id AND type — the two id namespaces are disjoint). */
 function isSameActor(actor: Actor, byType: string | null | undefined, byId: string | null | undefined): boolean {
   return !!byId && byId === actor.id && (byType ?? "user") === actor.type;
@@ -550,6 +581,9 @@ export async function approveDeletion(
     throw new Error(error.message || "Failed to commit deletion");
   }
 
+  // The commit stands: record (once) that it was decided without a provable requester.
+  await noteLegacyRequesterUnknown(actor, "deletion_request", row, "approve");
+
   // Decision 20: the project is gone, so its documents' stored files go too.
   // After the commit, fail-soft (the cascade audit rows carry every path, so a
   // leftover object can be traced and removed by hand).
@@ -667,6 +701,7 @@ export async function rejectDeletion(
     await revertDeletionDecision(db, actor, row.id, "rejected");
     throw err;
   }
+  await noteLegacyRequesterUnknown(actor, "deletion_request", row, "reject");
 
   void notify({
     workspaceId: actor.workspaceId,
@@ -925,6 +960,7 @@ export async function decideChangeRequest(
     throw new Error(rpcError.message || "Failed to record the decision");
   }
   const updated = rpcRow as Record<string, unknown> & { id: string };
+  await noteLegacyRequesterUnknown(actor, "change_request", cr, "decide");
 
   void notify({
     workspaceId: actor.workspaceId,

@@ -86,3 +86,38 @@ describe("PATCH /api/risks/:id", () => {
     expect(h.notify).not.toHaveBeenCalled();
   });
 });
+
+describe("PATCH /api/risks/:id - K1 / K2", () => {
+  it("refuses the retired free-text category (422), writing nothing", async () => {
+    const res = await patch({ category: "Technical" });
+    expect(res.status).toBe(422);
+    expect(h.updates).toEqual([]);
+  });
+
+  it("impact_areas is saved as the array, with impact_area mirroring its first element", async () => {
+    const res = await patch({ impact_areas: ["cost", "schedule", "cost"] });
+    expect(res.status).toBe(200);
+    expect(h.updates[0]).toMatchObject({ impact_areas: ["cost", "schedule"], impact_area: "cost" });
+  });
+
+  it("the impact_area shorthand writes a one-element array; null clears both", async () => {
+    await patch({ impact_area: "quality" });
+    await patch({ impact_area: null });
+    expect(h.updates[0]).toMatchObject({ impact_areas: ["quality"], impact_area: "quality" });
+    expect(h.updates[1]).toMatchObject({ impact_areas: [], impact_area: null });
+  });
+
+  it("leaves impact areas alone when neither is sent", async () => {
+    await patch({ title: "x" });
+    expect(h.updates[0]).not.toHaveProperty("impact_areas");
+    expect(h.updates[0]).not.toHaveProperty("impact_area");
+  });
+});
+
+describe("DELETE /api/risks/:id scope (W1-06)", () => {
+  it("requires risk:delete, which risk:write alone does not grant", async () => {
+    const { hasScope } = await import("@/lib/auth/tokens");
+    expect(hasScope(["risk:write"], "risk:delete")).toBe(false);
+    expect(hasScope(["risk:*"], "risk:delete")).toBe(true);
+  });
+});

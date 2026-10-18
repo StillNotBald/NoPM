@@ -6,12 +6,14 @@ import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { createProjectSchema } from "./_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
+import { parseListSelection } from "@/lib/api/views";
 import { PROGRAM_ATTACH_MESSAGE, requireManagerOrAdmin } from "@/lib/work/roles";
 
 export const runtime = "nodejs";
 
 // GET /api/projects — list projects in the actor's workspace (project:read)
 // Filters: source, external_ref (complement seam, R-81 — both exact-match).
+// Payload: view=summary (default) | full, fields=a,b,c (R-129).
 export const GET = route(async ({ actor, request }) => {
   requireScope(actor, "project:read");
 
@@ -21,6 +23,7 @@ export const GET = route(async ({ actor, request }) => {
   const offset = (page - 1) * limit;
   const source = searchParams.get("source");
   const externalRef = searchParams.get("external_ref");
+  const selection = parseListSelection(searchParams, "projects");
 
   const db = createAdminClient();
 
@@ -37,7 +40,7 @@ export const GET = route(async ({ actor, request }) => {
 
   let query = db
     .from("projects")
-    .select("*")
+    .select(selection.select)
     .eq("workspace_id", actor.workspaceId);
   if (source) query = query.eq("source", source);
   if (externalRef) query = query.eq("external_ref", externalRef);

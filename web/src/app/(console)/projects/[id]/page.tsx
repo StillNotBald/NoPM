@@ -69,7 +69,7 @@ export default async function ProjectDetailPage({
       .order("sort_order", { ascending: true }),
     db
       .from("risks")
-      .select("id, project_id, title, description, severity, likelihood, category, mitigation, status, raised_at, due_date")
+      .select("id, project_id, title, description, severity, likelihood, risk_category, impact_area, impact_areas, mitigation, status, raised_at, due_date")
       .eq("project_id", id)
       .order("raised_at", { ascending: false }),
     db
@@ -88,6 +88,14 @@ export default async function ProjectDetailPage({
 
   if (projectError || !project) notFound();
 
+  // Who locked it (migration 0088). Read apart from the main select and fail-soft, so a
+  // build that is live a moment before the migration still renders the page.
+  let lockedByLabel: string | null = null;
+  if (project.is_locked) {
+    const { data: lockRow } = await db.from("projects").select("locked_by_label").eq("id", id).maybeSingle();
+    lockedByLabel = (lockRow as { locked_by_label?: string | null } | null)?.locked_by_label ?? null;
+  }
+
   const safeProject = {
     ...project,
     description:    project.description    ?? null,
@@ -95,6 +103,7 @@ export default async function ProjectDetailPage({
     start_date:     project.start_date     ?? null,
     target_date:    project.target_date    ?? null,
     lock_reason:    project.lock_reason    ?? null,
+    locked_by_label: lockedByLabel,
     currency:       project.currency       ?? "USD",
     completion_pct: project.completion_pct ?? 0,
   };
@@ -180,7 +189,7 @@ export default async function ProjectDetailPage({
             {safeProject.is_locked && (
               <Badge tone="warning" className="flex items-center gap-1">
                 <Lock size={11} />
-                Locked
+                {safeProject.locked_by_label ? `Locked by ${safeProject.locked_by_label}` : "Locked"}
               </Badge>
             )}
             <ProjectActions project={safeProject} />
