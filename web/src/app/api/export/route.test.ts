@@ -4,12 +4,18 @@
  * requireAuth only; the REAL requireScope and assertCanListMembers run.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 
-const { requireAuthMock, writeAuditMock, tables } = vi.hoisted(() => ({
+const { requireAuthMock, writeAuditMock, listUsersMock, tables } = vi.hoisted(() => ({
   requireAuthMock: vi.fn(),
   writeAuditMock: vi.fn(async (..._a: unknown[]) => undefined),
+  listUsersMock: vi.fn(async (_a: { page: number; perPage: number }) => ({
+    data: { users: [] as Array<{ id: string; last_sign_in_at?: string | null }> },
+    error: null as unknown,
+  })),
   tables: {} as Record<string, Array<Record<string, unknown>>>,
 }));
 
@@ -24,6 +30,7 @@ vi.mock("@/lib/integrations/time-zone", () => ({ workspaceToday: async () => "20
 const queried: Array<{ table: string; ops: Array<[string, unknown[]]> }> = [];
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
+    auth: { admin: { listUsers: (a: { page: number; perPage: number }) => listUsersMock(a) } },
     from(table: string) {
       const call = { table, ops: [] as Array<[string, unknown[]]> };
       queried.push(call);
@@ -152,10 +159,10 @@ describe("GET /api/export access-review entities", () => {
     expect(res.status).toBe(200);
     const [header, row] = lines(await res.text());
     expect(header).toBe(
-      "id,display_name,email,role,status,mfa_enabled,created_at,removed_at,last_role_change_at,last_role_change_by",
+      "id,display_name,email,role,status,mfa_enabled,created_at,removed_at,last_role_change_at,last_role_change_by,last_sign_in_at",
     );
     expect(row).toBe(
-      "p1,Owner A,a@example.test,admin,active,true,2026-09-01T00:00:00Z,,2026-10-05T00:00:00Z,Admin B",
+      "p1,Owner A,a@example.test,admin,active,true,2026-09-01T00:00:00Z,,2026-10-05T00:00:00Z,Admin B,",
     );
   });
 
@@ -288,5 +295,74 @@ describe("GET /api/export risks and chunking", () => {
     expect(res.status).toBe(422);
     expect((await res.json()).fields[0].field).toBe("from");
     expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/export members last_sign_in_at (R-167)", () => {
+  const profile = (id: string) => ({
+    id, email: id + "@example.test", display_name: id, role: "member", status: "active",
+    created_at: "2026-09-01T00:00:00Z", removed_at: null,
+  });
+
+  it("admin: exports last_sign_in_at from auth metadata, empty for a member who never signed in", async () => {
+    requireAuthMock.mockResolvedValueOnce(session("admin"));
+    tables.profiles = [profile("p1"), profile("p2")];
+    listUsersMock.mockResolvedValueOnce({
+      data: {
+        users: [
+          { id: "p1", last_sign_in_at: "2026-10-17T08:00:00Z" },
+          { id: "p2", last_sign_in_at: null },
+          { id: "other-ws", last_sign_in_at: "2026-10-01T00:00:00Z" },
+        ],
+      },
+      error: null,
+    });
+    const res = await call("?entity=members");
+    expect(res.status).toBe(200);
+    const [header, r1, r2] = lines(await res.text());
+    expect(header.split(",").at(-1)).toBe("last_sign_in_at");
+    expect(r1.split(",").at(-1)).toBe("2026-10-17T08:00:00Z");
+    expect(r2.split(",").at(-1)).toBe("");
+    // one paged listUsers read, never one call per person
+    expect(listUsersMock).toHaveBeenCalledTimes(1);
+    expect(listUsersMock.mock.calls[0][0]).toMatchObject({ page: 1 });
+    // the export audit row is unchanged: same action, same shape, no sign-in data in it
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    const audit = writeAuditMock.mock.calls[0][0] as { action: string; after: Record<string, unknown> };
+    expect(audit.action).toBe("export.csv");
+    expect(Object.keys(audit.after).sort()).toEqual(["entity", "filters", "row_count"]);
+    expect(JSON.stringify(audit)).not.toContain("2026-10-17T08:00:00Z");
+  });
+
+  it("manager: no last_sign_in_at column and the auth users are never read", async () => {
+    requireAuthMock.mockResolvedValueOnce(session("manager"));
+    tables.profiles = [profile("p1")];
+    listUsersMock.mockResolvedValue({
+      data: { users: [{ id: "p1", last_sign_in_at: "2026-10-17T08:00:00Z" }] },
+      error: null,
+    });
+    const res = await call("?entity=members");
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(lines(text)[0]).not.toContain("last_sign_in_at");
+    expect(text).not.toContain("2026-10-17T08:00:00Z");
+    expect(listUsersMock).not.toHaveBeenCalled();
+  });
+
+  it("admin: a failing auth lookup fails the export instead of printing empty cells", async () => {
+    requireAuthMock.mockResolvedValueOnce(session("admin"));
+    tables.profiles = [profile("p1")];
+    listUsersMock.mockResolvedValueOnce({ data: { users: [] }, error: new Error("auth down") });
+    const res = await call("?entity=members");
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("the members list helper behind GET /api/members never selects last_sign_in_at", () => {
+    const src = readFileSync(join(process.cwd(), "src/lib/people/members.ts"), "utf8");
+    const start = src.indexOf("export async function listMembers");
+    const body = src.slice(start, src.indexOf("\nexport ", start + 10));
+    expect(body.length).toBeGreaterThan(100);
+    expect(body).not.toContain("last_sign_in_at");
   });
 });

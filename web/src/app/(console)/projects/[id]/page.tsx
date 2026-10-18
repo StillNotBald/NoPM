@@ -67,7 +67,7 @@ export default async function ProjectDetailPage({
       .from("tasks")
       // created_at (L-23 "since created" fallback) + estimate_hours (already
       // selected, L-33 variance basis) are both additive to this list.
-      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, baseline_start_date, baseline_due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by, created_at, source, external_ref, external_url")
+      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, baseline_start_date, baseline_due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by, blocker_reason, eta, created_at, source, external_ref, external_url")
       .eq("project_id", id)
       .order("sort_order", { ascending: true }),
     db

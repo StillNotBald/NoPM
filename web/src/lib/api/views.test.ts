@@ -118,3 +118,22 @@ describe("risks output carries impact_areas only (UAT-028)", () => {
     expect(FULL_COLUMNS.risks).toContain("impact_areas");
   });
 });
+
+describe("task blocker_reason and eta in the lean views (R-166)", () => {
+  it("the lean (summary) list and the full list both carry them", () => {
+    expect(SUMMARY_COLUMNS.tasks).toContain("blocker_reason");
+    expect(SUMMARY_COLUMNS.tasks).toContain("eta");
+    expect(FULL_COLUMNS.tasks).toContain("blocker_reason");
+    expect(FULL_COLUMNS.tasks).toContain("eta");
+  });
+
+  it("the default list selection selects them, so they are always present (null when unset)", () => {
+    const cols = parseListSelection(sp(""), "tasks").select.split(",");
+    expect(cols).toContain("blocker_reason");
+    expect(cols).toContain("eta");
+  });
+
+  it("fields= accepts them", () => {
+    expect(parseListSelection(sp("fields=id,blocker_reason,eta"), "tasks").select).toBe("id,blocker_reason,eta");
+  });
+});

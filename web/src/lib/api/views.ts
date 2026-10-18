@@ -27,7 +27,7 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
   tasks: [
     "id", "workspace_id", "project_id", "milestone_id", "name", "description", "status", "status_type",
     "assignee_id", "backup_assignee_id", "priority", "start_date", "due_date", "completion_pct", "sort_order", "created_at",
-    "updated_at", "acceptance_criteria", "estimate_hours", "story_points", "labels", "blocked_by", "checklist",
+    "updated_at", "acceptance_criteria", "estimate_hours", "story_points", "labels", "blocked_by", "blocker_reason", "eta", "checklist",
     "baseline_start_date", "baseline_due_date", "sprint_id", "source", "external_ref", "external_url",
     "content_updated_at",
   ],
@@ -71,7 +71,7 @@ export const SUMMARY_COLUMNS: Record<ViewEntity, readonly string[]> = {
   ],
   tasks: [
     "id", "project_id", "milestone_id", "name", "status", "status_type", "priority", "assignee_id", "backup_assignee_id",
-    "start_date", "due_date", "completion_pct", "estimate_hours", "sprint_id", "blocked_by", "sort_order",
+    "start_date", "due_date", "completion_pct", "estimate_hours", "sprint_id", "blocked_by", "blocker_reason", "eta", "sort_order",
     "updated_at",
   ],
   milestones: [

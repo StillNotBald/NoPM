@@ -1,1 +1,2 @@
 - Pre-0 (shared audit-insert helper, migration 0107): No screen change.
+- W5-D (R-166, R-167): Task form: two new optional inputs, "Blocker reason" (up to 500 characters) and "ETA" (a date, may be in the past), under "Blocked by". The project task table shows "Blocked: <reason> · ETA <date>" under a task name when either is set, stacked at phone width with no new column. Members export (CSV): admins get a last column "last_sign_in_at" (empty = never signed in); managers see no change.

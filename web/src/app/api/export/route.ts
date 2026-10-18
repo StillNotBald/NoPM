@@ -16,7 +16,7 @@ import { TASK_SORT_FIELDS, parseTaskFilters } from "@/app/api/tasks/_query";
 import { RISK_SORT_FIELDS, parseRiskFilters, parseImpactAreaFilter } from "@/app/api/risks/_query";
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
 import { parseAuditFilters } from "@/app/api/audit/_query";
-import { assertCanListMembers, memberMfaEnabled } from "@/lib/people/members";
+import { assertCanListMembers, memberLastSignIns, memberMfaEnabled } from "@/lib/people/members";
 import { parseExportRange, assertRangeOrder, rangeColumn, applyExportRange, type ExportRange } from "./_audit-range";
 
 export const runtime = "nodejs";
@@ -86,6 +86,12 @@ function rangeColumnFor(entity: Entity, range: ExportRange): string {
     createdColumn: entity === "identities" ? "linked_at" : "created_at",
   });
 }
+
+/**
+ * R-167: the members export gains last_sign_in_at for an ADMIN session only. A manager can export members
+ * (same gate as GET /api/members) but the column, and the auth lookup behind it, are admin only.
+ */
+const MEMBERS_SIGN_IN_COLUMN = "last_sign_in_at";
 
 const ENTITY_COLUMNS: Record<Entity, readonly string[]> = {
   change_requests: CHANGE_REQUEST_COLUMNS,
@@ -420,7 +426,9 @@ async function fetchChangeRequestsRows(workspaceId: string, db: Db, range: Expor
   return { rows, total, filters: rangeFilters(range) };
 }
 
-async function fetchMembersRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
+async function fetchMembersRows(
+  workspaceId: string, db: Db, range: ExportRange, withSignIn: boolean,
+): Promise<FetchResult> {
   // Same columns and workspace filter as GET /api/members (listMembers), plus
   // the date range on profiles.created_at.
   const base = db
@@ -455,8 +463,11 @@ async function fetchMembersRows(workspaceId: string, db: Db, range: ExportRange)
         if (!last.has(x.target_id)) last.set(x.target_id, { at: x.created_at, by: x.actor_label });
       }
     }
+    // Admin only: read once, from auth metadata, after the profile rows are known. Empty cell = never signed in.
+    const signIns = withSignIn ? await memberLastSignIns(ids) : null;
     for (const r of rows) {
       const id = r.id as string;
+      if (signIns) r[MEMBERS_SIGN_IN_COLUMN] = signIns.get(id) ?? "";
       r.mfa_enabled = mfa.has(id);
       r.last_role_change_at = last.get(id)?.at ?? "";
       r.last_role_change_by = last.get(id)?.by ?? "";
@@ -510,6 +521,7 @@ async function fetchEntityRows(
   workspaceId: string,
   db: Db,
   today: string,
+  withSignIn: boolean,
 ): Promise<FetchResult> {
   const sp = url.searchParams;
   const range = parseExportRange(sp);
@@ -532,7 +544,7 @@ async function fetchEntityRows(
     case "change_requests":
       return fetchChangeRequestsRows(workspaceId, db, range);
     case "members":
-      return fetchMembersRows(workspaceId, db, range);
+      return fetchMembersRows(workspaceId, db, range, withSignIn);
     case "tokens":
       return fetchTokensRows(workspaceId, db, range);
     case "identities":
@@ -638,11 +650,13 @@ export const GET = route(async ({ actor, request }) => {
   }
 
   const db = createAdminClient();
-  const columns = ENTITY_COLUMNS[entity];
+  // R-167: last_sign_in_at is exported to an admin session only (assertCanListMembers already ruled out tokens).
+  const withSignIn = entity === "members" && actor.type === "user" && actor.role === "admin";
+  const columns = withSignIn ? [...ENTITY_COLUMNS.members, MEMBERS_SIGN_IN_COLUMN] : ENTITY_COLUMNS[entity];
 
   // Server-derived date in the workspace zone (filename + overdue cut-off) — NEVER from request input.
   const today = await workspaceToday(actor.workspaceId);
-  const { rows, total, filters } = await fetchEntityRows(entity, url, actor.workspaceId, db, today);
+  const { rows, total, filters } = await fetchEntityRows(entity, url, actor.workspaceId, db, today, withSignIn);
 
   const csvRows: unknown[][] = rows.map((row) => columns.map((col) => row[col]));
 

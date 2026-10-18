@@ -156,6 +156,8 @@ export const POST = route(async ({ actor, params, request }) => {
       acceptance_criteria: input.acceptance_criteria ?? null,
       estimate_hours: input.estimate_hours ?? null,
       story_points: input.story_points ?? null,
+      blocker_reason: input.blocker_reason ?? null, // R-166 (0111)
+      eta: input.eta ?? null, // R-166 (0111): a date, may be in the past
       labels: input.labels ?? [], // NOT NULL default '{}' — never insert null
       checklist: input.checklist ?? [], // NOT NULL default '[]' — never insert null
       // ── complement seam (0041, R-81) ─────────────────────────────────────────

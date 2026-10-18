@@ -173,6 +173,8 @@ const ALLOWED_TASK_FIELDS = [
   "sort_order",
   "story_points",
   "blocked_by",
+  "blocker_reason",
+  "eta",
   // complement seam (0041, R-81) — the external system a task mirrors is
   // metadata, not schedule shape; editable live under a locked baseline.
   "source",

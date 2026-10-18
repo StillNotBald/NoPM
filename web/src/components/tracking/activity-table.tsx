@@ -73,6 +73,9 @@ export interface Task {
   story_points?: number | null;
   labels?: string[] | null;
   blocked_by?: string | null;
+  // ── R-166 (0111) — optional, null when unset ─────────────────────────────────
+  blocker_reason?: string | null;
+  eta?: string | null;
   checklist?: ChecklistItem[] | null;
   // ── complement seam (0041, R-81) — additive, all optional/nullable ──────────
   source?: string | null;
@@ -521,6 +524,13 @@ function TaskRow({
             // the line is always reserved so names arriving later don't shift rows
             <span className="min-h-4 text-xs text-ink-muted truncate">
               {assigneeName ?? (membersReady ? "Unknown member" : "\u00A0")}
+            </span>
+          )}
+          {(task.blocker_reason || task.eta) && (
+            // R-166: stacked under the name so it never adds a column or a horizontal scroll at 390 px
+            <span className="text-xs text-warning-ink break-words">
+              {task.blocker_reason ? `Blocked: ${task.blocker_reason}` : "Blocked"}
+              {task.eta ? ` · ETA ${fmtDate(task.eta, pref)}` : ""}
             </span>
           )}
           {/* Below @xl the status / progress / date columns are hidden: show them here */}
