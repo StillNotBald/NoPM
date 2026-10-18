@@ -118,6 +118,40 @@ const DELEGATED_AUDIT: Record<string, { fn: string; reason: string }> = {
   },
 };
 
+/**
+ * Wave 5 (R-163..R-165): modules whose every database call is a SQL function that writes its own audit row
+ * through nopm_audit_insert. A route that imports one of them is audited by that function, not by a
+ * writeAudit( in the route. This is a checked rule, not an allowlist: the test "every RPC named in an
+ * audited-RPC module audits inside its latest SQL definition" fails if any function in these files stops
+ * auditing, so importing the module can never hide an unaudited write.
+ */
+const AUDITED_RPC_MODULES: { file: string; importPattern: RegExp }[] = [
+  { file: join("src", "lib", "governance", "atomic-rpc.ts"), importPattern: /from\s+["']@\/lib\/governance\/atomic-rpc["']/ },
+  { file: join("src", "app", "api", "auth", "mfa", "_rpc.ts"), importPattern: /from\s+["']\.\.\/_rpc["']/ },
+];
+
+/** Names of the nopm_* database functions a module calls (quoted literals, which also covers helper-style calls). */
+function moduleRpcNames(fileRel: string): string[] {
+  const src = readFileSync(join(process.cwd(), fileRel), "utf8");
+  return [...new Set([...src.matchAll(/["'`](nopm_\w+)["'`]/g)].map((m) => m[1]))];
+}
+
+/** true when the route imports an audited-RPC module. */
+function importsAuditedRpcModule(src: string): boolean {
+  return AUDITED_RPC_MODULES.some((m) => m.importPattern.test(src));
+}
+
+/** RPC names called by one exported function of atomic-rpc.ts (the wrapper a delegate follows into). */
+function atomicWrapperRpcs(fn: string): string[] {
+  const src = readFileSync(join(process.cwd(), "src", "lib", "governance", "atomic-rpc.ts"), "utf8");
+  const start = src.search(new RegExp(String.raw`export\s+(?:async\s+)?function\s+${fn}\s*\(`));
+  if (start < 0) return [];
+  const rest = src.slice(start + 1);
+  const next = rest.search(/\nexport\s/);
+  const body = next < 0 ? rest : rest.slice(0, next);
+  return [...body.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+}
+
 const DECIDE_TS = join(process.cwd(), "src", "lib", "governance", "decide.ts");
 
 /** Source of one top-level exported function in decide.ts, up to the next top-level declaration. */
@@ -164,6 +198,9 @@ describe("audit-coverage invariant", () => {
       // audited atomically inside a SQL RPC (latest definition inserts into audit_log)
       if ([...src.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].some((m) => rpcAuditsInSql(m[1]) === true)) continue;
 
+      // audited through an audited-RPC module (atomic-rpc.ts, mfa/_rpc.ts); the module itself is verified below
+      if (importsAuditedRpcModule(src)) continue;
+
       const apiPath = toApiPath(file);
       if (Object.prototype.hasOwnProperty.call(ALLOWLIST, apiPath)) continue; // explicitly justified
       if (Object.prototype.hasOwnProperty.call(DELEGATED_AUDIT, apiPath)) continue; // audited in decide.ts — verified below
@@ -173,6 +210,17 @@ describe("audit-coverage invariant", () => {
 
     expect(violations).toEqual([]);
   });
+});
+
+describe("audited-RPC modules", () => {
+  for (const m of AUDITED_RPC_MODULES) {
+    it(`every RPC named in ${m.file.split("\\").join("/")} audits inside its latest SQL definition`, () => {
+      const names = moduleRpcNames(m.file);
+      expect(names.length).toBeGreaterThan(0);
+      const bad = names.filter((n) => NON_MUTATING_RPC[n] === undefined && rpcAuditsInSql(n) !== true);
+      expect(bad).toEqual([]);
+    });
+  }
 });
 
 describe("audit delegation to governance/decide.ts", () => {
@@ -207,7 +255,10 @@ describe("audit delegation to governance/decide.ts", () => {
         const calls = (body as string).match(/writeAudit\s*\(/g) ?? [];
         if (calls.length === 1) return;
         expect(calls.length).toBe(0);
-        const rpcs = [...(body as string).matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+        const direct = [...(body as string).matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+        // wave 5: the function may call a wrapper in atomic-rpc.ts (rejectDeletionAtomic ...); follow it to its RPC
+        const followed = [...(body as string).matchAll(/\b(\w+Atomic)\s*\(/g)].flatMap((m) => atomicWrapperRpcs(m[1]));
+        const rpcs = [...direct, ...followed];
         expect(rpcs.filter((r) => rpcAuditsInSql(r) === true).length, `${fn}: no audited RPC`).toBe(1);
       });
     });
@@ -317,6 +368,8 @@ const UNAUDITED_WRITER_ALLOWLIST: Record<string, string> = {
   "lib/auth/guard.ts": "stamps api_tokens.last_used_at on use; telemetry, not a governed change",
   "lib/integrations/github/process.ts":
     "bookkeeping ledger of received GitHub events (work_events); the only governed change it triggers, a task status move, is made by nopm_apply_task_status_from_event (lib/work/apply-task-status.ts), which writes the task.update or work_event.skipped audit row in the same transaction",
+  "lib/integrations/identity.ts":
+    "mintLinkCode inserts and deletes identity_link_codes rows: minting a short-lived link code is not a governed change; the link itself is audited inside nopm_link_identity (migration 0109)",
   "lib/governance/approval-events.ts":
     "bookkeeping ledger of what the daily approval timer did (reminder, escalation, overdue flag); the governed facts it describes carry their own audit rows and the timer writes one approval.timer_run row per workspace per run",
 };

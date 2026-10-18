@@ -35,6 +35,8 @@ function codeActions(): Set<string> {
         if (m) found.add(m[1]);
       }
     }
+    // Wave 5: actions written through the SQL-audit helper, buildRpcAudit(actor, "<action>", ...) literals.
+    for (const m of s.matchAll(/buildRpcAudit\(\s*[\w.]+\s*,\s*"([^"]+)"/g)) found.add(m[1]);
     // Actions written through a named constant (e.g. OVERSPEND_AUDIT_ACTION).
     for (const m of s.matchAll(/const\s+\w*AUDIT_ACTION\w*\s*=\s*"([^"]+)"/g)) found.add(m[1]);
   }
@@ -48,7 +50,8 @@ function sqlActions(): Set<string> {
   for (const file of walk(MIGRATIONS, /\.sql$/)) {
     const lines = readFileSync(file, "utf8").split("\n");
     lines.forEach((line, idx) => {
-      if (!/insert\s+into\s+(public\.)?audit_log/i.test(line)) return;
+      // wave 5: functions write their row through the shared helper nopm_audit_insert (0107) instead of a direct insert
+      if (!/insert\s+into\s+(public\.)?audit_log|nopm_audit_insert\s*\(/i.test(line)) return;
       const window = lines.slice(idx, idx + 16).join("\n");
       for (const m of window.matchAll(/'([a-z_]+(?:\.[a-z_]+)+)'/g)) found.add(m[1]);
     });
