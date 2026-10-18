@@ -85,8 +85,8 @@ begin
   if v_type is null or v_type not in ('user', 'token') then
     raise exception 'INVALID_ACTOR: actor_type must be user or token' using errcode = 'P0058';
   end if;
-  if v_label is null or btrim(v_label) = '' then
-    raise exception 'INVALID_ACTOR: actor_label is required' using errcode = 'P0058';
+  if v_label is null then
+    raise exception 'INVALID_ACTOR: actor_label must not be null' using errcode = 'P0058';
   end if;
   if v_type = 'user' and v_actor is null then
     raise exception 'INVALID_ACTOR: a user actor needs an id' using errcode = 'P0058';

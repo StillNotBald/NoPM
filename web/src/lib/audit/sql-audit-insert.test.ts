@@ -90,6 +90,11 @@ describe("migration 0107 audit insert helper", () => {
     expect(sql).toContain("v_actor = c_nil and (v_type <> 'token' or v_label not like 'system:%' or v_princ is not null)");
   });
 
+  it("only requires a non-null actor_label, like writeAudit and 0103 (W1-09)", () => {
+    expect(sql).toContain("if v_label is null then");
+    expect(sql).not.toContain("btrim(v_label)");
+  });
+
   it("creates nothing but the one function", () => {
     expect(sql.match(/\bcreate (?:or replace )?(?:table|index|unique index|trigger|type|view|extension)\b/g)).toBeNull();
     expect(sql.match(/\b(?:alter|drop|truncate)\s+(?:table|trigger|index|type)\b/g)).toBeNull();
