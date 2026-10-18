@@ -632,7 +632,8 @@ describe("listPendingApprovals — the five wave-5 register kinds", () => {
     expect(byId["d-alloc"]).toMatchObject({ kind: "allocation_deletion" });
     expect(byId["d-clash"]).toMatchObject({ kind: "clash_deletion", title: "Delete clash: Overlap on Apollo" });
     expect(byId["d-prog"].removes).toEqual([{ label: "projects (kept, no longer in this program)", count: 3, governed: false }]);
-    expect(byId["d-res"].removes.map((x) => x.count).sort()).toEqual([1, 2]);
+    // the assigned tasks are KEPT (only unlinked), so they are not listed as removed
+    expect(byId["d-res"].removes.map((x) => x.count)).toEqual([2]);
     expect(byId["d-clash"].removes).toEqual([]);
     expect(r.total).toBe(5);
   });

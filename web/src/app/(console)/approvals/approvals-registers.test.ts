@@ -26,9 +26,14 @@ describe("what the approver is shown for the wave-5 registers", () => {
     expect(describeChildCounts({ child_counts: { projects: 3 } }, "program")).toEqual([
       { key: "projects", label: "projects (kept, no longer in this program)", count: 3, governed: false },
     ]);
-    expect(describeChildCounts({ child_counts: { tasks: 2 } }, "sprint")[0].label).toBe("tasks (kept, no longer in this sprint)");
+    expect(describeChildCounts({ child_counts: { tasks: 2 } }, "sprint")[0].label).toBe("tasks");
     const res = describeChildCounts({ child_counts: { allocations: 2, allocation_ids: ["a", "b"], assigned_tasks: 1 } }, "resource");
-    expect(res.map((l) => [l.key, l.count]).sort()).toEqual([["allocations", 2], ["assigned_tasks", 1]]);
+    expect(res.map((l) => [l.key, l.count, !!l.kept]).sort()).toEqual([["allocations", 2, false], ["assigned_tasks", 1, true]]);
+    // W2-15: the kept line is not under the "deletes" heading
+    const html = renderToStaticMarkup(createElement(ChildCountsNote, { lines: res, heading: childCountsHeading("resource") }));
+    expect(html.indexOf("Approving also deletes:")).toBeLessThan(html.indexOf("2 allocations"));
+    expect(html.indexOf("2 allocations")).toBeLessThan(html.indexOf("Kept, only unlinked:"));
+    expect(html.indexOf("Kept, only unlinked:")).toBeLessThan(html.indexOf("1 assigned tasks"));
   });
 
   it("the note renders the lines under the heading", () => {
@@ -40,6 +45,22 @@ describe("what the approver is shown for the wave-5 registers", () => {
     );
     expect(html).toContain("Approving also deletes:");
     expect(html).toContain("allocations");
+  });
+
+  it("D2: an allocation is named by its display name, not 'Name not recorded'", () => {
+    const t = describeDeletionTarget({
+      target_type: "allocation",
+      target_id: "a1",
+      before: { id: "a1", child_counts: { display_name: "Dana · Billing Migration · 2026-11-02 to 2026-11-13" } },
+    });
+    expect(t.name).toBe("Dana · Billing Migration · 2026-11-02 to 2026-11-13");
+  });
+
+  it("W2-14: the page and the review gather label register requests with their own kind and counts", () => {
+    const gather = readFileSync(join(__dirname, "..", "..", "..", "lib", "review", "gather.ts"), "utf8");
+    expect(page).toContain("registerDeletionKindFor(r.target_type)");
+    expect(gather).toContain("registerDeletionKindFor(row.target_type)");
+    expect(gather).toContain("showsChildCounts(row.target_type)");
   });
 
   it("names the record from the request snapshot (programs, sprints and resources have a name, clashes a title)", () => {

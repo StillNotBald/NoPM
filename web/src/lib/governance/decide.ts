@@ -374,7 +374,8 @@ async function settleDeletionEvent(
 }
 
 function deletionTitle(row: DeletionRow): string {
-  const label = row.before ? (row.before.name ?? row.before.title ?? row.before.description) : null;
+  const counts = row.before?.child_counts as { display_name?: unknown } | undefined;
+  const label = row.before ? (row.before.name ?? row.before.title ?? row.before.description ?? counts?.display_name) : null;
   const name = typeof label === "string" ? label : row.target_id;
   return `Delete ${row.target_type} "${name}"`;
 }
@@ -458,6 +459,8 @@ async function assertTaskUnchangedSinceRequest(db: Db, workspaceId: string, row:
  * status (no approver is recorded), compare-and-set on 'pending'. The status change and its audit row are one
  * database transaction (nopm_withdraw_deletion_request, wave 5): if the audit row cannot be written, nothing changes.
  */
+const AUDIT_HELPER_SQLSTATES: ReadonlySet<string> = new Set(["P0005", "P0057", "P0058", "P0059"]);
+
 async function closeDeletionRequest(
   db: Db,
   actor: Actor,
@@ -472,7 +475,9 @@ async function closeDeletionRequest(
     if (err instanceof RuleError || err instanceof NotFoundError) return;
     // An audit failure surfaces: the database function rolled the close back, so no close ever stands without its
     // trail (A3-5).
-    if (/INVALID_(ACTION|CHANNEL|ACTOR|AUDIT)|audit/i.test(err instanceof Error ? err.message : String(err))) throw err;
+    // The audit helper's own SQLSTATEs (W2-16): P0005 invalid channel, P0057 invalid action, P0058 invalid actor,
+    // P0059 invalid audit. Matched by code, not by words in the message.
+    if (AUDIT_HELPER_SQLSTATES.has(String((err as { code?: unknown } | null)?.code ?? ""))) throw err;
     // Any other failure (a transient database error, a build deployed before the function exists) changed nothing:
     // log it and let the caller's 422 stand, exactly as the old close did.
     console.error("[deletion] could not close the stale request", row.id, err);

@@ -24,7 +24,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DecideState } from "@/components/governance/four-eyes-note";
 import { deletionKindFor } from "@/lib/integrations/types";
-import { describeChildCounts, describeDeletionTarget, type ChildCountLine } from "./deletion-target";
+import { isRegisterDeletionTarget, registerDeletionKindFor } from "@/lib/governance/deletion-dispatch";
+import { describeChildCounts, describeDeletionTarget, showsChildCounts, type ChildCountLine } from "./deletion-target";
 import { judgeDecision, judgeRebaselineSignoff, type Viewer } from "./four-eyes";
 import { clip } from "./pending";
 
@@ -258,13 +259,14 @@ export async function gatherReviewItems(
         decide: viewer
           ? judgeDecision({
               viewer,
-              kind: deletionKindFor(row.target_type),
+              kind: isRegisterDeletionTarget(row.target_type) ? registerDeletionKindFor(row.target_type) : deletionKindFor(row.target_type),
               row,
-              projectLocked: !!target.projectId && lockedProjectIds.has(target.projectId),
+              // The five wave-5 registers are not schedule shape: a locked project does not block them (R-176).
+              projectLocked: !isRegisterDeletionTarget(row.target_type) && !!target.projectId && lockedProjectIds.has(target.projectId),
             })
           : undefined,
         childCounts:
-          row.target_type === "project" || row.target_type === "milestone"
+          showsChildCounts(row.target_type)
             ? describeChildCounts(row.before, row.target_type)
             : undefined,
       });

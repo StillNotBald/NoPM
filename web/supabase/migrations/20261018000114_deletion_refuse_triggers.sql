@@ -31,6 +31,7 @@ do $$
 declare
   fn text;
   src text;
+  n integer;
 begin
   if to_regprocedure('nopm_refuse_direct_delete()') is null then
     raise exception '0114: nopm_refuse_direct_delete() is missing (0102 not applied)';
@@ -40,15 +41,20 @@ begin
     'nopm_commit_sprint_deletion', 'nopm_commit_resource_deletion', 'nopm_commit_allocation_deletion',
     'nopm_commit_clash_deletion'
   ] loop
-    select p.prosrc into src from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public' and p.proname = fn
-     order by p.oid desc limit 1;
-    if src is null then
+    n := 0;
+    -- EVERY overload of the function must call set_config('nopm.deletion_commit', ...): a mention in a comment does not count.
+    for src in
+      select p.prosrc from pg_proc p
+        join pg_namespace s on s.oid = p.pronamespace
+       where s.nspname = 'public' and p.proname = fn
+    loop
+      n := n + 1;
+      if position('set_config(''nopm.deletion_commit''' in src) = 0 then
+        raise exception '0114: an overload of % does not call set_config(''nopm.deletion_commit''): apply 0113 first', fn;
+      end if;
+    end loop;
+    if n = 0 then
       raise exception '0114: % is missing: apply 0113 first', fn;
-    end if;
-    if position('nopm.deletion_commit' in src) = 0 then
-      raise exception '0114: % does not set nopm.deletion_commit: apply 0113 first', fn;
     end if;
   end loop;
 end $$;

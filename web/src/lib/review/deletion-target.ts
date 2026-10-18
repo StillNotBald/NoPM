@@ -28,7 +28,9 @@ export function describeDeletionTarget(req: {
   before?: unknown;
 }): DeletionTarget {
   const before = isRow(req.before) ? req.before : {};
-  const name = clip(before.name ?? before.title ?? before.description, 120);
+  const counts = isRow(before.child_counts) ? before.child_counts : {};
+  // An allocation has no name of its own: the request snapshot records resource, project, task and window (0113).
+  const name = clip(before.name ?? before.title ?? before.description ?? counts.display_name, 120);
   const projectId =
     req.target_type === "project"
       ? req.target_id
@@ -64,12 +66,14 @@ export interface ChildCountLine {
   count: number;
   /** Governed records (decided/auditable) rather than plain work items. */
   governed: boolean;
+  /** True when approving KEEPS the record and only unlinks it (a resource's assigned tasks); shown under its own heading. */
+  kept?: boolean;
 }
 
 const CHILD_LABELS: Record<string, string> = {
   tasks: "tasks",
   projects: "projects",
-  assigned_tasks: "assigned tasks (kept, no longer assigned to this person)",
+  assigned_tasks: "assigned tasks (no longer assigned to this person)",
   milestones: "milestones",
   risks: "risks",
   issues: "issues",
@@ -106,13 +110,12 @@ export function describeChildCounts(before: unknown, targetType?: string): Child
       label:
         targetType === "milestone" && key === "tasks"
           ? "tasks (kept, no longer under this milestone)"
-          : targetType === "sprint" && key === "tasks"
-            ? "tasks (kept, no longer in this sprint)"
-            : targetType === "program" && key === "projects"
-              ? "projects (kept, no longer in this program)"
-              : (CHILD_LABELS[key] ?? key.replace(/_/g, " ")),
+          : targetType === "program" && key === "projects"
+            ? "projects (kept, no longer in this program)"
+            : (CHILD_LABELS[key] ?? key.replace(/_/g, " ")),
       count: value,
       governed: GOVERNED.has(key),
+      ...(targetType === "resource" && key === "assigned_tasks" ? { kept: true } : {}),
     });
   }
   return lines.sort((a, b) => Number(a.governed) - Number(b.governed) || a.label.localeCompare(b.label));

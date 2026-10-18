@@ -127,7 +127,8 @@ export async function withdrawDeletionAtomic(
   return unwrap(res, "nopm_withdraw_deletion_request", (e) => {
     if (has(e, "NOT_FOUND", "P0002")) throw new NotFoundError("Deletion request not found");
     if (has(e, "ALREADY_DECIDED", "P0001")) throw new RuleError("Request already decided", "already_decided");
-    throw new Error(e.message || "Failed to withdraw the deletion request");
+    // Keep the SQLSTATE: decide.ts tells an audit-helper failure (P0057 to P0059, P0005) from a transient error by code.
+    throw Object.assign(new Error(e.message || "Failed to withdraw the deletion request"), { code: e.code ?? null });
   });
 }
 

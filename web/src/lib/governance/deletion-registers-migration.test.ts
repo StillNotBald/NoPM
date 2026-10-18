@@ -55,6 +55,7 @@ describe("0113 header and safety", () => {
       "delete from resource_members",
       "delete from allocations",
       "delete from clashes",
+      "delete from projects", // the project commit is re-created here (W2-09 sweep)
       "delete from tasks",
     ]);
   });
@@ -113,7 +114,8 @@ describe("0113 commit RPCs", () => {
       it("audits with a literal action and writes the deletion_request.approved row, in the same transaction", () => {
         expect(body).toContain(`'${e}.delete', r.target_type, r.target_id, r.before,`);
         expect(body).toContain("'deletion_request.approved'");
-        expect(body.match(/insert into audit_log/g)).toHaveLength(2);
+        // the delete row and the approval row; the resource commit also audits each closed allocation request (W2-09)
+        expect(body.match(/insert into audit_log/g)).toHaveLength(e === "resource" ? 3 : 2);
       });
 
       it("is executable by service_role only", () => {
@@ -171,7 +173,13 @@ describe("0113 makes every cascading commit RPC set nopm.deletion_commit (PR-01)
   });
 
   it("keeps the rest of the task commit as 0056 had it (same guards, same audit rows)", () => {
-    const body = fn(m113, "nopm_commit_task_deletion").replace(/\n\s*-- 0113[^\n]*\n(\s*-- [^\n]*\n)*\s*perform set_config\([^\n]*\n/, "\n");
+    let body = fn(m113, "nopm_commit_task_deletion");
+    // Remove the three additions of 0113: the flag (with its comment), the allocation-id read, and the request sweep.
+    body = body.replace(/\n\s*-- 0113[^\n]*\n(\s*-- [^\n]*\n)*/, "\n");
+    body = body.replace(/\n\s*select coalesce\(array_agg\(a\.id\)[^\n]*\n/, "\n");
+    body = body.replace(/\n\s*perform set_config\('nopm\.deletion_commit'[^\n]*\n/, "\n");
+    body = body.replace(/\n\s*-- W2-09:[\s\S]*?from closed c;\n/, "\n");
+    body = body.replace("  v_alloc uuid[] := '{}';\n", "");
     const old = read("20261017000056_review_fixes.sql");
     const start = old.indexOf("create or replace function nopm_commit_task_deletion(");
     const oldBody = old.slice(start, old.indexOf("revoke execute on function nopm_commit_task_deletion", start));
@@ -209,6 +217,39 @@ describe("0113 makes every cascading commit RPC set nopm.deletion_commit (PR-01)
     for (const [name, body] of deleters) {
       expect(body, `${name} sets nopm.deletion_commit`).toContain("set_config('nopm.deletion_commit', 'on', true)");
     }
+  });
+});
+
+describe("0113 closes the requests that go away with a parent (W2-09)", () => {
+  const SWEPT = "target_type in (";
+  it("the project commit also sweeps pending sprint, allocation and clash requests", () => {
+    const body = fn(m113, "nopm_commit_project_deletion");
+    expect(body).toContain("target_type in ('task', 'risk', 'issue', 'expense', 'document', 'milestone', 'sprint', 'allocation', 'clash')");
+    expect(body).toContain("union all select id from sprints where project_id = r.target_id");
+    expect(body).toContain("union all select id from allocations where workspace_id = p_workspace_id and (project_id = r.target_id or task_id in");
+    expect(body).toContain("union all select id from clashes where workspace_id = p_workspace_id and (project_a_id = r.target_id or project_b_id = r.target_id)");
+    expect(body).toContain("set_config('nopm.deletion_commit', 'on', true)");
+  });
+
+  it("the task and resource commits sweep pending allocation requests, with one audit row each", () => {
+    for (const name of ["nopm_commit_task_deletion", "nopm_commit_resource_deletion"]) {
+      const body = fn(m113, name);
+      expect(body, name).toContain(SWEPT + "'allocation')");
+      expect(body, name).toContain("closed_reason = 'parent_deleted'");
+      expect(body, name).toContain("'deletion_request.withdrawn'");
+    }
+    expect(fn(m113, "nopm_commit_task_deletion")).toContain("from allocations a where a.task_id = r.target_id");
+    // the ids are read BEFORE the cascade removes them
+    const task = fn(m113, "nopm_commit_task_deletion");
+    expect(task.indexOf("into v_alloc")).toBeLessThan(task.indexOf("delete from tasks"));
+  });
+
+  it("the allocation entity row records a display name for the Approvals card (D2)", () => {
+    expect(m113).toContain("jsonb_build_object(''display_name''");
+  });
+
+  it("says why the commit functions are not security definer (W2-10)", () => {
+    expect(m113).toMatch(/NOT security definer, deliberately, exactly like the other deletion commits/);
   });
 });
 
@@ -250,7 +291,10 @@ describe("0114 refuse triggers (post-deploy, PR-19)", () => {
     ]) {
       expect(m114).toContain(`'${f}'`);
     }
-    expect(m114).toContain("position('nopm.deletion_commit' in src) = 0");
+    // W2-11: the call itself, in EVERY overload, not a mention in a comment
+    expect(m114).toContain("position('set_config(''nopm.deletion_commit''' in src) = 0");
+    expect(m114).toContain("for src in");
+    expect(m114).not.toContain("order by p.oid desc limit 1");
     expect(m114.match(/raise exception '0114:/g)!.length).toBeGreaterThanOrEqual(3);
   });
 

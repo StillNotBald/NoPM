@@ -13,7 +13,7 @@ import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
 import { childCountsHeading, describeDeletionTarget, describeChildCounts, showsChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
-import { isRegisterDeletionTarget } from "@/lib/governance/deletion-dispatch";
+import { isRegisterDeletionTarget, registerDeletionKindFor } from "@/lib/governance/deletion-dispatch";
 import { deletionKindFor } from "@/lib/integrations/types";
 import { ChildCountsNote } from "@/components/review/child-counts-note";
 import { judgeDecision } from "@/lib/review/four-eyes";
@@ -202,7 +202,7 @@ export default async function ApprovalsPage({
       r.id,
       judgeDecision({
         viewer,
-        kind: deletionKindFor(r.target_type),
+        kind: isRegisterDeletionTarget(r.target_type) ? registerDeletionKindFor(r.target_type) : deletionKindFor(r.target_type),
         row: r,
         singleAdmin,
         projectLocked: (() => {

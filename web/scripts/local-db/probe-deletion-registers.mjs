@@ -164,6 +164,61 @@ await report.check("K3", "approve a RESOURCE deletion that has allocations: memb
   expectEqual((await auditRows("deletion_request.approved", resourceReq.id)).length, 1, "deletion_request.approved rows");
 });
 
+// ── 1b. requests that go away with their parent are closed with it (W2-09) ───
+const closedWith = async (requestId, parent) => {
+  const [r] = await q("select status, closed_reason from deletion_requests where id = $1", [requestId]);
+  expectEqual([r.status, r.closed_reason], ["withdrawn", "parent_deleted"], "swept request");
+  const rows = await q(
+    "select after from audit_log where workspace_id = $1 and action = 'deletion_request.withdrawn' and target_id = $2",
+    [ws, requestId],
+  );
+  expectEqual(rows.length, 1, "one deletion_request.withdrawn audit row");
+  expectEqual(rows[0].after.parent_id ?? rows[0].after.project_id, parent, "audit names the parent");
+};
+
+await report.check("SW1", "a project approval closes the pending sprint, allocation and clash requests of that project, one audit row each", async () => {
+  const p = await project("SW1");
+  const s = await sprint(p.id);
+  const c = await clash(p.id);
+  const t = await newTask(db, fx, "sw1");
+  await pgc.query("update tasks set project_id = $1 where id = $2", [p.id, t.id]);
+  const m = await member("sw1");
+  const al = await allocation(m.id, { task_id: t.id });
+  const rs = await request("sprint", s.id, A);
+  const rc = await request("clash", c.id, A);
+  const ra = await request("allocation", al.id, A);
+  const rp = await request("project", p.id, ADMIN, "high_risk");
+  await commit("project", rp.id, ADMIN2);
+  for (const r of [rs, rc, ra]) await closedWith(r.id, p.id);
+});
+
+await report.check("SW2", "a task approval closes the pending request for an allocation of that task", async () => {
+  const t = await newTask(db, fx, "sw2");
+  const m = await member("sw2");
+  const al = await allocation(m.id, { task_id: t.id, project_id: fx.project.id });
+  const ra = await request("allocation", al.id, A);
+  const rt = await request("task", t.id, A);
+  await commit("task", rt.id, B);
+  await closedWith(ra.id, t.id);
+});
+
+await report.check("SW3", "a resource approval closes the pending request for an allocation of that member", async () => {
+  const m = await member("sw3");
+  const al = await allocation(m.id, { project_id: base.id });
+  const ra = await request("allocation", al.id, A);
+  const rm = await request("resource", m.id, A);
+  await commit("resource", rm.id, B);
+  await closedWith(ra.id, m.id);
+});
+
+await report.check("D2", "an allocation request records a display name (member, project, window) for the Approvals card", async () => {
+  const m = await member("d2");
+  const al = await allocation(m.id, { project_id: base.id, window_start: "2026-11-02", window_end: "2026-11-13" });
+  const req = await request("allocation", al.id, A);
+  const name = req.before.child_counts.display_name;
+  expect(typeof name === "string" && name.includes("d2") && name.includes("BASE") && name.includes("2026-11-02 to 2026-11-13"), "display_name was " + name);
+});
+
 // ── 2. the five commits, one by one ────────────────────────────────────────
 await report.check("P1", "program: the request is high_risk even when the caller asks for normal; a manager approver is refused", async () => {
   const pr = await program();

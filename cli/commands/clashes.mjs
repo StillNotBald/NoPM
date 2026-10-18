@@ -5,7 +5,7 @@
 //   POST   /api/clashes                      clash:write  (create)
 //   GET    /api/clashes/:id                  clash:read   (get)
 //   PATCH  /api/clashes/:id                  clash:write  (update)
-//   DELETE /api/clashes/:id                  clash:write  (delete)
+//   DELETE /api/clashes/:id   clash:delete:request (four-eyes: creates a deletion_request, 202)
 
 export const describe = "List, create, inspect, update, or delete schedule/resource/dependency clashes";
 
@@ -14,7 +14,7 @@ export const usage = [
   "nopm clashes get <id>                                         fetch a single clash",
   "nopm clashes create --title <t> --type <type> --severity <s>  [--status <s>] [--description <d>]",
   "nopm clashes update <id> [--title <t>] [--type <type>] [--severity <s>] [--status <s>] [--resolution <r>]",
-  "nopm clashes rm <id>                                          delete a clash",
+  "nopm clashes rm <id> --reason <why>   (MAKER) request deletion of a clash; a different person approves it",
   "  type:     schedule | resource | dependency",
   "  severity: low | medium | high | critical",
   "  status:   open | investigating | resolved",
@@ -90,9 +90,10 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm clashes rm <id>");
-      await ctx.api("DELETE", `/api/clashes/${id}`);
-      console.log("✓ deleted clash", id);
+      if (!id || !f.reason) ctx.die("usage: nopm clashes rm <id> --reason <why>");
+      const result = await ctx.api("DELETE", `/api/clashes/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

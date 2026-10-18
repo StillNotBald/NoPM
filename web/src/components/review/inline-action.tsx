@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { ChildCountsNote } from "@/components/review/child-counts-note";
+import { childCountsHeading } from "@/lib/review/deletion-target";
 import { TextareaInput } from "@/components/forms/project-form";
 import { DecisionPanel, ChangeFacts, statusLabel, type ChangeFactsData } from "@/components/change-control/change-detail";
 import type { ChangeRequest } from "@/components/change-control/change-form";
@@ -346,7 +347,7 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
 
       {item.childCounts && item.childCounts.length > 0 && <ChildCountsNote
           lines={item.childCounts}
-          heading={item.targetType === "milestone" ? "Approving also detaches:" : undefined}
+          heading={item.targetType ? childCountsHeading(item.targetType) : undefined}
         />}
       <FourEyesNote block={decide.canDecide ? null : decide.block} className="mb-1 mt-2" />
       {!decide.canDecide && decide.canWithdraw && (

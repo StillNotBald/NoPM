@@ -521,10 +521,16 @@ describe("approveDeletion", () => {
     it("A3-5: if the close cannot be audited it fails closed — the request goes back to pending and the audit error surfaces", async () => {
       failWith("P0017", "TARGET_GONE: the task no longer exists");
       // wave 5: the close and its audit row are one database transaction, so a failing audit step rolls the close back
-      db.mutateFailure = { code: "XX000", message: "audit down" };
+      db.mutateFailure = { code: "P0059", message: "INVALID_AUDIT: audit down" };
       await expect(approveDeletion(bobPat(), "del-1")).rejects.toThrow(/audit down/);
       const req = db.rows("deletion_requests").find((r) => r.id === "del-1")!;
       expect(req.status).toBe("pending"); // not closed without a trail
+    });
+    it("W2-16: a transient error that merely mentions audit_log does not turn the 422 into a 500 (matched by SQLSTATE, not words)", async () => {
+      failWith("P0017", "TARGET_GONE: the task no longer exists");
+      db.mutateFailure = { code: "08006", message: "connection to audit_log lost" };
+      const err = await caught(approveDeletion(bobPat(), "del-1"));
+      expect([err.status, err.code]).toEqual([422, "target_gone"]);
     });
     it("P0017 on a project deletion maps the same way", async () => {
       db.rows("deletion_requests")[0] = deletionRow({

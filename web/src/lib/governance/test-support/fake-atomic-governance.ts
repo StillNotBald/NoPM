@@ -128,6 +128,14 @@ export const requestDeletionRpc: RpcHandler = (args, db) =>
     if (entity === "sprint") {
       before = { ...before, child_counts: { tasks: db.rows("tasks").filter((t) => t.workspace_id === ws && t.sprint_id === id).length } };
     }
+    if (entity === "allocation") {
+      const name = (table: string, key: unknown) => db.rows(table).find((r) => r.id === key)?.name as string | undefined;
+      const when = target.window_start ? [target.window_start, target.window_end].filter(Boolean).join(" to ") : undefined;
+      const display = [name("resource_members", target.member_id), name("projects", target.project_id), name("tasks", target.task_id), when]
+        .filter(Boolean)
+        .join(" · ");
+      before = { ...before, child_counts: { display_name: display } };
+    }
     if (entity === "resource") {
       const allocs = db.rows("allocations").filter((a) => a.workspace_id === ws && a.member_id === id);
       before = {

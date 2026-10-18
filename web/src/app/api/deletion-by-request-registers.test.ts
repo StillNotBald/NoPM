@@ -210,6 +210,24 @@ describe("DELETE is the maker step: 202 with the request row, never a delete (D1
     expect(db.rows("deletion_requests")).toHaveLength(0);
   });
 
+  it.each(ENTITIES)("D4: a member session may ask for a $entity deletion (it could delete before wave 5; approval stays with a manager or admin)", async (e) => {
+    const res = await call(e.handler, session(CARA, "member"), e.id, { reason: "x" });
+    expect(res.status).toBe(202);
+    expect(db.rows(e.table).some((r) => r.id === e.id)).toBe(true);
+  });
+
+  it.each(ENTITIES)("D4: a viewer session is refused (403) for $entity and nothing is created", async (e) => {
+    expect((await call(e.handler, session(CARA, "viewer"), e.id, { reason: "x" })).status).toBe(403);
+    expect(db.rows("deletion_requests")).toHaveLength(0);
+  });
+
+  it.each(ENTITIES)("D4: a member cannot approve the $entity request a manager raised (403 role_not_permitted)", async (e) => {
+    const id = (await (await call(e.handler, session(BOB, "manager"), e.id, { reason: "x" })).json()).data.id as string;
+    const res = await call(approve, session(CARA, "member"), id, {}, "POST");
+    expect(res.status).toBe(403);
+    expect(db.rows(e.table).some((r) => r.id === e.id)).toBe(true);
+  });
+
   it("a viewer cannot raise one (403); a token with no recorded owner cannot either (403 no_principal)", async () => {
     expect((await call(deleteSprint, session(CARA, "viewer"), "spr-1", { reason: "x" })).status).toBe(403);
     const orphan = await call(deleteSprint, pat("tok-o", null, ["sprint:delete:request"]), "spr-1", { reason: "x" });
@@ -278,6 +296,15 @@ describe("the rules the direct deletes had, now at request time", () => {
     await call(deleteResource, session(ALICE), "res-1", { reason: "left" });
     expect(db.rows("deletion_requests")[0].before).toMatchObject({
       child_counts: { allocations: 2, allocation_ids: ["al-1", "al-2"], assigned_tasks: 0 },
+    });
+  });
+
+  it("D2: the allocation request snapshot carries a display name (resource, project, window) for the Approvals card", async () => {
+    db.rows("allocations")[0].window_start = "2026-11-02";
+    db.rows("allocations")[0].window_end = "2026-11-13";
+    await call(deleteAllocation, session(ALICE), "al-1", { reason: "x" });
+    expect(db.rows("deletion_requests")[0].before).toMatchObject({
+      child_counts: { display_name: "Dana · Billing Migration · 2026-11-02 to 2026-11-13" },
     });
   });
 

@@ -510,7 +510,7 @@ export async function listPendingApprovals(
       case "clash_deletion": {
         const type = targetTypeOfAnyDeletionKind(c.kind);
         const name =
-          clip(r.before?.name ?? r.before?.title ?? r.before?.description, 120) ??
+          clip(r.before?.name ?? r.before?.title ?? r.before?.description ?? r.before?.child_counts?.display_name, 120) ??
           (type === "project" ? projectName.get(r.target_id) : undefined) ??
           r.target_id;
         title = `Delete ${type}: ${name}`;
@@ -546,7 +546,7 @@ export async function listPendingApprovals(
       assigned_approver_id: typeof r.assigned_approver_id === "string" ? r.assigned_approver_id : null,
       assigned_to_me: !!actorPrincipal && r.assigned_approver_id === actorPrincipal,
       removes: isAnyDeletionKind(c.kind)
-        ? describeChildCounts(r.before, targetTypeOfAnyDeletionKind(c.kind)).map(({ label: what, count, governed }) => ({
+        ? describeChildCounts(r.before, targetTypeOfAnyDeletionKind(c.kind)).filter((l) => !l.kept).map(({ label: what, count, governed }) => ({
             label: what,
             count,
             governed,

@@ -649,6 +649,9 @@ for (const [cmd, path] of [
   ["milestones", "milestones"],
   ["expenses", "expenses"],
   ["documents", "documents"],
+  ["allocations", "allocations"],
+  ["clashes", "clashes"],
+  ["resources", "resources"],
 ]) {
   test(`${cmd} rm needs an id and a reason, and sends DELETE /api/${path}/<id> with the reason`, async () => {
     const mod = await import(`../commands/${cmd}.mjs`);
