@@ -730,6 +730,9 @@ grant  execute on function nopm_commit_clash_deletion(uuid, uuid, text, uuid, te
 
 -- == 3b. nopm_commit_project_deletion (from 20261018000102, plus the sweep of sprint, allocation and clash requests) ==
 
+-- R-84 provenance rule: drop the pre-provenance overloads before redefining (no stale overload can be called).
+drop function if exists nopm_commit_project_deletion(uuid, uuid, text, uuid, text, text, text);
+drop function if exists nopm_commit_project_deletion(uuid, uuid, text, uuid, text);
 create or replace function nopm_commit_project_deletion(
   p_request_id           uuid,
   p_workspace_id         uuid,
