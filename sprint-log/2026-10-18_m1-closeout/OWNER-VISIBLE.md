@@ -17,3 +17,4 @@
 - The workspace approval policy no longer returns `emergency_retro_hours`. Old clients may still send it; it is accepted and ignored.
 - Seed logins for local and demo data moved to `@example.com` (Priya Nair, Daniel Okoro). Re-seed to pick them up.
 - Change-request status `emergency` is kept as a legacy filter until the post-release check shows no row in it.
+- W5-J (R-180): No screen change. Two new pages for you in the CUTOVER folder: a list of read-only checks to paste into the Supabase SQL editor after each release step, and the wave 5 release order with its rollback for each step. A rehearsal script for your own computer runs the whole release against the local database first.
