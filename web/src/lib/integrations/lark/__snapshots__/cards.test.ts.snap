@@ -1,0 +1,819 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`snapshots > approval request without a configured app url (no link) 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**CR-12: extend UAT by one week**",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Project:** Platform Cutover
+**Requested by:** Riley Requester",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "a": "approve",
+              "t": "npa_raw-action-token-for-tests",
+            },
+          },
+        ],
+        "element_id": "approve_3",
+        "size": "medium",
+        "tag": "button",
+        "text": {
+          "content": "Approve",
+          "tag": "plain_text",
+        },
+        "type": "primary_filled",
+      },
+      {
+        "direction": "vertical",
+        "element_id": "form_4",
+        "elements": [
+          {
+            "element_id": "reason_5",
+            "input_type": "multiline_text",
+            "label": {
+              "content": "Reason (required to reject)",
+              "tag": "plain_text",
+            },
+            "max_length": 500,
+            "name": "reason",
+            "placeholder": {
+              "content": "Why is this being rejected?",
+              "tag": "plain_text",
+            },
+            "required": true,
+            "rows": 2,
+            "tag": "input",
+            "width": "fill",
+          },
+          {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "a": "reject",
+                  "t": "npa_raw-action-token-for-tests",
+                },
+              },
+            ],
+            "element_id": "reject_6",
+            "form_action_type": "submit",
+            "name": "reject_submit",
+            "tag": "button",
+            "text": {
+              "content": "Reject",
+              "tag": "plain_text",
+            },
+            "type": "danger",
+          },
+        ],
+        "name": "reject_form",
+        "tag": "form",
+      },
+      {
+        "content": "Your decision is recorded in NoPM's audit log. You cannot approve a request you raised.",
+        "element_id": "md_7",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Change request: CR-12: extend UAT by one week",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "orange",
+    "title": {
+      "content": "Change request: approval needed",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > approval request: change request 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**CR-12: extend UAT by one week**",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Project:** Platform Cutover
+**Requested by:** Riley Requester",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "a": "approve",
+              "t": "npa_raw-action-token-for-tests",
+            },
+          },
+        ],
+        "element_id": "approve_3",
+        "size": "medium",
+        "tag": "button",
+        "text": {
+          "content": "Approve",
+          "tag": "plain_text",
+        },
+        "type": "primary_filled",
+      },
+      {
+        "direction": "vertical",
+        "element_id": "form_4",
+        "elements": [
+          {
+            "element_id": "reason_5",
+            "input_type": "multiline_text",
+            "label": {
+              "content": "Reason (required to reject)",
+              "tag": "plain_text",
+            },
+            "max_length": 500,
+            "name": "reason",
+            "placeholder": {
+              "content": "Why is this being rejected?",
+              "tag": "plain_text",
+            },
+            "required": true,
+            "rows": 2,
+            "tag": "input",
+            "width": "fill",
+          },
+          {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "a": "reject",
+                  "t": "npa_raw-action-token-for-tests",
+                },
+              },
+            ],
+            "element_id": "reject_6",
+            "form_action_type": "submit",
+            "name": "reject_submit",
+            "tag": "button",
+            "text": {
+              "content": "Reject",
+              "tag": "plain_text",
+            },
+            "type": "danger",
+          },
+        ],
+        "name": "reject_form",
+        "tag": "form",
+      },
+      {
+        "content": "[Open in NoPM](https://nopm.example.test/change-control?cr=44444444-4444-4444-8444-444444444444)",
+        "element_id": "md_7",
+        "tag": "markdown",
+      },
+      {
+        "content": "Your decision is recorded in NoPM's audit log. You cannot approve a request you raised.",
+        "element_id": "md_8",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Change request: CR-12: extend UAT by one week",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "orange",
+    "title": {
+      "content": "Change request: approval needed",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > approval request: task deletion (says what Approve does) 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**Delete task "Migrate billing DB"**",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Project:** Platform Cutover
+**Requested by:** Riley Requester",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "> Duplicate of the cutover task; safe to remove.",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+      {
+        "content": "Approving carries out the deletion in NoPM.",
+        "element_id": "md_4",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+      {
+        "behaviors": [
+          {
+            "type": "callback",
+            "value": {
+              "a": "approve",
+              "t": "npa_raw-action-token-for-tests",
+            },
+          },
+        ],
+        "element_id": "approve_5",
+        "size": "medium",
+        "tag": "button",
+        "text": {
+          "content": "Approve",
+          "tag": "plain_text",
+        },
+        "type": "primary_filled",
+      },
+      {
+        "direction": "vertical",
+        "element_id": "form_6",
+        "elements": [
+          {
+            "element_id": "reason_7",
+            "input_type": "multiline_text",
+            "label": {
+              "content": "Reason (required to reject)",
+              "tag": "plain_text",
+            },
+            "max_length": 500,
+            "name": "reason",
+            "placeholder": {
+              "content": "Why is this being rejected?",
+              "tag": "plain_text",
+            },
+            "required": true,
+            "rows": 2,
+            "tag": "input",
+            "width": "fill",
+          },
+          {
+            "behaviors": [
+              {
+                "type": "callback",
+                "value": {
+                  "a": "reject",
+                  "t": "npa_raw-action-token-for-tests",
+                },
+              },
+            ],
+            "element_id": "reject_8",
+            "form_action_type": "submit",
+            "name": "reject_submit",
+            "tag": "button",
+            "text": {
+              "content": "Reject",
+              "tag": "plain_text",
+            },
+            "type": "danger",
+          },
+        ],
+        "name": "reject_form",
+        "tag": "form",
+      },
+      {
+        "content": "[Open in NoPM](https://nopm.example.test/approvals)",
+        "element_id": "md_9",
+        "tag": "markdown",
+      },
+      {
+        "content": "Your decision is recorded in NoPM's audit log. You cannot approve a request you raised.",
+        "element_id": "md_10",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Task deletion: Delete task "Migrate billing DB"",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "orange",
+    "title": {
+      "content": "Task deletion: approval needed",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > callback response with a replacement card 1`] = `
+{
+  "card": {
+    "data": {
+      "body": {
+        "direction": "vertical",
+        "elements": [
+          {
+            "content": "**help**: show this message",
+            "element_id": "md_1",
+            "tag": "markdown",
+          },
+          {
+            "content": "**link NPL-XXXX-XXXX**: link your Lark account to NoPM (create the code in NoPM under Integrations)",
+            "element_id": "md_2",
+            "tag": "markdown",
+          },
+          {
+            "content": "**approvals**: list the requests waiting for your decision",
+            "element_id": "md_3",
+            "tag": "markdown",
+          },
+          {
+            "content": "Approval requests arrive here as cards with Approve and Reject buttons.",
+            "element_id": "md_4",
+            "tag": "markdown",
+          },
+        ],
+      },
+      "config": {
+        "summary": {
+          "content": "NoPM bot",
+        },
+        "update_multi": true,
+      },
+      "header": {
+        "template": "blue",
+        "title": {
+          "content": "NoPM bot",
+          "tag": "plain_text",
+        },
+      },
+      "schema": "2.0",
+    },
+    "type": "raw",
+  },
+  "toast": {
+    "content": "Approved. Recorded in NoPM.",
+    "type": "success",
+  },
+}
+`;
+
+exports[`snapshots > decided: approved from Lark 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**Delete task "Migrate billing DB"**",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Project:** Platform Cutover
+**Requested by:** Riley Requester",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Status:** Approved
+Decided by **Sam Approver** via Lark · 2026-10-16 09:30 UTC",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open in NoPM](https://nopm.example.test/approvals)",
+        "element_id": "md_4",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Task deletion approved: Delete task "Migrate billing DB"",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "green",
+    "title": {
+      "content": "Task deletion: approved",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > decision update: rejected from the web app 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**Delete task "Migrate billing DB"**",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Project:** Platform Cutover
+**Requested by:** Riley Requester",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Status:** Rejected
+Decided by **Sam Approver** via the NoPM web app · 2026-10-16 09:31 UTC",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open in NoPM](https://nopm.example.test/approvals)",
+        "element_id": "md_4",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Task deletion rejected: Delete task "Migrate billing DB"",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "red",
+    "title": {
+      "content": "Task deletion: rejected",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > link confirmation, help, unlinked, pending, notice 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "Your Lark account is now linked to NoPM as **Sam Approver**.",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "Approval requests you are eligible to decide will arrive here. Send \`help\` to see what I understand.",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open NoPM](https://nopm.example.test)",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Account linked",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "green",
+    "title": {
+      "content": "Account linked",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > link confirmation, help, unlinked, pending, notice 2`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**help**: show this message",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**link NPL-XXXX-XXXX**: link your Lark account to NoPM (create the code in NoPM under Integrations)",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "**approvals**: list the requests waiting for your decision",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+      {
+        "content": "Approval requests arrive here as cards with Approve and Reject buttons.",
+        "element_id": "md_4",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open NoPM](https://nopm.example.test)",
+        "element_id": "md_5",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "NoPM bot",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "blue",
+    "title": {
+      "content": "NoPM bot",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > link confirmation, help, unlinked, pending, notice 3`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "Your Lark account is not linked to a NoPM user yet.",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "In NoPM open Integrations, choose Link my account, then send \`link NPL-XXXX-XXXX\` (your code) here. Codes last 10 minutes.",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open NoPM](https://nopm.example.test)",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Account not linked",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "orange",
+    "title": {
+      "content": "Account not linked",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > link confirmation, help, unlinked, pending, notice 4`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**Deletion requests:** 2 ([open](https://nopm.example.test/approvals))
+**Change requests:** 1 ([open](https://nopm.example.test/change-control))",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "Decide from the approval card I sent you, or open NoPM. Other reviews are under Review in NoPM.",
+        "element_id": "md_2",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "3 waiting for your decision",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "orange",
+    "title": {
+      "content": "Waiting for you",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > link confirmation, help, unlinked, pending, notice 5`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "Nothing is waiting for your decision.",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Nothing waiting",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "green",
+    "title": {
+      "content": "Waiting for you",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > link confirmation, help, unlinked, pending, notice 6`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "Something went wrong.",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open NoPM](https://nopm.example.test)",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "Could not link",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "red",
+    "title": {
+      "content": "Could not link",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > weekly digest 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**4** projects · **3** open high risks · **2** pending approvals",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Projects**
+<font color=orange>●</font> Platform Cutover — active
+<font color=green>●</font> Data Migration — active
+<font color=red>●</font> Mobile Rollout — on hold
+<font color=grey>○</font> Legacy Retirement",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Milestones due soon**
+UAT sign-off · Platform Cutover · due 2026-10-20
+Go-live · due 2026-10-27",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open NoPM](https://nopm.example.test)",
+        "element_id": "md_4",
+        "tag": "markdown",
+      },
+      {
+        "content": "Generated 2026-10-16 09:30 UTC",
+        "element_id": "md_5",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "4 projects · 3 open high risks · 2 pending approvals",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "blue",
+    "title": {
+      "content": "Weekly digest · Acme Programme Office",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;
+
+exports[`snapshots > weekly digest, empty workspace 1`] = `
+{
+  "body": {
+    "direction": "vertical",
+    "elements": [
+      {
+        "content": "**0** projects · **0** open high risks · **0** pending approvals",
+        "element_id": "md_1",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Projects**
+No projects yet.",
+        "element_id": "md_2",
+        "tag": "markdown",
+      },
+      {
+        "content": "**Milestones due soon**
+Nothing due in the next two weeks.",
+        "element_id": "md_3",
+        "tag": "markdown",
+      },
+      {
+        "content": "[Open NoPM](https://nopm.example.test)",
+        "element_id": "md_4",
+        "tag": "markdown",
+      },
+      {
+        "content": "Generated 2026-10-16 09:30 UTC",
+        "element_id": "md_5",
+        "tag": "markdown",
+        "text_size": "notation",
+      },
+    ],
+  },
+  "config": {
+    "summary": {
+      "content": "0 projects · 0 open high risks · 0 pending approvals",
+    },
+    "update_multi": true,
+  },
+  "header": {
+    "template": "blue",
+    "title": {
+      "content": "Weekly digest · Acme Programme Office",
+      "tag": "plain_text",
+    },
+  },
+  "schema": "2.0",
+}
+`;

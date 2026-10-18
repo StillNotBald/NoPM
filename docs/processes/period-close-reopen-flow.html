@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Approved time is frozen — reopening it is its own decision.</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --surface:#f7f8f9;
+    --ink:#1a1d21;
+    --ink-soft:#4a5057;
+    --ink-faint:#6b7178;
+    --line:#e3e6e9;
+    --accent:#0f766e;
+    --accent-soft:#e6f2f0;
+    --accent-ink:#0b574f;
+    --warn-soft:#fbf0dd;
+    --warn-line:#b06a2c;
+    --warn-ink:#7a4a12;
+    --radius:14px;
+    --maxw:880px;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:var(--surface);
+    line-height:1.55;
+    font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:var(--maxw);margin:0 auto;background:var(--bg);padding:48px 56px 56px;}
+  h1{font-size:34px;line-height:1.1;margin:0;letter-spacing:-0.02em;font-weight:680;}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:0.09em;color:var(--accent-ink);font-weight:680;margin:0;}
+  p{margin:0 0 12px;color:var(--ink-soft);}
+  .muted{color:var(--ink-faint);font-size:14px;}
+  strong{color:var(--ink);font-weight:640;}
+  header{display:flex;align-items:center;gap:18px;padding-bottom:26px;border-bottom:1px solid var(--line);}
+  .mark{flex:0 0 auto;width:56px;height:56px;border-radius:16px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;}
+  .role{font-size:14px;color:var(--ink-faint);margin-top:4px;}
+  section{padding:34px 0 0;}
+  .icon-head{display:flex;align-items:center;gap:9px;margin-bottom:14px;}
+  .icon-head svg{color:var(--accent);flex:0 0 auto;}
+  ul.points{margin:6px 0 4px;padding:0;list-style:none;}
+  ul.points li{position:relative;padding:3px 0 3px 22px;font-size:15px;color:var(--ink-soft);}
+  ul.points li::before{content:"";position:absolute;left:2px;top:11px;width:7px;height:7px;border-radius:2px;background:var(--accent);}
+  ul.points li strong{color:var(--ink);}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 2px 14px;font-size:12.5px;color:var(--ink-soft);}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .legend .key{flex:0 0 auto;}
+  .flowwrap{display:flex;gap:14px;align-items:stretch;}
+  .diagram{flex:1 1 auto;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;}
+  .diagram svg{display:block;width:100%;height:auto;}
+  .mvp{flex:0 0 188px;background:var(--accent);color:#fff;border-radius:var(--radius);padding:18px 16px;display:flex;flex-direction:column;}
+  .mvp h3{margin:0 0 2px;font-size:14.5px;font-weight:680;color:#fff;letter-spacing:-0.01em;}
+  .mvp .sub{font-size:11.5px;color:rgba(255,255,255,.82);margin-bottom:14px;}
+  .mvp ol{margin:0;padding:0;list-style:none;counter-reset:m;flex:1;}
+  .mvp li{position:relative;counter-increment:m;padding:0 0 0 30px;margin:0 0 14px;font-size:12.5px;line-height:1.35;color:#fff;}
+  .mvp li:last-child{margin-bottom:0;}
+  .mvp li::before{content:counter(m);position:absolute;left:0;top:-1px;width:21px;height:21px;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;font-size:11.5px;font-weight:680;display:flex;align-items:center;justify-content:center;}
+  .mvp li .t{font-weight:640;display:block;}
+  .mvp li .d{color:rgba(255,255,255,.78);font-size:11px;}
+  .mvp .foot{margin-top:14px;font-size:11px;color:rgba(255,255,255,.8);border-top:1px solid rgba(255,255,255,.22);padding-top:10px;}
+  .diag-note{font-size:13px;color:var(--ink-faint);margin:12px 2px 0;}
+  .promise{margin-top:6px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--radius);padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}
+  .promise svg{color:var(--accent);flex:0 0 auto;margin-top:2px;}
+  .promise h3{font-size:15px;margin:0 0 6px;font-weight:660;color:var(--accent-ink);}
+  .promise ul.points li{font-size:14px;color:var(--ink-soft);}
+  @media (max-width:680px){
+    .page{padding:32px 22px 40px;}
+    h1{font-size:28px;}
+    header{flex-wrap:wrap;}
+    .flowwrap{flex-direction:column;}
+    .mvp{flex:1 1 auto;}
+  }
+  @media print{
+    @page{size:A4;margin:14mm;}
+    body{background:#fff;font-size:11.5pt;}
+    .page{max-width:none;width:auto;padding:0;}
+    section{padding:14px 0 0;page-break-inside:avoid;}
+    .flowwrap,.diagram,.mvp,.promise{page-break-inside:avoid;}
+    .mark,.diagram,.mvp,.promise,.legend{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="mark" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v18"/><path d="M3 12h11"/><path d="M14 8h2.5a2.5 2.5 0 0 1 2.5 2.5V17a2 2 0 0 0 2 2 2 2 0 0 0 2-2v-6.5L19 6"/></svg>
+    </div>
+    <div>
+      <h1>Approved time is frozen — reopening it is its own decision.</h1>
+      <div class="role">NoPM period lock &amp; reopen — a DB trigger freezes an approved week; 'reopened' is a third governed verb, never a quiet edit.</div>
+    </div>
+  </header>
+
+  <section>
+    <div class="icon-head">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 0 0 4-4V8M15 5H9a4 4 0 0 0-4 4v7"/></svg>
+      <h2>Period close &amp; reopen — end to end</h2>
+    </div>
+    <ul class="points">
+      <li><strong>Approval IS the lock</strong> — a DB trigger (migration 20260815000040) blocks new time entries for an approved week, error P0011.</li>
+      <li><strong>Reopen is a third governed verb</strong> — same decision endpoint, same four-eyes rule, mandatory rationale, full decision reset.</li>
+    </ul>
+
+    <div class="legend">
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg> Mail = email (demo-preview, rendered)</span>
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> Bell = in-app notification</span>
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn-line)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 12 12 21 3 12 z"/></svg> Diamond = decision / gate</span>
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn-line)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Amber = blocked / failure path</span>
+    </div>
+
+    <div class="flowwrap">
+      <div class="diagram">
+        <svg viewBox="-22 -34 1022 796" role="img" aria-label="End-to-end flow for the NoPM period lock and reopen process on a two-column grid. Phase 1, the week locks: a timesheet submission reaches status approved, see the companion timesheet lifecycle diagram for the log, submit, and four-eyes approval steps that lead here; once approved, a database trigger treats that member and week as locked; an attempt to add or delete a time entry inside the locked week is rejected with error PERIOD LOCKED, code P0011, mapped to HTTP 422, looping back to the still-locked state; separately, someone requests the week be reopened, which requires a mandatory rationale. The reopen request crosses over to phase 2, the governed reopen decision: an automatic scope gate requires the time colon approve scope; an automatic rationale gate returns 422 rationale required if no reason was given; an automatic status gate requires the submission currently be approved, else 422 not reopenable; a human four-eyes gate requires a different person than the original submitter (a token counts as the person who created it), blocking self reopen exactly as it blocks self approve and self reject; on success, the submission is reopened, its decision fields are fully reset to null, and it re-enters the review queue as a brand new approval request with all workspace approvers notified in-app; a second decision gate then approves or rejects again, subject to the same four-eyes rule; the terminal state is the week re-approved and locked again, or rejected back toward draft.">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b7178"/></marker>
+            <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b06a2c"/></marker>
+            <g id="mail"><circle r="13" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.2"/><g transform="translate(-8,-8)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0b574f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg></g></g>
+            <g id="bell"><circle r="13" fill="#fff" stroke="#0f766e" stroke-width="1.2"/><g transform="translate(-8,-8)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0b574f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></g></g>
+          </defs>
+<text x="690" y="-14" text-anchor="middle" fill="#0b574f" font-size="11.5" font-weight="700" letter-spacing="0.07em" font-family="-apple-system,Segoe UI,sans-serif">2 · GOVERNED REOPEN</text>
+<line x1="572" y1="-28" x2="808" y2="-28" stroke="#cfe1dd" stroke-width="1"/>
+<text x="300" y="-14" text-anchor="middle" fill="#0b574f" font-size="11.5" font-weight="700" letter-spacing="0.07em" font-family="-apple-system,Segoe UI,sans-serif">1 · WEEK LOCKS</text>
+<line x1="182" y1="-28" x2="418" y2="-28" stroke="#cfe1dd" stroke-width="1"/>
+<rect x="150" y="0" width="300" height="58" rx="11" fill="#0f766e" stroke="#0f766e" stroke-width="1.4"/>
+<text x="300" y="20" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Week approved</text>
+<text x="300" y="35" text-anchor="middle" fill="#cfe8e4" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">status=approved · see timesheet-lifecycle diagram</text>
+<rect x="159.5" y="84" width="281" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
+<text x="300" y="104" text-anchor="middle" fill="#0b574f" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Week locked</text>
+<text x="300" y="119" text-anchor="middle" fill="#0b574f" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">nopm_assert_week_unlocked trigger now active</text>
+<polygon points="300,168 380,208 300,248 220,208" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="300" y="205" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">New time entry</text>
+<text x="300" y="220" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">attempted?</text>
+<rect x="174.5" y="272" width="251" height="58" rx="11" fill="#fff" stroke="#e3e6e9" stroke-width="1.4"/>
+<text x="300" y="292" text-anchor="middle" fill="#1a1d21" font-size="13.5" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Reopen requested</text>
+<text x="300" y="307" text-anchor="middle" fill="#6b7178" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">rationale required · scope time:approve</text>
+<polygon points="690,0 770,40 690,80 610,40" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="690" y="37" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Has time:approve</text>
+<text x="690" y="52" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">scope?</text>
+<polygon points="690,104 770,144 690,184 610,144" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="690" y="148" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Rationale provided?</text>
+<polygon points="690,208 770,248 690,288 610,248" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="690" y="252" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Status = approved?</text>
+<polygon points="690,312 770,352 690,392 610,352" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
+<text x="690" y="349" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Different person</text>
+<text x="690" y="364" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">than submitter?</text>
+<rect x="552.5" y="416" width="275" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
+<text x="690" y="436" text-anchor="middle" fill="#0b574f" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Reopened — reset to submitted</text>
+<text x="690" y="451" text-anchor="middle" fill="#0b574f" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">decision fields nulled · approvers notified</text>
+<rect x="564.5" y="500" width="251" height="58" rx="11" fill="#fff" stroke="#e3e6e9" stroke-width="1.4"/>
+<text x="690" y="520" text-anchor="middle" fill="#1a1d21" font-size="13.5" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Re-enters Review Queue</text>
+<text x="690" y="535" text-anchor="middle" fill="#6b7178" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">treated as a brand-new approval request</text>
+<polygon points="690,584 770,624 690,664 610,624" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
+<text x="690" y="628" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approve again?</text>
+<rect x="570" y="688" width="240" height="58" rx="11" fill="#0f766e" stroke="#0f766e" stroke-width="1.4"/>
+<text x="690" y="708" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Re-approved — locked again</text>
+<text x="690" y="723" text-anchor="middle" fill="#cfe8e4" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">trigger re-engages for the week</text>
+<line x1="300" y1="58" x2="300" y2="84" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="300" y1="142" x2="300" y2="168" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="300" y1="248" x2="300" y2="272" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="312" y="264" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<line x1="690" y1="80" x2="690" y2="104" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="96" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="690" y1="184" x2="690" y2="208" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="200" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="690" y1="288" x2="690" y2="312" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="304" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="690" y1="392" x2="690" y2="416" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="408" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="690" y1="474" x2="690" y2="500" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="690" y1="558" x2="690" y2="584" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="690" y1="664" x2="690" y2="688" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="680" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">approve</text>
+<rect x="-6" y="167.5" width="116" height="81" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="52" y="183.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">422</text>
+<text x="52" y="196" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">PERIOD_LOCKED · P0011</text>
+<text x="52" y="208.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">new time entry</text>
+<text x="52" y="220" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">attempted · DB</text>
+<text x="52" y="231.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">trigger fires on time_entries</text>
+<line x1="220" y1="208" x2="110" y2="208" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="214" y="204" text-anchor="end" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<path d="M110 167.5 C 110 141.5, 134.75 113, 159.5 113" stroke="#b06a2c" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#arrW)"/>
+<text x="134.75" y="107" text-anchor="middle" fill="#b06a2c" font-size="10" font-family="-apple-system,Segoe UI,sans-serif">still locked</text>
+<rect x="867.5" y="16" width="116" height="48" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="925.5" y="32" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">403 — missing</text>
+<text x="925.5" y="44.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">time:approve</text>
+<text x="925.5" y="58" text-anchor="middle" fill="#b06a2c" font-size="9" font-weight="700" font-family="-apple-system,Segoe UI,sans-serif">BLOCKED</text>
+<line x1="770" y1="40" x2="867.5" y2="40" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="36" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<rect x="867.5" y="110" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="925.5" y="126" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">422</text>
+<text x="925.5" y="138.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">rationale_required</text>
+<text x="925.5" y="151" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">reopen must state</text>
+<text x="925.5" y="162.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">why</text>
+<line x1="770" y1="144" x2="867.5" y2="144" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="140" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<rect x="867.5" y="214" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="925.5" y="230" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">422</text>
+<text x="925.5" y="242.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">not_reopenable</text>
+<text x="925.5" y="255" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">submission not</text>
+<text x="925.5" y="266.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">currently approved</text>
+<line x1="770" y1="248" x2="867.5" y2="248" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="244" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<rect x="867.5" y="311.5" width="116" height="81" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="925.5" y="327.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">403 —</text>
+<text x="925.5" y="340" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">self-decision blocked</text>
+<text x="925.5" y="352.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">four-eyes Template</text>
+<text x="925.5" y="364" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">B: self-approve,</text>
+<text x="925.5" y="375.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">self-reject, self-reopen all denied</text>
+<text x="925.5" y="386.5" text-anchor="middle" fill="#b06a2c" font-size="9" font-weight="700" font-family="-apple-system,Segoe UI,sans-serif">BLOCKED</text>
+<line x1="770" y1="352" x2="867.5" y2="352" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="348" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no — same person</text>
+<rect x="867.5" y="590" width="116" height="68" rx="9" fill="#fff" stroke="#e3e6e9" stroke-width="1.3"/>
+<text x="925.5" y="606" text-anchor="middle" fill="#1a1d21" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">Rejected again</text>
+<text x="925.5" y="618.5" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">back to draft · see</text>
+<text x="925.5" y="630" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">timesheet-lifecycle</text>
+<text x="925.5" y="641.5" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">diagram</text>
+<line x1="770" y1="624" x2="867.5" y2="624" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="620" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">reject</text>
+<path d="M300 330 L300 350 L455 350 L455 40 L610 40" stroke="#6b7178" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+<rect x="435" y="341" width="40" height="18" rx="9" fill="#fff"/>
+<text x="455" y="354" text-anchor="middle" fill="#6b7178" font-size="9.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">then</text>
+<use href="#bell" x="825.5" y="429"/>
+<use href="#bell" x="808" y="701"/>
+        </svg>
+      </div>
+
+      <aside class="mvp" aria-label="Fastest path">
+        <h3>Fastest path</h3>
+        <div class="sub">the shortest governed reopen</div>
+        <ol>
+          <li><span class="t">Week is approved &amp; locked</span><span class="d">DB trigger active</span></li>
+          <li><span class="t">Request reopen + reason</span><span class="d">time:approve scope</span></li>
+          <li><span class="t">Different person than submitter</span><span class="d">four-eyes holds · a token counts as its creator</span></li>
+          <li><span class="t">Reopened → resubmitted</span><span class="d">decision fields reset</span></li>
+          <li><span class="t">Re-approve</span><span class="d">locks again</span></li>
+        </ol>
+        <div class="foot">Reopen never edits approved history in place — it always routes back through a fresh approval.</div>
+      </aside>
+    </div>
+
+    <p class="diag-note">Correction, confirmed by code, not assumed: there is no separate periods table or admin close-period screen — approving a submission IS the lock, enforced by a DB trigger, and 'reopen' is the third value of the same decision endpoint used for approve/reject, not a different feature.</p>
+  </section>
+
+  <section>
+    <div class="promise">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      <div>
+        <h3>Why it holds</h3>
+        <ul class="points">
+      <li>Self-reopen is blocked exactly like self-approve/self-reject — "Template B" four-eyes, no special case.</li>
+      <li>Reopening does not edit history quietly — it resets to submitted and re-enters the Review Queue as a fresh request.</li>
+      <li>Every approvers-list gets notified in-app the moment a week reopens, before anyone edits it.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

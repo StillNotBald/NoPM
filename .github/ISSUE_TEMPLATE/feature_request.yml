@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an idea for NoPM (lighter-weight than a change request).
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a fully-scoped ask with a business justification and a timeline (including anything you would pay to have built), use the "Change request" template instead. This form is for a lighter suggestion.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve
+      description: What are you trying to do that NoPM does not support today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to see
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: NoPM is a lite tool, not a ClickUp-parity build. New features must serve presentable multi-project views, easier reporting, or frontend flexibility. Some areas (SSO, custom fields, automations, comments, a bundled LLM) are ask-first by design — see root `CLAUDE.md` and `docs/guide/05-getting-help-and-paid-services.md`.
+      options:
+        - label: I have read the scope notes above and believe this fits, or I am asking anyway to start the conversation.
+          required: true

@@ -1,0 +1,112 @@
+NoPM
+Copyright 2026 Cheng Chu Ling
+
+This product includes software developed as part of the NoPM project
+(https://stillnotbald.com), licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+------------------------------------------------------------------------------
+Third-party components
+------------------------------------------------------------------------------
+
+NoPM's web application (web/) and CLI (cli/) depend on open-source packages
+distributed under their own licenses (MIT, ISC, Apache-2.0, BSD, and others).
+Those packages are not modified and are not part of the NoPM copyright above;
+their licenses travel with the packages themselves (typically inside
+node_modules/<package>/LICENSE at install time, or in each package's own
+repository). No NOTICE-level attribution is required for the MIT/ISC/BSD
+majority of the dependency tree.
+
+The following third-party components carry copyleft or non-trivial-permissive
+licenses and are called out here for transparency:
+
+- axe-core (MPL-2.0) — accessibility-lint devDependency only; not distributed
+  with the built application.
+- lightningcss / lightningcss-win32-x64-msvc (MPL-2.0) — build-time CSS
+  transform devDependency only (via Tailwind CSS v4 and Vite/vitest); not
+  distributed with the built application.
+- dompurify (MPL-2.0 OR Apache-2.0) — transitive runtime dependency of jspdf;
+  used under the Apache-2.0 option of its dual license.
+- jszip (MIT OR GPL-3.0-or-later) — transitive runtime dependency of
+  pptxgenjs; used under the MIT option of its dual license.
+- pako (MIT AND Zlib) — transitive dependency of jszip and jspdf; both
+  component licenses are permissive.
+- @img/sharp-win32-x64, @img/sharp-wasm32, and other @img/sharp-* platform
+  packages (Apache-2.0 AND LGPL-3.0-or-later[, AND MIT]) — optional prebuilt
+  native/WASM image-processing binaries pulled in by Next.js's image
+  optimizer (sharp); used as unmodified, dynamically-invoked prebuilt
+  binaries, not statically linked into NoPM's own source.
+- caniuse-lite (CC-BY-4.0) — browser-compatibility data table consumed at
+  build time by Next.js/browserslist; a data license, not applied to NoPM's
+  own code.
+- minimatch@10.2.5 (BlueOak-1.0.0) — transitive devDependency (via
+  typescript-eslint); permissive, attribution-only license.
+- argparse (Python-2.0 license, not the GPL-incompatible "Python Software
+  Foundation" license) — transitive devDependency of js-yaml/eslint; devtime
+  only.
+- rgbcolor (MIT, dual-offered with a custom "Feel free to use it" grant in
+  FEEL-FREE.md) — transitive runtime dependency of jspdf/canvg; used under
+  its MIT option.
+- thirty-two — transitive runtime dependency of otplib; ships an MIT-text
+  LICENSE.txt but omits the `license` field from package.json (classified
+  "UNKNOWN" by automated scanners on metadata alone; the license file itself
+  is plain MIT).
+
+None of the above are modified from their published form. Full license texts
+travel with each package in node_modules/ at install time (source: npm
+registry) and are not reproduced in this NOTICE.
+
+------------------------------------------------------------------------------
+Fonts
+------------------------------------------------------------------------------
+
+Two open-source font families are used, both under the SIL Open Font License,
+Version 1.1:
+
+- Inter — Copyright (c) 2016 The Inter Project Authors
+  (https://github.com/rsms/inter).
+- JetBrains Mono — Copyright 2020 The JetBrains Mono Project Authors
+  (https://github.com/JetBrains/JetBrainsMono).
+
+In the running application both are loaded via next/font/google and
+self-hosted by Next.js at build time; no font files are committed for that
+use. Separately, three small font files ARE committed to this repository,
+because the generated social-preview images (Open Graph cards) are rendered
+by a renderer that cannot use next/font. They live in
+web/src/components/marketing/og-fonts/ and are glyph-subset (ASCII-only)
+derivatives of the upstream fonts, which the OFL permits:
+
+- InterDisplay-Regular-subset.ttf  (Inter)
+- Inter-SemiBold-subset.ttf        (Inter)
+- JetBrainsMono-Regular-subset.ttf (JetBrains Mono)
+
+The full licence text for each family, including its copyright line, is kept
+next to the font files and is the licence that governs them:
+
+- web/src/components/marketing/og-fonts/OFL-Inter.txt
+- web/src/components/marketing/og-fonts/OFL-JetBrainsMono.txt
+
+Neither licence declares a Reserved Font Name. The subset files are used only
+to render those images and are not offered for sale on their own. The OFL
+applies to the fonts only; it does not change the Apache License 2.0 that
+covers NoPM's own source code. "SF Pro Text" / "SF Pro Display" / "SF Mono"
+appear only as CSS font-family fallback names for macOS-native rendering — no
+Apple font files are bundled or redistributed.
+
+------------------------------------------------------------------------------
+Icons
+------------------------------------------------------------------------------
+
+Icons are provided by lucide-react (ISC License).
+
+------------------------------------------------------------------------------
+Trademarks
+------------------------------------------------------------------------------
+
+"NoPM" and "stillnotbald" are used as project/product names. This license
+grants rights to the source code; it does not grant rights to use the NoPM
+name, the stillnotbald name, or any associated logos, except as required for
+reasonable and customary attribution. Jira, Slack, Microsoft Teams, and any
+other third-party product names mentioned in this codebase or its
+documentation are trademarks of their respective owners, referenced only for
+descriptive/comparative purposes; no affiliation or endorsement is implied.

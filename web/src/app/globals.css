@@ -1,0 +1,370 @@
+@import "tailwindcss";
+
+/* NoPM design tokens.
+   Light is the default: white canvas, near-black text, one Fluent-blue accent,
+   monospace for technical text. Dark is a near-black terminal. Status hues are
+   functional, never brand. Source of truth: docs/product/DESIGN.md.
+   Three palettes below carry the same keys: :root (light), .dark (explicit
+   dark) and .theme-system (dark when the OS asks for it). */
+
+:root {
+  color-scheme: light;
+  --np-canvas: #ffffff;
+  --np-surface: #ffffff;
+  --np-page: #ffffff;
+  --np-well: #f0f0f2; /* hover, inset areas, sidebar, neutral pills */
+  --np-rule: #e5e5e8;
+  --np-rule-strong: #d2d2d6;
+  --np-fg: #161616;
+  --np-fg-2: #555559;
+  --np-fg-3: #6a6a70; /* 5.4:1 on white */
+  --accent: #0078d4; /* Fluent blue: buttons and indicators */
+  --accent-hover: #106ebe;
+  --accent-ink: #ffffff; /* label colour on an accent fill */
+  --info: #2563eb;
+  --success: #16a34a;
+  --warning: #f59e0b;
+  --sev-high: #ea580c; /* sits between warning and danger */
+  --danger: #e5484d;
+  --change: #7c3aed; /* change-control items awaiting review */
+  /* Status hues fail 4.5:1 as text on their own 15% tint, so pills and inline
+     status text use these deeper inks instead. */
+  --info-ink: #1d4ed8;
+  --success-ink: #166534;
+  --warning-ink: #92400e;
+  --danger-ink: #b42318;
+  --sev-high-ink: #9a3412;
+  --change-ink: #5b21b6;
+  --danger-hover: #c93b40;
+  --danger-solid: #d13438; /* destructive button fill, white label */
+
+  /* Embedded terminal window (ui/terminal-card.tsx). Always dark, so these are
+     defined once and are not repeated in the dark palettes. */
+  --terminal-surface: #0a0a0b;
+  --terminal-border: #26262b;
+  --terminal-text: #e4e4e7;
+  --terminal-text-muted: #a1a1aa;
+  --terminal-red: #ff5f57;
+  --terminal-amber: #febc2e;
+  --terminal-green: #28c840;
+  --terminal-red-ink: #fca5a5;
+  --terminal-amber-ink: #fcd34d;
+  --terminal-green-ink: #4ade80;
+}
+
+.dark {
+  --np-canvas: #0a0a0b;
+  --np-surface: #151517;
+  --np-page: #0a0a0b;
+  --np-well: #1e1e22;
+  --np-rule: #26262b;
+  --np-rule-strong: #34343a;
+  --np-fg: #ededf0;
+  --np-fg-2: #a0a0a8;
+  --np-fg-3: #8a8a93; /* 5.5:1 on near-black */
+  --accent: #60cdff;
+  --accent-hover: #7bd6ff;
+  --accent-ink: #003253;
+  --info: #4493f8;
+  --success: #3fb950;
+  --warning: #d29922;
+  --sev-high: #db6d28;
+  --danger: #f85149;
+  --change: #a371f7;
+  --info-ink: #79b8ff;
+  --success-ink: #56d364;
+  --warning-ink: #f0b84a;
+  --danger-ink: #ff7b72;
+  --sev-high-ink: #ffa657;
+  --change-ink: #d2a8ff;
+  --danger-hover: #ff6a62;
+  --danger-solid: #da3633;
+  color-scheme: dark;
+}
+
+/* layout.tsx stamps .theme-system on <html> when the appearance preference is
+   "system". The server cannot know the visitor's OS theme, so the dark values
+   come from a media query: no flash, no JS, follows OS changes live. Keep the
+   values identical to .dark above. */
+@media (prefers-color-scheme: dark) {
+  .theme-system {
+    --np-canvas: #0a0a0b;
+    --np-surface: #151517;
+    --np-page: #0a0a0b;
+    --np-well: #1e1e22;
+    --np-rule: #26262b;
+    --np-rule-strong: #34343a;
+    --np-fg: #ededf0;
+    --np-fg-2: #a0a0a8;
+    --np-fg-3: #8a8a93; /* 5.5:1 on near-black */
+    --accent: #60cdff;
+    --accent-hover: #7bd6ff;
+    --accent-ink: #003253;
+    --info: #4493f8;
+    --success: #3fb950;
+    --warning: #d29922;
+    --sev-high: #db6d28;
+    --danger: #f85149;
+    --change: #a371f7;
+    --info-ink: #79b8ff;
+    --success-ink: #56d364;
+    --warning-ink: #f0b84a;
+    --danger-ink: #ff7b72;
+    --sev-high-ink: #ffa657;
+    --change-ink: #d2a8ff;
+    --danger-hover: #ff6a62;
+    --danger-solid: #da3633;
+    color-scheme: dark;
+  }
+}
+
+/* Map the tokens onto Tailwind utilities (bg-canvas, text-ink, border-border-subtle ...). */
+@theme inline {
+  --color-canvas: var(--np-canvas);
+  --color-surface: var(--np-surface);
+  --color-page: var(--np-page);
+  --color-well: var(--np-well);
+  --color-border-subtle: var(--np-rule);
+  --color-border-strong: var(--np-rule-strong);
+  --color-ink: var(--np-fg);
+  --color-ink-secondary: var(--np-fg-2);
+  --color-ink-muted: var(--np-fg-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-ink: var(--accent-ink);
+  --color-info: var(--info);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-sev-high: var(--sev-high);
+  --color-danger: var(--danger);
+  --color-change: var(--change);
+  --color-info-ink: var(--info-ink);
+  --color-success-ink: var(--success-ink);
+  --color-warning-ink: var(--warning-ink);
+  --color-danger-ink: var(--danger-ink);
+  --color-sev-high-ink: var(--sev-high-ink);
+  --color-change-ink: var(--change-ink);
+  --color-danger-hover: var(--danger-hover);
+  --color-danger-solid: var(--danger-solid);
+  --color-terminal-surface: var(--terminal-surface);
+  --color-terminal-border: var(--terminal-border);
+  --color-terminal-text: var(--terminal-text);
+  --color-terminal-text-muted: var(--terminal-text-muted);
+  --color-terminal-red: var(--terminal-red);
+  --color-terminal-amber: var(--terminal-amber);
+  --color-terminal-green: var(--terminal-green);
+  --color-terminal-red-ink: var(--terminal-red-ink);
+  --color-terminal-amber-ink: var(--terminal-amber-ink);
+  --color-terminal-green-ink: var(--terminal-green-ink);
+
+  /* Type: system UI stack first, Inter as the portable fallback. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", var(--font-inter),
+    "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", var(--font-inter),
+    "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", var(--font-jetbrains-mono), "JetBrains Mono", monospace;
+
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 11px;
+  --radius-xl: 14px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+/* Layered so every Tailwind border-colour utility can override it: an
+   unlayered rule beats ALL v4 utilities (the old sidebar-accent / grey-edge bug). */
+@layer base {
+  * {
+    border-color: var(--np-rule);
+  }
+}
+
+body {
+  background: var(--np-canvas);
+  color: var(--np-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* The one authored motion moment: marketing-hero entrance. Exponential
+   ease-out from an already-visible-adjacent state; staggered by .rise-N. */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rise {
+  animation: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.rise-1 { animation-delay: 80ms; }
+.rise-2 { animation-delay: 160ms; }
+.rise-3 { animation-delay: 260ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none;
+  }
+  .rise,
+  .rise-1,
+  .rise-2,
+  .rise-3 {
+    animation: none;
+  }
+  /* Panels, the sidebar width and the inspector push-margin animate through
+     transition-*: settle them instantly (opacity/visibility still flip, so a
+     closing panel is hidden at once rather than after the slide). Spinners
+     keep rotating: they are the only signal that work is in progress. */
+  *,
+  ::before,
+  ::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Density (L-38). `.density-compact` on <html> (stamped by layout.tsx
+   from the appearance cookie, or toggled live by the settings page)
+   shrinks the vertical rhythm of the app's dominant row-based surfaces:
+   register tables (risks/issues/clashes/tokens/budget/decisions/
+   resources — they all share the same `px-5 py-3`/`py-3.5` cell
+   convention) and kanban cards. Rules are scoped by the exact utility
+   classes already in use rather than editing every page, per the task's
+   "a few targeted CSS rules" instruction — no component file had to move.
+
+   R-63 (touch targets >=44px at 390px): only VERTICAL padding is reduced
+   here. Every interactive control inside these rows/cards keeps its own
+   sizing — buttons/badges size themselves via h-8/h-10 in Button/Badge,
+   untouched by these rules. The one true tap target these rules could
+   shrink is the row itself (register rows are `<tr role="button">`,
+   see RiskRowButton/IssueRowButton) — so compact mode floors every such
+   row at 44px via min-height, independent of how tight the padding gets.
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --density-row-py: 0.75rem; /* py-3 — register table cell vertical padding */
+  --density-row-py-lg: 0.875rem; /* py-3.5 variant (portfolio/roadmap tables) */
+  --density-card-py: 0.625rem; /* py-2.5 — kanban card vertical padding */
+  /* Cell tokens consumed by ui/data-table.tsx (new tables). Old tables still
+     use the class-sniffing selectors below — kept so they don't regress
+     until later waves migrate them to DataTable. */
+  --cell-py: 0.75rem;
+  --cell-px: 1.25rem;
+}
+
+.density-compact {
+  --density-row-py: 0.375rem; /* py-1.5 */
+  --density-row-py-lg: 0.375rem;
+  --density-card-py: 0.375rem; /* py-1.5 */
+  --cell-py: 0.375rem;
+  --cell-px: 1rem;
+}
+
+.density-compact th.px-5.py-3,
+.density-compact td.px-5.py-3 {
+  padding-top: var(--density-row-py);
+  padding-bottom: var(--density-row-py);
+}
+
+.density-compact td.px-5.py-3\.5 {
+  padding-top: var(--density-row-py-lg);
+  padding-bottom: var(--density-row-py-lg);
+}
+
+.density-compact .kanban-card {
+  padding-top: var(--density-card-py);
+  padding-bottom: var(--density-card-py);
+}
+
+/* R-63 floor: reduced padding above must never take a clickable register
+   row below the 44px minimum touch target at 390px. */
+.density-compact tr[role="button"] {
+  min-height: 44px;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Mobile shell (R-94 / testing-log/2026-09-07_mobile-ui) — shared
+   form/type utilities for the FilterSheet / DataList primitives and any
+   page that adopts them.
+   ───────────────────────────────────────────────────────────── */
+
+/* F8: one type token replacing scattered text-[8px]/[9px]/[10px] literals.
+   11px at every width is the label floor (DESIGN.md Typography); text-xs
+   (12px) is untouched everywhere else. It used to drop to 10px at sm+, which
+   made desktop pills, table headers and kbd hints the smallest text in the
+   product. */
+@utility text-2xs {
+  font-size: 11px;
+  line-height: 1rem;
+}
+
+/* F3/F4: guarantees a form control never overflows its row and floors at
+   44px tall below sm (matches the Input primitive's own h-11 sm:h-10
+   convention) — for the <select>/<textarea> elements pages build directly
+   rather than through the Input primitive. */
+@utility field {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+}
+
+@media (min-width: 640px) {
+  .field {
+    min-height: 0;
+  }
+}
+
+/* One focus-ring strength everywhere: solid 2px accent (>=3:1 on both
+   themes) with a 2px offset. Apply via the `focus-ring` utility; do not pair
+   with `focus:outline-none` or `ring-*` (this only paints on :focus-visible).
+   `focus-ring-inset` draws the same ring INSIDE the box, for rows and cells
+   whose container clips overflow (popover lists, table rows, menu items). */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@utility focus-ring-inset {
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Print — hide the app shell chrome so register/report pages print as
+   plain documents (sidebar, header, breadcrumbs, bottom nav, assistant
+   launcher, toasts) and release the viewport-locked layout so content
+   flows across pages instead of being clipped at one screen.
+   ───────────────────────────────────────────────────────────── */
+@media print {
+  [data-shell-chrome],
+  [data-app-shell] nav[aria-label="Breadcrumb"] {
+    display: none !important;
+  }
+  [data-shell-root],
+  [data-shell-main],
+  [data-shell-main] > * {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  [data-shell-column] {
+    margin-right: 0 !important;
+  }
+}

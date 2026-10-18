@@ -1,0 +1,14 @@
+{
+  "name": "nopm-cli",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Thin CLI for the NoPM API — drive project governance from your terminal or AI agent.",
+  "license": "Apache-2.0",
+  "bin": { "nopm": "./nopm.mjs" },
+  "files": ["nopm.mjs", "commands/", "lib/", "README.md"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "keywords": ["project-management", "cli", "api-first", "governance", "audit", "ai-agent"]
+}

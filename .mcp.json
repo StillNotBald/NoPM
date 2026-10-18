@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "nopm": {
+      "command": "node",
+      "args": ["web/mcp/server.mjs"],
+      "env": {
+        "NOPM_API_URL": "https://stillnotbald.com",
+        "NOPM_TOKEN": "${NOPM_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+#!/bin/sh
+# NoPM pre-commit — the leak gate travels with the clone.
+# Scans STAGED files for confidential tokens (hashed blocklist) and
+# secret-class filenames. Fast (<1s); heavier verification runs pre-push.
+node scripts/commit-gate.mjs || exit 1

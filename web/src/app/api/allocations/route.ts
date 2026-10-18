@@ -1,0 +1,144 @@
+import { z } from "zod";
+import { route } from "@/lib/api/handler";
+import { requireScope } from "@/lib/auth/guard";
+import { okList, safeJson, validationError } from "@/lib/api/response";
+import { writeAudit } from "@/lib/audit/write";
+import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { detectOverAllocationSafe } from "@/lib/clash/detect";
+import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
+import { NextResponse } from "next/server";
+import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
+
+export const runtime = "nodejs";
+
+const createAllocationSchema = z.object({
+  member_id: z.string().uuid(),
+  project_id: z.string().uuid().optional().nullable(),
+  task_id: z.string().uuid().optional().nullable(),
+  // Not nullable: the column is NOT NULL (default 0), so null would be a DB 500, not a 422.
+  allocation_pct: z.number().min(0).max(500).optional(),
+  hours: z.number().nonnegative().optional().nullable(),
+  window_start: z.string().datetime().optional().nullable(),
+  window_end: z.string().datetime().optional().nullable(),
+});
+
+export const GET = route(async ({ actor, request }) => {
+  requireScope(actor, "resource:read");
+
+  const { searchParams } = new URL(request.url);
+  const rawLimit = parseInt(searchParams.get("limit") ?? "20", 10);
+  const limit = Math.min(100, Math.max(1, isNaN(rawLimit) ? 20 : rawLimit));
+  const rawPage = parseInt(searchParams.get("page") ?? "1", 10);
+  const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
+  const offset = (page - 1) * limit;
+
+  const db = createAdminClient();
+
+  const { count } = await db
+    .from("allocations")
+    .select("*", { count: "exact", head: true })
+    .eq("workspace_id", actor.workspaceId);
+
+  const { data, error } = await db
+    .from("allocations")
+    .select("*")
+    .eq("workspace_id", actor.workspaceId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) throw error;
+
+  return okList(data ?? [], { total: count ?? 0, page, limit });
+});
+
+export const POST = route(async ({ actor, request }) => {
+  requireScope(actor, "resource:write");
+
+  const body = await safeJson(request);
+  const unknown = unknownFieldsResponse(body, createAllocationSchema);
+  if (unknown) return unknown;
+  const parsed = createAllocationSchema.safeParse(body);
+  if (!parsed.success) {
+    return validationError(
+      "Invalid allocation payload",
+      parsed.error.issues.map((e) => ({ field: e.path.join("."), message: e.message })),
+    );
+  }
+
+  const db = createAdminClient();
+
+  // Cross-tenant guard: member, project and task must all belong to THIS
+  // workspace (an allocation of a foreign member skews that tenant's capacity).
+  await assertRefsInWorkspace(db, actor.workspaceId, [
+    { table: "resource_members", id: parsed.data.member_id, field: "member_id" },
+    { table: "projects", id: parsed.data.project_id, field: "project_id" },
+    { table: "tasks", id: parsed.data.task_id, field: "task_id" },
+  ]);
+
+  // `Idempotency-Key` makes a retried POST return the original record instead
+  // of creating (and auditing, and notifying) a second allocation.
+  const { result } = await withIdempotency(
+    {
+      workspaceId: actor.workspaceId,
+      actorId: actor.id,
+      key: readIdempotencyKey(request),
+      route: "POST /api/allocations",
+      bodyHash: hashRequestBody(parsed.data),
+    },
+    async () => {
+      const { data: row, error } = await db
+        .from("allocations")
+        .insert({
+          ...parsed.data,
+          workspace_id: actor.workspaceId,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      await writeAudit({
+        workspaceId: actor.workspaceId,
+        actor,
+        action: "allocation.create",
+        targetType: "allocation",
+        targetId: row.id,
+        before: null,
+        after: row,
+      });
+
+      // Detect over-allocation after writing the new allocation. Fail-soft: the
+      // allocation is saved and audited, so a detector failure becomes a
+      // warning in the response, never a 500 that invites a duplicating retry.
+      const { detected: clashDetected, warning } = await detectOverAllocationSafe(
+        db,
+        actor.workspaceId,
+        parsed.data.member_id,
+        actor,
+      );
+
+      // Notify workspace approvers when a clash is detected — fail-soft
+      if (clashDetected) {
+        void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) => {
+          return notify({
+            workspaceId: actor.workspaceId,
+            recipientIds: approverIds,
+            type: "clash.detected",
+            title: `Over-allocation clash detected`,
+            body: `A resource over-allocation clash was detected after a new allocation was created.`,
+            payload: { memberId: parsed.data.member_id, allocationId: row.id },
+          });
+        });
+      }
+
+      return { row, warnings: warning ? [warning] : [] };
+    },
+  );
+
+  return NextResponse.json(
+    result.warnings.length ? { data: result.row, warnings: result.warnings } : { data: result.row },
+    { status: 201 },
+  );
+});

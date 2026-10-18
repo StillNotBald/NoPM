@@ -1,0 +1,18 @@
+{
+  "name": "nopm-workspace",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "description": "NoPM — agent-operable project governance (portfolio proof-piece). Governance workspace at root; app in web/.",
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "lint": "npm --prefix web run lint",
+    "test": "npm --prefix web run test",
+    "migrate": "node web/scripts/apply-migrations.mjs",
+    "setup": "npm --prefix web run setup --",
+    "rtm:verify": "node scripts/rtm-verify.mjs",
+    "health": "node scripts/health.mjs",
+    "prepare": "node scripts/setup-hooks.mjs"
+  }
+}

@@ -1,0 +1,22 @@
+#!/bin/sh
+# NoPM pre-push — the verification gates travel with the clone.
+# Mirrors CI: typecheck, unit + governance tests, RTM integrity,
+# generated-metrics freshness, CLI contract tests.
+set -e
+
+echo "pre-push: typecheck"
+cd web && npx tsc --noEmit
+
+echo "pre-push: unit + governance tests"
+npm test
+
+echo "pre-push: RTM integrity"
+npm run rtm:verify
+
+echo "pre-push: generated metrics freshness"
+node scripts/gen-metrics.mjs --check
+
+echo "pre-push: CLI contract tests"
+cd ../cli && npm test
+
+echo "pre-push: all gates green"

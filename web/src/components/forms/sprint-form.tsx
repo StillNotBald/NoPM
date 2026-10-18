@@ -1,0 +1,177 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useInspector } from "@/components/layout/app-shell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { useToast } from "@/components/ui/toast";
+import { apiPost, apiGet, type ApiError } from "@/lib/api-client";
+import { validateFields } from "@/lib/forms/validate";
+import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
+
+/** Minimal project shape for the project picker — mirrors program-form's owner picker. */
+interface ProjectOption {
+  id: string;
+  code: string | null;
+  name: string;
+}
+
+/**
+ * Create-only sprint form (L-17). Sprints are created `state: 'planned'` via
+ * POST /api/sprints; the start/close transitions happen from
+ * `SprintTransitionActions` on the sprint detail card, never here.
+ */
+export function SprintForm({ defaultProjectId }: { defaultProjectId?: string }) {
+  const inspector = useInspector();
+  const router = useRouter();
+  const toast = useToast();
+
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  useEffect(() => {
+    apiGet<ProjectOption[]>("/api/projects?limit=100")
+      .then((list) => setProjects(list ?? []))
+      .catch(() => {
+        /* non-critical — picker just stays empty */
+      });
+  }, []);
+
+  const [projectId, setProjectId] = useState(defaultProjectId ?? "");
+  const [name, setName] = useState("");
+  const [goal, setGoal] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  const [saving, setSaving] = useState(false);
+  const [topError, setTopError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  function applyApiError(err: ApiError) {
+    setTopError(err.message ?? "An error occurred.");
+    const map: Record<string, string> = {};
+    for (const f of err.fields ?? []) map[f.field] = f.message;
+    setFieldErrors(map);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setTopError(null);
+    setFieldErrors({});
+
+    const clientResult = validateFields([
+      { key: "project_id", value: projectId, message: "Project is required" },
+      { key: "name", value: name.trim(), message: "Sprint name is required" },
+      { key: "start_date", value: startDate, message: "Start date is required" },
+      { key: "end_date", value: endDate, message: "End date is required" },
+    ]);
+    if (!clientResult.ok) {
+      setFieldErrors(clientResult.errors);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const sprint = await apiPost<{ id: string }>("/api/sprints", {
+        project_id: projectId,
+        name,
+        goal: goal || null,
+        start_date: startDate,
+        end_date: endDate,
+      });
+      toast.success("Sprint created");
+      inspector.close();
+      router.push(`/sprints?sprint=${sprint.id}`);
+      router.refresh();
+    } catch (err) {
+      applyApiError(err as ApiError);
+      toast.error((err as ApiError).message ?? "Failed to create sprint");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <FormError message={topError} />
+
+      <TitleField
+        label="Sprint name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Sprint name"
+        required
+        error={fieldErrors.name}
+      />
+
+      <FormSection title="Sprint">
+        <FormGrid>
+          <Field label="Project" required error={fieldErrors.project_id}>
+            <SelectInput value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">— Select a project —</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.code ? `${p.code} — ${p.name}` : p.name}
+                </option>
+              ))}
+            </SelectInput>
+          </Field>
+          <div />
+          <Field label="Start date" required error={fieldErrors.start_date}>
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="End date" required error={fieldErrors.end_date}>
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              required
+            />
+          </Field>
+        </FormGrid>
+      </FormSection>
+
+      <FormSection>
+        <Field label="Goal" error={fieldErrors.goal}>
+          <TextareaInput
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+            placeholder="What this sprint is aiming to deliver"
+          />
+        </Field>
+      </FormSection>
+
+      <FormActions>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={inspector.close}
+          disabled={saving}
+          className="w-full sm:w-auto h-11 sm:h-10"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={saving}
+          className="w-full sm:w-auto h-11 sm:h-10"
+        >
+          {saving ? (
+            <>
+              <Spinner size="sm" className="mr-2" />
+              Creating…
+            </>
+          ) : (
+            "Create Sprint"
+          )}
+        </Button>
+      </FormActions>
+    </form>
+  );
+}
