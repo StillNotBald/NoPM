@@ -20,7 +20,10 @@ import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 
 const ROOT = process.cwd();
-const read = (...p: string[]) => readFileSync(join(ROOT, ...p), "utf8");
+// normalise CRLF so the line-based regexes below hold on a Windows checkout (core.autocrlf=true)
+const read = (...p: string[]) => readFileSync(join(ROOT, ...p), "utf8").replace(/
+/g, "
+");
 
 const LANDING = read("src", "app", "page.tsx");
 const CASE_STUDY = read("src", "app", "case-study", "page.tsx");
