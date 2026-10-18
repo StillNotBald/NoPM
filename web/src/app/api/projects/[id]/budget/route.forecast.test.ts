@@ -9,11 +9,6 @@ const h = vi.hoisted(() => ({
   upserts: [] as Record<string, unknown>[],
   audits: [] as Record<string, unknown>[],
 }));
-vi.mock("@/lib/audit/write", () => ({
-  writeAudit: vi.fn(async (a: Record<string, unknown>) => {
-    h.audits.push(a);
-  }),
-}));
 vi.mock("@/lib/insight/overspend", async (orig) => ({
   ...(await orig<typeof import("@/lib/insight/overspend")>()),
   recordOverspendCrossing: vi.fn(async () => "ok"),
@@ -31,13 +26,16 @@ vi.mock("@/lib/auth/guard", async (orig) => ({
 vi.mock("@/lib/api/rate-limit", () => ({ checkRateLimit: async () => undefined }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
+    // Atomic budget write + audit (migration 0103): the patch is what was saved, the audit half is recorded alongside.
+    rpc: async (fn: string, args: { p_id?: string; p_patch?: Record<string, unknown>; p_audit?: { action: string } }) => {
+      if (fn !== "nopm_mutate_audited") return { data: { allowed: true, remaining: 99, retry_after_seconds: 0 }, error: null };
+      h.upserts.push(args.p_patch ?? {});
+      h.audits.push({ action: args.p_audit?.action, targetId: args.p_id, after: args.p_patch });
+      return { data: { before: h.budget, after: { ...(h.budget ?? {}), ...(args.p_patch ?? {}) } }, error: null };
+    },
     from: (table: string) => {
       const b: Record<string, unknown> = {};
       for (const m of ["select", "eq", "is", "order", "limit"]) b[m] = () => b;
-      b.upsert = (row: Record<string, unknown>) => {
-        h.upserts.push(row);
-        return { select: () => ({ single: async () => ({ data: { ...(h.budget ?? {}), ...row }, error: null }) }) };
-      };
       b.maybeSingle = async () => ({
         data:
           table === "projects"

@@ -14,7 +14,7 @@ export const usage = [
   "nopm risks get <id>                                           fetch a single risk",
   "nopm risks create --project <id> --title <t> --severity <s> --likelihood <l>  [--description <d>] [--mitigation <m>] [--status <s>] [--risk-category <c>] [--impact-area <a,b>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
   "nopm risks update <id> [--title <t>] [--severity <s>] [--likelihood <l>] [--status <s>] [--mitigation <m>] [--resolution <r>] [--risk-category <c>] [--impact-area <a,b>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
-  "nopm risks rm <id>                                            delete a risk",
+  "nopm risks rm <id> --reason <why>   (MAKER) request deletion; a different person approves",
   "  severity/likelihood: low | medium | high | critical",
   "  status: open | mitigating | closed | accepted  (closing a risk needs --resolution <note>; without it the API answers 422)",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this risk mirrors, e.g. --source jira --external-ref PROJ-123",
@@ -111,9 +111,11 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm risks rm <id>");
-      await ctx.api("DELETE", `/api/risks/${id}`);
-      console.log("✓ deleted risk", id);
+      if (!id || !f.reason) ctx.die("usage: nopm risks rm <id> --reason <why>");
+      // Deletion is a request (audit gap G8): it stays until a different person approves it.
+      const result = await ctx.api("DELETE", `/api/risks/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

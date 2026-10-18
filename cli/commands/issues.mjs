@@ -14,7 +14,7 @@ export const usage = [
   "nopm issues get <id>                                          fetch a single issue",
   "nopm issues create --project <id> --title <t> --priority <p>  [--description <d>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
   "nopm issues update <id> [--title <t>] [--priority <p>] [--status <s>] [--resolution <r>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
-  "nopm issues rm <id>                                           delete an issue",
+  "nopm issues rm <id> --reason <why>   (MAKER) request deletion; a different person approves",
   "  priority: low | medium | high | urgent",
   "  status:   open | in_progress | resolved | closed",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this issue mirrors, e.g. --source jira --external-ref PROJ-123",
@@ -99,9 +99,11 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm issues rm <id>");
-      await ctx.api("DELETE", `/api/issues/${id}`);
-      console.log("✓ deleted issue", id);
+      if (!id || !f.reason) ctx.die("usage: nopm issues rm <id> --reason <why>");
+      // Deletion is a request (audit gap G8): it stays until a different person approves it.
+      const result = await ctx.api("DELETE", `/api/issues/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { parseListSelection } from "@/lib/api/views";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
@@ -131,10 +132,11 @@ export const POST = route(async ({ actor, params, request }) => {
       bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
-  const { data: row, error } = await db
-    .from("tasks")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const row = await auditedInsert({
+    table: "tasks",
+    actor,
+    action: "task.create",
+    patch: {
       project_id: projectId,
       milestone_id: input.milestone_id ?? null,
       name: input.name,
@@ -160,20 +162,7 @@ export const POST = route(async ({ actor, params, request }) => {
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
-    })
-    .select()
-    .single();
-
-  if (error || !row) throw new Error(error?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "task.create",
-    targetType: "task",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return row;

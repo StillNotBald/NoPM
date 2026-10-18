@@ -85,3 +85,14 @@ After the fix pass (0092 and 0094 re-rehearsed: dry run 30 ms, atomic 30 ms, pro
 | Deletion guard | one definition; counts `project_dependencies`, excludes `project_snapshots` (F3 fixed) |
 | Wave-3 CHECKs | all validated; the only NOT VALID checks left on `project_budget` are the two from migration 0078 (pre-existing) |
 | Gates | tsc 0, vitest 6008/6009 (CRLF case only), lint 0 errors, cli 63, rtm:verify OK (137 R-IDs), commit-gate clean (171 files) |
+
+## Wave 4 rehearsal (0100–0105 held back behind seeded data)
+
+| Check | Result |
+|---|---|
+| Dry run of 0100–0105 | 6 files applied cleanly in 109 ms, rolled back |
+| Atomic apply | committed in one transaction, 99 ms (0104's hash backfill included) |
+| `probe-migrations.mjs` | 9/9 |
+| `probe-four-eyes.mjs` | 26/28: P2 and L3 fail because the probe approves a project deletion with a MANAGER and project deletions now default to the admin tier (CR A3); the refusal text still says "managers and admins". Sent to the wave-4 review (fixture + message) |
+| Functional probe (20 checks) | all PASS: `DELETE_NEEDS_REQUEST` backstop blocks a superuser delete; `nopm_mutate_audited` writes row + one audit row, refuses `STALE_ROW`, `UNKNOWN_COLUMN`, `TABLE_NOT_ALLOWED` (incl. a quoted-name injection), `FORBIDDEN_COLUMN` (workspace_id), accepts channel `github`; every audit row hashed, `nopm_audit_verify_chain` ok over 14 rows, tampering refused by the append-only trigger; `nopm_implement_change_request`, `nopm_commit_project_deletion`, `nopm_mutate_audited`, `nopm_auto_approve_routine` each have one overload; `work_events` and `approval_events` RLS on, browser roles SELECT-only |
+| Final (after the fix pass) | 0100–0105 dry run 92 ms, atomic 82 ms; `probe-migrations` 9/9, `probe-four-eyes` 29/29 (new P2a: a manager is refused on an admin-tier project deletion); gates: tsc 0, vitest all but the CRLF case, lint 0 errors, cli 68, rtm:verify OK (144 R-IDs) |

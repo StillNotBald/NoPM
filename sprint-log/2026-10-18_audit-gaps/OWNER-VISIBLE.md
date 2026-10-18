@@ -106,3 +106,33 @@ Rows added when wave 4 starts. Assumptions A1, A3 and A8 land here.
 
 | Change | Kind | Where | Why | Agent | Status |
 |---|---|---|---|---|---|
+| Settings gains an **Approval policy** card: for each of the five tiers, who decides it and its turnaround hours, a routine-only auto-approve checkbox with a warning, the cost threshold, the currency and the emergency retro window. The rows stack at phone width. | added | Settings, Approval policy card | G1, G2, G7; A3 | W4-A | planned |
+| Change requests show a tier badge: Routine, Normal, High risk, Strategic or Emergency. The raise form has a tier choice. Routine is offered only with no cost and no schedule impact. | added | Change Control list, detail and raise form | G1 | W4-A | planned |
+| A cost at or over the threshold (default 50,000) makes a normal change request High risk. The requester cannot lower it. | behaviour | Change Control raise form | G7; A3 | W4-A | planned |
+| A manager can no longer decide a High risk or Strategic change, and the card says "This request needs an admin to decide it." The same rule applies to the approve button on a Lark card. | behaviour | Change Control, Approvals, Lark approval card | G2; A3 | W4-A | planned |
+| A project deletion now needs an admin by default, because it is High risk. The workspace policy can move it back to managers. | behaviour | Project deletion approvals | G1; A3 | W4-A | planned |
+| Each waiting request shows its approval deadline. Approvers are reminded at half the turnaround, and admins are told past the deadline. | added | Approvals page, notifications | G3; A1 | W4-A | planned |
+| Routine auto-approve is in the policy card and is OFF by default. When an admin turns it on, a routine change nobody decides by its deadline is approved by policy, and the requester is told. | added | Settings, Approval policy card | G3; A1 | W4-A | planned |
+| **Emergency** tick box on the change raise form for managers and admins. An emergency shows status Emergency, a retro deadline and no ordinary deadline. It can be marked implemented at once, and an admin gives the retro decision. | added | Change Control raise form and detail | G4; A3 | W4-A | planned |
+| An emergency whose retro decision is overdue is marked in red, and it appears in the Approvals queue, the digest and the weekly report ("Emergency changes overdue for approval"). | added | Approvals, Lark digest, weekly report | G4 | W4-A | planned |
+| Audit pack CSV gains the columns tier, is_emergency, retro_due_at, retro_decided_at, retro_outcome and retro_overdue on change requests. | added | Trust Center audit pack | G4 | W4-A | planned |
+| Workspace settings API gains `approval_policy` on read and write (admin only for write). | added | Workspace settings API | G2, G7 | W4-A | planned |
+| Deleting a risk, issue, expense, document or milestone now creates a deletion request (answers 202) instead of removing it. Another person must approve it. | behaviour | Risks, Issues, Budget (expenses), Documents, Milestones | G8; A8 | W4-B | planned |
+| The milestone page shows **Request deletion** with a reason dialog, and **Deletion requested** while the request waits. The dialog stacks at phone width. | renamed, added | Milestone detail | G8 | W4-B | planned |
+| The Approvals page lists five new kinds: risk, issue, expense, document and milestone deletion. Each shows what approving also removes, such as a milestone's tasks. | added | Approvals page, review queue | G8 | W4-B | planned |
+| An approved document can be deleted on request only by an admin. | behaviour | Documents | G8; decision 25 | W4-B | planned |
+| A milestone deletion is refused while its project is locked, and refused if its task count changed after the request. | behaviour | Milestone deletion | G8 | W4-B | planned |
+| The database refuses a direct delete of risks, issues, expenses, documents and milestones unless an approved request commits it. The dev seed script that deletes documents fails by design. | behaviour | Database, dev scripts | G8 | W4-B | planned |
+| Tokens that deleted these records before need the new request scopes (risk, issue, expense, document, milestone), granted by exact name. Approving needs the matching approve scope. | behaviour | API scopes, Tokens page | G8 | W4-B | planned |
+| CLI remove commands for these records take `--reason`. | added | CLI | G8 | W4-B | planned |
+| Every governed change and its audit row now save together. If the audit row cannot be written, the change is not saved. No screen changes. | behaviour | Several (all write screens) | M1 | W4-C1, W4-C2 | planned |
+| Trust Center shows a chain line, "Chain verified: n rows, last check <time>", or "Chain broken" naming the first bad row. **Verify now** is for admins and managers. | added | Trust Center | M1; A7 | W4-C2 | planned |
+| Each **Verify now** adds one `audit.verified` row to the audit log. | behaviour | Audit log | M1 | W4-C2 | planned |
+| The audit CSV export gains a last column, `row_hash`. Audit API rows gain `prev_hash`, `row_hash` and `chain_seq`. | added | Audit export, audit API | M1; A7 | W4-C2 | planned |
+| New audit channel `github`, shown in the channel filter and export. | added | Trust Center, Audit | A1 | W4-D | planned |
+| **GitHub** card on the Integrations page: connect (the secret is shown once), webhook address, pause and resume, the status each event moves a task to, rotate the secret, revoke, and the last 20 events with their result. | added | Integrations page | A1 | W4-D | planned |
+| Task detail panel gains a **Link PR** field. It stores a pull request as `owner/repo#number`, and it is validated. | added | Task detail panel | A1 | W4-D | planned |
+| A task linked to a pull request moves when the pull request opens or merges, or when a deployment succeeds or fails. It never moves on a locked project, and never moves backwards. | added | Tasks, Kanban board | A1; A6 | W4-D | planned |
+| Migrations 0100 and 0101 must be applied before the new build is deployed. Migration 0102 must be applied in the same window as the build, because an old build's direct delete fails once it is live. Migration 0104 holds a lock on the audit log while it hashes existing rows. | behaviour | Release | Release order | lead | planned |
+| Migrations 0103, 0104 and 0105 must be applied before the new build is deployed. | behaviour | Release | Release order | lead | planned |
+| After release an admin connects the GitHub repository webhook on the Integrations page. Nothing is connected until then. | behaviour | Release | Release order | lead | planned |

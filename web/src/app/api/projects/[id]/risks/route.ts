@@ -4,12 +4,12 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workspaceToday } from "@/lib/integrations/time-zone";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolution";
 import { createRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
-import { RISK_SELECT } from "@/lib/api/views";
+import { pickRiskColumns } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertBackupDiffers } from "@/lib/handover/backup";
 import { parseListSelection } from "@/lib/api/views";
@@ -126,10 +126,11 @@ export const POST = route(async ({ actor, params, request }) => {
   const refId = await nextRefId(db, actor.workspaceId, "risks", "R");
   const impactAreasInput = resolveImpactAreas(input) ?? [];
 
-  const { data: row, error } = await db
-    .from("risks")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const inserted = await auditedInsert({
+    table: "risks",
+    actor,
+    action: "risk.create",
+    patch: {
       project_id: projectId,
       reference_id: refId,
       title: input.title,
@@ -156,21 +157,10 @@ export const POST = route(async ({ actor, params, request }) => {
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
-    })
-    .select(RISK_SELECT)
-    .single();
-
-  if (error || !row) throw new Error(error?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "risk.create",
-    targetType: "risk",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
+  // The response keeps the RISK_SELECT shape (no legacy `category`).
+  const row = pickRiskColumns(inserted);
 
   // Notify project owner when severity is high or critical — fail-soft
   if (input.severity === "high" || input.severity === "critical") {

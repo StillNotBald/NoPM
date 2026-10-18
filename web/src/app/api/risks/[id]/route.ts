@@ -1,12 +1,13 @@
 import { route } from "@/lib/api/handler";
-import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, PreconditionFailedError } from "@/lib/api/errors";
+import { requestDeletion } from "@/lib/governance/request-deletion";
+import { ok, safeJson, validationError } from "@/lib/api/response";
+import { NotFoundError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { updateRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
-import { RISK_SELECT } from "@/lib/api/views";
+import { RISK_SELECT, pickRiskColumns } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertBackupDiffers, effective } from "@/lib/handover/backup";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
@@ -121,37 +122,18 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
   if (input.external_url !== undefined) updates.external_url = input.external_url;
 
-  let query = db
-    .from("risks")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-  // Defense-in-depth: also scope the write itself to the row's pre-check
-  // updated_at, closing the (narrow) race between the fetch above and this
-  // write. On a lost race the row exists but the filter matches zero rows —
-  // maybeSingle() returns null instead of PostgREST's "no rows" error.
-  if (input.expected_updated_at !== undefined) {
-    query = query.eq("updated_at", existing.updated_at);
-  }
-  const { data: updated, error: updateError } = await query.select(RISK_SELECT).maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    if (input.expected_updated_at !== undefined) {
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    throw new Error("Update failed");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited). The response
+  // keeps the RISK_SELECT shape (no legacy `category`).
+  const { after: written } = await auditedUpdate({
+    table: "risks",
     actor,
     action: "risk.update",
-    targetType: "risk",
-    targetId: updated.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: updates,
+    expectedUpdatedAt: input.expected_updated_at !== undefined ? existing.updated_at : null,
+    notFoundMessage: "Risk not found",
   });
+  const updated = pickRiskColumns(written) as typeof existing;
 
   // Same alert as on create — and on EVERY later increase (Q-WRK-19): the owner
   // hears when severity or likelihood goes up, not only when it first reaches
@@ -182,40 +164,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return ok(updated);
 });
 
-/** DELETE /api/risks/:id — delete a risk */
-export const DELETE = route(async ({ actor, params }) => {
-  // Hard delete needs its own scope: the agent preset holds risk:write but not risk:delete (W1-06).
-  requireScope(actor, "risk:delete");
-
-  const db = createAdminClient();
-
-  const { data: existing, error: fetchError } = await db
-    .from("risks")
-    .select(RISK_SELECT)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw new Error(fetchError.message);
-  if (!existing) throw new NotFoundError("Risk not found");
-
-  const { error: deleteError } = await db
-    .from("risks")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw new Error(deleteError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "risk.delete",
-    targetType: "risk",
-    targetId: existing.id,
-    before: existing,
-    after: null,
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/risks/:id — does NOT delete the risk. It raises a deletion request (scope risk:delete:request,
+ * or the older risk:delete) with a required `reason` and returns 202. A second person approves it at
+ * POST /api/deletion-requests/:id/approve (audit gap G8; the database refuses any other DELETE).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "risk", id: params.id }),
+);

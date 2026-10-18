@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContainer } from "@/components/ui/page-container";
 import { AuditPackPanel } from "@/components/export/audit-pack-panel";
+import { ChainBadge, type ChainCheck } from "@/components/audit/chain-badge";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -127,7 +128,7 @@ function hrefWithParams(base: string, params: Record<string, string | undefined>
   return qs ? `${base}?${qs}` : base;
 }
 
-const CHANNEL_OPTIONS = ["ui", "api", "cli", "mcp", "assistant", "lark"] as const;
+const CHANNEL_OPTIONS = ["ui", "api", "cli", "mcp", "assistant", "lark", "github"] as const;
 
 /** Unpadded text links ("Clear", pager): a 44px hit area on phones, text-sized from sm. */
 const LINK_TARGET = "focus-ring inline-flex min-h-[44px] items-center rounded-sm text-xs sm:min-h-0";
@@ -145,6 +146,29 @@ export default async function TrustPage({
   // Audit pack button: admin or manager only (the export route enforces the same rule).
   const { data: viewerProfile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
   const canAuditPack = viewerProfile?.role === "admin" || viewerProfile?.role === "manager";
+
+  // Audit hash chain (R-154): the newest recorded check, shown with a "Verify now" button.
+  // Only admins and managers see it; GET /api/audit/verify enforces the same rule.
+  let lastChainCheck: ChainCheck | null = null;
+  if (canAuditPack) {
+    const { data: lastCheck } = await db
+      .from("audit_log")
+      .select("after, created_at")
+      .eq("action", "audit.verified")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const a = (lastCheck?.after ?? null) as { ok?: boolean; checked?: number; first_bad_id?: string | null; first_bad_at?: string | null } | null;
+    if (lastCheck && a && typeof a.ok === "boolean") {
+      lastChainCheck = {
+        ok: a.ok,
+        checked: Number(a.checked ?? 0),
+        at: lastCheck.created_at as string,
+        firstBadId: a.first_bad_id ?? null,
+        firstBadAt: a.first_bad_at ?? null,
+      };
+    }
+  }
 
   // Reuses the SAME filter-parsing single source of truth as GET /audit and
   // GET /api/export?entity=audit — an unrecognized channel (or any other
@@ -251,6 +275,8 @@ export default async function TrustPage({
           </>
         }
       />
+
+      {canAuditPack && <ChainBadge initial={lastChainCheck} />}
 
       {canAuditPack && <AuditPackPanel />}
 

@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createSprintSchema, SPRINT_STATES } from "./_schema";
@@ -96,10 +96,12 @@ export const POST = route(async ({ actor, request }) => {
   if (!project) throw new NotFoundError("Project not found");
 
   const now = new Date().toISOString();
-  const { data: row, error } = await db
-    .from("sprints")
-    .insert({
-      workspace_id: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const row = await auditedInsert({
+    table: "sprints",
+    actor,
+    action: "sprint.create",
+    patch: {
       project_id: parsed.data.project_id,
       name: parsed.data.name,
       goal: parsed.data.goal ?? null,
@@ -107,20 +109,7 @@ export const POST = route(async ({ actor, request }) => {
       end_date: parsed.data.end_date,
       state: "planned",
       updated_at: now,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "sprint.create",
-    targetType: "sprint",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return created(row);

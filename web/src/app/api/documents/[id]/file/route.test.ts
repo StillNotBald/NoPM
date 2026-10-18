@@ -37,7 +37,14 @@ vi.mock("@/lib/supabase/admin", () => {
   return {
     createAdminClient: () => ({
       from: table,
-      rpc: async () => ({ data: { allowed: true, remaining: 999, retry_after_seconds: 0 }, error: null }),
+      rpc: async (fn: string, args: { p_audit?: { action: string } }) => {
+        // Atomic row update + audit (migration 0103): one call stands for both steps.
+        if (fn === "nopm_mutate_audited") {
+          h.order.push(`atomic:${args.p_audit?.action}`);
+          return { data: { before: h.doc, after: { id: DOC } }, error: null };
+        }
+        return { data: { allowed: true, remaining: 999, retry_after_seconds: 0 }, error: null };
+      },
       storage: {
         from: () => ({
           remove: async () => {
@@ -75,10 +82,10 @@ beforeEach(() => {
 });
 
 describe("DELETE /api/documents/:id/file", () => {
-  it("updates the row and writes the audit BEFORE removing the storage object", async () => {
+  it("clears the row and writes its audit row in ONE atomic call BEFORE removing the storage object", async () => {
     const res = await DELETE(req(`/api/documents/${DOC}/file`, "DELETE"), ctx);
     expect(res.status).toBe(204);
-    expect(h.order).toEqual(["db:update", "audit:document.file.remove", "storage:remove"]);
+    expect(h.order).toEqual(["atomic:document.file.remove", "storage:remove"]);
   });
   it("a failing storage remove no longer fails a request whose record is already cleared", async () => {
     h.removeError = { message: "nope" };

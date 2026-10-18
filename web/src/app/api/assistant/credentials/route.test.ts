@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 
-const { requireAuthMock, writeAuditMock, upsertMock } = vi.hoisted(() => ({
+const { requireAuthMock, writeAuditMock, upsertMock, mutateMock } = vi.hoisted(() => ({
   requireAuthMock: vi.fn(),
   writeAuditMock: vi.fn(async () => {}),
   upsertMock: vi.fn(),
+  mutateMock: vi.fn(),
 }));
 vi.mock("@/lib/auth/guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/guard")>()),
@@ -16,7 +17,14 @@ vi.mock("@/lib/crypto", () => ({ encrypt: (s: string) => `enc:${s}`, decrypt: (s
 vi.mock("@/lib/auth/demo", () => ({ isDemoActor: async () => false }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    rpc: async () => ({ data: { allowed: true, remaining: 999, retry_after_seconds: 0 }, error: null }),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      // Atomic write + audit (migration 0103).
+      if (fn === "nopm_mutate_audited") {
+        mutateMock(args);
+        return { data: { before: null, after: { id: "c1", ...(args.p_patch as object) } }, error: null };
+      }
+      return { data: { allowed: true, remaining: 999, retry_after_seconds: 0 }, error: null };
+    },
     from: () => ({
       select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }),
       upsert: (row: Record<string, unknown>) => {
@@ -80,8 +88,15 @@ describe("PUT /api/assistant/credentials (Q-ACC-12)", () => {
   it("a working key is saved encrypted with one audit row, and is never put in a URL", async () => {
     const res = await put({ provider: "google", apiKey: "g-key-123", model: "gemini" });
     expect(res.status).toBe(200);
-    expect(upsertMock).toHaveBeenCalledWith(expect.objectContaining({ provider: "google", api_key_enc: "enc:g-key-123" }));
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    // One atomic write+audit call; the ciphertext is written but kept out of the audit row.
+    expect(mutateMock).toHaveBeenCalledTimes(1);
+    const args = mutateMock.mock.calls[0][0] as { p_table: string; p_patch: Record<string, unknown>; p_audit: Record<string, unknown> };
+    expect(args.p_table).toBe("assistant_credentials");
+    expect(args.p_patch).toMatchObject({ provider: "google", api_key_enc: "enc:g-key-123" });
+    expect(args.p_audit).toMatchObject({ action: "assistant.credential.set", before: null, after: { provider: "google", model: "gemini" }, omit_columns: ["api_key_enc"] });
+    expect(JSON.stringify(args.p_audit)).not.toContain("g-key-123");
+    expect(upsertMock).not.toHaveBeenCalled();
+    expect(writeAuditMock).not.toHaveBeenCalled();
     expect(String(fetchMock.mock.calls[0][0])).not.toContain("g-key-123");
   });
 });

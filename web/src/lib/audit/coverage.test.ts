@@ -30,7 +30,9 @@ const MUTATING_VERB =
 
 // A real function call, not just the word appearing in a comment (several
 // routes explain in prose why they intentionally have none).
-const WRITE_AUDIT_CALL = /writeAudit\s*\(/;
+// M1: the atomic wrapper (audited-write.ts) writes the audit row inside the same
+// transaction as the mutation, so a call to it counts exactly like writeAudit(.
+const WRITE_AUDIT_CALL = /(?:writeAudit|auditedInsert|auditedUpdate|auditedDelete)\s*\(/;
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -71,6 +73,7 @@ const ALLOWLIST: Record<string, string> = {
   "api/members/[id]/restore": MEMBER_RPC_AUDIT,
   "api/members/[id]/mfa-reset": MEMBER_RPC_AUDIT,
   "api/deletion-requests/[id]/approve": "audited inside atomic RPC",
+  "api/expenses/[id]": "DELETE only raises a deletion request through requestDeletion() (lib/governance/request-deletion.ts), which writes expense.delete_requested; the delete itself is audited inside nopm_commit_expense_deletion (migration 0102)",
   "api/invites/accept": "audited inside RPC nopm_accept_invite",
   "api/auth/demo-login": "Supabase Auth session op, no workspace mutation",
   "api/notifications/[id]": NOTIFICATION_READ_STATE,
@@ -85,6 +88,7 @@ const ALLOWLIST: Record<string, string> = {
   "api/integrations/connectors/[id]/test": "read-style credential probe: asks the chat platform for the bot's own info and writes no NoPM row (asserted in actions.test.ts)",
   "api/integrations/lark/[connectorId]/card": "card.action.trigger: the only mutation is a human approve/reject: handleApprovalAction (inbound.ts) -> decideApproval (decide.ts) -> approveDeletion (audited inside the nopm_commit_*_deletion RPC) | rejectDeletion | decideChangeRequest | decideTimesheet, each with its own writeAudit; channel 'lark'",
   "api/integrations/lark/[connectorId]/events": "chat event webhook: url_verification and the help/approvals/unknown DM replies write nothing; a card.action.trigger delegates to the card route; 'link <code>' -> identity.ts consumeLinkCode writes integration.identity.link for a NEW link. Open gap: re-confirming an already-linked account burns the code with no audit row",
+  "api/integrations/github/[connectorId]/events": "GitHub webhook: verifies the HMAC signature, then lib/integrations/github/process.ts records the event in work_events (bookkeeping, not governed data) and moves a linked task through lib/work/apply-task-status.ts, which writes the task.update audit row as the connector actor (channel 'github'); a task on a locked project gets work_event.skipped; ping and unsupported events write nothing; its only other DB write is the nopm_rate_check counter",
   "api/integrations/lark/[connectorId]/relay": "self-host relay: verifies the HMAC, then runs the same handleLarkPayload as the webhook routes, so the audit row is the one named for those routes (card -> decide.ts; link -> identity.ts); its only DB write is the nopm_rate_check counter",
 };
 
@@ -224,7 +228,7 @@ describe("BYOK credential audit hygiene", () => {
     // file's shape: no nested writeAudit calls) and assert the secret never
     // appears inside it.
     const calls: string[] = [];
-    const callStart = /writeAudit\s*\(/g;
+    const callStart = /(?:writeAudit|auditedInsert|auditedUpdate|auditedDelete)\s*\(/g;
     let match: RegExpExecArray | null;
     while ((match = callStart.exec(src))) {
       const start = match.index + match[0].length - 1; // position of the opening "("
@@ -246,8 +250,18 @@ describe("BYOK credential audit hygiene", () => {
     expect(calls.length).toBeGreaterThan(0); // sanity: PUT + DELETE both audit
 
     for (const call of calls) {
-      expect(call).not.toMatch(/apiKey/);
-      expect(call).not.toMatch(/api_key_enc/);
+      if (/^\(\s*\{\s*table:/.test(call)) {
+        // Atomic wrapper (M1): the ciphertext is the WRITTEN patch, so the guarantee is that the
+        // column is omitted from the audit row and the returned row, and that the explicit
+        // audit payloads carry provider and model only.
+        expect(call).toMatch(/omitColumns:\s*\["api_key_enc"\]/);
+        for (const payload of call.match(/audit(?:Before|After):\s*(?:\{[^}]*\}|[a-z]+)/g) ?? []) {
+          expect(payload).not.toMatch(/apiKey|api_key_enc/);
+        }
+      } else {
+        expect(call).not.toMatch(/apiKey/);
+        expect(call).not.toMatch(/api_key_enc/);
+      }
     }
   });
 });
@@ -301,6 +315,10 @@ const UNAUDITED_WRITER_ALLOWLIST: Record<string, string> = {
   "app/api/calendar/[token]/route.ts":
     "GET feed fetch stamps calendar_feeds.last_fetched_at (read telemetry on the creator's own feed); no governed field changes",
   "lib/auth/guard.ts": "stamps api_tokens.last_used_at on use; telemetry, not a governed change",
+  "lib/integrations/github/process.ts":
+    "bookkeeping ledger of received GitHub events (work_events); the only governed change it triggers, a task status move, is made by nopm_apply_task_status_from_event (lib/work/apply-task-status.ts), which writes the task.update or work_event.skipped audit row in the same transaction",
+  "lib/governance/approval-events.ts":
+    "bookkeeping ledger of what the daily approval timer did (reminder, escalation, overdue flag); the governed facts it describes carry their own audit rows and the timer writes one approval.timer_run row per workspace per run",
 };
 
 function relSrc(abs: string): string {
@@ -353,7 +371,7 @@ function verbSpans(src: string): { verb: string; start: number; end: number }[] 
   return marks.map((mk, i) => ({ verb: mk.verb, start: mk.at, end: marks[i + 1]?.at ?? src.length }));
 }
 
-const AUDIT_CALL = /writeAudit\s*\(/;
+const AUDIT_CALL = WRITE_AUDIT_CALL;
 
 /** true/false = the latest SQL definition of `fn` does/doesn't insert into audit_log; null = no definition found. */
 function rpcAuditsInSql(fn: string): boolean | null {

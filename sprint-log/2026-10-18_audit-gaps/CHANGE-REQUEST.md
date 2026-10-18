@@ -50,6 +50,7 @@ Wave 3 built a default for each of these. Each one needs an explicit yes or no f
 | D4. ETC on locked projects | The to-finish estimate and the forecast method change on a locked project with no change request. Both changes are audited. | Gate both fields behind an approved change request, by removing them from the exempt list. |
 | D5. Dependencies on locked projects | Allowed and audited. A locked schedule does not change. | Refuse adding or removing a dependency on a locked project. |
 | D6. Committed money | The system does not reduce committed when an invoice is entered. A visible hint tells the user (F5). | Build an automatic link from invoices to committed. That is new scope for this programme. |
+| D7. Fewer than two admins (wave 4) | When a workspace has fewer than two admins, a manager may decide an admin-level request (high risk, strategic, emergency retro), so a sole admin is not stuck. The decision is marked `fallback_approver: true` (change requests in the decision audit row; other kinds in an extra `approval.fallback_approver` row). Four-eyes still bars the raiser. | Refuse the request until a second admin exists, or require two admins before an admin-level policy is accepted. |
 
 ## Owner-visible changes
 

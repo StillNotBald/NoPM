@@ -1,10 +1,11 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { requireApprover } from "@/lib/auth/approver";
+import { assertTierRole, tierOf } from "@/lib/governance/tiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
-import { actorLabel, announceDecided, assertNotRequesterPrincipal, requirePrincipal } from "@/lib/governance/decide";
+import { actorLabel, announceDecided, assertNotRequesterPrincipal, noteFallbackApprover, requirePrincipal } from "@/lib/governance/decide";
 import { rebaselineEvent } from "@/lib/integrations/rebaseline-approval";
 import { assertSignoffOpen } from "@/lib/governance/rebaseline-lifecycle";
 import { auditRpcArgs, throwRebaselineRpcError } from "@/lib/governance/rebaseline-rpc";
@@ -43,6 +44,7 @@ export const POST = route(async ({ actor, params, request }) => {
 
   if (fetchError) throw fetchError;
   if (!rebaseline) throw new NotFoundError("Rebaseline not found");
+  const fallback = await assertTierRole(db, actor, tierOf(rebaseline)); // G2: the tier names the role (D7 fallback)
 
   // Four-eyes: the requester may not sign off their own rebaseline (R-04).
   // The legacy user-id check keeps its 422; the principal check also catches a
@@ -89,6 +91,7 @@ export const POST = route(async ({ actor, params, request }) => {
   if (error) throwRebaselineRpcError(error, "Failed to record the sign-off");
 
   const result = data as { signoff: Record<string, unknown>; rebaseline: Record<string, unknown> };
+  if (fallback) await noteFallbackApprover(actor, "rebaseline", params.id, tierOf(rebaseline));
 
   // A vote that settles the rebaseline (approved / rejected) retires its open Lark
   // cards. After the commit, never fails the request.

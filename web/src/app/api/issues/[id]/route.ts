@@ -1,10 +1,11 @@
 import { route } from "@/lib/api/handler";
-import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, PreconditionFailedError } from "@/lib/api/errors";
+import { requestDeletion } from "@/lib/governance/request-deletion";
+import { ok, safeJson, validationError } from "@/lib/api/response";
+import { NotFoundError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolution";
 import { updateIssueSchema } from "@/app/api/issues/_schema";
@@ -110,75 +111,25 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
   if (input.external_url !== undefined) updates.external_url = input.external_url;
 
-  let query = db
-    .from("issues")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-  // Defense-in-depth: also scope the write itself to the row's pre-check
-  // updated_at, closing the (narrow) race between the fetch above and this
-  // write. On a lost race the row exists but the filter matches zero rows —
-  // maybeSingle() returns null instead of PostgREST's "no rows" error.
-  if (input.expected_updated_at !== undefined) {
-    query = query.eq("updated_at", existing.updated_at);
-  }
-  const { data: updated, error: updateError } = await query.select().maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    if (input.expected_updated_at !== undefined) {
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    throw new Error("Update failed");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  const { after: updated } = await auditedUpdate({
+    table: "issues",
     actor,
     action: "issue.update",
-    targetType: "issue",
-    targetId: updated.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: updates,
+    expectedUpdatedAt: input.expected_updated_at !== undefined ? existing.updated_at : null,
+    notFoundMessage: "Issue not found",
   });
 
   return ok(updated);
 });
 
-/** DELETE /api/issues/:id — delete an issue */
-export const DELETE = route(async ({ actor, params }) => {
-  // Hard delete needs its own scope: the agent preset holds issue:write but not issue:delete (W1-06).
-  requireScope(actor, "issue:delete");
-
-  const db = createAdminClient();
-
-  const { data: existing, error: fetchError } = await db
-    .from("issues")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw new Error(fetchError.message);
-  if (!existing) throw new NotFoundError("Issue not found");
-
-  const { error: deleteError } = await db
-    .from("issues")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw new Error(deleteError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "issue.delete",
-    targetType: "issue",
-    targetId: existing.id,
-    before: existing,
-    after: null,
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/issues/:id — does NOT delete the issue. It raises a deletion request (scope issue:delete:request,
+ * or the older issue:delete) with a required `reason` and returns 202. A second person approves it at
+ * POST /api/deletion-requests/:id/approve (audit gap G8; the database refuses any other DELETE).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "issue", id: params.id }),
+);

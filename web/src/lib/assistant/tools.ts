@@ -42,7 +42,7 @@ export const TOOLS: ToolSpec[] = TOOL_REGISTRY.map((t) => ({
  * own list endpoint: without them the assistant would never see a pending change
  * request. It is a READ scope. This ceiling never holds an
  * approve / decide / write-on-governance scope (task:delete:approve,
- * project:delete:approve, change:decide, rebaseline:approve) — the
+ * project:delete:approve, risk|issue|expense|document|milestone:delete:approve, change:decide, rebaseline:approve) — the
  * assistant can SEE what is waiting, a person decides it.
  *
  * decision:read and document:read serve the decision-prep reads (list_decisions,
@@ -60,6 +60,11 @@ export const TOOL_SCOPES = [
   "task:write",
   "task:delete:request",
   "project:delete:request",
+  "risk:delete:request",
+  "issue:delete:request",
+  "expense:delete:request",
+  "document:delete:request",
+  "milestone:delete:request",
   "risk:read",
   "risk:write",
   "issue:read",

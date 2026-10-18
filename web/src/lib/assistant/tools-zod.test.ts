@@ -31,6 +31,7 @@ import {
   TaskUpdateSchema,
   TaskDeleteRequestSchema,
 } from "@/app/api/tasks/_schema";
+import { DeletionRequestBodySchema } from "@/lib/governance/request-deletion";
 import { createRiskSchema, updateRiskSchema } from "@/app/api/risks/_schema";
 import { createIssueSchema, updateIssueSchema } from "@/app/api/issues/_schema";
 
@@ -53,6 +54,11 @@ const WRITE_TOOL_VALIDATORS: Record<
   request_task_deletion: { schema: TaskDeleteRequestSchema, routeParams: ["task_id"] },
   // POST /api/deletion-requests/:id/withdraw takes no body: the only argument is the route id.
   withdraw_deletion_request: { schema: z.object({}), routeParams: ["request_id"] },
+  request_risk_deletion: { schema: DeletionRequestBodySchema, routeParams: ["risk_id"] },
+  request_issue_deletion: { schema: DeletionRequestBodySchema, routeParams: ["issue_id"] },
+  request_expense_deletion: { schema: DeletionRequestBodySchema, routeParams: ["expense_id"] },
+  request_document_deletion: { schema: DeletionRequestBodySchema, routeParams: ["document_id"] },
+  request_milestone_deletion: { schema: DeletionRequestBodySchema, routeParams: ["milestone_id"] },
   create_risk: { schema: createRiskSchema, routeParams: ["project_id"] },
   update_risk: { schema: updateRiskSchema, routeParams: ["risk_id"] },
   create_issue: { schema: createIssueSchema, routeParams: ["project_id"] },

@@ -3,7 +3,7 @@ import { requireScope, type Actor } from "@/lib/auth/guard";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
 import { upsertBudgetSchema } from "@/app/api/budget/_schema";
 import { computeEvm } from "@/lib/evm";
 import { workspaceToday } from "@/lib/integrations/time-zone";
@@ -258,28 +258,28 @@ async function saveBudget(
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
 
-  const { data: upserted, error } = await db
-    .from("project_budget")
-    .upsert(
-      { project_id: projectId, workspace_id: actor.workspaceId, ...fields },
-      { onConflict: "project_id" },
-    )
-    .select()
-    .single();
-
-  if (error || !upserted) {
-    throw new Error(`Budget upsert failed: ${error?.message ?? "no row returned"}`);
+  // The write and its audit row are one transaction (nopm_mutate_audited, migration 0103). The
+  // budget row is keyed by project_id, so the project id is the row id. Only the columns in
+  // `fields` are written; a first write gets the DB defaults for the rest.
+  const extra = changeRequestId ? { afterExtra: { change_request_id: changeRequestId } } : {};
+  let upserted: Record<string, unknown>;
+  if (existing) {
+    ({ after: upserted } = await auditedUpdate({
+      table: "project_budget", actor, action: "budget.update", id: projectId, patch: fields, ...extra,
+    }));
+  } else {
+    try {
+      upserted = await auditedInsert({
+        table: "project_budget", actor, action: "budget.update", id: projectId, patch: fields, ...extra,
+      });
+    } catch (e) {
+      // Two first writes racing: the loser updates the row the winner created.
+      if ((e as { code?: string } | null)?.code !== "23505") throw e;
+      ({ after: upserted } = await auditedUpdate({
+        table: "project_budget", actor, action: "budget.update", id: projectId, patch: fields, ...extra,
+      }));
+    }
   }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "budget.update",
-    targetType: "project_budget",
-    targetId: projectId,
-    before: existing ?? null,
-    after: changeRequestId ? { ...upserted, change_request_id: changeRequestId } : upserted,
-  });
 
   // Decision 19: a plan change can move the same spend across a threshold.
   await recordOverspendCrossing(db, actor, projectId);

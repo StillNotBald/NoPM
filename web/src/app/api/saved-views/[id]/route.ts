@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, ScopeError } from "@/lib/api/errors";
 import { updateSavedViewSchema } from "../_schema";
@@ -95,29 +95,18 @@ export const PATCH = route(async ({ actor, params, request }) => {
   const action = resolveAuditAction(parsed.data);
 
   const now = new Date().toISOString();
-  const { data: after, error: updateError } = await db
-    .from("saved_views")
-    .update({
-      ...parsed.data,
-      workspace_id: actor.workspaceId, // never let caller overwrite
-      owner_id: before.owner_id, // ownership never transfers via PATCH
-      updated_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  const { after } = await auditedUpdate({
+    table: "saved_views",
     actor,
     action,
-    targetType: "saved_view",
-    targetId: params.id,
-    before,
-    after,
+    id: params.id,
+    patch: {
+      ...parsed.data,
+      owner_id: before.owner_id, // ownership never transfers via PATCH
+      updated_at: now,
+    },
+    notFoundMessage: "Saved view not found",
   });
 
   return ok(after);
@@ -148,22 +137,13 @@ export const DELETE = route(async ({ actor, params }) => {
     throw new ScopeError("Only this view's owner or a workspace admin may delete it", "not_view_owner");
   }
 
-  const { error: deleteError } = await db
-    .from("saved_views")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw deleteError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  await auditedDelete({
+    table: "saved_views",
     actor,
     action: "saved_view.delete",
-    targetType: "saved_view",
-    targetId: existing.id,
-    before: existing,
-    after: null,
+    id: params.id,
+    notFoundMessage: "Saved view not found",
   });
 
   return noContent();

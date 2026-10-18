@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assignedApproverIdField } from "@/lib/review/assignee";
+import { parsePullRef } from "@/lib/integrations/github/refs";
 
 export const StatusType = z.enum([
   "backlog",
@@ -18,6 +19,24 @@ export const ChecklistItemSchema = z.object({
 });
 
 export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
+
+/**
+ * A GitHub link (source "github", or any external_ref that starts "github:") must be exactly
+ * github:<owner>/<repo>#<number>, in lower case: the GitHub webhook looks tasks up by that string, so a
+ * misspelt or mixed-case link would silently never move the task (R-153).
+ */
+function checkGithubRef(v: { source?: string | null; external_ref?: string | null }, ctx: z.RefinementCtx) {
+  const ref = v.external_ref;
+  if (ref === undefined || ref === null) return;
+  if (v.source !== "github" && !ref.startsWith("github:")) return;
+  if (ref !== ref.toLowerCase() || parsePullRef(ref) === null) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["external_ref"],
+      message: "external_ref for GitHub must be github:<owner>/<repo>#<number> in lower case",
+    });
+  }
+}
 
 export const TaskCreateSchema = z.object({
   // id/workspace_id/project_id are taken from the route, ignored from body
@@ -51,7 +70,7 @@ export const TaskCreateSchema = z.object({
     .refine((v) => /^https?:\/\//i.test(v), { message: "external_url must be an http(s) URL" })
     .nullable()
     .optional(),
-});
+}).superRefine(checkGithubRef);
 
 export const TaskUpdateSchema = z.object({
   name: z.string().min(1).max(255).optional(),
@@ -86,7 +105,7 @@ export const TaskUpdateSchema = z.object({
   // ── Optimistic concurrency (R-90) — opt-in. When sent, must match the row's
   // current updated_at or the PATCH is rejected with 412 (see @/lib/api/occ).
   expected_updated_at: z.string().datetime({ offset: true }).optional(),
-}).strict();
+}).strict().superRefine(checkGithubRef);
 
 export const TaskDeleteRequestSchema = z.object({
   reason: z.string().min(1, "reason is required").max(1000),

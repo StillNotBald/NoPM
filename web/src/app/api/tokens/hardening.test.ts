@@ -78,8 +78,9 @@ describe("DELETE /api/tokens/[id]", () => {
     await revoke();
     const lookup = state.db.calls.find((c) => c.table === "api_tokens" && c.op === "select");
     expect(lookup?.filters).toContainEqual(["eq", "kind", "user"]);
-    const update = state.db.calls.find((c) => c.table === "api_tokens" && c.op === "update");
-    expect(update?.filters).toContainEqual(["eq", "kind", "user"]);
+    // The write is the atomic RPC (migration 0103), addressed by the id the kind-filtered lookup returned.
+    const write = state.db.rpcCalls.find((c) => c.fn === "nopm_mutate_audited");
+    expect(write?.args).toMatchObject({ p_table: "api_tokens", p_op: "update", p_patch: { revoked: true } });
   });
 
   it("an assistant token (no match for kind = 'user') is 404 and unaudited", async () => {
@@ -98,15 +99,13 @@ describe("DELETE /api/tokens/[id]", () => {
     expect(state.db.calls.some((c) => c.op === "update")).toBe(false);
   });
 
-  it("losing a race with a concurrent revoke is also 409 and unaudited", async () => {
-    state.db = fakeDb((c) => {
-      if (c.table === "api_tokens" && c.op === "select") return { data: TOKEN };
-      if (c.table === "api_tokens" && c.op === "update") return { data: [] };
-      return {};
-    });
+  it("a failed atomic write leaves no audit row and surfaces as an error", async () => {
+    state.db = fakeDb(
+      (c) => (c.table === "api_tokens" && c.op === "select" ? { data: TOKEN } : {}),
+      (fn) => (fn === "nopm_mutate_audited" ? { error: { message: "boom", code: "XX000" } } : { data: { allowed: true, remaining: 9, retry_after_seconds: 0 } }),
+    );
     const res = await revoke();
-    expect(res.status).toBe(409);
-    expect(state.db.auditRows()).toHaveLength(0);
+    expect(res.status).toBe(500);
   });
 });
 

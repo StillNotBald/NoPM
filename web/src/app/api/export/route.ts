@@ -133,6 +133,8 @@ const ENTITY_COLUMNS: Record<Entity, readonly string[]> = {
     // M3 provenance: who really acted (principal), through which connector.
     "principal_id", "principal_label", "via_connector_id", "external_event_id",
     "external_actor_ref",
+    // R-154 tamper evidence: the row hash lets an auditor recompute the chain offline.
+    "row_hash",
   ],
   programs: [
     "id", "workspace_id", "code", "name", "rag_status", "owner_id", "created_at",

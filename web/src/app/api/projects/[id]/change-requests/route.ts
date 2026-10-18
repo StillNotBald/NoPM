@@ -4,7 +4,9 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { notify, resolveProjectOwner } from "@/lib/notify/publish";
+import { notify, resolveProjectOwner, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy, retroDueAt } from "@/lib/governance/tiers";
+import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { insertWithReference } from "@/lib/governance/next-ref";
 import { resolveAssignedApprover } from "@/lib/review/assignee";
@@ -81,7 +83,31 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
-  const assignedApproverId = await resolveAssignedApprover(db, actor.workspaceId, input.assigned_approver_id, requesterPrincipal);
+
+  // G1/G7/G4: the tier is decided here, from the policy, never trusted from the caller.
+  const policy = await loadApprovalPolicy(db, actor.workspaceId);
+  const now = new Date();
+  const classified = classify({
+    kind: "change_request",
+    impact_cost: input.impact_cost,
+    impact_schedule_days: input.impact_schedule_days,
+    impact_scope_count: input.impact_scope?.length ?? 0,
+    is_emergency: input.is_emergency === true,
+    requested_tier: input.tier ?? null,
+    requester_role: humanRoleOf(actor as Parameters<typeof humanRoleOf>[0]),
+    policy,
+  });
+  const tier = classified.tier;
+  const isEmergency = tier === "emergency";
+  const deadline = deadlineFor(tier, policy, now);
+  const retroDue = isEmergency ? retroDueAt(policy, now) : null;
+  const assignedApproverId = await resolveAssignedApprover(
+    db,
+    actor.workspaceId,
+    input.assigned_approver_id,
+    requesterPrincipal,
+    approverRoleFor(tier, policy),
+  );
   const { data: row, error } = await insertWithReference(db, actor.workspaceId, "change_request", (refId) => db
     .from("change_requests")
     .insert({
@@ -92,7 +118,11 @@ export const POST = route(async ({ actor, params, request }) => {
       description: input.description ?? null,
       category: input.category,
       priority: input.priority,
-      status: input.status,
+      // G4: an emergency request is raised in its own status and may be implemented at once.
+      status: isEmergency ? "emergency" : input.status,
+      tier,
+      approval_deadline_at: deadline ? deadline.toISOString() : null,
+      ...(isEmergency ? { is_emergency: true, retro_due_at: retroDue!.toISOString() } : {}),
       impact_summary: input.impact_summary ?? null,
       impact_schedule_days: input.impact_schedule_days ?? null,
       impact_cost: input.impact_cost ?? null,
@@ -127,6 +157,32 @@ export const POST = route(async ({ actor, params, request }) => {
     after: row,
   });
 
+  // G3: the deadline (or the emergency retro due date) is on record from the start. Fail-soft.
+  await recordApprovalEvent(db, {
+    workspaceId: actor.workspaceId,
+    targetType: "change_request",
+    targetId: row.id,
+    kind: "deadline_set",
+    actorLabel: actor.label,
+    detail: { tier, deadline: deadline?.toISOString() ?? null, retro_due_at: retroDue?.toISOString() ?? null, reason: classified.reason },
+  });
+
+  // G2: tell the people who may decide THIS tier (an admin tier goes to admins only), not every approver.
+  void resolveWorkspaceApprovers(actor.workspaceId, { tier, assignedApproverId }).then((approverIds) => {
+    return notify({
+      workspaceId: actor.workspaceId,
+      recipientIds: approverIds.filter((id) => id !== requesterPrincipal),
+      type: "approval.requested",
+      title: isEmergency
+        ? `EMERGENCY change: ${input.title}`
+        : `Change request needs a decision: ${input.title}`,
+      body: isEmergency
+        ? `Shipped now by ${actor.label}; your retro decision is due by ${retroDue!.toISOString().slice(0, 16).replace("T", " ")} UTC.`
+        : (classified.reason ?? input.description ?? undefined),
+      payload: { href: "/approvals", changeRequestId: row.id, tier, refId: row.reference_id },
+    });
+  });
+
   // Notify project owner when priority is high or critical — fail-soft
   if (input.priority === "high" || input.priority === "critical") {
     void resolveProjectOwner(actor.workspaceId, projectId).then((ownerId) => {
@@ -154,6 +210,8 @@ export const POST = route(async ({ actor, params, request }) => {
     projectName: project.name ?? null,
     requestedByLabel: actorLabel(actor),
     requesterPrincipalId: requesterPrincipal,
+    tier,
+    ...(assignedApproverId ? { assignedApproverId } : {}),
     // The version this card describes: the hub binds the card's buttons to it, so an
     // edit that lands before the card goes out cannot be approved unseen.
     version: row.updated_at ?? null,

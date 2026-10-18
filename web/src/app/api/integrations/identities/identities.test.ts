@@ -51,6 +51,8 @@ const del = (id: string) =>
   });
 
 let db: FakeDb;
+// Unlink is written by nopm_mutate_audited (migration 0103): its audit row lands in the table, not in writeAudit.
+const auditRows = () => db.rows("audit_log") as Record<string, any>[]; // eslint-disable-line @typescript-eslint/no-explicit-any
 const lastAudit = () => writeAuditMock.mock.calls.at(-1)![0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 beforeEach(() => {
@@ -185,15 +187,16 @@ describe("DELETE /api/integrations/identities/[id]", () => {
     expect(await res.json()).toEqual({ data: { id: mineId, revoked: true } });
     expect(db.rows("external_identities").find((r) => r.id === mineId)!.revoked_at).not.toBeNull();
 
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    expect(lastAudit()).toMatchObject({
+    expect(auditRows()).toHaveLength(1);
+    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(auditRows()[0]).toMatchObject({
       action: "integration.identity.unlink",
-      targetType: "external_identity",
-      targetId: mineId,
+      target_type: "external_identity",
+      target_id: mineId,
       before: { connector_id: CONNECTOR_ID, profile_id: ids.manager },
       after: { revoked: true, unlinked_by_owner: true },
     });
-    expect(JSON.stringify(lastAudit())).not.toContain("ou_1234567890abcdef");
+    expect(JSON.stringify(auditRows()[0])).not.toContain("ou_1234567890abcdef");
     // a click from a card they still hold now resolves to "unlinked"
     expect(await lookupIdentity(connectorRow(), "tenant-1", "ou_1234567890abcdef")).toBeNull();
   });
@@ -202,18 +205,21 @@ describe("DELETE /api/integrations/identities/[id]", () => {
     expect((await del(herId)).status).toBe(403);
     expect(db.rows("external_identities").find((r) => r.id === herId)!.revoked_at).toBeNull();
     expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(auditRows()).toHaveLength(0);
   });
 
   it("an admin can unlink anyone's (e.g. a leaver)", async () => {
     requireAuthMock.mockResolvedValue(user(ids.admin, "admin"));
     expect((await del(herId)).status).toBe(200);
-    expect(lastAudit().after).toMatchObject({ unlinked_by_owner: false });
+    expect(auditRows().at(-1)!.after).toMatchObject({ unlinked_by_owner: false });
   });
 
   it("404s for unknown, already-unlinked or other-workspace links", async () => {
     expect((await del("nope")).status).toBe(404);
     await del(mineId);
     expect((await del(mineId)).status).toBe(404);
+    // the lost second unlink wrote no second audit row
+    expect(auditRows()).toHaveLength(1);
     db.seed("external_identities", [
       { id: "foreign", workspace_id: OTHER_WS, connector_id: "x", provider: "lark", external_tenant: "t", external_user_id: "u", profile_id: ids.manager, linked_at: "2026-10-03T00:00:00.000Z", revoked_at: null },
     ]);

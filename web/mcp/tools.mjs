@@ -45,15 +45,20 @@ export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"];
 export const AUDIT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant", "lark"];
 // Mirrors PENDING_KINDS in web/src/lib/review/pending.ts (the GET /api/review
 // `kind` filter); the first four are the kinds the governed decision path
-// accepts. Locked by web/src/lib/review/tool.test.ts.
+// accepts (every *_deletion kind and change_request). Locked by web/src/lib/review/tool.test.ts.
 export const PENDING_APPROVAL_KINDS = [
   "task_deletion",
   "project_deletion",
+  "risk_deletion",
+  "issue_deletion",
+  "expense_deletion",
+  "document_deletion",
+  "milestone_deletion",
   "change_request",
   "rebaseline",
 ];
 
-export const CHANGE_REQUEST_STATUSES = ["raised", "under_review", "approved", "rejected", "deferred", "implemented"];
+export const CHANGE_REQUEST_STATUSES = ["raised", "under_review", "emergency", "approved", "rejected", "deferred", "implemented"];
 const DECISION_STATUSES_READ = ["proposed", "accepted", "superseded", "rejected"];
 
 const DATE = "ISO date, YYYY-MM-DD";
@@ -274,8 +279,8 @@ const RAW_TOOLS = [
       "deletion request (status=pending, target_type=project) that must be approved by a " +
       "DIFFERENT actor holding scope project:delete:approve. Self-approval is rejected by the " +
       "server. Mirrors request_task_deletion; owner-locked (Decision 3, devops-wave1) — this " +
-      "four-eyes flow covers PROJECTS ONLY, not milestones/risks/issues (those stay single-step " +
-      "hard deletes).",
+      "four-eyes flow now covers every governed record: see request_risk_deletion, request_issue_deletion, " +
+      "request_expense_deletion, request_document_deletion, request_milestone_deletion.",
     parameters: {
       type: "object",
       properties: {
@@ -463,6 +468,116 @@ const RAW_TOOLS = [
       path: `/api/tasks/${idSeg("task_id", args.task_id)}`,
       method: "DELETE",
       body: { reason: args.reason },
+    }),
+  },
+  {
+    name: "request_risk_deletion",
+    description:
+      "Request deletion of a risk (scope: risk:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=risk) that a DIFFERENT person holding risk:delete:approve " +
+      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope.",
+    parameters: {
+      type: "object",
+      properties: {
+        risk_id: { type: "string", description: "Risk UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["risk_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/risks/${idSeg("risk_id", args.risk_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_issue_deletion",
+    description:
+      "Request deletion of an issue (scope: issue:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=issue) that a DIFFERENT person holding issue:delete:approve " +
+      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope.",
+    parameters: {
+      type: "object",
+      properties: {
+        issue_id: { type: "string", description: "Issue UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["issue_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/issues/${idSeg("issue_id", args.issue_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_expense_deletion",
+    description:
+      "Request deletion of an expense (a money record) (scope: expense:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=expense) that a DIFFERENT person holding expense:delete:approve " +
+      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope.",
+    parameters: {
+      type: "object",
+      properties: {
+        expense_id: { type: "string", description: "Expense UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["expense_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/expenses/${idSeg("expense_id", args.expense_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_document_deletion",
+    description:
+      "Request deletion of a document (scope: document:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=document) that a DIFFERENT person holding document:delete:approve " +
+      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope. An APPROVED document can be requested only by an admin; the stored file is removed on approval.",
+    parameters: {
+      type: "object",
+      properties: {
+        document_id: { type: "string", description: "Document UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["document_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/documents/${idSeg("document_id", args.document_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_milestone_deletion",
+    description:
+      "Request deletion of a milestone (scope: milestone:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=milestone) that a DIFFERENT person holding milestone:delete:approve " +
+      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope. Refused while the project is locked. Its tasks are kept and unlinked.",
+    parameters: {
+      type: "object",
+      properties: {
+        milestone_id: { type: "string", description: "Milestone UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["milestone_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/milestones/${idSeg("milestone_id", args.milestone_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
     }),
   },
   {
@@ -900,9 +1015,11 @@ const RAW_TOOLS = [
   {
     name: "list_pending_approvals",
     description:
-      "List the governed decisions waiting on a human in this workspace, oldest first: task and " +
-      "project deletion requests, change requests (raised/under review), " +
-      "and rebaselines awaiting sign-off. Each item has can_decide plus reason_if_not " +
+      "List the governed decisions waiting on a human in this workspace, oldest first: deletion requests " +
+      "(task, project, risk, issue, expense, document, milestone), change requests (raised, under review, emergency, " +
+      "and implemented emergencies still owed a retro approval), " +
+      "and rebaselines awaiting sign-off. Each item also carries removes (what approving also detaches or deletes), " +
+      "tier, approval_deadline_at, is_emergency, retro_due_at and retro_overdue (null when not applicable). Each item has can_decide plus reason_if_not " +
       "(missing scope, or four-eyes: the requester cannot decide their own request). READ-ONLY — " +
       "there is deliberately no approve/decide tool: a person decides in the console. Use this " +
       "to answer \"what is waiting for me?\" and to tell the user what needs their decision. " +
@@ -1008,6 +1125,17 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
         impact_schedule_days: { type: "number", description: "Integer days of schedule impact (negative = earlier)" },
         impact_cost: { type: "number", description: "Cost impact in the project currency" },
         target_date: { type: "string", description: DATE },
+        tier: {
+          type: "string",
+          enum: ["routine", "normal", "high_risk", "strategic"],
+          description:
+            "Approval tier. Leave out for normal. routine only with no cost and no schedule impact. The server raises it (a cost at or over the workspace threshold makes it high_risk) and never lowers it. strategic needs an admin.",
+        },
+        is_emergency: {
+          type: "boolean",
+          description:
+            "Emergency path: the change can be implemented at once and an admin owes an approval within the workspace window (default 48 h). Only a manager or admin may use it; it stays flagged until approved.",
+        },
       },
       required: ["project_id", "title"],
       additionalProperties: false,

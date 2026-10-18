@@ -10,7 +10,7 @@ export const describe = "List, create, or delete project expenses";
 export const usage = [
   "nopm expenses ls --project <uuid>                          list expenses for a project",
   "nopm expenses create --project <uuid> --desc <text> --amount <n> [--category <cat>] [--on <YYYY-MM-DD>] [--idempotency-key <key>]",
-  "nopm expenses rm <id>                                      delete an expense",
+  "nopm expenses rm <id> --reason <why>   (MAKER) request deletion; a different person approves",
   "  --on defaults to today (UTC); --idempotency-key <key>: retry-safe create — the same key (24 h) returns the first expense",
   "  flags: --page <n>  --limit <n>  --json",
 ];
@@ -52,9 +52,11 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm expenses rm <id>");
-      await ctx.api("DELETE", `/api/expenses/${id}`);
-      console.log("✓ deleted expense", id);
+      if (!id || !f.reason) ctx.die("usage: nopm expenses rm <id> --reason <why>");
+      // Deletion is a request (audit gap G8): it stays until a different person approves it.
+      const result = await ctx.api("DELETE", `/api/expenses/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

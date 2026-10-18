@@ -118,6 +118,32 @@ Scope: a handover report names the backup owner for each project and shows key-p
 
 Scope: approval tiers with routing, timers and an emergency path; deletion by request for expenses, documents, risks, issues and milestones; every mutation writes its audit row atomically with a tamper-evident hash chain; signed GitHub events move matching tasks without touching locked projects.
 
+Steps 4-19 to 4-23 need a GitHub repository that the tester can change, and a task you may link. Step 4-22 needs the release window to have run, so the connector exists.
+
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| | | | | | |
+| 4-1 | Admin | Phone 390 px | Open **Settings** and find the **Approval policy** card. | Five rows, one per tier, each showing who decides it and its turnaround hours. Below them: a routine-only auto-approve checkbox with a warning, the cost threshold, the currency and the emergency window. The rows stack, and nothing scrolls sideways. | |
+| 4-2 | Admin | Desktop | Change the cost threshold to 20000 and save. Reload the page. | The field shows 20000 after the reload. The save writes one audit row. | |
+| 4-3 | Manager | Desktop | Raise a change request on a test project with an impact cost of 10000 and the default tier. | The change shows the tier **Normal** and an approval deadline. | |
+| 4-4 | Manager | Desktop | Raise a change request on the same project with an impact cost of 60000. | The change shows the tier **High risk**, because the cost is over the threshold you set in 4-2. | |
+| 4-5 | Manager | Desktop | Raise a change request with the tier set to **Routine** and an impact cost of 1000. | The save is refused. The message names the tier field and says routine needs no cost. | |
+| 4-6 | Manager | Desktop | Open the High risk change from 4-4 and try to approve it. | Approval is refused with the message "This request needs an admin to decide it." | |
+| 4-7 | Admin | Desktop | Open the same change and approve it, with a rationale. | The change is approved. The admin is not the requester, so four-eyes allows it. | |
+| 4-8 | Manager | Desktop | On the project, raise a change request and tick **Emergency**. | The change shows the status **Emergency**, a retro deadline about 48 hours away, and no ordinary deadline. | |
+| 4-9 | Manager | Desktop | Open the emergency change and press **Mark implemented**. | The status becomes implemented. An emergency note shows the retro deadline. | |
+| 4-10 | Admin | Desktop | Open the emergency change and record an approve retro decision. | The note shows the retro decision as given. The change stays implemented. | |
+| 4-11 | Admin | Desktop | Open **Approvals**. Find an emergency whose retro deadline has passed and has no retro decision. (Ask the developer to set one up with a past deadline if none exists.) | The item shows a red **Overdue** marker. The same item is named in the digest and the weekly report. | |
+| 4-12 | Admin | Desktop | Open **Settings**. Confirm the routine auto-approve checkbox is unchecked. Then look at a routine change nobody has decided, after its deadline has passed. | The routine change is still waiting. It is not approved. Admins receive an escalation notice. | |
+| 4-13 | Manager | Desktop | On a test risk, press **Request deletion**, enter a reason and submit. | The risk stays in the register, with a **Deletion requested** note. No risk is removed. | |
+| 4-14 | Manager | Desktop | Sign in as a different manager. Open **Approvals**. Find the risk deletion. Read what approving removes, then approve it. | The request shows the risk and its reason, and the approval removes the risk. | |
+| 4-15 | Manager | Desktop | Open a milestone that has tasks, and request its deletion with a reason. | The request shows the number of tasks the milestone holds, as "removes N tasks". | |
+| 4-16 | Admin | Desktop | Approve the milestone deletion from 4-15 as a different person. | The milestone is removed. Its tasks remain, with no milestone set. | |
+| 4-17 | Admin | Desktop | Open **Trust Center** and find the chain line. Press **Verify now**. | The line reads "Chain verified" with a row count and the last check time. A new audit row appears for the check. | |
+| 4-18 | Member | Desktop | Open **Trust Center** as a member. | The chain line may show. The **Verify now** button is not shown. | |
+| 4-19 | Admin | Desktop | Open **Integrations**. In the **GitHub** card, press **Connect**. Copy the webhook address and the secret, which is shown once. | The card shows the connection as live, with the address. The secret is shown exactly once. | |
+| 4-20 | Admin | Phone 390 px | Open the **GitHub** card at phone width. | The four status selects and the events list stack. Nothing overlaps. | |
+| 4-21 | Manager | Desktop | On a task, open the detail panel and enter a pull request in **Link PR**, as `owner/repo#number`. Save. | The field stores the reference and shows it on the task. | |
+| 4-22 | Tester | Desktop | In the GitHub repository, add the webhook with the address and secret. Content type `application/json`. Events: Pull requests and Deployment statuses. Open **Recent deliveries**. | The ping delivery shows a green tick. | |
+| 4-23 | Tester | Desktop | Open the linked pull request on GitHub, then merge it. Return to the task. | The task moves to the status the mapping gives: Started on open, In review on merge. The GitHub card lists both deliveries as applied. | |
+| 4-24 | Manager | Desktop | Lock the project of a linked task, then open and merge its pull request. | The task does not move. The GitHub card lists the event with the reason "project locked". | |
+| 4-25 | Admin | Desktop | On the GitHub card, pause the connection. Send a new delivery from GitHub. | GitHub shows the delivery as failed with a 401. The card shows the connection as paused. | |

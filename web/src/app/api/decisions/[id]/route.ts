@@ -3,7 +3,7 @@ import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedDelete, auditedUpdate } from "@/lib/audit/audited-write";
 import { updateDecisionSchema } from "@/app/api/decisions/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import {
@@ -114,30 +114,20 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
   if (input.external_url !== undefined) updates.external_url = input.external_url;
 
-  const { data: updated, error: updateError } = await db
-    .from("decisions")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError || !updated) throw new Error(updateError?.message ?? "Update failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const { after: updated } = await auditedUpdate({
+    table: "decisions",
     actor,
     action: "decision.update",
-    targetType: "decision",
-    targetId: updated.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: updates,
+    notFoundMessage: "Decision not found",
   });
 
   // Q-GOV-15: becoming accepted while replacing an earlier decision supersedes it.
   const replaced = updated.supersedes as string | null;
   if (updated.status === "accepted" && replaced) {
-    await markReplacedSuperseded(db, actor, replaced, updated.id);
+    await markReplacedSuperseded(db, actor, replaced, updated.id as string);
   }
 
   return ok(updated);
@@ -181,29 +171,24 @@ export const DELETE = route(async ({ actor, params }) => {
     );
   }
 
-  const { error: deleteError } = await db
-    .from("decisions")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
   // 23503 = foreign_key_violation: something we cannot see from this workspace
   // still points here (a link written before cross-tenant references were
-  // refused). A rule failure, not a server error.
-  if (deleteError?.code === "23503") {
-    throw new RuleError("Decision is still referenced by another record", "decision_in_use");
+  // refused). A rule failure, not a server error. The delete and its audit row
+  // are one transaction (nopm_mutate_audited, migration 0103).
+  try {
+    await auditedDelete({
+      table: "decisions",
+      actor,
+      action: "decision.delete",
+      id: params.id,
+      notFoundMessage: "Decision not found",
+    });
+  } catch (e) {
+    if ((e as { code?: string } | null)?.code === "23503") {
+      throw new RuleError("Decision is still referenced by another record", "decision_in_use");
+    }
+    throw e;
   }
-  if (deleteError) throw new Error(deleteError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "decision.delete",
-    targetType: "decision",
-    targetId: existing.id,
-    before: existing,
-    after: null,
-  });
 
   return noContent();
 });

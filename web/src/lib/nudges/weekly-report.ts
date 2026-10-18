@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getChainHead } from "@/lib/audit/chain-head";
 import { writeAudit, systemActor } from "@/lib/audit/write";
 import type { Actor } from "@/lib/auth/guard";
 import { notifyEach, resolveWorkspaceApprovers } from "@/lib/notify/publish";
@@ -93,7 +94,8 @@ export async function buildWeeklySnapshot(workspaceId: string, now: Date, weekSt
   } catch (err) {
     console.error("[nudges] weekly report stale list failed:", sanitizeError(err));
   }
-  return { weekStart, digest, staleDays: settings.stale_days, stale };
+  const chainHead = await getChainHead(createAdminClient(), workspaceId);
+  return { weekStart, digest, staleDays: settings.stale_days, stale, chainHead };
 }
 
 /** The stored snapshot for a week, or null. */
@@ -206,7 +208,10 @@ export async function generateWeeklyReport(workspaceId: string, opts: RunOpts): 
       `${d.projects.length} project${d.projects.length === 1 ? "" : "s"}, ` +
       `${d.openHighRisks} open high risk${d.openHighRisks === 1 ? "" : "s"}, ` +
       `${d.pendingApprovals} pending approval${d.pendingApprovals === 1 ? "" : "s"}, ` +
-      `${stale} stale item${stale === 1 ? "" : "s"}.`;
+      `${stale} stale item${stale === 1 ? "" : "s"}.` +
+      ((d.retroOverdue ?? 0) > 0
+        ? ` ${d.retroOverdue} emergency change${d.retroOverdue === 1 ? " is" : "s are"} overdue for approval.`
+        : "");
     await notifyEach(
       workspaceId,
       toNotify.map((recipientId) => ({

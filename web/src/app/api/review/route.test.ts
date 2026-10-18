@@ -27,7 +27,7 @@ vi.mock("@/lib/supabase/admin", () => ({
       const call = { table, ops: [] as Array<[string, unknown[]]> };
       queried.push(call);
       const chain: Record<string, unknown> = {};
-      for (const op of ["select", "eq", "in", "order", "limit"]) {
+      for (const op of ["select", "eq", "in", "or", "order", "limit"]) {
         chain[op] = (...args: unknown[]) => {
           call.ops.push([op, args]);
           return chain;
@@ -104,7 +104,16 @@ describe("GET /api/review", () => {
       total: 1,
       page: 1,
       limit: 50,
-      hidden_kinds: ["task_deletion", "project_deletion", "rebaseline"],
+      hidden_kinds: [
+        "task_deletion",
+        "project_deletion",
+        "risk_deletion",
+        "issue_deletion",
+        "expense_deletion",
+        "document_deletion",
+        "milestone_deletion",
+        "rebaseline",
+      ],
     });
     expect(body.data).toEqual([
       {
@@ -120,6 +129,12 @@ describe("GET /api/review", () => {
         reason_if_not: null,
         assigned_approver_id: null,
         assigned_to_me: false,
+        removes: [],
+        is_emergency: false,
+        tier: null,
+        approval_deadline_at: null,
+        retro_due_at: null,
+        retro_overdue: false,
       },
     ]);
     // every query carries the caller's workspace
@@ -127,7 +142,7 @@ describe("GET /api/review", () => {
   });
 
   it("403s a token with no read scope for any approval family", async () => {
-    requireAuthMock.mockResolvedValueOnce(tokenActor(["risk:read"]));
+    requireAuthMock.mockResolvedValueOnce(tokenActor(["decision:read"]));
     const res = await call();
     expect(res.status).toBe(403);
     const body = await res.json();

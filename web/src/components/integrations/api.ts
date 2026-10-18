@@ -23,6 +23,7 @@
  *   GET    /api/projects?limit=100                        -> project[] (feed scope picker)
  */
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api-client";
+import { policyOf, type ApprovalPolicy } from "@/lib/governance/tiers";
 import {
   buildCreateConnectorBody,
   buildFeedBody,
@@ -261,6 +262,16 @@ export async function saveNudgeSettings(v: NudgeSettingsView): Promise<void> {
     weekly_report_enabled: v.weeklyReportEnabled,
     weekly_report_day: v.weeklyReportDay,
   });
+}
+
+/** The workspace approval policy with every default filled in (GET /api/workspace-settings -> approval_policy). */
+export async function fetchApprovalPolicy(): Promise<ApprovalPolicy> {
+  const raw = await apiGet<{ approval_policy?: unknown } | null>("/api/workspace-settings");
+  return policyOf(raw?.approval_policy);
+}
+
+export async function saveApprovalPolicy(p: ApprovalPolicy): Promise<void> {
+  await apiPatch("/api/workspace-settings", { approval_policy: p });
 }
 
 export async function sendWeeklyReportNow(): Promise<{ weekStart: string; recipients: number; reportUrl: string }> {

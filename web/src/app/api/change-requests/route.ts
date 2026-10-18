@@ -7,7 +7,7 @@ import { parseListSelection } from "@/lib/api/views";
 
 export const runtime = "nodejs";
 
-const STATUSES = ["raised", "under_review", "approved", "rejected", "deferred", "implemented"] as const;
+const STATUSES = ["raised", "under_review", "approved", "rejected", "deferred", "implemented", "emergency"] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

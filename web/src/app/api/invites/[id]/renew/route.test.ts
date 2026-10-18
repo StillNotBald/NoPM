@@ -9,7 +9,14 @@ vi.mock("@/lib/auth/guard", () => ({
 vi.mock("@/lib/audit/write", () => ({ writeAudit: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    rpc: async () => ({ data: { allowed: true, retry_after_seconds: 0 }, error: null }),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      // Atomic update + audit (migration 0103).
+      if (fn === "nopm_mutate_audited") {
+        h.updated = true;
+        return { data: { before: { id: "inv1" }, after: { id: "inv1", revoked: false, accepted_at: null, ...(args.p_patch as object) } }, error: null };
+      }
+      return { data: { allowed: true, retry_after_seconds: 0 }, error: null };
+    },
     from: (t: string) => {
       const b: Record<string, unknown> = {};
       for (const m of ["select", "eq", "is", "limit", "ilike"]) b[m] = () => b;

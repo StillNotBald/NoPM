@@ -13,6 +13,7 @@ import { ChangeTable } from "@/components/change-control/change-table";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
 import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
 import type { ChangeRequest } from "@/components/change-control/change-form";
+import { isRetroOverdue } from "@/lib/governance/tiers";
 import { judgeDecision, canEditChangeRequest, canReopenChangeRequest, canDecideByRole } from "@/lib/review/four-eyes";
 
 export const metadata = { title: "Change Control" };
@@ -44,7 +45,7 @@ export default async function ChangeControlPage({
       .select(
         // + the requester columns: read here only to work out who may decide
         // (judgeDecision); they are dropped before the rows reach the browser.
-        "id, workspace_id, project_id, reference_id, title, description, category, priority, status, impact_summary, impact_schedule_days, impact_cost, impact_scope, implemented_at, implemented_by_label, implemented_note, requested_by, requested_by_type, requested_by_id, requested_principal_id, requested_by_label, decided_by, decided_by_label, decision_rationale, raised_at, decided_at, target_date, created_at, updated_at",
+        "id, workspace_id, project_id, reference_id, title, description, category, priority, status, impact_summary, impact_schedule_days, impact_cost, impact_scope, implemented_at, implemented_by_label, implemented_note, tier, approval_deadline_at, is_emergency, retro_due_at, retro_decided_at, retro_outcome, requested_by, requested_by_type, requested_by_id, requested_principal_id, requested_by_label, decided_by, decided_by_label, decision_rationale, raised_at, decided_at, target_date, created_at, updated_at",
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
@@ -83,10 +84,18 @@ export default async function ChangeControlPage({
   // Four-eyes, decided the way the API decides (by person; a token counts as its
   // creator). Attached to each row so the inspector shows the note, not buttons
   // that would be refused. Requester columns are not forwarded to the client.
+  // D7: with fewer than two admins a manager may decide an admin-level request.
+  const { count: adminCount } = await db.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
+  const singleAdmin = (adminCount ?? 2) < 2;
   const allRows: ChangeRequest[] = ((changeRequests ?? []) as RawRow[]).map((raw) => {
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { requested_by_type, requested_by_id, requested_principal_id, ...row } = raw;
-    const open = row.status === "raised" || row.status === "under_review";
+    // G4: an emergency change is open until its retro decision, even after it went live.
+    const open =
+      row.status === "raised" ||
+      row.status === "under_review" ||
+      row.status === "emergency" ||
+      (row.status === "implemented" && row.is_emergency === true && !row.retro_decided_at);
     const canEdit = canEditChangeRequest({
       viewerId: user.id,
       status: row.status,
@@ -101,12 +110,12 @@ export default async function ChangeControlPage({
     const canStartReview = row.status === "raised" && canDecideByRole(viewer.role);
     // M2: the requester, or a manager or admin, marks an approved request implemented.
     const canImplement =
-      row.status === "approved" &&
+      (row.status === "approved" || row.status === "emergency") &&
       (canDecideByRole(viewer.role) || (!!requested_principal_id && requested_principal_id === user.id));
     const decisions = decisionsByCr.get(row.id);
     const extra = decisions ? { decisions } : {};
     return open
-      ? { ...row, ...extra, canEdit, canStartReview, decide: judgeDecision({ viewer, kind: "change_request", row: raw }) }
+      ? { ...row, ...extra, retro_overdue: isRetroOverdue(row, new Date()), canEdit, canStartReview, canImplement, decide: judgeDecision({ viewer, kind: "change_request", row: raw, singleAdmin }) }
       : { ...row, ...extra, canEdit, canReopen, canImplement };
   });
   const projectId =

@@ -5,23 +5,37 @@ import {
   createFakeAdmin,
   eqFilters,
   queriesOn,
-  writePayload,
   type FakeAdmin,
 } from "@/lib/calendar/test-support";
+import { PreconditionFailedError } from "@/lib/api/errors";
 
 // Route tests: the handler runs for real; the database, the audit writer and
 // session/token resolution are stubbed (same mocking style as
 // rate-limit.test.ts and guard.test.ts).
 const state = vi.hoisted(() => ({ admin: undefined as FakeAdmin | undefined }));
 const { writeAuditMock, requireAuthMock } = vi.hoisted(() => ({
-  writeAuditMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),
+  // The atomic write+audit call (nopm_mutate_audited, covered by audit/audited-write.test.ts).
+  writeAuditMock: vi.fn(async (input: Record<string, unknown>) => ({
+    before: null,
+    after: {
+      id: input.id,
+      workspace_id: "ws_1",
+      name: "Launch feed",
+      project_id: null,
+      token_hash: "secret-hash",
+      created_by: "profile_owner",
+      created_at: "2026-10-16T08:00:00.000Z",
+      last_fetched_at: null,
+      revoked_at: "2026-10-16T09:00:00.000Z",
+    },
+  })),
   requireAuthMock: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => (state.admin as FakeAdmin).client,
 }));
-vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
+vi.mock("@/lib/audit/audited-write", () => ({ auditedUpdate: writeAuditMock }));
 vi.mock("@/lib/auth/guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/guard")>()),
   requireAuth: requireAuthMock,
@@ -87,18 +101,16 @@ describe("DELETE /api/calendar-feeds/[id]", () => {
     const body = (await res.json()) as { data: { revoked_at: string | null } };
     expect(body.data.revoked_at).toBeTruthy();
 
-    const [, update] = queriesOn(state.admin as FakeAdmin, "calendar_feeds");
-    expect(writePayload(update)).toHaveProperty("revoked_at");
-    expect(eqFilters(update)).toMatchObject({ id: FEED_ID, workspace_id: WS });
-
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
     const [audit] = writeAuditMock.mock.calls[0] as [Record<string, unknown>];
     expect(audit).toMatchObject({
-      workspaceId: WS,
+      table: "calendar_feeds",
+      id: FEED_ID,
       action: "calendar_feed.revoke",
-      targetType: "calendar_feed",
-      targetId: FEED_ID,
+      requireNull: "revoked_at",
+      omitColumns: ["token_hash", "workspace_id"],
     });
+    expect(audit.patch).toHaveProperty("revoked_at");
   });
 
   it("never puts token_hash in the revoke response or its audit snapshot", async () => {
@@ -110,7 +122,8 @@ describe("DELETE /api/calendar-feeds/[id]", () => {
     const res = await DELETE(deleteRequest(), paramsFor(FEED_ID));
 
     expect(await res.text()).not.toContain("token_hash");
-    expect(JSON.stringify(writeAuditMock.mock.calls)).not.toContain("token_hash");
+    // the writer is told to keep the hash out of the audit row
+    expect(JSON.stringify(writeAuditMock.mock.calls[0])).toContain("omitColumns");
   });
 
   it("refuses a member who did not create the feed (403, nothing written)", async () => {
@@ -210,16 +223,19 @@ describe("DELETE /api/calendar-feeds/[id]", () => {
 
   it("refuses when a concurrent revoke wins the compare-and-set, with no audit row", async () => {
     state.admin = createFakeAdmin({
-      calendar_feeds: [{ data: feedRow() }, { data: null }],
+      calendar_feeds: [{ data: feedRow() }],
     });
     requireAuthMock.mockResolvedValueOnce(userActor());
+    // the database function answers STALE_ROW when revoked_at is no longer null
+    writeAuditMock.mockRejectedValueOnce(new PreconditionFailedError());
 
     const res = await DELETE(deleteRequest(), paramsFor(FEED_ID));
+    const body = (await res.json()) as { code: string };
 
     expect(res.status).toBe(422);
-    const [, update] = queriesOn(state.admin as FakeAdmin, "calendar_feeds");
-    expect(update.steps.some((s) => s.method === "is" && s.args[0] === "revoked_at" && s.args[1] === null)).toBe(true);
-    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(body.code).toBe("already_revoked");
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    expect((writeAuditMock.mock.calls[0][0] as { requireNull?: string }).requireNull).toBe("revoked_at");
   });
 
   it("returns 404 for a feed that is not in the caller's workspace", async () => {

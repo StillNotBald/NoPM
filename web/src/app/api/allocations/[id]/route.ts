@@ -4,7 +4,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { ok, noContent, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocationSafe } from "@/lib/clash/detect";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -72,24 +72,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
     { table: "tasks", id: parsed.data.task_id, field: "task_id" },
   ]);
 
-  const { data: updated, error: updateError } = await db
-    .from("allocations")
-    .update({ ...parsed.data })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  const { after: updated } = await auditedUpdate({
+    table: "allocations",
     actor,
     action: "allocation.update",
-    targetType: "allocation",
-    targetId: params.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: { ...parsed.data },
+    notFoundMessage: "Allocation not found",
   });
 
   // Re-run detection for both old and new member_id if it changed
@@ -121,22 +111,13 @@ export const DELETE = route(async ({ actor, params }) => {
   if (fetchError) throw fetchError;
   if (!existing) throw new NotFoundError("Allocation not found");
 
-  const { error: deleteError } = await db
-    .from("allocations")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw deleteError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  await auditedDelete({
+    table: "allocations",
     actor,
     action: "allocation.delete",
-    targetType: "allocation",
-    targetId: params.id,
-    before: existing,
-    after: null,
+    id: params.id,
+    notFoundMessage: "Allocation not found",
   });
 
   // Re-check the member's allocation state after deletion

@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { createResourceSchema } from "./_schema";
@@ -59,25 +59,12 @@ export const POST = route(async ({ actor, request }) => {
     { table: "profiles", id: parsed.data.profile_id, field: "profile_id" },
   ]);
 
-  const { data: row, error } = await db
-    .from("resource_members")
-    .insert({
-      ...parsed.data,
-      workspace_id: actor.workspaceId,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const row = await auditedInsert({
+    table: "resource_members",
     actor,
     action: "resource.create",
-    targetType: "resource_member",
-    targetId: row.id,
-    before: null,
-    after: row,
+    patch: { ...parsed.data },
   });
 
   return created(row);

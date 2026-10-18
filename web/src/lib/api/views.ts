@@ -53,7 +53,8 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
     "id", "workspace_id", "project_id", "reference_id", "title", "description", "category", "priority", "status",
     "impact_summary", "impact_schedule_days", "impact_cost", "impact_scope", "requested_by", "requested_by_label",
     "decided_by", "decided_by_label", "decision_rationale", "raised_at", "decided_at", "implemented_at",
-    "implemented_by_label", "implemented_note", "target_date", "created_at", "updated_at",
+    "implemented_by_label", "implemented_note", "target_date", "tier", "approval_deadline_at", "is_emergency",
+    "retro_due_at", "retro_decided_at", "retro_outcome", "created_at", "updated_at",
   ],
   decisions: [
     "id", "workspace_id", "project_id", "reference_id", "title", "context", "options", "decision", "rationale",
@@ -86,7 +87,8 @@ export const SUMMARY_COLUMNS: Record<ViewEntity, readonly string[]> = {
   ],
   change_requests: [
     "id", "reference_id", "project_id", "title", "category", "priority", "status", "impact_schedule_days",
-    "impact_cost", "requested_by_label", "decided_by_label", "raised_at", "decided_at", "implemented_at", "updated_at",
+    "impact_cost", "requested_by_label", "decided_by_label", "raised_at", "decided_at", "implemented_at", "tier",
+    "is_emergency", "retro_due_at", "retro_decided_at", "updated_at",
   ],
   decisions: [
     "id", "reference_id", "project_id", "title", "status", "decided_by_label", "decided_at", "supersedes",
@@ -140,3 +142,12 @@ export function parseListSelection(searchParams: URLSearchParams, entity: ViewEn
 // Typed as "*" on purpose: supabase-js only infers row types from a string LITERAL, and a joined
 // string would make every row property "GenericStringError". The runtime value is the explicit list.
 export const RISK_SELECT = FULL_COLUMNS.risks.join(",") as "*";
+
+/**
+ * The risks response shape (RISK_SELECT) from a full row returned by an atomic audited write
+ * (nopm_mutate_audited returns the whole row): drops the legacy `category` column, byte-identical
+ * to what the route used to read back with .select(RISK_SELECT).
+ */
+export function pickRiskColumns<T extends Record<string, unknown>>(row: T): Record<string, unknown> {
+  return Object.fromEntries(FULL_COLUMNS.risks.filter((c) => c in row).map((c) => [c, row[c]]));
+}

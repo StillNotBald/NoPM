@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ok, noContent, safeJson } from "@/lib/api/response";
 import { encrypt } from "@/lib/crypto";
 import { isDemoActor } from "@/lib/auth/demo";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedDelete, auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
 import { isKnownProvider, verifyProviderKey } from "@/lib/assistant/providers/verify";
 
 export const runtime = "nodejs";
@@ -89,45 +89,44 @@ export const PUT = route(async ({ actor, request }) => {
 
   const db = createAdminClient();
 
-  // Read the existing row FIRST — before/after audit payloads carry only
+  // Read the existing row FIRST: the audit before/after payloads carry only
   // {provider, model}, NEVER apiKey/api_key_enc (the encrypted secret must
-  // never reach the audit_log).
+  // never reach the audit_log), so they are passed explicitly below.
   const { data: before, error: beforeError } = await db
     .from("assistant_credentials")
-    .select("provider, model")
+    .select("id, provider, model")
     .eq("user_id", actor.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
 
   if (beforeError) throw new Error(beforeError.message);
 
-  const { data: row, error } = await db
-    .from("assistant_credentials")
-    .upsert(
-      {
-        workspace_id: actor.workspaceId,
-        user_id: actor.id,
-        provider,
-        api_key_enc,
-        model,
-        updated_at: now,
-      },
-      { onConflict: "user_id" },
-    )
-    .select("id, provider, model")
-    .single();
-
-  if (error || !row) throw new Error(error?.message ?? "Upsert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "assistant.credential.set",
-    targetType: "assistant_credential",
-    targetId: row.id,
-    before: before ? { provider: before.provider, model: before.model } : null,
-    after: { provider: row.provider, model: row.model },
-  });
+  // user_id is set on insert only: the update path may not touch it (migration 0103 narrows the columns).
+  const patch = { provider, api_key_enc, model, updated_at: now };
+  const auditBefore = before ? { provider: before.provider, model: before.model } : null;
+  const auditAfter = { provider, model };
+  const replace = (id: string) =>
+    auditedUpdate({ table: "assistant_credentials", actor, action: "assistant.credential.set", id, patch, auditBefore, auditAfter, omitColumns: ["api_key_enc"] });
+  // The write and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  // First connection inserts; a replacement updates. Two first connections racing hit the
+  // unique user_id (23505) and the loser falls back to the update.
+  if (before) {
+    await replace(before.id as string);
+  } else {
+    try {
+      await auditedInsert({ table: "assistant_credentials", actor, action: "assistant.credential.set", patch: { user_id: actor.id, ...patch }, auditBefore, auditAfter, omitColumns: ["api_key_enc"] });
+    } catch (e) {
+      if ((e as { code?: string } | null)?.code !== "23505") throw e;
+      const { data: raced, error: racedError } = await db
+        .from("assistant_credentials")
+        .select("id")
+        .eq("user_id", actor.id)
+        .eq("workspace_id", actor.workspaceId)
+        .maybeSingle();
+      if (racedError || !raced) throw racedError ?? e;
+      await replace(raced.id as string);
+    }
+  }
 
   return ok({ connected: true as const, provider, model });
 });
@@ -160,22 +159,15 @@ export const DELETE = route(async ({ actor }) => {
   // happened — writeAudit is fail-closed for actual mutations only).
   if (!existing) return noContent();
 
-  const { error } = await db
-    .from("assistant_credentials")
-    .delete()
-    .eq("user_id", actor.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (error) throw new Error(error.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The delete and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  await auditedDelete({
+    table: "assistant_credentials",
     actor,
     action: "assistant.credential.revoke",
-    targetType: "assistant_credential",
-    targetId: existing.id,
-    before: { provider: existing.provider, model: existing.model },
-    after: null,
+    omitColumns: ["api_key_enc"],
+    id: existing.id as string,
+    auditBefore: { provider: existing.provider, model: existing.model },
+    auditAfter: null,
   });
 
   return noContent();

@@ -4,9 +4,11 @@ import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { assertTierRole, isAwaitingRetro, tierOf } from "@/lib/governance/tiers";
 import { removeStoredFiles } from "@/lib/governance/project-files";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { emitApprovalChanged, emitApprovalDecided, emitApprovalRequested } from "@/lib/integrations/emit";
+import { deletionKindFor, targetTypeOfDeletionKind } from "@/lib/integrations/types";
 import type {
   ApprovalDecidedEvent,
   ApprovalEvent,
@@ -14,9 +16,9 @@ import type {
   ApprovalRef,
 } from "@/lib/integrations/types";
 import {
+  requireDeletionRequestScope,
   resolveDeletionApproveScope,
   resolveDeletionCommitRpc,
-  resolveDeletionRequestScope,
 } from "@/lib/governance/deletion-dispatch";
 
 /**
@@ -59,6 +61,12 @@ type Db = ReturnType<typeof createAdminClient>;
 
 export const CHILDREN_CHANGED_MESSAGE =
   "This project gained records (tasks, milestones, risks, ...) after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
+export const MILESTONE_CHILDREN_CHANGED_MESSAGE =
+  "The tasks on this milestone changed after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
+/** Decision 25, tier B: an approved document carries a signed-off record; only an admin may ask for its deletion. */
+export const APPROVED_DOCUMENT_ADMIN_MESSAGE =
+  "This document is approved, so only an admin can request its deletion. Withdraw or reject this request and ask an admin to raise it.";
+export const APPROVED_DOCUMENT_APPROVER_MESSAGE = "This document is approved, so only an admin can approve its deletion.";
 export const TARGET_CHANGED_MESSAGE =
   "This task was edited after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 export const TARGET_GONE_MESSAGE = "This record was already deleted, so the request is closed.";
@@ -168,6 +176,33 @@ export async function noteLegacyRequesterUnknown(
     });
   } catch (err) {
     console.error("four_eyes.legacy_requester_unknown audit failed", err);
+  }
+}
+
+/**
+ * Owner decision D7: a manager decided an admin-tier request because the workspace has fewer than two
+ * admins. A change request carries `fallback_approver: true` in its own decision audit row (the RPC
+ * writes it); the other kinds are decided by RPCs that do not know the tier, so this adds one small
+ * `approval.fallback_approver` row next to the decision. Fail-soft: the decision is already audited.
+ */
+export async function noteFallbackApprover(
+  actor: Actor,
+  targetType: "deletion_request" | "rebaseline",
+  targetId: string,
+  tier: string,
+): Promise<void> {
+  try {
+    await writeAudit({
+      workspaceId: actor.workspaceId,
+      actor,
+      action: "approval.fallback_approver",
+      targetType,
+      targetId,
+      before: null,
+      after: { fallback_approver: true, tier, reason: "fewer than two admins in the workspace" },
+    });
+  } catch (err) {
+    console.error("approval.fallback_approver audit failed", err);
   }
 }
 
@@ -285,6 +320,8 @@ type DeletionRow = {
   requested_principal_id: string | null;
   approved_by_label?: string | null;
   approved_principal_id?: string | null;
+  /** Approval tier (G1); a row raised before migration 0100 has none and reads as normal. */
+  tier?: string | null;
   before: Record<string, unknown> | null;
 };
 
@@ -301,11 +338,12 @@ async function loadDeletion(db: Db, actor: Actor, id: string): Promise<DeletionR
 }
 
 function deletionKind(row: DeletionRow): ApprovalKind {
-  return row.target_type === "project" ? "project_deletion" : "task_deletion";
+  return deletionKindFor(row.target_type);
 }
 
 function deletionTitle(row: DeletionRow): string {
-  const name = row.before && typeof row.before.name === "string" ? row.before.name : row.target_id;
+  const label = row.before ? (row.before.name ?? row.before.title ?? row.before.description) : null;
+  const name = typeof label === "string" ? label : row.target_id;
   return `Delete ${row.target_type} "${name}"`;
 }
 
@@ -327,10 +365,11 @@ async function deletionBaseEvent(db: Db, actor: Actor, row: DeletionRow): Promis
     projectName,
     requestedByLabel: storedLabel(row.requested_by_label, row.requested_by_type),
     requesterPrincipalId: row.requested_principal_id,
+    ...(row.tier ? { tier: row.tier } : {}),
   };
 }
 
-function expectTarget(row: DeletionRow, want: "task" | "project" | undefined): void {
+function expectTarget(row: DeletionRow, want: string | undefined): void {
   if (want && row.target_type !== want) throw new NotFoundError("Deletion request not found");
 }
 
@@ -503,7 +542,7 @@ async function revertDeletionDecision(
 export async function approveDeletion(
   actor: Actor,
   id: string,
-  opts: { note?: string | null; expectTarget?: "task" | "project" } = {},
+  opts: { note?: string | null; expectTarget?: string } = {},
 ): Promise<KindOutcome> {
   const db = createAdminClient();
   const row = await loadDeletion(db, actor, id);
@@ -512,6 +551,7 @@ export async function approveDeletion(
   requireScope(actor, resolveDeletionApproveScope(row.target_type));
   const principal = requirePrincipal(actor);
   requireApprover(actor); // D-16: admins and managers only, on every channel
+  const fallback = await assertTierRole(db, actor, tierOf(row)); // G2: the tier names the role (D7 fallback)
 
   if (row.status !== "pending") {
     if (isRepeatDecision(row, principal, "committed")) return repeatDeletionOutcome(row);
@@ -577,18 +617,30 @@ export async function approveDeletion(
     // 0049 trigger on projects). The approver must see the CURRENT scope, so the
     // request is refused; withdraw it and raise a new one.
     if (m.includes("CHILDREN_CHANGED") || error.code === "P0016")
-      throw new RuleError(CHILDREN_CHANGED_MESSAGE, "children_changed");
+      throw new RuleError(row.target_type === "milestone" ? MILESTONE_CHILDREN_CHANGED_MESSAGE : CHILDREN_CHANGED_MESSAGE, "children_changed");
+    // 0102: an approved document is deleted only on a request raised by an admin (decision 25, tier B).
+    if (m.includes("APPROVED_DOCUMENT_NEEDS_ADMIN") || error.code === "P0041")
+      throw new RuleError(APPROVED_DOCUMENT_ADMIN_MESSAGE, "approved_document_needs_admin");
+    // W4-14: the approver of an approved document must be an admin as well.
+    if (m.includes("APPROVED_DOCUMENT_APPROVER_NOT_ADMIN") || error.code === "P0042")
+      throw new ScopeError(APPROVED_DOCUMENT_APPROVER_MESSAGE, "role_not_permitted");
     throw new Error(error.message || "Failed to commit deletion");
   }
 
   // The commit stands: record (once) that it was decided without a provable requester.
   await noteLegacyRequesterUnknown(actor, "deletion_request", row, "approve");
+  if (fallback) await noteFallbackApprover(actor, "deletion_request", row.id, tierOf(row));
 
   // Decision 20: the project is gone, so its documents' stored files go too.
   // After the commit, fail-soft (the cascade audit rows carry every path, so a
   // leftover object can be traced and removed by hand).
   if (row.target_type === "project") {
     await removeStoredFiles((committedData as { document_paths?: unknown } | null)?.document_paths, actor.workspaceId);
+  }
+  // G8: a document deleted on its own takes its stored file with it (same fail-soft cleanup).
+  if (row.target_type === "document") {
+    const path = (committedData as { document_path?: unknown } | null)?.document_path;
+    await removeStoredFiles(typeof path === "string" ? [path] : [], actor.workspaceId);
   }
 
   // Notify the original requester (their human, not a token id) — fail-soft
@@ -625,7 +677,7 @@ export async function approveDeletion(
 export async function rejectDeletion(
   actor: Actor,
   id: string,
-  opts: { reason?: string | null; expectTarget?: "task" | "project" } = {},
+  opts: { reason?: string | null; expectTarget?: string } = {},
 ): Promise<KindOutcome> {
   const db = createAdminClient();
   const row = await loadDeletion(db, actor, id);
@@ -635,6 +687,7 @@ export async function rejectDeletion(
   requireScope(actor, resolveDeletionApproveScope(row.target_type));
   const principal = requirePrincipal(actor);
   requireApprover(actor); // D-16
+  const fallback = await assertTierRole(db, actor, tierOf(row)); // G2
 
   if (row.status !== "pending") {
     if (isRepeatDecision(row, principal, "rejected")) return repeatDeletionOutcome(row);
@@ -702,6 +755,7 @@ export async function rejectDeletion(
     throw err;
   }
   await noteLegacyRequesterUnknown(actor, "deletion_request", row, "reject");
+  if (fallback) await noteFallbackApprover(actor, "deletion_request", row.id, tierOf(row));
 
   void notify({
     workspaceId: actor.workspaceId,
@@ -742,7 +796,7 @@ export async function withdrawDeletion(actor: Actor, id: string): Promise<KindOu
   const row = await loadDeletion(db, actor, id);
 
   // Per-type maker gate — withdrawing a project request needs project:delete:request
-  requireScope(actor, resolveDeletionRequestScope(row.target_type));
+  requireDeletionRequestScope(actor, row.target_type);
 
   const principal = principalOf(actor);
   const isRequester =
@@ -804,8 +858,17 @@ const CHANGE_STATUS: Readonly<Record<ChangeDecision, string>> = {
   defer: "deferred",
 };
 
-/** The only statuses a change request can be decided from. */
-const CHANGE_DECIDABLE = ["raised", "under_review"] as const;
+/**
+ * The statuses a change request can be decided from. `emergency` is a request raised on the
+ * emergency path that has not gone live yet; one that HAS gone live (status implemented) still
+ * takes its retro decision, see isDecidable.
+ */
+const CHANGE_DECIDABLE = ["raised", "under_review", "emergency"] as const;
+
+function isDecidable(cr: ChangeRow): boolean {
+  if ((CHANGE_DECIDABLE as readonly string[]).includes(cr.status)) return true;
+  return cr.status === "implemented" && isAwaitingRetro(cr);
+}
 
 type ChangeRow = {
   id: string;
@@ -824,6 +887,12 @@ type ChangeRow = {
   decided_principal_id?: string | null;
   /** The content version: the table's trigger bumps it on every edit. */
   updated_at?: string | null;
+  /** Approval tier (G1) and the emergency path (G4); absent on a row raised before migration 0100. */
+  tier?: string | null;
+  assigned_approver_id?: string | null;
+  is_emergency?: boolean | null;
+  retro_due_at?: string | null;
+  retro_decided_at?: string | null;
 };
 
 function changeTitle(cr: ChangeRow): string {
@@ -865,11 +934,12 @@ export async function decideChangeRequest(
 
   const principal = requirePrincipal(actor);
   requireApprover(actor); // D-16: approve, reject and defer are approver verbs
+  await assertTierRole(db, actor, tierOf(cr)); // G2: the tier names the role (the RPC marks a D7 fallback in its audit row)
 
   const newStatus = CHANGE_STATUS[input.decision];
   const rationale = input.rationale?.trim() ? input.rationale.trim() : null;
 
-  if (!(CHANGE_DECIDABLE as readonly string[]).includes(cr.status)) {
+  if (!isDecidable(cr)) {
     // Q-GOV-24: the same person repeating the same decision (a double tap) gets "done".
     if (cr.status === newStatus && cr.decided_principal_id && cr.decided_principal_id === principal) {
       return {
@@ -904,6 +974,10 @@ export async function decideChangeRequest(
   // chat card carries the version it was issued for) is refused with 412 if the
   // request has changed since. Opt-in, like every R-90 write: a caller that
   // sends nothing keeps today's behaviour.
+  // G4: a change that is already live is approved or rejected after the fact; deferring it decides nothing.
+  if (cr.status === "implemented" && input.decision === "defer") {
+    throw new RuleError("A change that is already live is approved or rejected, not deferred.", "invalid_transition");
+  }
   // Q-GOV-21: reject and defer always say why (approve's reason is optional).
   if (!rationale && input.decision !== "approve") {
     throw new RuleError(
@@ -999,6 +1073,9 @@ export async function changeRequestEvent(db: Db, workspaceId: string, cr: Change
     projectName: await projectNameOf(db, workspaceId, cr.project_id),
     requestedByLabel: storedLabel(cr.requested_by_label, cr.requested_by_type),
     requesterPrincipalId: cr.requested_principal_id,
+    // Routing facts, present only on a request raised under the tier model (older rows carry none).
+    ...(cr.tier ? { tier: cr.tier } : {}),
+    ...(cr.assigned_approver_id ? { assignedApproverId: cr.assigned_approver_id } : {}),
     // The content version this event (and so its card) describes.
     ...(cr.updated_at ? { version: cr.updated_at } : {}),
   };
@@ -1035,8 +1112,13 @@ export async function decideApproval(
 
   switch (ref.kind) {
     case "task_deletion":
-    case "project_deletion": {
-      const target = ref.kind === "project_deletion" ? "project" : "task";
+    case "project_deletion":
+    case "risk_deletion":
+    case "issue_deletion":
+    case "expense_deletion":
+    case "document_deletion":
+    case "milestone_deletion": {
+      const target = targetTypeOfDeletionKind(ref.kind);
       const out =
         action === "approve"
           ? await approveDeletion(actor, ref.id, { note: text, expectTarget: target })

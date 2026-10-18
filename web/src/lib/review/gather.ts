@@ -23,6 +23,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DecideState } from "@/components/governance/four-eyes-note";
+import { deletionKindFor } from "@/lib/integrations/types";
 import { describeChildCounts, describeDeletionTarget, type ChildCountLine } from "./deletion-target";
 import { judgeDecision, judgeRebaselineSignoff, type Viewer } from "./four-eyes";
 import { clip } from "./pending";
@@ -245,12 +246,15 @@ export async function gatherReviewItems(
         decide: viewer
           ? judgeDecision({
               viewer,
-              kind: row.target_type === "project" ? "project_deletion" : "task_deletion",
+              kind: deletionKindFor(row.target_type),
               row,
               projectLocked: !!target.projectId && lockedProjectIds.has(target.projectId),
             })
           : undefined,
-        childCounts: row.target_type === "project" ? describeChildCounts(row.before) : undefined,
+        childCounts:
+          row.target_type === "project" || row.target_type === "milestone"
+            ? describeChildCounts(row.before, row.target_type)
+            : undefined,
       });
     }
   }

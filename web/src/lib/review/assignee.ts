@@ -32,6 +32,8 @@ export async function resolveAssignedApprover(
   workspaceId: string,
   assignedApproverId: string | null | undefined,
   requesterPrincipalId: string | null,
+  /** G2: the role the request's tier asks of its decider; an assignee below it is refused. */
+  requiredRole: "manager" | "admin" = "manager",
 ): Promise<string | null> {
   if (!assignedApproverId) return null;
   const fail = (message: string): never => {
@@ -50,6 +52,9 @@ export async function resolveAssignedApprover(
   // A person from another workspace and a person who does not exist read the same.
   if (!data || !(ASSIGNEE_ROLES as readonly string[]).includes(data.role as string)) {
     fail("assigned_approver_id must be an admin or manager of this workspace.");
+  }
+  if (requiredRole === "admin" && data?.role !== "admin") {
+    fail("This request needs an admin to decide it, so only an admin can be assigned.");
   }
   return assignedApproverId;
 }

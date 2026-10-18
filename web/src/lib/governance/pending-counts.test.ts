@@ -12,14 +12,16 @@ function fakeDb(counts: Record<string, number | "error" | "throw">) {
       const call: Call = { table, ops: [] };
       calls.push(call);
       const chain: Record<string, unknown> = {};
-      for (const op of ["select", "eq", "in", "not", "or"]) {
+      for (const op of ["select", "eq", "in", "is", "not", "or"]) {
         chain[op] = (...args: unknown[]) => {
           call.ops.push([op, args]);
           return chain;
         };
       }
       chain.then = (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => {
-        const v = counts[table];
+        // W4-09: the live-emergency count (status implemented, owing its retro decision) is its own query
+        const live = call.ops.some(([op, a]) => op === "eq" && a[0] === "status" && a[1] === "implemented");
+        const v = counts[live ? `${table}:live` : table];
         if (v === "throw") return Promise.reject(new Error("boom")).then(res, rej);
         if (v === "error") return Promise.resolve({ count: null, error: { message: "x" } }).then(res, rej);
         return Promise.resolve({ count: v ?? 0, error: null }).then(res, rej);
@@ -47,10 +49,21 @@ describe("getPendingCounts", () => {
     expect(r).toEqual({ approvals: 2, changeControl: 3, decisions: 4, review: 8, total: 17 });
   });
 
+  it("W4-09: emergency changes count: waiting ones in the open statuses, live ones owing a retro decision as a separate query", async () => {
+    const { db, calls } = fakeDb({ change_requests: 2, "change_requests:live": 1 });
+    const r = await getPendingCounts(db, actor);
+    expect(r.changeControl).toBe(3);
+    const open = calls.find((c) => c.table === "change_requests" && c.ops.some(([op]) => op === "in"))!;
+    expect(open.ops).toContainEqual(["in", ["status", ["raised", "under_review", "emergency"]]]);
+    const live = calls.find((c) => c.ops.some(([op, a]) => op === "eq" && a[1] === "implemented"))!;
+    expect(live.ops).toContainEqual(["eq", ["is_emergency", true]]);
+    expect(live.ops).toContainEqual(["is", ["retro_decided_at", null]]);
+  });
+
   it("filters every query by workspace", async () => {
     const { db, calls } = fakeDb({});
     await getPendingCounts(db, actor);
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(8); // change control is counted twice (W4-09: live emergencies owing a retro decision)
     for (const c of calls) {
       expect(c.ops).toContainEqual(["eq", ["workspace_id", "ws-1"]]);
     }

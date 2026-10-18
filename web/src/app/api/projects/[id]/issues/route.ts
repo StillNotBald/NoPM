@@ -4,7 +4,7 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workspaceToday } from "@/lib/integrations/time-zone";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolution";
 import { createIssueSchema } from "@/app/api/issues/_schema";
@@ -122,10 +122,11 @@ export const POST = route(async ({ actor, params, request }) => {
 
   const refId = await nextRefId(db, actor.workspaceId, "issues", "ISS");
 
-  const { data: row, error } = await db
-    .from("issues")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const row = await auditedInsert({
+    table: "issues",
+    actor,
+    action: "issue.create",
+    patch: {
       project_id: projectId,
       reference_id: refId,
       title: input.title,
@@ -148,20 +149,7 @@ export const POST = route(async ({ actor, params, request }) => {
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
-    })
-    .select()
-    .single();
-
-  if (error || !row) throw new Error(error?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "issue.create",
-    targetType: "issue",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return created(row);

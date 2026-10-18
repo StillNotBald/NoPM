@@ -1,4 +1,5 @@
 import { jsPDF } from "jspdf";
+import { chainHeadLine } from "@/lib/audit/chain-head";
 import type { PortfolioReport, ProjectReport } from "./gather";
 import type { EvmResult } from "@/lib/evm";
 import type { AuditPackData } from "@/lib/export/audit-pack";
@@ -645,6 +646,15 @@ export function renderAuditPackPdf(pack: AuditPackData): Buffer {
     margin,
     142,
   );
+  // R-154: the newest audit row hash, so a copy kept outside the database shows if the newest rows are later deleted.
+  const headLine = chainHeadLine(pack.chainHead);
+  if (headLine) {
+    doc.setFont("courier", "normal");
+    doc.setFontSize(7);
+    doc.text(headLine, margin, 158);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+  }
 
   state.y = H / 2.8 + 32;
   // Approved includes the requests that went on to be implemented.

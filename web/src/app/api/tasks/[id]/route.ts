@@ -3,12 +3,15 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
 import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
+import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
 import { assertProjectUnlocked, changedScheduleShapeFields, SCHEDULE_SHAPE_TASK_FIELDS } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -124,39 +127,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
     if (!milestone) throw new NotFoundError("Milestone not found in this project");
   }
 
-  let query = db
-    .from("tasks")
-    .update({
-      ...fields,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-  // Defense-in-depth: also scope the write itself to the row's pre-check
-  // updated_at, closing the (narrow) race between the fetch above and this
-  // write. On a lost race the row exists but the filter matches zero rows —
-  // maybeSingle() returns null instead of PostgREST's "no rows" error.
-  if (expected_updated_at !== undefined) {
-    query = query.eq("updated_at", existing.updated_at);
-  }
-  const { data: updated, error: updateError } = await query.select().maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    if (expected_updated_at !== undefined) {
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    throw new Error("Update failed");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited). Passing the
+  // pre-check updated_at closes the race between the fetch above and the write:
+  // on a lost race the RPC answers STALE_ROW, which is the same 412.
+  const { after: updated } = await auditedUpdate({
+    table: "tasks",
     actor,
     action: "task.update",
-    targetType: "task",
-    targetId: updated.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: { ...fields, updated_at: new Date().toISOString() },
+    expectedUpdatedAt: expected_updated_at !== undefined ? existing.updated_at : null,
+    notFoundMessage: "Task not found",
   });
 
   return ok(updated);
@@ -230,7 +211,21 @@ export const DELETE = route(async ({ actor, params, request }) => {
   }
 
   const { reason } = parsed.data;
-  const assignedApproverId = await resolveAssignedApprover(db, actor.workspaceId, parsed.data.assigned_approver_id, requesterPrincipal);
+  // G1: the tier comes from the policy (a project deletion starts at high_risk), never from the caller.
+  const policy = await loadApprovalPolicy(db, actor.workspaceId);
+  const { tier } = classify({
+    kind: "task_deletion",
+    requester_role: humanRoleOf(actor as Parameters<typeof humanRoleOf>[0]),
+    policy,
+  });
+  const deadline = deadlineFor(tier, policy, new Date());
+  const assignedApproverId = await resolveAssignedApprover(
+    db,
+    actor.workspaceId,
+    parsed.data.assigned_approver_id,
+    requesterPrincipal,
+    approverRoleFor(tier, policy),
+  );
 
   const { data: deletionRequest, error: insertError } = await db
     .from("deletion_requests")
@@ -240,6 +235,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
       target_id: params.id,
       reason,
       status: "pending",
+      tier,
+      approval_deadline_at: deadline ? deadline.toISOString() : null,
       requested_by_type: actor.type,
       requested_by_id: actor.id,
       requested_by_label: actor.label,
@@ -277,8 +274,17 @@ export const DELETE = route(async ({ actor, params, request }) => {
     after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
   });
 
-  // Notify approvers — fail-soft (never throws)
-  void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) => {
+  await recordApprovalEvent(db, {
+    workspaceId: actor.workspaceId,
+    targetType: "deletion_request",
+    targetId: deletionRequest.id,
+    kind: "deadline_set",
+    actorLabel: actor.label,
+    detail: { tier, deadline: deadline?.toISOString() ?? null },
+  });
+
+  // Notify approvers of THIS tier (G2) — fail-soft (never throws)
+  void resolveWorkspaceApprovers(actor.workspaceId, { tier, assignedApproverId }).then((approverIds) => {
     return notify({
       workspaceId: actor.workspaceId,
       recipientIds: approverIds,
@@ -301,6 +307,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
     projectName: await projectNameOf(db, actor.workspaceId, task.project_id),
     requestedByLabel: actorLabel(actor),
     requesterPrincipalId: requesterPrincipal,
+    tier,
+    ...(assignedApproverId ? { assignedApproverId } : {}),
   });
 
   // Return 202 Accepted with the deletion_request

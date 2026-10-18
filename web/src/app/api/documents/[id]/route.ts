@@ -1,9 +1,10 @@
 import { route } from "@/lib/api/handler";
-import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
+import { requestDeletion } from "@/lib/governance/request-deletion";
+import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { updateDocumentSchema } from "@/app/api/documents/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertEvidenceLink, clearedEvidence } from "@/lib/documents/evidence";
@@ -129,62 +130,24 @@ export const PATCH = route(async ({ actor, params, request }) => {
     return ok(existing);
   }
 
-  const { data: updated, error: updateError } = await db
-    .from("documents")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError || !updated) throw new Error(updateError?.message ?? "Update failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const { after: updated } = await auditedUpdate({
+    table: "documents",
     actor,
-    action:     "document.update",
-    targetType: "document",
-    targetId:   updated.id,
-    before:     existing,
-    after:      updated,
+    action: "document.update",
+    id: params.id,
+    patch: updates,
+    notFoundMessage: "Document not found",
   });
 
   return ok(updated);
 });
 
-/** DELETE /api/documents/:id — audited hard delete. */
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "document:write");
-
-  const db = createAdminClient();
-
-  const { data: existing, error: fetchError } = await db
-    .from("documents")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw new Error(fetchError.message);
-  if (!existing) throw new NotFoundError("Document not found");
-
-  const { error: deleteError } = await db
-    .from("documents")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw new Error(deleteError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action:     "document.delete",
-    targetType: "document",
-    targetId:   existing.id,
-    before:     existing,
-    after:      null,
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/documents/:id — does NOT delete the document. It raises a deletion request (scope
+ * document:delete:request) with a required `reason` and returns 202. An approved document needs an admin
+ * to ask (decision 25). A second person approves it at POST /api/deletion-requests/:id/approve (audit gap G8).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "document", id: params.id }),
+);

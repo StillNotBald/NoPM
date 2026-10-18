@@ -54,6 +54,11 @@ describe("scope registry", () => {
     // approve must never appear, exactly like the task-deletion pair above.
     expect(tool.has("project:delete:request")).toBe(true);
     expect(tool.has("project:delete:approve")).toBe(false);
+    // G8: the same holds for the five records deleted by request.
+    for (const e of ["risk", "issue", "expense", "document", "milestone"]) {
+      expect(tool.has(`${e}:delete:request`)).toBe(true);
+      expect(tool.has(`${e}:delete:approve`)).toBe(false);
+    }
     // and no wildcard could smuggle an approve in
     expect(tool.has("*")).toBe(false);
     for (const s of TOOL_SCOPES) expect(s.endsWith(":*")).toBe(false);

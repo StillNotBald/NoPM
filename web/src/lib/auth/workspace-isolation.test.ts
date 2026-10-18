@@ -123,6 +123,7 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
     "from:integration_connectors":
       "the connector row IS the workspace binding; the HMAC with its relay secret is verified next",
   },
+  "lib/integrations/github/http.ts": { "rpc:nopm_rate_check": RATE },
   "app/api/invites/accept/route.ts": { "rpc:nopm_rate_check": RATE },
   "app/invite/[token]/page.tsx": {
     "from:profiles": "inviter named on the invite itself, shown to the token holder by design",
@@ -146,6 +147,9 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
   },
   "lib/auth/mfa.ts": { "from:user_mfa": PER_USER },
   "lib/auth/mfa-factor.ts": { "from:user_mfa": PER_USER, "rpc:nopm_rate_check": RATE },
+  "lib/governance/timers.ts": {
+    "from:workspaces": "system job: lists every workspace id once (keyset page), then each pass runs with that single workspace id",
+  },
   "lib/nudges/step.ts": {
     "from:workspaces": "system job: lists every workspace id once (keyset page), then each pass runs with that single workspace id",
   },

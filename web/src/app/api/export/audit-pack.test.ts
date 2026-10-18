@@ -142,7 +142,7 @@ describe("GET /api/export?entity=change_requests", () => {
     expect(res.status).toBe(200);
     const [header, first, second] = lines(await res.text());
     expect(header).toBe(
-      "id,ref,project_id,project_code,title,category,status,priority,raised_at,requested_by_label,requested_principal_id,decided_at,decided_by_label,decided_principal_id,decision,decision_note,impact_schedule_days,impact_cost,impact_scope,implemented_at,implemented_by_label,evidence_count,evidence_pass,evidence_fail,evidence_latest_at,linked_decisions",
+      "id,ref,project_id,project_code,title,category,status,priority,raised_at,requested_by_label,requested_principal_id,decided_at,decided_by_label,decided_principal_id,decision,decision_note,impact_schedule_days,impact_cost,impact_scope,implemented_at,implemented_by_label,evidence_count,evidence_pass,evidence_fail,evidence_latest_at,linked_decisions,tier,is_emergency,retro_due_at,retro_decided_at,retro_outcome,retro_overdue",
     );
     expect(first).toContain("CR-001");
     expect(first).toContain("ALPHA");

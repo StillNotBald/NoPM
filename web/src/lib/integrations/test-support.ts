@@ -16,6 +16,7 @@
  * exactly the guarantee Postgres gives the conditional UPDATEs the hub relies on.
  */
 
+import { mutateAuditedRpc } from "@/lib/governance/test-support/fake-mutate-audited";
 import { encryptSecrets } from "@/lib/integrations/secrets";
 import type { ApprovalEvent, ConnectorAdapter, ConnectorRow, DeliverResult, OutboundMessage } from "@/lib/integrations/types";
 
@@ -81,10 +82,21 @@ const DEFAULTS: Record<string, () => Row> = {
     received_at: nowIso(),
   }),
   audit_log: () => ({ created_at: nowIso() }),
+  work_events: () => ({
+    provider: "github",
+    actor_login: null,
+    task_id: null,
+    received_at: nowIso(),
+    applied: false,
+    applied_status: null,
+    reason: "received",
+  }),
 };
 
 /** The unique indexes of migrations 0046, 0051 and 0053 (partial predicates included). */
 const UNIQUES: Record<string, UniqueSpec[]> = {
+  // 0101: one approval-timer event of each kind per request (the daily timer's once-only rule)
+  approval_events: [{ name: "approval_events_once", cols: ["target_type", "target_id", "kind"] }],
   // 0096: one nudge per item per recipient per workspace day
   nudge_log: [
     { name: "nudge_log_once_per_day", cols: ["workspace_id", "kind", "target_type", "target_id", "recipient_id", "sent_on"] },
@@ -135,6 +147,8 @@ const UNIQUES: Record<string, UniqueSpec[]> = {
   ],
   action_tokens: [{ name: "token_hash_key", cols: ["token_hash"] }],
   inbound_actions: [{ name: "inbound_actions_unique", cols: ["connector_id", "external_event_id"] }],
+  // 0105: one work event per delivery per reference
+  work_events: [{ name: "work_events_unique", cols: ["connector_id", "external_event_id", "ref"] }],
 };
 
 /** Read a column; `payload->>trigger` reads a text value out of a jsonb column. */
@@ -218,7 +232,7 @@ export class FakeDb {
   }
 
   rows(table: string): Row[] {
-    return this.tables[table] ?? [];
+    return (this.tables[table] ??= []);
   }
 
   /** Make the next `times` (default 1) matching statements fail with `error`. */
@@ -251,6 +265,48 @@ export class FakeDb {
    * Anything else is the rate limiter: always allowed.
    */
   async rpc(name?: string, args: Record<string, unknown> = {}): Promise<Result> {
+    // Atomic audited write (migration 0103): mirrored by the governance test support, which only
+    // needs rows(), nextId() and tables from the database it is handed.
+    if (name === "nopm_mutate_audited") {
+      const r = mutateAuditedRpc(args, this as unknown as Parameters<typeof mutateAuditedRpc>[1]);
+      return { data: r.data, error: r.error, count: null } as Result;
+    }
+    // Migration 0105: a GitHub work event's status move, lock check and audit row in one transaction.
+    if (name === "nopm_apply_task_status_from_event") {
+      const task = this.rows("tasks").find((t) => t.id === args.p_task_id && t.workspace_id === args.p_workspace_id);
+      if (!task) return { data: { result: "not_found" }, error: null, count: null };
+      const audit = (args.p_audit ?? {}) as Row;
+      const skip = (args.p_skip_audit ?? {}) as Row;
+      const project = this.rows("projects").find((p) => p.id === task.project_id && p.workspace_id === args.p_workspace_id);
+      const provenance = (a: Row) => ({
+        actor_type: a.actor_type,
+        actor_id: a.actor_id,
+        actor_label: a.actor_label,
+        channel: a.channel,
+        request_id: a.request_id,
+        via_connector_id: a.via_connector_id,
+        external_event_id: a.external_event_id,
+        external_actor_ref: a.external_actor_ref,
+        workspace_id: args.p_workspace_id,
+        target_type: "task",
+        target_id: task.id,
+      });
+      if (project?.is_locked) {
+        this.seed("audit_log", [
+          { ...provenance(skip), action: "work_event.skipped", before: null, after: { ...((skip.after as Row) ?? {}), reason: "project_locked", project_id: task.project_id } },
+        ]);
+        return { data: { result: "project_locked" }, error: null, count: null };
+      }
+      if (args.p_expected_updated_at && task.updated_at !== args.p_expected_updated_at) {
+        return { data: { result: "conflict" }, error: null, count: null };
+      }
+      const before = { ...task };
+      task.status_type = args.p_status_type;
+      if (args.p_set_label) task.status = args.p_status_label;
+      task.updated_at = nowIso();
+      this.seed("audit_log", [{ ...provenance(audit), action: "task.update", before, after: { ...task } }]);
+      return { data: { result: "applied", after: { ...task } }, error: null, count: null };
+    }
     if (name === "nopm_revoke_connector") {
       if (this.failRevokeRpc) {
         const error = this.failRevokeRpc;
@@ -296,6 +352,33 @@ export class FakeDb {
         },
       ]);
       return { data: { identities_revoked: identities, deliveries_superseded: deliveries }, error: null, count: null };
+    }
+    if (name === "nopm_update_workspace_settings") {
+      // Mirrors migration 0101: pin check, write, and the audit row, or nothing.
+      const err = (code: string, message: string) => ({ data: null, error: { code, message }, count: null });
+      const ws = this.rows("workspaces").find((w) => w.id === args.p_workspace_id);
+      if (!ws) return err("P0002", "NOT_FOUND");
+      const expected = (args.p_expected ?? {}) as Row;
+      for (const k of Object.keys(expected)) {
+        if (JSON.stringify(ws[k] ?? null) !== JSON.stringify(expected[k])) return err("P0021", "STALE_ROW");
+      }
+      const before = { ...ws };
+      Object.assign(ws, args.p_patch as Row);
+      const a = (args.p_audit ?? {}) as Row;
+      this.seed("audit_log", [
+        {
+          workspace_id: args.p_workspace_id,
+          action: a.action,
+          target_type: "workspace",
+          target_id: args.p_workspace_id,
+          actor_id: a.actor_id,
+          before: a.before ?? null,
+          after: a.after ?? null,
+          channel: a.channel ?? null,
+          request_id: a.request_id ?? null,
+        },
+      ]);
+      return { data: { before, after: { ...ws } }, error: null, count: null };
     }
     return { data: { allowed: true, remaining: 999, retry_after_seconds: 0 }, error: null, count: null };
   }

@@ -13,7 +13,7 @@ function fakeDb(tables: Record<string, Row[]>) {
       const call: Call = { table, ops: [] };
       calls.push(call);
       const chain: Record<string, unknown> = {};
-      for (const op of ["select", "eq", "in", "order", "limit"]) {
+      for (const op of ["select", "eq", "in", "or", "order", "limit"]) {
         chain[op] = (...args: unknown[]) => {
           call.ops.push([op, args]);
           return chain;

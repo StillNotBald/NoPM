@@ -1,8 +1,8 @@
 import { route } from "@/lib/api/handler";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
-import { AuthError } from "@/lib/api/errors";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { AuthError, NotFoundError } from "@/lib/api/errors";
 
 export const runtime = "nodejs";
 
@@ -36,9 +36,8 @@ export const PATCH = route(async ({ actor, request }) => {
   }
   const displayName = rawName.trim();
 
+  // Fetch current value for the audit before-snapshot
   const db = createAdminClient();
-
-  // Fetch current value for audit before-snapshot
   const { data: before } = await db
     .from("profiles")
     .select("display_name")
@@ -46,26 +45,22 @@ export const PATCH = route(async ({ actor, request }) => {
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
 
-  const { data: updated, error } = await db
-    .from("profiles")
-    .update({ display_name: displayName })
-    .eq("id", actor.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select("display_name, role, workspace_id")
-    .maybeSingle();
-
-  if (error) throw error;
-  if (!updated) return validationError("Profile not found");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "profile.update",
-    targetType: "profile",
-    targetId: actor.id,
-    before: { display_name: before?.display_name ?? null },
-    after: { display_name: displayName },
-  });
+  // The update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  let updated: Record<string, unknown>;
+  try {
+    ({ after: updated } = await auditedUpdate({
+      table: "profiles",
+      actor,
+      action: "profile.update",
+      id: actor.id,
+      patch: { display_name: displayName },
+      auditBefore: { display_name: before?.display_name ?? null },
+      auditAfter: { display_name: displayName },
+    }));
+  } catch (e) {
+    if (e instanceof NotFoundError) return validationError("Profile not found");
+    throw e;
+  }
 
   return ok({
     type: actor.type,

@@ -120,7 +120,7 @@ export async function runApprovalRequested(ev: ApprovalEvent, opts: { replacemen
   const connector = await getActiveConnector(ev.workspaceId);
   if (!connector || !connector.config.approvals.enabled) return;
 
-  const approverIds = (await resolveWorkspaceApprovers(ev.workspaceId)).filter(
+  const approverIds = (await resolveWorkspaceApprovers(ev.workspaceId, { tier: ev.tier, assignedApproverId: ev.assignedApproverId })).filter(
     (id) => id !== ev.requesterPrincipalId,
   );
   if (approverIds.length === 0) return;

@@ -2,7 +2,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { ok, noContent, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createResourceSchema, patchResourceSchema } from "../_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
@@ -57,24 +57,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
     { table: "profiles", id: parsed.data.profile_id, field: "profile_id" },
   ]);
 
-  const { data: updated, error: updateError } = await db
-    .from("resource_members")
-    .update({ ...parsed.data })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  const { after: updated } = await auditedUpdate({
+    table: "resource_members",
     actor,
     action: "resource.update",
-    targetType: "resource_member",
-    targetId: params.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: { ...parsed.data },
+    notFoundMessage: "Resource member not found",
   });
 
   return ok(updated);
@@ -113,22 +103,13 @@ export const DELETE = route(async ({ actor, params }) => {
     );
   }
 
-  const { error: deleteError } = await db
-    .from("resource_members")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw deleteError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  await auditedDelete({
+    table: "resource_members",
     actor,
     action: "resource.delete",
-    targetType: "resource_member",
-    targetId: params.id,
-    before: existing,
-    after: null,
+    id: params.id,
+    notFoundMessage: "Resource member not found",
   });
 
   return noContent();

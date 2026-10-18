@@ -151,3 +151,37 @@ describe("catchUpPendingApprovals - rebaseline sign-offs (Q-ACC-13, Q-GOV-19)", 
     expect(rb[0].title).toBe("Rebaseline v2: Proj");
   });
 });
+
+describe("catchUpPendingApprovals: deletion of risks, issues, expenses, documents and milestones (G8)", () => {
+  it("queues a card per new kind with the record's own title, and skips a type it does not know", async () => {
+    state.db = db = new FakeDb();
+    const row = (id: string, target_type: string, before: Record<string, unknown>) => ({
+      id,
+      workspace_id: WS,
+      status: "pending",
+      target_type,
+      target_id: `${target_type}-1`,
+      reason: "tidy up",
+      before,
+      requested_by_label: "Max",
+      requested_principal_id: "u-max",
+      created_at: "2026-10-05T00:00:00Z",
+    });
+    db.seed("deletion_requests", [
+      row("d-risk", "risk", { title: "Vendor slips", project_id: "p1" }),
+      row("d-issue", "issue", { title: "Login fails", project_id: "p1" }),
+      row("d-exp", "expense", { description: "Hotel", project_id: "p1" }),
+      row("d-doc", "document", { title: "Charter", project_id: "p1" }),
+      row("d-ms", "milestone", { name: "Go-live", project_id: "p1" }),
+      row("d-odd", "clash", { title: "Odd", project_id: "p1" }),
+    ]);
+    await catchUpPendingApprovals(WS);
+    const byId = Object.fromEntries(emitted().map((e) => [e.id, e]));
+    expect(byId["d-risk"]).toMatchObject({ kind: "risk_deletion", title: 'Delete risk "Vendor slips"' });
+    expect(byId["d-issue"]).toMatchObject({ kind: "issue_deletion", title: 'Delete issue "Login fails"' });
+    expect(byId["d-exp"]).toMatchObject({ kind: "expense_deletion", title: 'Delete expense "Hotel"' });
+    expect(byId["d-doc"]).toMatchObject({ kind: "document_deletion", title: 'Delete document "Charter"' });
+    expect(byId["d-ms"]).toMatchObject({ kind: "milestone_deletion", title: 'Delete milestone "Go-live"' });
+    expect(byId["d-odd"]).toBeUndefined();
+  });
+});

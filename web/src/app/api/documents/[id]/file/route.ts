@@ -5,7 +5,7 @@ import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { isDemoActor } from "@/lib/auth/demo";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { BUCKET, INLINE_MIME_TYPES, MAX_FILE_SIZE, buildStoragePath, matchesMagicBytes, normalizeMimeType, validateStoragePath } from "@/lib/documents/storage";
 
 export const runtime = "nodejs";
@@ -109,9 +109,13 @@ export const POST = route(async ({ actor, params, request }) => {
     }
   }
 
-  const { data: updated, error: updateError } = await db
-    .from("documents")
-    .update({
+  // The metadata update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const { after: updated } = await auditedUpdate({
+    table: "documents",
+    actor,
+    action: "document.file.attach",
+    id,
+    patch: {
       storage_path: body.path,
       file_name:    body.file_name,
       mime_type:    mimeType,
@@ -119,22 +123,8 @@ export const POST = route(async ({ actor, params, request }) => {
       // Q-GOV-14: replacing the file of an approved document returns it to draft.
       ...(existing.status === "approved" ? { status: "draft" } : {}),
       updated_at:   new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError || !updated) throw new Error(updateError?.message ?? "Update failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action:     "document.file.attach",
-    targetType: "document",
-    targetId:   updated.id,
-    before:     existing,
-    after:      updated,
+    },
+    notFoundMessage: "Document not found",
   });
 
   return ok(updated);
@@ -158,29 +148,22 @@ export const DELETE = route(async ({ actor, params }) => {
   if (!existing) throw new NotFoundError("Document not found");
   if (!existing.storage_path) throw new NotFoundError("No file attached to this document");
 
-  const { error: updateError } = await db
-    .from("documents")
-    .update({
+  // The record update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  await auditedUpdate({
+    table: "documents",
+    actor,
+    action: "document.file.remove",
+    id,
+    patch: {
       storage_path: null,
       file_name:    null,
       mime_type:    null,
       file_size:    null,
       ...(existing.status === "approved" ? { status: "draft" } : {}),
       updated_at:   new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (updateError) throw new Error(updateError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action:     "document.file.remove",
-    targetType: "document",
-    targetId:   existing.id,
-    before:     existing,
-    after:      null,
+    },
+    notFoundMessage: "Document not found",
+    auditAfter: null,
   });
 
   // Last: the record and its audit row are already committed, so a failure here

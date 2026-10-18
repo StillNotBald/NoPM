@@ -22,6 +22,8 @@
  * same inputs so the console no longer offers a button the API will refuse.
  */
 import type { DecideState, FourEyesBlock } from "@/components/governance/four-eyes-note";
+import { isDeletionKind } from "@/lib/integrations/types";
+import { policyOf, roleMeetsTier, type ApprovalPolicy } from "@/lib/governance/tiers";
 import { evaluateDecision, requesterOf, type PendingKind, type Requester } from "./pending";
 
 export interface Viewer {
@@ -53,7 +55,7 @@ export function canDecideByRole(role: string | null | undefined): boolean {
 }
 
 function canWithdrawOwn(viewer: Viewer, kind: PendingKind, row: object): boolean {
-  if (kind !== "task_deletion" && kind !== "project_deletion") return false;
+  if (!isDeletionKind(kind)) return false;
   const requester: Requester = requesterOf({ kind, row: row as Record<string, unknown> });
   if (!requester.principal && requester.type === "user") requester.principal = requester.id;
   return sameActor(viewer, requester) || (!!requester.principal && requester.principal === viewer.id);
@@ -69,6 +71,14 @@ export function judgeDecision(input: {
    * would be refused (D17). Unlock it or rebaseline first.
    */
   projectLocked?: boolean;
+  /**
+   * The workspace approval policy (G2). Optional: without it the CR A3 defaults apply, so a
+   * workspace that changed the roles passes its policy here. Advisory only, like the rest of
+   * this verdict: the decision routes and the database enforce the tier's role.
+   */
+  policy?: ApprovalPolicy;
+  /** D7: the workspace has fewer than two admins, so a manager may decide an admin-level request (fallback approver). */
+  singleAdmin?: boolean;
 }): DecideState {
   const { viewer, kind, row, projectLocked } = input;
   // D-16 (2026-10-17, "follow Lark rules"): deciding is for admins and managers
@@ -81,6 +91,16 @@ export function judgeDecision(input: {
   // Rows from before the principal columns: a user-raised request IS that person.
   if (!requester.principal && requester.type === "user") requester.principal = requester.id;
 
+  // G2: the tier names the role. A manager is not offered the buttons for an admin-level request.
+  const tier = (row as { tier?: unknown }).tier;
+  if (
+    typeof tier === "string" &&
+    !roleMeetsTier(viewer.role, tier, input.policy ?? policyOf({})) &&
+    !(input.singleAdmin === true && viewer.role === "manager")
+  ) {
+    return { canDecide: false, block: "needs_admin", canWithdraw: canWithdrawOwn(viewer, kind, row) };
+  }
+
   const verdict = evaluateDecision({
     actor: { type: "user", id: viewer.id },
     actorPrincipal: viewer.id,
@@ -91,11 +111,11 @@ export function judgeDecision(input: {
   // Withdraw cancels (it decides nothing), so the person behind a token or the
   // assistant may do it: same actor OR same human (decide.ts `withdrawDeletion`).
   const canWithdraw =
-    (kind === "task_deletion" || kind === "project_deletion") &&
+    isDeletionKind(kind) &&
     (sameActor(viewer, requester) || (!!requester.principal && requester.principal === viewer.id));
 
   if (verdict.can_decide) {
-    if (projectLocked && (kind === "task_deletion" || kind === "project_deletion")) {
+    if (projectLocked && isDeletionKind(kind)) {
       return { canDecide: false, block: "project_locked", canWithdraw };
     }
     return { canDecide: true, block: null, canWithdraw };
@@ -122,7 +142,7 @@ export function canEditChangeRequest(input: {
   status: string;
   requestedPrincipalId?: string | null;
 }): boolean {
-  if (input.status !== "raised" && input.status !== "under_review") return false;
+  if (input.status !== "raised" && input.status !== "under_review" && input.status !== "emergency") return false;
   return !input.requestedPrincipalId || input.requestedPrincipalId === input.viewerId;
 }
 

@@ -10,11 +10,17 @@ import { Severity } from "@/components/ui/severity";
 import { useInspector } from "@/components/layout/app-shell";
 import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
+import {
+  DeletionRequestedBadge,
+  usePendingDeletionIds,
+  useRequestDeletion,
+} from "@/components/governance/request-deletion";
 import { apiDelete, apiPatch, type ApiError } from "@/lib/api-client";
 import { SelectInput } from "@/components/forms/project-form";
 import { cn } from "@/lib/cn";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
+import { LinkPullRequest, canLinkPullRequest } from "@/components/integrations/link-pr-field";
 import type { Milestone, Task } from "@/components/tracking/activity-table";
 import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { useDateDisplayPref } from "@/lib/theme/use-appearance";
@@ -383,6 +389,11 @@ export function TaskDetailPanel({
             )}
           </DetailRow>
         )}
+        {canLinkPullRequest(task) && (
+          <DetailRow label="Pull request">
+            <LinkPullRequest task={task} onChanged={() => router.refresh()} />
+          </DetailRow>
+        )}
         <DetailRow label="Audit">
           <Link
             href={`/trust?target_type=task&target_id=${task.id}`}
@@ -451,50 +462,24 @@ export function MilestoneDetailPanel({
   members?: Record<string, string>;
 }) {
   const inspector = useInspector();
-  const modal = useModal();
-  const router = useRouter();
   const pref = useDateDisplayPref();
 
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const statusInfo = milestoneStatusBadge(milestone.status);
 
+  // G8: deleting a milestone is a request a different person approves; nothing is removed here.
+  const { pending: pendingDeletion, markRequested } = usePendingDeletionIds("milestone");
+  const deletionRequested = pendingDeletion.has(milestone.id);
+  const requestDeletion = useRequestDeletion("milestone", {
+    consequence: "Its tasks stay, but are unlinked from the milestone.",
+    onRequested: markRequested,
+    onError: setDeleteError,
+  });
+
   function handleDelete() {
     setDeleteError(null);
-    modal.open(
-      <div className="flex flex-col gap-5">
-        <p className="text-sm text-ink leading-relaxed">
-          Delete milestone <span className="font-semibold">&ldquo;{milestone.name}&rdquo;</span>?
-          All tasks within it will be unlinked. This cannot be undone.
-        </p>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="ghost" size="sm" className="h-10" onClick={modal.close}>
-            Cancel
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            className="h-10"
-            onClick={async () => {
-              modal.close();
-              try {
-                await apiDelete(`/api/milestones/${milestone.id}`);
-                router.refresh();
-                inspector.close();
-              } catch (err) {
-                setDeleteError(
-                  err instanceof Error ? err.message : "Delete failed. Please try again."
-                );
-              }
-            }}
-          >
-            <Trash2 size={13} className="mr-1.5" />
-            Delete milestone
-          </Button>
-        </div>
-      </div>,
-      { title: "Delete milestone?" }
-    );
+    requestDeletion(milestone.id, milestone.name);
   }
 
   return (
@@ -518,6 +503,7 @@ export function MilestoneDetailPanel({
         <p className="text-base font-semibold text-ink leading-snug">{milestone.name}</p>
         <div className="flex flex-wrap gap-1.5 pt-1">
           <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
+          {deletionRequested && <DeletionRequestedBadge />}
         </div>
       </div>
 
@@ -562,9 +548,10 @@ export function MilestoneDetailPanel({
           size="sm"
           className="h-11 sm:h-9 text-danger-ink hover:bg-danger/10 sm:flex-none"
           onClick={handleDelete}
+          disabled={deletionRequested}
         >
           <Trash2 size={13} className="mr-1.5" />
-          Delete
+          {deletionRequested ? "Deletion requested" : "Request deletion"}
         </Button>
       </div>
     </div>

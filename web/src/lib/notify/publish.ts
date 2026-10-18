@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { eligibleRoles, loadApprovalPolicy } from "@/lib/governance/tiers";
 
 /**
  * Notification types used across NoPM governance flows.
@@ -17,7 +18,13 @@ export type NotificationType =
   /** A task, risk or issue has had no update for the workspace's stale threshold (R-141). */
   | "item.stale"
   /** The weekly status report was generated; the payload links to the rendered view (R-142). */
-  | "report.weekly";
+  | "report.weekly"
+  /** A request is waiting and the turnaround is half gone (G3). */
+  | "approval.reminder"
+  /** A request passed its turnaround with no decision, or an emergency change is overdue for its retro decision (G3, G4). */
+  | "approval.escalated"
+  /** A routine request was approved by workspace policy because nobody decided in time (G3). */
+  | "approval.auto_approved";
 
 export type NotifyInput = {
   workspaceId: string;
@@ -121,16 +128,21 @@ export async function notifyEach(workspaceId: string, items: NotifyEachInput[]):
  * Resolve all workspace members whose role is 'admin' or 'manager'.
  * Returns their profile IDs (uuid). Used to fan-out governance notifications.
  */
-export async function resolveWorkspaceApprovers(workspaceId: string): Promise<string[]> {
+export async function resolveWorkspaceApprovers(
+  workspaceId: string,
+  opts: { tier?: string | null; assignedApproverId?: string | null } = {},
+): Promise<string[]> {
   try {
     const db = createAdminClient();
-    const { data, error } = await db
-      .from("profiles")
-      .select("id")
-      .eq("workspace_id", workspaceId)
-      .in("role", ["admin", "manager"]);
+    // G2: with a tier, only the roles the workspace policy asks for. An admin tier goes to admins
+    // only; a manager tier goes to managers and admins. Without a tier: both, as before.
+    const roles = opts.tier ? eligibleRoles(opts.tier, await loadApprovalPolicy(db, workspaceId)) : ["admin", "manager"];
+    const { data, error } = await db.from("profiles").select("id").eq("workspace_id", workspaceId).in("role", roles);
     if (error || !data) return [];
-    return data.map((p: { id: string }) => p.id);
+    const ids = data.map((p: { id: string }) => p.id);
+    // G5: a named approver gets it alone, but only when they are eligible for the tier.
+    if (opts.assignedApproverId && ids.includes(opts.assignedApproverId)) return [opts.assignedApproverId];
+    return ids;
   } catch {
     return [];
   }

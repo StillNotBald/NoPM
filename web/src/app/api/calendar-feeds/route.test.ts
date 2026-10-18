@@ -7,23 +7,37 @@ import {
   eqFilters,
   queriesOn,
   selectedColumns,
-  writePayload,
   type FakeAdmin,
 } from "@/lib/calendar/test-support";
 
-// Route tests: the handlers run for real; only the database, the audit writer
-// and session/token resolution are stubbed. Audit and the admin client are
-// mocked the same way rate-limit.test.ts and guard.test.ts mock them.
+// Route tests: the handlers run for real; only the database, the atomic audited
+// writer (nopm_mutate_audited, covered by audit/audited-write.test.ts) and
+// session/token resolution are stubbed. "writeAuditMock" stands for the one
+// atomic write+audit call the create handler makes.
 const state = vi.hoisted(() => ({ admin: undefined as FakeAdmin | undefined }));
 const { writeAuditMock, requireAuthMock } = vi.hoisted(() => ({
-  writeAuditMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),
+  writeAuditMock: vi.fn(async (input: Record<string, unknown>) => {
+    const patch = input.patch as Record<string, unknown>;
+    return {
+      id: "cf_1",
+      workspace_id: "ws_1",
+      name: patch.name,
+      project_id: patch.project_id ?? null,
+      token_hash: patch.token_hash,
+      created_by: patch.created_by,
+      created_at: "2026-10-16T08:00:00.000Z",
+      last_fetched_at: null,
+      revoked_at: null,
+    };
+  }),
   requireAuthMock: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => (state.admin as FakeAdmin).client,
 }));
-vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
+vi.mock("@/lib/audit/audited-write", () => ({ auditedInsert: writeAuditMock }));
+const insertedPatch = () => (writeAuditMock.mock.calls[0]?.[0] as { patch: Record<string, unknown> } | undefined)?.patch;
 vi.mock("@/lib/auth/guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/guard")>()),
   requireAuth: requireAuthMock,
@@ -112,9 +126,8 @@ describe("POST /api/calendar-feeds", () => {
     expect(body.data.url).toMatch(/^http:\/\/localhost:3000\/api\/calendar\/npc_[A-Za-z0-9_-]{43}\.ics$/);
 
     const raw = body.data.url.slice("http://localhost:3000/api/calendar/".length, -".ics".length);
-    const insert = writePayload(queriesOn(state.admin as FakeAdmin, "calendar_feeds")[0]);
+    const insert = insertedPatch();
     expect(insert).toMatchObject({
-      workspace_id: WS,
       name: "Launch feed",
       project_id: null,
       created_by: MEMBER,
@@ -143,12 +156,13 @@ describe("POST /api/calendar-feeds", () => {
     expect(writeAuditMock).toHaveBeenCalledTimes(1);
     const [audit] = writeAuditMock.mock.calls[0] as [Record<string, unknown>];
     expect(audit).toMatchObject({
-      workspaceId: WS,
+      table: "calendar_feeds",
       action: "calendar_feed.create",
-      targetType: "calendar_feed",
-      targetId: "cf_1",
+      omitColumns: ["token_hash", "workspace_id"],
     });
+    // the raw token is never handed to the audited writer at all
     expect(JSON.stringify(audit)).not.toContain(data.url);
+    expect(JSON.stringify(audit)).not.toMatch(/npc_[A-Za-z0-9_-]{43}/);
   });
 
   it("scopes a project-narrowed feed to a project in the caller's workspace", async () => {
@@ -163,7 +177,7 @@ describe("POST /api/calendar-feeds", () => {
     expect(res.status).toBe(201);
     const projectLookup = queriesOn(state.admin as FakeAdmin, "projects")[0];
     expect(eqFilters(projectLookup)).toMatchObject({ id: PROJECT, workspace_id: WS });
-    expect(writePayload(queriesOn(state.admin as FakeAdmin, "calendar_feeds")[0])?.project_id).toBe(PROJECT);
+    expect(insertedPatch()?.project_id).toBe(PROJECT);
   });
 
   it("rejects a project that is not in the caller's workspace, with nothing written", async () => {
@@ -233,7 +247,7 @@ describe("POST /api/calendar-feeds", () => {
     const res = await POST(postRequest({ name: "Launch feed" }), NO_PARAMS);
 
     expect(res.status).toBe(201);
-    expect(writePayload(queriesOn(state.admin as FakeAdmin, "calendar_feeds")[0])?.created_by).toBe(MEMBER);
+    expect(insertedPatch()?.created_by).toBe(MEMBER);
   });
 
   it("refuses a legacy token with no recorded owner (fail-closed, nothing written)", async () => {

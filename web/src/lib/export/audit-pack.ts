@@ -11,6 +11,8 @@
  * "not recorded" (blank) rather than failing the download.
  */
 import { dayAfter, type ExportRange } from "@/app/api/export/_audit-range";
+import { isRetroOverdue } from "@/lib/governance/tiers";
+import { getChainHead, type ChainHead } from "@/lib/audit/chain-head";
 
 /** Ids per .in() lookup, so a 10,000-row export never builds an oversized URL. */
 export const ID_CHUNK = 100;
@@ -117,11 +119,13 @@ export const CHANGE_REQUEST_COLUMNS = [
   "impact_schedule_days", "impact_cost", "impact_scope", "implemented_at",
   "implemented_by_label", "evidence_count", "evidence_pass", "evidence_fail",
   "evidence_latest_at", "linked_decisions",
+  // Approval tiers (G1) and the emergency path (G4): an emergency change is flagged until its retro decision.
+  "tier", "is_emergency", "retro_due_at", "retro_decided_at", "retro_outcome", "retro_overdue",
 ] as const;
 
 const CR_BASE =
   "id, project_id, reference_id, title, category, status, priority, raised_at, requested_by_label, requested_principal_id, decided_at, decided_by_label, decided_principal_id, decision_rationale, impact_schedule_days, impact_cost, created_at, updated_at";
-const CR_FULL = `${CR_BASE}, implemented_at, implemented_by, implemented_by_type, implemented_principal_id, implemented_note, impact_scope`;
+const CR_FULL = `${CR_BASE}, implemented_at, implemented_by, implemented_by_type, implemented_principal_id, implemented_note, impact_scope, tier, is_emergency, retro_due_at, retro_decided_at, retro_outcome`;
 
 const DECISION_VERB: Record<string, string> = { approved: "approve", rejected: "reject", deferred: "defer" };
 
@@ -211,6 +215,12 @@ export async function fetchChangeRequestRows(
       evidence_fail: evidenceRes.available ? ev.filter((e) => isFail(e.evidence_result)).length : "",
       evidence_latest_at: latest,
       linked_decisions: (decByCr.get(r.id as string) ?? []).join(" "),
+      tier: r.tier ?? "normal",
+      is_emergency: r.is_emergency === true ? "yes" : "",
+      retro_due_at: r.retro_due_at ?? "",
+      retro_decided_at: r.retro_decided_at ?? "",
+      retro_outcome: r.retro_outcome ?? "",
+      retro_overdue: isRetroOverdue(r as never, new Date()) ? "yes" : "",
     } as Row;
   });
   return {
@@ -282,6 +292,8 @@ async function fetchLinkedDecisions(db: ExportDb, workspaceId: string, crIds: st
 
 export type AuditPackData = {
   workspaceName: string;
+  /** Newest audit row_hash when the pack was built (R-154); printed on the cover. Null on a schema without the chain. */
+  chainHead?: ChainHead | null;
   from?: string;
   to?: string;
   generatedAt: string;
@@ -364,6 +376,7 @@ export async function gatherAuditPack(
     to: range.to,
     generatedAt: new Date().toISOString(),
     generatedBy,
+    chainHead: await getChainHead(db, workspaceId),
     changeRequests: cr.rows,
     evidence,
     decisions,

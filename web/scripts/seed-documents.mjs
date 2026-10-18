@@ -1,8 +1,10 @@
 // NoPM — seed governance documents for the 'demo' workspace.
-// Idempotent: clears existing documents for the workspace then reseeds.
+// Idempotent: upserts every document on a stable id derived from its reference, so a re-seed rewrites the
+// same rows. It never deletes: documents are deleted only by an approved deletion request (migration 0102).
 // Requires the 20260608000015_documents.sql migration to be applied first.
 //
 // Run:  node scripts/seed-documents.mjs
+import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { loadEnv, requireEnv } from "./lib/env.mjs";
 
@@ -26,17 +28,24 @@ const projects = (
 const byCode = Object.fromEntries(projects.map((p) => [p.code, p.id]));
 console.log("projects found:", projects.map((p) => p.code).join(", "));
 
-// ── idempotent clear ─────────────────────────────────────────────────────────
-await db.from("documents").delete().eq("workspace_id", W);
-console.log("cleared existing documents");
+// Stable id for a seeded document: a UUID built from the workspace and the reference, so the same
+// document always lands on the same row.
+const stableId = (ref) => {
+  const h = createHash("sha1").update(`nopm-seed-doc:${W}:${ref}`).digest("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
+};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 let docNum = 0;
 const nextRef = () => `DOC-${String(++docNum).padStart(3, "0")}`;
 
 const ins = async (row) => {
-  const { data, error } = await db.from("documents").insert(row).select().single();
-  if (error) throw new Error(`documents insert failed: ${error.message}`);
+  const { data, error } = await db
+    .from("documents")
+    .upsert({ id: stableId(row.reference_id), ...row }, { onConflict: "id" })
+    .select()
+    .single();
+  if (error) throw new Error(`documents upsert failed: ${error.message}`);
   return data;
 };
 

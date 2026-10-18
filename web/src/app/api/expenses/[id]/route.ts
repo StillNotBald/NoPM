@@ -1,43 +1,13 @@
 import { route } from "@/lib/api/handler";
-import { requireScope } from "@/lib/auth/guard";
-import { noContent } from "@/lib/api/response";
-import { NotFoundError } from "@/lib/api/errors";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { requestDeletion } from "@/lib/governance/request-deletion";
 
 export const runtime = "nodejs";
 
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "budget:write");
-  const db = createAdminClient();
-  const expenseId = params.id;
-
-  const { data: existing } = await db
-    .from("expenses")
-    .select("*")
-    .eq("id", expenseId)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (!existing) throw new NotFoundError("Expense not found");
-
-  const { error } = await db
-    .from("expenses")
-    .delete()
-    .eq("id", expenseId)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (error) throw new Error(`Expense delete failed: ${error.message}`);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "expense.delete",
-    targetType: "expense",
-    targetId: expenseId,
-    before: existing,
-    after: null,
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/expenses/:id — does NOT delete the expense. An expense is a money record, so it raises a
+ * deletion request (scope expense:delete:request) with a required `reason` and returns 202. A second person
+ * approves it at POST /api/deletion-requests/:id/approve (audit gap G8; the database refuses any other DELETE).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "expense", id: params.id }),
+);

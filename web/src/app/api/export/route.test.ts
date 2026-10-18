@@ -197,6 +197,23 @@ describe("GET /api/export date range and audit provenance", () => {
     expect(queried.filter((q) => q.table === "profiles")).toHaveLength(1);
   });
 
+  it("puts row_hash LAST in the audit CSV so a chain can be recomputed offline (R-154)", async () => {
+    requireAuthMock.mockResolvedValueOnce(token(["audit:read"]));
+    tables.audit_log = [
+      {
+        id: "a1", workspace_id: "ws-1", actor_type: "user", actor_id: "p2", actor_label: "x",
+        action: "task.update", target_type: "task", target_id: "t2", before: null, after: null,
+        channel: "ui", request_id: null, created_at: "2026-10-11T00:00:00Z", principal_id: null,
+        row_hash: "deadbeef",
+      },
+    ];
+    tables.profiles = [];
+    const [header, r1] = lines(await (await call("?entity=audit")).text());
+    const cols = header.split(",");
+    expect(cols[cols.length - 1]).toBe("row_hash");
+    expect(r1.split(",").pop()).toBe("deadbeef");
+  });
+
   it("applies from/to to a non-audit entity and records the range in the audit row", async () => {
     requireAuthMock.mockResolvedValueOnce(token(["risk:read"]));
     tables.risks = [];

@@ -16,6 +16,7 @@ import { gatherDigestData } from "@/lib/integrations/digest-data";
 import { getWorkspaceTimeZone, shiftToZone } from "@/lib/integrations/time-zone";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import { EMPTY_NUDGE_STEP, runNudgeStep, type NudgeStepSummary } from "@/lib/nudges/step";
+import { EMPTY_APPROVAL_TIMER_STEP, runApprovalTimerStep, type ApprovalTimerSummary } from "@/lib/governance/timers";
 import { CONNECTOR_COLUMNS, maskExternalId, normalizeConfig } from "@/lib/integrations/store";
 import type { ConnectorRow, DeliveryRow } from "@/lib/integrations/types";
 
@@ -123,6 +124,8 @@ export type CronSummary = {
   pruned: PruneSummary;
   /** The daily stale-item nudge + weekly report step (R-141 / R-142); runs for every workspace, connector or not. */
   nudges: NudgeStepSummary;
+  /** The approval timer step (G3 / G4): reminders, escalations, routine auto-approvals, overdue retro flags. */
+  approvals: ApprovalTimerSummary;
   elapsedMs: number;
 };
 
@@ -150,6 +153,7 @@ export async function runCron(
     timedOut: 0,
     pruned: { deliveries: 0, action_tokens: 0, inbound_actions: 0 },
     nudges: { ...EMPTY_NUDGE_STEP },
+    approvals: { ...EMPTY_APPROVAL_TIMER_STEP },
     elapsedMs: 0,
   };
 
@@ -227,6 +231,16 @@ export async function runCron(
       summary.nudges = await runNudgeStep(now, deadline);
     } catch (err) {
       console.error("[integrations] cron nudge step failed:", sanitizeError(err));
+    }
+  }
+
+  // Phase 2c: approval timers (reminder at half the turnaround, escalation, routine auto-approve when the
+  // workspace allows it, overdue emergency retro flags). Database work only; one audit row per workspace.
+  if (Date.now() < deadline) {
+    try {
+      summary.approvals = await runApprovalTimerStep(now, deadline);
+    } catch (err) {
+      console.error("[integrations] cron approval timer step failed:", sanitizeError(err));
     }
   }
 

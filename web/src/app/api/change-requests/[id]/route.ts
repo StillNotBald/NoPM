@@ -25,7 +25,8 @@ export const runtime = "nodejs";
  * corrected by raising a new one. The write itself is a compare-and-set on the
  * open statuses, so a decision landing between our read and our write wins.
  */
-const OPEN_STATUSES = [...RAISE_TIME_STATUSES];
+// W4-08: an emergency request that has not gone live yet (status emergency) is still the requester's to edit or withdraw.
+const OPEN_STATUSES = [...RAISE_TIME_STATUSES, "emergency"];
 
 function assertStillOpen(status: string, verb: "edited" | "deleted"): void {
   if (!OPEN_STATUSES.includes(status as (typeof OPEN_STATUSES)[number])) {

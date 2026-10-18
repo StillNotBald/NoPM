@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { ScopeError, NotFoundError, ConflictError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { ok } from "@/lib/api/response";
 import type { Actor } from "@/lib/auth/guard";
 import { assertCanRevokeCreatedBy } from "@/lib/governance/invite-guard";
@@ -52,27 +52,16 @@ export const DELETE = route(async ({ actor, params }) => {
     assertCanRevokeCreatedBy(actor.role, creator?.role);
   }
 
-  const { data: updated, error: updateError } = await db
-    .from("api_tokens")
-    .update({ revoked: true })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("kind", "user")
-    .eq("revoked", false)
-    .select("id");
-
-  if (updateError) throw updateError;
-  // Lost a race with a concurrent revoke: same answer, still one audit row.
-  if (!updated || updated.length === 0) throw new ConflictError("Token already revoked", "already_revoked");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  await auditedUpdate({
+    table: "api_tokens",
     actor,
     action: "token.revoke",
-    targetType: "api_token",
-    targetId: params.id,
-    before,
-    after: { ...before, revoked: true },
+    id: params.id,
+    patch: { revoked: true },
+    notFoundMessage: "API token not found",
+    auditBefore: before,
+    auditAfter: { ...before, revoked: true },
   });
 
   return ok({ revoked: true });

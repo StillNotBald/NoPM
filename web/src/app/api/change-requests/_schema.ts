@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assignedApproverIdField } from "@/lib/review/assignee";
+import { REQUESTABLE_TIERS } from "@/lib/governance/tiers";
 
 const categoryEnum = z.enum(["scope", "schedule", "cost", "quality", "resource", "other"]);
 /**
@@ -52,6 +53,17 @@ export const createChangeRequestSchema = z.object({
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
   // G5: optional named approver (an admin or manager of the workspace, not the requester).
   assigned_approver_id: assignedApproverIdField,
+  /**
+   * G1: the approval tier asked for. routine (no cost, no schedule impact), normal (default), high_risk or
+   * strategic (admin only). The server may raise it (a cost at or over the workspace threshold makes a normal
+   * request high_risk) and never lowers it. Emergency is not a tier you pick: send `is_emergency`.
+   */
+  tier: z.enum(REQUESTABLE_TIERS, { error: "tier must be routine, normal, high_risk or strategic" }).optional(),
+  /**
+   * G4: the emergency path. A manager or admin ships the change now; an admin gives the retro decision within the
+   * workspace's retro window (default 48 h) and the request is flagged until then.
+   */
+  is_emergency: z.boolean().optional(),
 });
 
 // NOTE: `status` is intentionally NOT updatable here — all status transitions

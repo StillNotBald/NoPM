@@ -429,10 +429,25 @@ await report.check("P1", "project deletion RPC: same principal -> SELF_APPROVAL;
   expectEqual(still.rowCount, 1, "project must still exist");
 });
 
-await report.check("P2", "project deletion RPC: B commits; project gone; exactly 2 audit rows", async () => {
+// A project deletion is a high_risk request (migration 0100): an ADMIN commits it. A manager is refused
+// (P0018 ROLE_NOT_PERMITTED, "only admins can approve a high_risk request") while the workspace has two admins.
+await report.check("P2a", "project deletion RPC: a MANAGER is refused (high_risk -> admin); nothing deleted or audited", async () => {
   const { project, request } = await newProjectDeletionRequest(actors.aToken);
   const before = await auditCount(pgc, fx.workspaceId);
-  const { data, error } = await commitProject(request.id, actors.bToken);
+  const refused = await commitProject(request.id, actors.bToken);
+  expect(
+    refused.error && /ROLE_NOT_PERMITTED/.test(errText(refused.error)) && /only admins can approve a high_risk request/.test(errText(refused.error)),
+    `expected ROLE_NOT_PERMITTED naming admins, got ${refused.error ? errText(refused.error) : "success"}`,
+  );
+  const still = await pgc.query("select 1 from projects where id = $1", [project.id]);
+  expectEqual(still.rowCount, 1, "project must still exist");
+  expectEqual(await auditCount(pgc, fx.workspaceId), before, "audit rows must not be written");
+});
+
+await report.check("P2", "project deletion RPC: an ADMIN commits; project gone; exactly 2 audit rows", async () => {
+  const { project, request } = await newProjectDeletionRequest(actors.aToken);
+  const before = await auditCount(pgc, fx.workspaceId);
+  const { data, error } = await commitProject(request.id, actors.admin2Token);
   expect(!error && data?.committed === true, `expected committed, got ${errText(error) || JSON.stringify(data)}`);
   const gone = await pgc.query("select 1 from projects where id = $1", [project.id]);
   expectEqual(gone.rowCount, 0, "project must be deleted");
@@ -477,10 +492,10 @@ await report.check("L3", "commit RPCs stamp connector provenance (via_connector_
   const r2 = await db.rpc(CONTRACT.rpc.project, {
     p_request_id: p.request.id,
     p_workspace_id: fx.workspaceId,
-    p_approver_type: actors.bToken.type,
-    p_approver_id: actors.bToken.id,
-    p_approver_label: actors.bToken.label,
-    [CONTRACT.rpc.principalParam]: actors.bToken.principalId,
+    p_approver_type: actors.admin2Token.type,
+    p_approver_id: actors.admin2Token.id,
+    p_approver_label: actors.admin2Token.label,
+    [CONTRACT.rpc.principalParam]: actors.admin2Token.principalId,
     p_correlation_id: `probe-${fx.tag}-prov`,
     ...provenance,
   });

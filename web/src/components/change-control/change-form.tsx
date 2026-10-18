@@ -30,7 +30,9 @@ export type CRStatus =
   | "approved"
   | "rejected"
   | "deferred"
-  | "implemented";
+  | "implemented"
+  /** G4: raised on the emergency path, may be implemented at once, owes a retro decision. */
+  | "emergency";
 
 export interface ChangeRequest {
   id: string;
@@ -51,6 +53,15 @@ export interface ChangeRequest {
   implemented_at?: string | null;
   implemented_by_label?: string | null;
   implemented_note?: string | null;
+  /** G1/G4: approval tier, and the emergency path (flagged until the retro decision is taken). */
+  tier?: string | null;
+  approval_deadline_at?: string | null;
+  is_emergency?: boolean | null;
+  retro_due_at?: string | null;
+  retro_decided_at?: string | null;
+  retro_outcome?: string | null;
+  /** Server-computed: an emergency change still owing its retro decision past its due date. */
+  retro_overdue?: boolean;
   requested_by: string | null;
   requested_by_label: string | null;
   decided_by: string | null;
@@ -110,6 +121,7 @@ export const STATUS_LABEL: Record<CRStatus, string> = {
   rejected: "Rejected",
   deferred: "Deferred",
   implemented: "Implemented",
+  emergency: "Emergency",
 };
 
 export const AREA_LABELS: Record<(typeof IMPACT_AREAS)[number], string> = {

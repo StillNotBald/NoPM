@@ -21,6 +21,7 @@ export type FourEyesBlock =
   | "your_token_raised"
   | "no_scope"
   | "role_not_permitted"
+  | "needs_admin"
   | "project_locked"
   | "no_principal";
 
@@ -57,6 +58,10 @@ export const BLOCK_COPY: Record<FourEyesBlock, { lead: string; rest: string; det
   role_not_permitted: {
     lead: "Only managers and admins can approve",
     rest: ". Ask a manager or admin to decide.",
+  },
+  needs_admin: {
+    lead: "This request needs an admin to decide it",
+    rest: ". Ask an admin to decide.",
   },
   project_locked: {
     lead: "Project is locked",

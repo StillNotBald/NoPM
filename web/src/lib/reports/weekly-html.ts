@@ -1,5 +1,6 @@
 import { BASE_CSS, P, TONE, esc } from "./html";
 import type { DigestData } from "@/lib/integrations/types";
+import { chainHeadLine, type ChainHead } from "@/lib/audit/chain-head";
 
 /**
  * The weekly status report as a self-contained HTML page (R-142). It renders
@@ -23,6 +24,8 @@ export type WeeklySnapshot = {
   staleDays: number;
   /** Stalest first, capped when stored. */
   stale: WeeklySnapshotStale[];
+  /** Newest audit row hash when the snapshot was built (R-154); absent on older snapshots. */
+  chainHead?: ChainHead | null;
 };
 
 const cap = (s: string) => s.replace(/_/g, " ");
@@ -39,7 +42,10 @@ export function renderWeeklyReportHtml(snap: WeeklySnapshot): string {
   const cover = `<div class="cover">
       <div class="subtitle">${esc(d.workspaceName)}</div>
       <h1>Weekly status report</h1>
-      <div class="ts">Week of ${esc(snap.weekStart)} &middot; generated ${esc(new Date(d.generatedAt).toUTCString())} &middot; NoPM</div>
+      <div class="ts">Week of ${esc(snap.weekStart)} &middot; generated ${esc(new Date(d.generatedAt).toUTCString())} &middot; NoPM</div>${
+      chainHeadLine(snap.chainHead) ? `
+      <div class="ts" style="font-family:monospace;font-size:11px;word-break:break-all">${esc(chainHeadLine(snap.chainHead) as string)}</div>` : ""
+    }
     </div>`;
 
   const cards = `<div class="cards">

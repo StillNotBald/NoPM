@@ -640,3 +640,24 @@ test("risks create/update die on the retired --category and point to --risk-cate
     assert.equal(ctx.calls.length, 0);
   }
 });
+
+// ── deletion is a request for every governed record (audit gap G8) ──────────
+
+for (const [cmd, path] of [
+  ["risks", "risks"],
+  ["issues", "issues"],
+  ["milestones", "milestones"],
+  ["expenses", "expenses"],
+  ["documents", "documents"],
+]) {
+  test(`${cmd} rm needs an id and a reason, and sends DELETE /api/${path}/<id> with the reason`, async () => {
+    const mod = await import(`../commands/${cmd}.mjs`);
+    const noReason = makeCtx({ _: ["rm", "rec_1"] });
+    await expectDies(() => mod.run([], noReason), new RegExp(`usage: nopm ${cmd} rm <id> --reason`));
+    assert.equal(noReason.calls.length, 0, "no API call may fire without a reason");
+
+    const ctx = makeCtx({ _: ["rm", "rec_1"], reason: "duplicate" }, { data: { id: "dr_1" } });
+    await mod.run([], ctx);
+    assert.deepEqual(ctx.calls, [{ method: "DELETE", path: `/api/${path}/rec_1`, body: { reason: "duplicate" } }]);
+  });
+}

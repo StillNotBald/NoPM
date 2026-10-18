@@ -13,11 +13,11 @@
  * lying about its channel gains nothing beyond a mislabeled audit row.
  */
 
-export type AuditChannel = "ui" | "api" | "cli" | "mcp" | "assistant" | "lark";
+export type AuditChannel = "ui" | "api" | "cli" | "mcp" | "assistant" | "lark" | "github";
 
 /**
  * Channels a caller may DECLARE via X-NoPM-Client. Connector channels
- * ("lark") are deliberately absent: they are server-derived from a verified
+ * ("lark", "github") are deliberately absent: they are server-derived from a verified
  * connector binding (src/lib/integrations), never from a header, so the
  * provenance of a chat-originated approval cannot be spoofed.
  */

@@ -29,8 +29,8 @@ export const runtime = "nodejs";
  * project:read) and `hidden_kinds` names the rest. A token holding none of
  * them gets 403. Query logic lives in @/lib/review/pending.
  *
- * Query: ?kind=<comma list of task_deletion|project_deletion|change_request|
- * rebaseline> · ?mine=1 (only requests assigned to the person behind the caller;
+ * Query: ?kind=<comma list of task_deletion|project_deletion|risk_deletion|issue_deletion|
+ * expense_deletion|document_deletion|milestone_deletion|change_request|rebaseline> · ?mine=1 (only requests assigned to the person behind the caller;
  * an empty list for a caller with no person) · ?page (default 1) · ?limit (1..200, default 50).
  * Response: { data: PendingItem[], total, page, limit, hidden_kinds }.
  */

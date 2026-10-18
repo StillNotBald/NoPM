@@ -17,7 +17,7 @@ export const usage = [
   "nopm documents get <id>                                                               fetch a single document",
   "nopm documents create --title <t> --doc-type <dt> [--project <id>] [--folder <f>] [--body <text>] [--status <s>] [--summary <s>] [--url <u>]",
   "nopm documents update <id> [--title <t>] [--doc-type <dt>] [--folder <f>] [--status <s>] [--body <text>] [--summary <s>]",
-  "nopm documents rm <id>                                                                hard-delete a document",
+  "nopm documents rm <id> --reason <why>   (MAKER) request deletion; a different person approves",
   "  doc-type values: charter | plan | raid | status_report | change_request | minutes | spec | other",
   "  status values:   draft | in_review | approved | archived",
   "  flags: --page <n>  --limit <n>  --json",
@@ -99,9 +99,11 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm documents rm <id>");
-      await ctx.api("DELETE", `/api/documents/${id}`);
-      console.log("✓ deleted document", id);
+      if (!id || !f.reason) ctx.die("usage: nopm documents rm <id> --reason <why>");
+      // Deletion is a request (audit gap G8): it stays until a different person approves it.
+      const result = await ctx.api("DELETE", `/api/documents/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

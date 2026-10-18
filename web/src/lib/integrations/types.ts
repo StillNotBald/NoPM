@@ -16,14 +16,59 @@
  */
 
 /** A governed request that a human can approve or reject from a chat card. */
-export type ApprovalKind = "task_deletion" | "project_deletion" | "change_request" | "rebaseline_signoff";
+export type ApprovalKind =
+  | "task_deletion"
+  | "project_deletion"
+  | "risk_deletion"
+  | "issue_deletion"
+  | "expense_deletion"
+  | "document_deletion"
+  | "milestone_deletion"
+  | "change_request"
+  | "rebaseline_signoff";
 
 export const APPROVAL_KINDS: readonly ApprovalKind[] = [
   "task_deletion",
   "project_deletion",
+  "risk_deletion",
+  "issue_deletion",
+  "expense_deletion",
+  "document_deletion",
+  "milestone_deletion",
   "change_request",
   "rebaseline_signoff",
 ];
+
+/**
+ * Deletion is a request for every governed record (audit gap G8, migration 0102). One approval
+ * kind per `deletion_requests.target_type`; this table is the single place the two are paired.
+ */
+export const DELETION_KIND_BY_TARGET = {
+  task: "task_deletion",
+  project: "project_deletion",
+  risk: "risk_deletion",
+  issue: "issue_deletion",
+  expense: "expense_deletion",
+  document: "document_deletion",
+  milestone: "milestone_deletion",
+} as const satisfies Record<string, ApprovalKind>;
+
+export type DeletionKind = (typeof DELETION_KIND_BY_TARGET)[keyof typeof DELETION_KIND_BY_TARGET];
+
+/** The approval kind of a deletion request; an unknown (legacy) target type reads as a task deletion. */
+export function deletionKindFor(targetType: string): DeletionKind {
+  return (DELETION_KIND_BY_TARGET as Record<string, DeletionKind>)[targetType] ?? "task_deletion";
+}
+
+/** True for any of the seven deletion kinds. */
+export function isDeletionKind(kind: string): kind is DeletionKind {
+  return (Object.values(DELETION_KIND_BY_TARGET) as string[]).includes(kind);
+}
+
+/** The `deletion_requests.target_type` a deletion kind decides ("risk_deletion" is "risk"). */
+export function targetTypeOfDeletionKind(kind: DeletionKind): keyof typeof DELETION_KIND_BY_TARGET {
+  return kind.slice(0, -"_deletion".length) as keyof typeof DELETION_KIND_BY_TARGET;
+}
 
 export type ApprovalRef = { kind: ApprovalKind; id: string };
 
@@ -43,6 +88,10 @@ export type ApprovalEvent = {
   requestedByLabel: string;
   /** The HUMAN behind the request — excluded from the approver fan-out. */
   requesterPrincipalId: string | null;
+  /** Approval tier of the request (G2): decides which roles the approval cards go to. Absent = admins and managers. */
+  tier?: string | null;
+  /** The one approver the request is waiting for (G5), when named. */
+  assignedApproverId?: string | null;
   /**
    * The request's content version when this event was built: the request row's
    * `updated_at`, which the table's trigger bumps on every edit. The card's
@@ -173,6 +222,8 @@ export type DigestData = {
   /** Open tasks, risks and issues with no update for `staleDays` (R-141). Absent on a digest built before it existed. */
   staleItems?: number;
   staleDays?: number;
+  /** Emergency changes that are live and past the due date of their retro approval (G4). Absent on a digest built before it existed. */
+  retroOverdue?: number;
 };
 
 /** Outcome of an inbound approve/reject — the adapter turns it into a toast + card. */

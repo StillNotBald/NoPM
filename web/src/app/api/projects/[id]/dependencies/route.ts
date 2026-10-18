@@ -3,7 +3,8 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { created, ok, safeJson, validationError } from "@/lib/api/response";
 import { ConflictError, RuleError } from "@/lib/api/errors";
-import { writeAudit, auditPrincipalId } from "@/lib/audit/write";
+import { auditPrincipalId } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { wouldCreateProjectCycle } from "@/lib/insight/project-contingency";
 import {
@@ -134,23 +135,28 @@ export const POST = route(async ({ actor, params, request }) => {
     throw new RuleError("Adding this dependency would create a circular reference", "circular_dependency");
   }
 
-  const { data: dep, error: insertErr } = await db
-    .from("project_dependencies")
-    .insert({
-      workspace_id: actor.workspaceId,
-      project_id: params.id,
-      depends_on_project_id: input.depends_on_project_id,
-      kind: input.kind,
-      linked_risk_id: input.linked_risk_id ?? null,
-      note: input.note ?? null,
-      created_by: auditPrincipalId(actor),
-    })
-    .select()
-    .single();
-
-  if (insertErr || !dep) {
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103); the audit
+  // row targets the project, as before.
+  let dep;
+  try {
+    dep = await auditedInsert({
+      table: "project_dependencies",
+      actor,
+      action: "project.dependency.add",
+      targetType: "project",
+      auditTargetId: params.id,
+      patch: {
+        project_id: params.id,
+        depends_on_project_id: input.depends_on_project_id,
+        kind: input.kind,
+        linked_risk_id: input.linked_risk_id ?? null,
+        note: input.note ?? null,
+        created_by: auditPrincipalId(actor),
+      },
+    });
+  } catch (insertErr) {
     // Database backstops (migration 0099) win a race the checks above lost.
-    const msg = insertErr?.message ?? "Insert failed";
+    const msg = insertErr instanceof Error ? insertErr.message : String((insertErr as { message?: string })?.message ?? "Insert failed");
     if (msg.includes("DEPENDENCY_CYCLE")) {
       throw new RuleError("Adding this dependency would create a circular reference", "circular_dependency");
     }
@@ -160,18 +166,8 @@ export const POST = route(async ({ actor, params, request }) => {
     if ((insertErr as { code?: string } | null)?.code === "23505") {
       throw new ConflictError("This dependency already exists", "duplicate_dependency");
     }
-    throw new Error(msg);
+    throw insertErr instanceof Error ? insertErr : new Error(msg);
   }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "project.dependency.add",
-    targetType: "project",
-    targetId: params.id,
-    before: null,
-    after: dep,
-  });
 
   return created(dep);
 });

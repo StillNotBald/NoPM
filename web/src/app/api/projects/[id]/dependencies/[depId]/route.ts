@@ -3,7 +3,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NotFoundError } from "@/lib/api/errors";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedDelete } from "@/lib/audit/audited-write";
 import { loadWorkspaceProject } from "../_shared";
 
 export const runtime = "nodejs";
@@ -28,22 +28,16 @@ export const DELETE = route(async ({ actor, params }) => {
   if (findErr) throw new Error(findErr.message);
   if (!dep) throw new NotFoundError("Dependency not found");
 
-  const { error: delErr } = await db
-    .from("project_dependencies")
-    .delete()
-    .eq("id", params.depId)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("project_id", params.id);
-  if (delErr) throw new Error(delErr.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103); the audit
+  // row targets the project, as before.
+  await auditedDelete({
+    table: "project_dependencies",
     actor,
     action: "project.dependency.remove",
     targetType: "project",
-    targetId: params.id,
-    before: dep,
-    after: null,
+    auditTargetId: params.id,
+    id: params.depId,
+    notFoundMessage: "Dependency not found",
   });
 
   return new NextResponse(null, { status: 204 });

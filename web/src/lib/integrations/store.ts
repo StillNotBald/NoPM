@@ -73,6 +73,7 @@ export async function getConnector(workspaceId: string, id: string): Promise<Con
     .select(CONNECTOR_COLUMNS)
     .eq("id", id)
     .eq("workspace_id", workspaceId)
+    .eq("kind", "lark") // a GitHub connector has its own store and routes (lib/integrations/github)
     .maybeSingle();
   if (error) throw error;
   return data ? hydrate(data as Record<string, unknown>) : null;
@@ -92,12 +93,14 @@ export async function getActiveConnector(workspaceId: string, kind: ConnectorRow
   return data ? hydrate(data as Record<string, unknown>) : null;
 }
 
+/** The workspace's Lark connectors. Other kinds (GitHub, lib/integrations/github) have their own store and card. */
 export async function listConnectors(workspaceId: string): Promise<ConnectorRow[]> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("integration_connectors")
     .select(CONNECTOR_COLUMNS)
     .eq("workspace_id", workspaceId)
+    .eq("kind", "lark")
     .order("created_at", { ascending: false });
   if (error) throw error;
   return ((data ?? []) as Record<string, unknown>[]).map(hydrate);

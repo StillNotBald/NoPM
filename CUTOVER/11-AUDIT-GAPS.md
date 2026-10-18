@@ -1,6 +1,6 @@
-# 11 · Audit-gap programme rollout (migrations 0088–0099)
+# 11 · Audit-gap programme rollout (migrations 0088–0105)
 
-**Status: SKELETON, NOT YET RUN.** This file covers waves 1 to 3 of the audit-gap programme (change request CR-2026-10-18-01): migrations 0088–0094 in waves 1 and 2, and 0095–0099 in wave 3. Wave 4 adds its migrations and rows here when it lands, and this runbook grows with them.
+**Status: SKELETON, NOT YET RUN.** This file covers all four waves of the audit-gap programme (change request CR-2026-10-18-01): migrations 0088–0094 in waves 1 and 2, 0095–0099 in wave 3, and 0100–0105 in wave 4. The wave 4 section below is the one to read for the next release window.
 
 It follows [10-COMMON-PATTERN-ANSWERS.md](10-COMMON-PATTERN-ANSWERS.md). Apply that release first. The runner applies by filename, so 0088–0094 land after 0086 in the same window.
 
@@ -75,6 +75,84 @@ Smoke after promote:
 2. `GET /api/cron/snapshots` with `Authorization: Bearer <CRON_SECRET>` returns 200. It writes snapshot rows and one `snapshot.taken` audit row per workspace. A second call the same day writes no new snapshot rows. Without the secret it returns 401.
 3. Open the Budget page. The Forecast and trend card and the Suggested RAG line render at 390 px.
 4. Open Portfolio and check the Contingent tag. Open What changed, and check that Approvals shows All and Mine.
+
+## Wave 4 additions (migrations 0100–0105)
+
+Wave 4 adds six files. If waves 1 to 3 are already applied, the dry run expects 6 files, and the ledger count after the apply is 103 (97 plus six).
+
+| File | What it does | Gap |
+|---|---|---|
+| `20261018000100_approval_tiers.sql` | Adds `workspaces.approval_policy` (default `{}`, meaning every default), with its shape checked by `nopm_approval_policy_valid`. Adds `tier` and `approval_deadline_at` to change requests, deletion requests and rebaselines. Adds the emergency columns to change requests: `is_emergency`, `retro_due_at`, `retro_decided_at` and `retro_outcome`. Tier rules are enforced by triggers and CHECKs. No backfill. | G1, G2, G4, G7 |
+| `20261018000101_approval_timers.sql` | Adds `approval_events`, one row per request and kind, so a second daily run does nothing. Members can read it, and the browser roles cannot write it. Adds `nopm_auto_approve_routine`, which approves a routine request only when the policy turns auto-approve on. | G3, G4 |
+| `20261018000102_deletion_by_request_all.sql` | Adds the target-type CHECK on deletion requests. Adds one commit function per new type (risk, issue, expense, document, milestone). Adds delete triggers on the five tables that refuse a direct delete unless an approved request commits it. See the deploy rule below. | G8 |
+| `20261018000103_mutate_audited.sql` | Adds `nopm_mutate_audited`. It writes one row and its audit row in one transaction, for an allowlisted table only. | M1 |
+| `20261018000104_audit_hash_chain.sql` | Adds `prev_hash`, `row_hash` and `chain_seq` to `audit_log`. A trigger fills them on each insert. Hashes every existing row once. Adds `nopm_audit_verify_chain`. **It holds a lock on `audit_log` for as long as the backfill runs.** | M1, A7 |
+| `20261018000105_github_work_events.sql` | Adds `github` as a connector kind and as an audit channel. Adds an index on `tasks (workspace_id, external_ref)`. Adds `workspaces.work_event_rules` and the `work_events` ledger. Additive, with no backfill. | A1 |
+
+No file here drops a table or a column.
+
+### Release order, in one window
+
+1. **Build, do not alias:** `cd web && vercel deploy --prod --skip-domain`. Note `<NEW_URL>`.
+2. **Backup:** the same dump as before, saved as `backup-pre-0100-<yyyymmdd-hhmm>.sql`. It is private and never committed.
+3. **Dry run:** `node scripts/migrate.mjs --atomic --dry-run`. Expect the 6 files applied, then `ROLLED BACK. Nothing changed.`
+4. **Apply:** `node scripts/migrate.mjs --atomic`, one run for 0100 to 0105. The backfill in 0104 locks `audit_log` while it hashes every row. Start the apply in a quiet period, and do not cancel it part way. On `FAILED` nothing was applied.
+5. **Promote:** `vercel promote <NEW_URL>`, in the same window as step 4. This is required, not optional. Migration 0102 makes the database refuse a direct delete of risks, issues, expenses, documents and milestones. An old build still calls the direct delete, so it fails with a server error once 0102 is live. Move the build straight after the apply.
+6. **Verify (read-only):**
+   ```sql
+   select count(*) from _nopm_migrations;                                                    -- 103 when waves 1 to 4 are all in
+   select column_name from information_schema.columns where table_name = 'change_requests'
+     and column_name in ('tier','approval_deadline_at','is_emergency','retro_due_at','retro_decided_at','retro_outcome'); -- 6 rows
+   select column_name from information_schema.columns where table_name = 'audit_log'
+     and column_name in ('prev_hash','row_hash','chain_seq');                                 -- 3 rows
+   select count(*) from audit_log where row_hash is null;                                     -- 0
+   select to_regclass('approval_events'), to_regclass('work_events');                          -- both not null
+   select conname, convalidated from pg_constraint
+     where conrelid = 'deletion_requests'::regclass and contype = 'c';                        -- every row true; a false row was left NOT VALID and 0102's NOTICE names it
+   ```
+   Any miss: do not promote.
+
+### Deploy rules for wave 4
+
+- **0100 and 0101 before the build serves traffic.** The raise routes write `tier` and `approval_deadline_at`, and the change-control page selects them.
+- **0102 in the same window as the build.** See step 5 above. Rolling the app back after 0102 brings back the old direct delete, which is refused. The new columns stay in place either way.
+- **0103 before the build.** Every converted handler calls the new function. Without it, every create, update and delete in those routes answers 500.
+- **0104 before the build.** The Trust Center badge and the export read the new columns.
+- **0105 before the build.** The connector routes, the audit channel check and the mapping column depend on it.
+
+### Hash chain: keep a head hash outside the database
+
+The chain proves that no row was edited or removed from the middle. It does not prove that a database owner did not rewrite every later hash. Right after the apply, record the newest `row_hash` (the head hash) somewhere the database owner cannot write, such as an email to the owner or a ticket. Run `GET /api/audit/verify` as an admin and note its `head_hash` too. Repeat the record each time an auditor needs the chain checked.
+
+### Seed data and scripts
+
+`web/scripts/seed-documents.mjs` deletes documents with the service role. After 0102 that delete is refused by design, so the script fails at its delete step. Do not work around it with a direct delete. Either remove the seed data through a deletion request, or recreate the development database.
+
+### Scopes in wave 4
+
+- **New request scopes:** `risk:delete:request`, `issue:delete:request`, `expense:delete:request`, `document:delete:request` and `milestone:delete:request`. The older `risk:delete` and `issue:delete` still mean the same as their request scope.
+- **New approve scopes:** `risk:delete:approve`, `issue:delete:approve`, `expense:delete:approve`, `document:delete:approve` and `milestone:delete:approve`. A wildcard never grants them. The agent preset holds none of the delete scopes.
+- **Tokens that deleted these records before lose that right.** `budget:write`, `document:write` and `milestone:write` no longer delete a record. A token that needs to request a deletion must hold the matching request scope by name.
+- **Audit channel `github`** is accepted on the audit filter and export.
+
+### Smoke after promote (wave 4)
+
+1. `GET /api/workspace-settings` returns `approval_policy` with every default filled in. Open Settings at 390 px and check the Approval policy card.
+2. Raise a normal change request on a throwaway project. The response carries `tier` `normal` and an `approval_deadline_at`. Raise an emergency as a manager. The status is `emergency`.
+3. Request deletion of a throwaway risk with a reason. The response is 202, and the risk still exists. A second person approves it, and the risk is then gone.
+4. `GET /api/audit/verify` as an admin returns `ok: true` and a `checked` count.
+5. `GET /api/integrations/cron` with `Authorization: Bearer <CRON_SECRET>` returns a summary that includes `approvals`.
+6. Open Trust Center at 390 px. Check the chain line and press **Verify now**.
+
+### Owner and admin step after release: connect GitHub
+
+Nothing connects to GitHub until an admin does this:
+
+1. Open Integrations and the GitHub card, and press **Connect**. The secret is shown once. Copy it and the webhook address now.
+2. In the GitHub repository, add a webhook. Content type `application/json`. Events: Pull requests and Deployment statuses. Paste the address and the secret.
+3. Link a pull request to a task from the task detail panel, then open the pull request. The card's event list shows the delivery, and the task moves when the mapping says so.
+
+Before release, the local probe `web/scripts/local-db/probe-github.mjs` sends correctly signed test deliveries to a local app. It needs migration 0105 on the local database and exits 0 when every check passes.
 
 ## Hard dependencies
 

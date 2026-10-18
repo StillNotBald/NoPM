@@ -19,16 +19,17 @@
 export const SCOPES = [
   "project:read", "project:write",
   "program:read", "program:write",
-  "milestone:read", "milestone:write",
+  "milestone:read", "milestone:write", "milestone:delete:request", "milestone:delete:approve",
   "task:read", "task:write", "task:delete:request", "task:delete:approve",
   "project:delete:request", "project:delete:approve",
   "sprint:read", "sprint:write",
-  "risk:read", "risk:write", "risk:delete",
-  "issue:read", "issue:write", "issue:delete",
+  "risk:read", "risk:write", "risk:delete", "risk:delete:request", "risk:delete:approve",
+  "issue:read", "issue:write", "issue:delete", "issue:delete:request", "issue:delete:approve",
   "clash:read", "clash:write",
   "resource:read", "resource:write",
   "budget:read", "budget:write",
-  "document:read", "document:write",
+  "expense:delete:request", "expense:delete:approve",
+  "document:read", "document:write", "document:delete:request", "document:delete:approve",
   "change:read", "change:write", "change:decide",
   "rebaseline:approve",
   "decision:read", "decision:write",
@@ -56,9 +57,33 @@ export type Scope = (typeof SCOPES)[number];
 export const PRIVILEGED_SCOPES: readonly Scope[] = [
   "task:delete:approve",
   "project:delete:approve",
+  "risk:delete:approve",
+  "issue:delete:approve",
+  "expense:delete:approve",
+  "document:delete:approve",
+  "milestone:delete:approve",
   "change:decide",
   "rebaseline:approve",
 ];
+
+/**
+ * Deletion is a request for every governed record (audit gap G8, migration 0102):
+ * DELETE /api/<entity>/:id raises a deletion request and a second person approves it.
+ * `risk:delete` and `issue:delete` were the wave-1 scopes for a DIRECT hard delete; the
+ * direct delete no longer exists, so they now mean "may request the deletion" and are
+ * accepted wherever `<entity>:delete:request` is. Tokens minted with them keep working;
+ * no token gains the right to approve. Look the scope up through requestDeleteScopes().
+ */
+export const LEGACY_DELETE_SCOPE_ALIASES: Readonly<Record<string, string>> = {
+  "risk:delete": "risk:delete:request",
+  "issue:delete": "issue:delete:request",
+};
+
+/** The scopes that let a caller REQUEST deletion of this entity (the new scope first, then any legacy alias). */
+export function requestDeleteScopes(entity: string): string[] {
+  const modern = `${entity}:delete:request`;
+  return [modern, ...Object.entries(LEGACY_DELETE_SCOPE_ALIASES).filter(([, to]) => to === modern).map(([from]) => from)];
+}
 
 /** Resource prefixes that support a `<resource>:*` wildcard grant. */
 export const SCOPE_RESOURCES: ReadonlySet<string> = new Set(
@@ -88,8 +113,9 @@ export function isValidScope(scope: string): boolean {
  * A5), so a freshly-minted agent PAT can read the whole workspace and create/edit
  * tasks, risks, issues and projects but can never request/approve a deletion,
  * approve a rebaseline, decide a change request, or write anything else. It holds NO
- * delete scope: hard DELETE of a risk or issue needs `risk:delete` / `issue:delete`
- * (not in this preset). `project:write` can LOCK a project, never unlock (Q-GOV-10). Derived from SCOPES (not hand-listed) so it can never drift
+ * delete scope: raising a deletion request for a risk or issue needs `risk:delete:request`
+ * (or the older `risk:delete`; likewise for issues), none of which is in this preset, and
+ * approving one needs the exact `<entity>:delete:approve`. `project:write` can LOCK a project, never unlock (Q-GOV-10). Derived from SCOPES (not hand-listed) so it can never drift
  * onto a scope the registry doesn't recognise; scopes.test.ts asserts the
  * least-privilege shape directly against this constant.
  */

@@ -59,7 +59,7 @@ export async function gatherDigestData(
     return n ?? 0;
   };
 
-  const [workspaceName, projects, milestones, openHighRisks, pendingApprovals, stale] = await Promise.all([
+  const [workspaceName, projects, milestones, openHighRisks, pendingApprovals, retroOverdue, stale] = await Promise.all([
     safe("workspace", "Workspace", async () => {
       const { data, error } = await db.from("workspaces").select("name").eq("id", workspaceId).maybeSingle();
       if (error) throw error;
@@ -94,11 +94,17 @@ export async function gatherDigestData(
     safe("approvals", 0, async () => {
       const [deletions, changes, rebaselines] = await Promise.all([
         count("deletion_requests", (q) => q.eq("status", "pending")),
-        count("change_requests", (q) => q.in("status", ["raised", "under_review"])),
+        count("change_requests", (q) => q.in("status", ["raised", "under_review", "emergency"])),
         count("rebaselines", (q) => q.eq("status", "pending_approval")),
       ]);
       return deletions + changes + rebaselines;
     }),
+    // G4: emergency changes already live whose retro approval is past its due date.
+    safe("retro", 0, () =>
+      count("change_requests", (q) =>
+        q.eq("is_emergency", true).is("retro_decided_at", null).lt("retro_due_at", now.toISOString()),
+      ),
+    ),
     // The "Stale items" line (R-141): the same threshold the kanban flag and the nudges use.
     safe("stale", { staleDays: 14, staleItems: 0 }, async () => {
       const { stale_days } = await getNudgeSettings(workspaceId);
@@ -132,5 +138,6 @@ export async function gatherDigestData(
     pendingApprovals,
     staleItems: stale.staleItems,
     staleDays: stale.staleDays,
+    retroOverdue,
   };
 }
