@@ -26,6 +26,8 @@ export type AnchorStatus = {
   since: string | null;
   /** Short secret-free reason for mismatch and unreachable. */
   reason: string | null;
+  /** When the owner last re-baselined this workspace's anchor after a restore (a `reset` row), or null. */
+  reset_at: string | null;
 };
 
 export const NOT_ANCHORED: AnchorStatus = {
@@ -36,6 +38,7 @@ export const NOT_ANCHORED: AnchorStatus = {
   rows_behind: null,
   since: null,
   reason: null,
+  reset_at: null,
 };
 
 export type LiveChain = {
@@ -53,6 +56,7 @@ export function compareAnchor(anchor: AnchorRecord | null, live: LiveChain): Anc
     row_count: anchor.row_count,
     rows_behind: null,
     since: null,
+    reset_at: anchor.baseline_reset_at ?? null,
   };
   if (live.headSeq === null || live.headSeq < anchor.chain_seq) {
     return {
@@ -80,5 +84,6 @@ export function unreachableStatus(reason: string, since: string | null = null, l
     rows_behind: null,
     since,
     reason,
+    reset_at: null,
   };
 }

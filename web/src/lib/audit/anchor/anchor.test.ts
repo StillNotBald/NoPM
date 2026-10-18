@@ -227,3 +227,45 @@ describe("peekAnchor (audit pack)", () => {
     expect(db.receiptWrites).toBe(0);
   });
 });
+
+describe("reset rows (W2-08, owner decision D20)", () => {
+  const reset = (seq: number, hash: string, at = "2026-10-20T03:00:00.000Z") => ({ ...rec(seq, hash), source: "reset", baseline_reset_at: at });
+
+  it("a restored chain below the old anchor is a mismatch until a reset baseline exists, then anchored", async () => {
+    sink.seed(rec(10));
+    db.audit = db.audit.filter((r) => (r.chain_seq as number) <= 6); // restored from an older backup
+    expect((await evaluateAnchor(ctx())).status.state).toBe("mismatch");
+    sink.records.clear();
+    sink.seed(reset(6, "h6")); // the sink reports only rows from the newest reset on
+    const ev = await evaluateAnchor(ctx());
+    expect(ev.status).toMatchObject({ state: "anchored", chain_seq: 6, reset_at: "2026-10-20T03:00:00.000Z" });
+  });
+
+  it("a reset never hides a mismatch that happened AFTER it", async () => {
+    sink.seed(reset(6, "h6"));
+    db.audit = db.audit.filter((r) => (r.chain_seq as number) <= 6);
+    db.audit.find((r) => r.chain_seq === 6)!.row_hash = "tampered-after-reset";
+    expect((await evaluateAnchor(ctx())).status.state).toBe("mismatch");
+  });
+
+  it("clears an open mismatch streak when a reset is recorded after the streak began, and shows when", async () => {
+    sink.seed(rec(10));
+    db.audit = db.audit.filter((r) => (r.chain_seq as number) <= 6);
+    await recordEvaluation(ctx(), await evaluateAnchor(ctx()));
+    expect(db.receipts.get(WS)).toMatchObject({ status: "mismatch", streak_started_at: NOW.toISOString() });
+    sink.records.clear();
+    sink.seed(reset(6, "h6", "2026-10-20T03:00:00.000Z"));
+    await recordEvaluation({ ...ctx(), now: new Date("2026-10-20T04:00:00Z") }, await evaluateAnchor(ctx()));
+    expect(db.receipts.get(WS)).toMatchObject({ status: "anchored", chain_seq: 6, reset_at: "2026-10-20T03:00:00.000Z", streak_started_at: null });
+    expect(actions()).toEqual(["audit.anchor_mismatch"]); // no extra row for the reset itself
+  });
+
+  it("an OLD reset (before the streak) does not clear a later mismatch", async () => {
+    sink.seed(reset(6, "h6", "2026-10-01T00:00:00.000Z"));
+    db.audit.find((r) => r.chain_seq === 6)!.row_hash = "tampered";
+    await recordEvaluation(ctx(), await evaluateAnchor(ctx()));
+    await recordEvaluation(ctx(), await evaluateAnchor(ctx()));
+    expect(db.receipts.get(WS)).toMatchObject({ status: "mismatch" });
+    expect(actions()).toEqual(["audit.anchor_mismatch"]);
+  });
+});

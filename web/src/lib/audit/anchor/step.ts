@@ -1,7 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { systemActor } from "@/lib/audit/write";
 import { sanitizeError } from "@/lib/integrations/secrets";
-import { anchorHead, evaluateAnchor, recordBad, recordEvaluation, verifyWindow, type AnchorCtx } from "./anchor";
+import { anchorHead, evaluateAnchor, recordBad, recordEvaluation, verifyWindow, windowCoversAnchor, type AnchorCtx } from "./anchor";
 import { getAnchorSink } from "./get-sink";
 import { readLiveHead } from "./live";
 import { safeAnchorError, type AnchorSink } from "./sink";
@@ -23,8 +23,8 @@ import { safeAnchorError, type AnchorSink } from "./sink";
  */
 export const ANCHOR_STEP_BUDGET_MS = 8_000;
 const PAGE = 200;
-const VERIFY_MAX_LIMIT = 200_000;
-const VERIFY_DEFAULT_LIMIT = 50_000;
+/** The database function caps a window at one million rows. */
+const VERIFY_MAX_LIMIT = 1_000_000;
 
 export type AnchorStepSummary = {
   /** False when NOPM_ANCHOR_DB_URL is unset: the step did nothing. */
@@ -89,30 +89,39 @@ export async function runAnchorStep(
       continue;
     }
     try {
-      if (sinkDown) {
-        await recordBad(ctx, "failed", downReason || "the anchor database is unreachable");
-        summary.failed += 1;
-        continue;
-      }
       const head = await readLiveHead(db, workspaceId);
-      if (!head) continue; // an empty log has nothing to anchor
       const known = latest.ok ? (latest.records.get(workspaceId) ?? null) : null;
 
-      // Compare the live chain with the newest anchor first: a mismatch is never anchored over.
+      // Compare the live chain with the newest anchor FIRST, even for an emptied log (an anchored
+      // workspace whose rows were all deleted is a mismatch, W2-03), and never anchor over a mismatch.
+      // When the anchors could not be read at all this records the failure for every workspace.
       const ev = await evaluateAnchor(ctx, latest, head);
       const status = await recordEvaluation(ctx, ev);
       if (status.state === "mismatch") {
         summary.mismatched += 1;
         continue;
       }
-      if (known && known.chain_seq === head.seq && known.head_hash === head.hash) {
+      if (status.state === "unreachable") {
+        summary.failed += 1;
+        continue;
+      }
+      if (!head) continue; // an empty log that was never anchored has nothing to anchor
+      const upToDate = !!known && known.chain_seq === head.seq && known.head_hash === head.hash;
+      if (upToDate) {
         await anchorHead(ctx, known); // already anchored: clears a stale failure streak, writes nothing else
         summary.skipped += 1;
         continue;
       }
+      if (sinkDown) {
+        // Only workspaces that needed a write are marked failed (W2-05); the quiet ones above were skipped.
+        await recordBad(ctx, "failed", downReason || "the anchor database is unreachable");
+        summary.failed += 1;
+        continue;
+      }
 
-      // Verify only the rows since the last anchor (plus the link row); a first anchor checks the newest window.
-      const limit = known ? Math.min(Math.max(head.seq - known.chain_seq + 1, 1), VERIFY_MAX_LIMIT) : VERIFY_DEFAULT_LIMIT;
+      // Verify the rows since the last anchor (plus the link row); a first anchor checks the WHOLE chain,
+      // and a head is anchored only when the verified window reaches the previous anchor or row 1 (W2-04).
+      const limit = known ? Math.min(Math.max(head.seq - known.chain_seq + 1, 1), VERIFY_MAX_LIMIT) : Math.min(head.seq, VERIFY_MAX_LIMIT);
       const verified = await verifyWindow(db, workspaceId, limit);
       if (!verified.ok) {
         await recordBad(ctx, "mismatch", "the audit chain does not verify; nothing was anchored", {
@@ -120,6 +129,11 @@ export async function runAnchorStep(
           window_rows: limit,
         });
         summary.mismatched += 1;
+        continue;
+      }
+      if (!windowCoversAnchor(verified.firstSeq, known?.chain_seq ?? null)) {
+        summary.failed += 1; // the check did not cover enough to anchor on; tomorrow's run tries again
+        console.error("[anchor] verified window too short to anchor on; skipped");
         continue;
       }
 

@@ -19,6 +19,8 @@
 --   chain_seq/head_hash/row_count/anchored_at   the last SUCCESSFUL anchor (kept while a streak runs)
 --   error_text         short message of the current failure (never a connection string)
 --   streak_started_at  when the current non-anchored status began; null while status = 'anchored'
+--   reset_at           when the owner last re-baselined the anchor after a legitimate restore (a 'reset'
+--                      row in the anchor database, CUTOVER/13); display only, null if never
 --
 -- ACCESS (as 0048/0101). RLS on; select for an admin or manager of the workspace; no write policy;
 -- insert, update and delete revoked from anon and authenticated, so only the service role writes.
@@ -39,6 +41,7 @@ create table if not exists audit_anchor_receipts (
   anchored_at       timestamptz,
   error_text        text,
   streak_started_at timestamptz,
+  reset_at          timestamptz,
   updated_at        timestamptz not null default now()
 );
 

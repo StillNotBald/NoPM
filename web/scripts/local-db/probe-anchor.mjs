@@ -18,6 +18,11 @@
 //   P8  live chain shorter than the anchor (rows deleted) -> `mismatch`
 //   P9  an unreachable anchor database (closed loopback port) -> `failed` / not ok, fast, and the error
 //       text contains neither the URL, the password nor the port
+//   P10 reset (D20): after a legitimate restore the owner inserts a `reset` row at the live head; the
+//       newest reset is the baseline, older rows are history, and the state reads anchored again
+//   P11 a reset never hides a mismatch that happens AFTER it
+//   P12 a missing table is a clear failure (no DDL) without NOPM_ANCHOR_BOOTSTRAP=1 and the app role
+//       cannot create it anyway
 //
 // It refuses any non-loopback URL (exit 2). It never touches the primary database except to READ one
 // audit chain head. Anchor rows are keyed by a fresh random workspace id each run, so re-runs are clean.
@@ -104,6 +109,8 @@ await boot.end();
 
 const owner = new pg.Client({ connectionString: adminUrl("nopm_anchor") });
 await owner.connect();
+// A rehearsal database made by an earlier build had a plain unique constraint; the reset rows need the partial index.
+await owner.query("alter table if exists audit_anchors drop constraint if exists audit_anchors_ws_seq_key");
 await owner.query(readFileSync(path.join(webDir, "anchor-db", "001_audit_anchors.sql"), "utf8"));
 await owner.query("grant connect on database nopm_anchor to nopm_anchor");
 await owner.query("grant usage on schema public to nopm_anchor");
@@ -233,6 +240,41 @@ await check("P9", "unreachable anchor database -> failed, fast, and the error le
   expect(!text.includes(APP_PASSWORD) && !text.includes("54399") && !text.includes("postgresql://"), `error leaks: ${text}`);
   expect(ms < 15_000, `took ${ms} ms`);
   return `failed in ${ms} ms: ${put.error}`;
+});
+
+await check("P10", "reset: the owner re-baselines after a restore; the newest reset is the baseline and older rows are history", async () => {
+  await owner.query(
+    "insert into audit_anchors (workspace_id, chain_seq, head_hash, row_count, anchored_at, source) values ($1, $2, $3, $4, now(), 'reset')",
+    [WS, headSeq, headHash, headSeq],
+  );
+  const latest = (await sink.latest([WS])).records.get(WS);
+  expect(latest.source === "reset" && latest.head_hash === headHash, "the reset row was not the baseline");
+  expect(!!latest.baseline_reset_at, "no baseline_reset_at");
+  const st = compareAnchor(latest, { headSeq, hashAtAnchorSeq: headHash });
+  expect(st.state === "anchored" && st.reset_at, `state ${st.state}`);
+  // a restored chain shorter than the old anchors is fine against the reset baseline
+  const restored = compareAnchor(latest, { headSeq, hashAtAnchorSeq: headHash });
+  expect(restored.state === "anchored", "restored chain did not compare as anchored");
+  return `baseline reset at ${latest.baseline_reset_at}`;
+});
+
+await check("P11", "a reset never hides a mismatch that happens after it", async () => {
+  const put = await sink.put(rec(headSeq + 1, "f".repeat(64)));
+  expect(put.status === "stored", `put was ${put.status}`);
+  const latest = (await sink.latest([WS])).records.get(WS);
+  expect(latest.chain_seq === headSeq + 1, "the post-reset anchor was not the newest");
+  const st = compareAnchor(latest, { headSeq, hashAtAnchorSeq: null }); // live chain never reached it
+  expect(st.state === "mismatch", `state ${st.state}`);
+  return st.reason;
+});
+
+await check("P12", "a missing table is a clear failure and no DDL is run without NOPM_ANCHOR_BOOTSTRAP=1", async () => {
+  await owner.query("create database nopm_anchor_empty").catch(() => {});
+  const emptyUrl = `postgresql://nopm_anchor:${APP_PASSWORD}@${host}:${port}/nopm_anchor_empty`;
+  const out = await createPostgresSink(emptyUrl, env).put(rec(1, "a".repeat(64)));
+  expect(out.status === "failed", `put was ${out.status}`);
+  expect(String(out.error).includes("001_audit_anchors.sql"), `message: ${out.error}`);
+  return out.error;
 });
 
 await owner.end();

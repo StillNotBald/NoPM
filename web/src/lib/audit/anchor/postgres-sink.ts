@@ -1,6 +1,6 @@
 import pg, { type Client, type ClientConfig } from "pg";
 import { ANCHOR_TABLE_SQL } from "./bootstrap-sql";
-import { safeAnchorError, type AnchorRecord, type AnchorSink, type LatestResult, type PutResult } from "./sink";
+import { AnchorSafeError, safeAnchorError, type AnchorRecord, type AnchorSink, type LatestResult, type PutResult } from "./sink";
 
 /**
  * The Postgres anchor sink (R-168): a SECOND database, reached by NOPM_ANCHOR_DB_URL, holding the
@@ -8,11 +8,21 @@ import { safeAnchorError, type AnchorRecord, type AnchorSink, type LatestResult,
  * imported here and nowhere else in the app.
  *
  * Each call opens ONE short-lived client and closes it, with a 5 s connect timeout and a 5 s
- * statement timeout. TLS is always on (encrypted, certificate not verified, as the migration runner
- * does for hosted Postgres; set NOPM_ANCHOR_SSL_VERIFY=1 to verify). TLS may be switched off only for
- * a loopback host AND NOPM_ANCHOR_ALLOW_PLAINTEXT_LOOPBACK=1, which the local rehearsal sets and
- * production never does. A connection string is never logged or returned: errors pass through
- * safeAnchorError.
+ * statement timeout. TLS is always on and the certificate IS verified (a forged "latest" from a
+ * network attacker would otherwise hide a mismatch); NOPM_ANCHOR_SSL_VERIFY=0 opts out for a provider
+ * whose CA the runtime does not trust. TLS may be switched off only for a loopback host AND
+ * NOPM_ANCHOR_ALLOW_PLAINTEXT_LOOPBACK=1, which the local rehearsal sets and production never does.
+ *
+ * The table is created on first use ONLY when NOPM_ANCHOR_BOOTSTRAP=1 (a rehearsal with an owner
+ * role). With the production insert-and-select role, or without the flag, a missing table is an
+ * error that names the file to run: the app must never hold a role that can drop the append-only
+ * trigger (D12).
+ *
+ * `latest` honours a `reset` row (CUTOVER/13): the newest row with source = 'reset' is the baseline
+ * and rows inserted before it are history, so after a legitimate restore the owner can re-baseline;
+ * anything that diverges AFTER the reset is still a mismatch.
+ *
+ * A connection string is never logged or returned: errors pass through safeAnchorError.
  */
 export const ANCHOR_CONNECT_TIMEOUT_MS = 5_000;
 export const ANCHOR_STATEMENT_TIMEOUT_MS = 5_000;
@@ -43,7 +53,7 @@ export function anchorClientConfig(url: string, env: Env = process.env): { confi
   return {
     config: {
       connectionString: parsed.toString(),
-      ssl: plaintext ? false : { rejectUnauthorized: env.NOPM_ANCHOR_SSL_VERIFY === "1" },
+      ssl: plaintext ? false : { rejectUnauthorized: env.NOPM_ANCHOR_SSL_VERIFY !== "0" },
       connectionTimeoutMillis: ANCHOR_CONNECT_TIMEOUT_MS,
       statement_timeout: ANCHOR_STATEMENT_TIMEOUT_MS,
       query_timeout: ANCHOR_STATEMENT_TIMEOUT_MS,
@@ -58,6 +68,8 @@ type Row = {
   head_hash: string;
   row_count: string | number;
   anchored_at: Date | string;
+  source?: string;
+  reset_at?: Date | string | null;
 };
 
 function toRecord(r: Row): AnchorRecord {
@@ -67,15 +79,17 @@ function toRecord(r: Row): AnchorRecord {
     head_hash: r.head_hash,
     row_count: Number(r.row_count),
     anchored_at: r.anchored_at instanceof Date ? r.anchored_at.toISOString() : new Date(r.anchored_at).toISOString(),
+    source: r.source ?? "nopm",
+    baseline_reset_at: r.reset_at == null ? null : r.reset_at instanceof Date ? r.reset_at.toISOString() : new Date(r.reset_at).toISOString(),
   };
 }
 
-const COLUMNS = "workspace_id::text as workspace_id, chain_seq, head_hash, row_count, anchored_at";
+const COLUMNS = "workspace_id::text as workspace_id, chain_seq, head_hash, row_count, anchored_at, source";
 
 export function createPostgresSink(url: string, env: Env = process.env): AnchorSink {
   async function withClient<T>(fn: (c: Client) => Promise<T>): Promise<T> {
     const cfg = anchorClientConfig(url, env);
-    if ("error" in cfg) throw new Error(cfg.error);
+    if ("error" in cfg) throw new AnchorSafeError(cfg.error);
     const client = new pg.Client(cfg.config);
     await client.connect();
     try {
@@ -91,12 +105,13 @@ export function createPostgresSink(url: string, env: Env = process.env): AnchorS
       return await fn();
     } catch (err) {
       if ((err as { code?: string }).code !== "42P01") throw err;
+      if (env.NOPM_ANCHOR_BOOTSTRAP !== "1") {
+        throw new AnchorSafeError("the audit_anchors table does not exist: run web/anchor-db/001_audit_anchors.sql once as the anchor database owner");
+      }
       try {
         await c.query(ANCHOR_TABLE_SQL);
       } catch {
-        throw new Error(
-          "the audit_anchors table does not exist and this role cannot create it: run web/anchor-db/001_audit_anchors.sql once as the database owner",
-        );
+        throw new AnchorSafeError("the audit_anchors table does not exist and this role cannot create it: run web/anchor-db/001_audit_anchors.sql as the owner");
       }
       return fn();
     }
@@ -112,12 +127,12 @@ export function createPostgresSink(url: string, env: Env = process.env): AnchorS
             const ins = await c.query(
               `insert into audit_anchors (workspace_id, chain_seq, head_hash, row_count, anchored_at, source)
                values ($1, $2, $3, $4, $5, 'nopm')
-               on conflict (workspace_id, chain_seq) do nothing`,
+               on conflict (workspace_id, chain_seq) where source <> 'reset' do nothing`,
               [record.workspace_id, record.chain_seq, record.head_hash, record.row_count, record.anchored_at],
             );
             // Read it back: the comparison, not the insert, is what makes this an anchor.
             const back = await c.query<Row>(
-              `select ${COLUMNS} from audit_anchors where workspace_id = $1 and chain_seq = $2`,
+              `select ${COLUMNS} from audit_anchors where workspace_id = $1 and chain_seq = $2 and source <> 'reset'`,
               [record.workspace_id, record.chain_seq],
             );
             const stored = back.rows[0] ? toRecord(back.rows[0]) : null;
@@ -137,10 +152,18 @@ export function createPostgresSink(url: string, env: Env = process.env): AnchorS
         return await withClient((c) =>
           withTable(c, async (): Promise<LatestResult> => {
             const res = await c.query<Row>(
-              `select distinct on (workspace_id) ${COLUMNS}
-                 from audit_anchors
-                where workspace_id = any($1::uuid[])
-                order by workspace_id, chain_seq desc`,
+              `with base as (
+                 select distinct on (workspace_id) workspace_id, id as rid, recorded_at as reset_at
+                   from audit_anchors
+                  where source = 'reset' and workspace_id = any($1::uuid[])
+                  order by workspace_id, id desc
+               )
+               select distinct on (a.workspace_id)
+                      a.workspace_id::text as workspace_id, a.chain_seq, a.head_hash, a.row_count, a.anchored_at, a.source, b.reset_at
+                 from audit_anchors a
+                 left join base b on b.workspace_id = a.workspace_id
+                where a.workspace_id = any($1::uuid[]) and (b.rid is null or a.id >= b.rid)
+                order by a.workspace_id, a.chain_seq desc`,
               [workspaceIds],
             );
             return { ok: true, records: new Map(res.rows.map((r) => [r.workspace_id, toRecord(r)])) };

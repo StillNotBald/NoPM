@@ -73,7 +73,7 @@ beforeEach(() => {
   h.order.length = 0;
   h.gate = { allowed: true, retry_after_seconds: 0 };
   h.last = { data: null, error: null };
-  h.verify.mockResolvedValue({ data: [{ ok: true, checked: "42", first_bad_id: null, first_bad_at: null }], error: null });
+  h.verify.mockResolvedValue({ data: [{ ok: true, checked: "42", first_bad_id: null, first_bad_at: null, first_seq: 1 }], error: null });
   as({});
 });
 
@@ -198,7 +198,7 @@ const audited = () => h.writeAudit.mock.calls.map((c) => c[0].action);
 describe("GET /api/audit/verify: external anchor", () => {
   it("with NOPM_ANCHOR_DB_URL unset (sink none) says not_anchored, writes nothing, and is an all-clear", async () => {
     const { data } = await (await call()).json();
-    expect(data.anchor).toEqual({ state: "not_anchored", chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null });
+    expect(data.anchor).toEqual({ state: "not_anchored", chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null, reset_at: null });
     expect(data).toMatchObject({ ok: true, chain_ok: true, all_clear: true });
     expect(h.writeAudit.mock.calls[0][0].after.anchor).toMatchObject({ state: "not_anchored", chain_seq: null });
     expect(h.receiptSaves).toHaveLength(0);
@@ -316,5 +316,41 @@ describe("GET /api/audit/verify: external anchor", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await call();
     expect(res.status).toBe(200);
+  });
+});
+
+describe("GET /api/audit/verify: anchoring only on a window that reaches the previous anchor (W2-04)", () => {
+  const verifyFrom = (first_seq: number) =>
+    h.verify.mockResolvedValue({ data: [{ ok: true, checked: 1, first_bad_id: null, first_bad_at: null, first_seq }], error: null });
+
+  it("?limit=1 passes but is NOT anchored: the window starts at the head, not at the previous anchor", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(stored({ chain_seq: 4, head_hash: "old" }));
+    h.hashAt[4] = "old";
+    verifyFrom(10);
+    const { data } = await (await call("?limit=1")).json();
+    expect(data).toMatchObject({ ok: true, chain_ok: true });
+    expect(sink.put).not.toHaveBeenCalled();
+    expect(data.anchor.state).toBe("behind");
+  });
+
+  it("a window that starts at the previous anchor is anchored", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(stored({ chain_seq: 4, head_hash: "old" }));
+    h.hashAt[4] = "old";
+    verifyFrom(4);
+    await call();
+    expect(sink.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("a first anchor needs the window to reach row 1", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(null);
+    verifyFrom(5001);
+    await call();
+    expect(sink.put).not.toHaveBeenCalled();
+    verifyFrom(1);
+    await call();
+    expect(sink.put).toHaveBeenCalledTimes(1);
   });
 });

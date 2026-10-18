@@ -166,3 +166,50 @@ describe("runAnchorStep (daily cron, R-168 / D11)", () => {
     expect(out).toMatchObject({ failed: 1, anchored: 1 });
   });
 });
+
+describe("runAnchorStep: review fixes", () => {
+  it("W2-03: an anchored workspace whose audit rows were ALL deleted is a mismatch, not a silent skip", async () => {
+    db.workspaces.push(A);
+    sink.seed(rec(A, 10));
+    const out = await runAnchorStep(NOW, FAR(), { sink });
+    expect(out).toMatchObject({ mismatched: 1, anchored: 0 });
+    expect(actions()).toEqual(["audit.anchor_mismatch@a"]);
+    expect(sink.putCalls).toHaveLength(0);
+  });
+
+  it("W2-05: after a failed put, workspaces whose head is already anchored are skipped, not marked failed", async () => {
+    db.grow(A, 3);
+    db.grow(B, 3);
+    db.grow(C, 3);
+    sink.seed(rec(A, 1)); // needs a write -> the put fails
+    sink.seed(rec(B, 3)); // up to date
+    sink.seed(rec(C, 1)); // needs a write -> marked failed without trying
+    sink.failPut = "timeout";
+    const out = await runAnchorStep(NOW, FAR(), { sink });
+    expect(out).toMatchObject({ failed: 2, skipped: 1 });
+    expect(sink.putCalls).toHaveLength(1);
+    expect(actions().sort()).toEqual(["audit.anchor_failed@a", "audit.anchor_failed@c"]);
+    expect(db.receipts.get(B)?.status).not.toBe("failed");
+  });
+
+  it("W2-04: a first anchor verifies the WHOLE chain (window = head chain_seq), and a follow-up only the rows since", async () => {
+    db.grow(A, 120);
+    await runAnchorStep(NOW, FAR(), { sink });
+    expect(db.verifyCalls[0]).toEqual({ p_workspace_id: A, p_from: null, p_limit: 120 });
+    expect(sink.putCalls).toHaveLength(1);
+  });
+
+  it("W2-04: a verified window that does not reach the previous anchor is not anchored on", async () => {
+    db.grow(A, 20);
+    sink.seed(rec(A, 5));
+    const real = db.rpc.bind(db);
+    db.rpc = async (name, args) => {
+      const r = await real(name, args);
+      (r.data as { first_seq: number }[])[0].first_seq = 18; // the check started after the anchor
+      return r;
+    };
+    const out = await runAnchorStep(NOW, FAR(), { sink });
+    expect(out.anchored).toBe(0);
+    expect(sink.putCalls).toHaveLength(0);
+  });
+});

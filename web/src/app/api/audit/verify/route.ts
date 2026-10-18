@@ -4,7 +4,8 @@ import { ok, validationError } from "@/lib/api/response";
 import { ScopeError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
-import { anchorHead, evaluateAnchor, recordEvaluation } from "@/lib/audit/anchor/anchor";
+import { anchorHead, evaluateAnchor, recordEvaluation, windowCoversAnchor } from "@/lib/audit/anchor/anchor";
+import { safeAnchorError } from "@/lib/audit/anchor/sink";
 import { getAnchorSink } from "@/lib/audit/anchor/get-sink";
 import type { AnchorStatus } from "@/lib/audit/anchor/compare";
 
@@ -154,13 +155,17 @@ export const GET = route(async ({ actor, request }) => {
 
   // Anchor the head that includes the verify row, only when the chain verified and nothing diverged.
   let anchor: AnchorStatus = beforeStatus;
-  if (sink.kind !== "none" && chainOk && !mismatchBefore && beforeStatus.state !== "unreachable") {
+  // ...and only when the window that was checked reaches back to the previous anchor or to row 1 (W2-04):
+  // `?limit=1` must not put "anchored" on a chain nobody checked end to end.
+  const firstSeq = res.first_seq == null ? null : Number(res.first_seq);
+  const covers = windowCoversAnchor(firstSeq, before.latest?.chain_seq ?? null);
+  if (sink.kind !== "none" && chainOk && covers && !mismatchBefore && beforeStatus.state !== "unreachable") {
     try {
       const out = await anchorHead(anchorCtx, before.latest);
       if (out.outcome !== "disabled" && out.outcome !== "empty") anchor = out.status;
     } catch (err) {
       // Fail-open: the verify itself succeeded; an anchor that could not run is reported as not done.
-      console.error("[nopm] audit anchor could not run:", err instanceof Error ? err.message : "unknown error");
+      console.error("[nopm] audit anchor could not run:", safeAnchorError(err));
     }
   }
 
@@ -176,6 +181,7 @@ export const GET = route(async ({ actor, request }) => {
       row_count: anchor.row_count,
       rows_behind: anchor.rows_behind,
       since: anchor.since,
+      reset_at: anchor.reset_at,
     },
   });
 });

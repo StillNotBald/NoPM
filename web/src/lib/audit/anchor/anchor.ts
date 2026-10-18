@@ -112,8 +112,12 @@ export async function recordEvaluation(ctx: AnchorCtx, ev: Evaluation): Promise<
     if (prev?.status === "failed") return status;
     // A mismatch (including "the chain did not verify") is cleared only by a NEWER anchor than the one
     // known when it was recorded, for instance one the owner recorded by hand after investigating.
-    if (prev?.status === "mismatch" && !(prev.chain_seq !== null && ev.latest.chain_seq > prev.chain_seq)) return status;
-    if (!prev || prev.status !== "anchored" || prev.chain_seq !== ev.latest.chain_seq) {
+    if (prev?.status === "mismatch") {
+      const newer = prev.chain_seq !== null && ev.latest.chain_seq > prev.chain_seq;
+      const resetSince = !!ev.latest.baseline_reset_at && !!prev.streak_started_at && ev.latest.baseline_reset_at > prev.streak_started_at;
+      if (!newer && !resetSince) return status;
+    }
+    if (!prev || prev.status !== "anchored" || prev.chain_seq !== ev.latest.chain_seq || prev.reset_at !== (ev.latest.baseline_reset_at ?? null)) {
       await saveReceipt(ctx.db, ctx.workspaceId, {
         status: "anchored",
         chain_seq: ev.latest.chain_seq,
@@ -122,6 +126,7 @@ export async function recordEvaluation(ctx: AnchorCtx, ev: Evaluation): Promise<
         anchored_at: ev.latest.anchored_at,
         error_text: null,
         streak_started_at: null,
+        reset_at: ev.latest.baseline_reset_at ?? null,
       });
     }
   }
@@ -226,7 +231,7 @@ export async function anchorHead(ctx: AnchorCtx, latest: AnchorRecord | null): P
     }, prev);
     return {
       outcome: "mismatch",
-      status: { state: "mismatch", chain_seq: put.stored.chain_seq, anchored_at: put.stored.anchored_at, row_count: put.stored.row_count, rows_behind: null, since, reason },
+      status: { state: "mismatch", chain_seq: put.stored.chain_seq, anchored_at: put.stored.anchored_at, row_count: put.stored.row_count, rows_behind: null, since, reason, reset_at: latest?.baseline_reset_at ?? null },
     };
   }
 
@@ -254,9 +259,21 @@ export async function peekAnchor(db: Db, sink: AnchorSink, workspaceId: string):
  * Recompute the chain over the newest `limit` rows (the database function of migration 0104, read only).
  * The cron verifies only the rows since the last anchor, so `limit` is "rows since the anchor plus the link row".
  */
-export async function verifyWindow(db: Db, workspaceId: string, limit: number): Promise<{ ok: boolean; firstBadId: string | null }> {
+export async function verifyWindow(db: Db, workspaceId: string, limit: number): Promise<{ ok: boolean; firstBadId: string | null; firstSeq: number | null }> {
   const { data, error } = await db.rpc("nopm_audit_verify_chain", { p_workspace_id: workspaceId, p_from: null, p_limit: limit });
   if (error) throw new Error(`chain verification failed to run: ${error.message}`);
-  const res = (Array.isArray(data) ? data[0] : data) as { ok?: boolean; first_bad_id?: string | null } | undefined;
-  return { ok: res?.ok === true, firstBadId: res?.first_bad_id ?? null };
+  const res = (Array.isArray(data) ? data[0] : data) as { ok?: boolean; first_bad_id?: string | null; first_seq?: number | string | null } | undefined;
+  return { ok: res?.ok === true, firstBadId: res?.first_bad_id ?? null, firstSeq: res?.first_seq == null ? null : Number(res.first_seq) };
+}
+
+/**
+ * May a head be anchored on the strength of a verified window? Only when the window reached back to
+ * the previous anchor (the anchored row is then checked against the live chain by the comparison and
+ * everything after it by the window) or to row 1 (the whole chain). A partial check such as
+ * `?limit=1` must not put "anchored" on a chain nobody checked end to end (W2-04).
+ */
+export function windowCoversAnchor(firstSeq: number | null, previousAnchorSeq: number | null): boolean {
+  if (firstSeq === null) return false;
+  if (firstSeq <= 1) return true;
+  return previousAnchorSeq !== null && firstSeq <= previousAnchorSeq;
 }

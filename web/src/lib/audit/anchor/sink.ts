@@ -17,6 +17,10 @@ export type AnchorRecord = {
   row_count: number;
   /** ISO time the anchor was taken. */
   anchored_at: string;
+  /** Where the row came from: 'nopm' (this app) or 'reset' (the owner re-baselined after a restore). */
+  source?: string;
+  /** Set by the sink on `latest`: when the baseline `reset` row this record follows was recorded, if any. */
+  baseline_reset_at?: string | null;
 };
 
 export type PutResult =
@@ -44,15 +48,43 @@ export interface AnchorSink {
   latest(workspaceIds: readonly string[]): Promise<LatestResult>;
 }
 
-/** A short, secret-free message for a log line, a receipt or an audit row. */
+/** An error whose text we wrote ourselves and know holds no host, role or URL: passed through as is. */
+export class AnchorSafeError extends Error {}
+
+const PHRASES: Record<string, string> = {
+  ENOTFOUND: "DNS lookup failed",
+  EAI_AGAIN: "DNS lookup failed",
+  ECONNREFUSED: "connection refused",
+  ECONNRESET: "connection reset",
+  ETIMEDOUT: "timed out",
+  EHOSTUNREACH: "host unreachable",
+  ENETUNREACH: "network unreachable",
+  "28P01": "login refused",
+  "28000": "login refused",
+  "3D000": "database not found",
+  "42501": "permission denied",
+  "42P01": "table missing",
+  "57014": "statement timed out",
+  "53300": "too many connections",
+  DEPTH_ZERO_SELF_SIGNED_CERT: "certificate not trusted",
+  SELF_SIGNED_CERT_IN_CHAIN: "certificate not trusted",
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: "certificate not trusted",
+  CERT_HAS_EXPIRED: "certificate expired",
+  ERR_TLS_CERT_ALTNAME_INVALID: "certificate name mismatch",
+};
+
+/**
+ * A short message for a log line, a receipt or an audit row that can never hold a host name, role
+ * name, address or URL: our own messages pass through, anything else is reduced to the error code
+ * plus a fixed phrase (W2-06).
+ */
 export function safeAnchorError(err: unknown): string {
-  const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "unknown error";
-  const code = err && typeof err === "object" && "code" in err && typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : "";
-  const text = raw
-    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "[redacted]")
-    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "[host]")
-    .replace(/\s+/g, " ")
-    .trim();
-  const out = code && !text.includes(code) ? `${code}: ${text}` : text;
-  return (out || "unknown error").slice(0, 200);
+  if (err instanceof AnchorSafeError) return err.message.slice(0, 200);
+  const code = err && typeof err === "object" && typeof (err as { code?: unknown }).code === "string" ? (err as { code: string }).code : "";
+  const raw = err instanceof Error ? err.message : typeof err === "string" ? err : "";
+  if (code && PHRASES[code]) return `${code}: ${PHRASES[code]}`;
+  if (/timeout|timed out/i.test(raw)) return "timed out";
+  if (/ssl|tls|certificate/i.test(raw)) return "TLS problem";
+  if (code && /^[A-Z0-9_]{3,40}$/.test(code)) return `${code}: connection or query error`;
+  return "unexpected error";
 }

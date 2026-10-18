@@ -31,19 +31,23 @@ function when(iso: string | null): string {
 
 const rows = (n: number | null) => (n === null ? "" : ` (${n.toLocaleString("en-GB")} rows)`);
 
-export function AnchorStatus({ anchor, className }: { anchor: AnchorView | null; className?: string }) {
+export function AnchorStatus({ anchor, asOf = null, className }: { anchor: AnchorView | null; /** ISO time of the last check this state is drawn from (W2-18). */ asOf?: string | null; className?: string }) {
   const [view, setView] = useState<AnchorView | null>(anchor);
+  const [checkedAt, setCheckedAt] = useState<string | null>(asOf);
 
   useEffect(() => {
     const onVerified = (e: Event) => {
       const next = toAnchorView((e as CustomEvent).detail);
-      if (next) setView(next);
+      if (next) {
+        setView(next);
+        setCheckedAt(new Date().toISOString());
+      }
     };
     window.addEventListener(AUDIT_VERIFIED_EVENT, onVerified);
     return () => window.removeEventListener(AUDIT_VERIFIED_EVENT, onVerified);
   }, []);
 
-  const a = view ?? { state: "not_anchored" as const, chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null };
+  const a = view ?? { state: "not_anchored" as const, chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null, reset_at: null };
   const bad = a.state === "mismatch";
   const warn = a.state === "unreachable";
 
@@ -108,6 +112,14 @@ export function AnchorStatus({ anchor, className }: { anchor: AnchorView | null;
         <p className="m-0 break-words text-ink-secondary">
           The outside copy could not be written or read. Work is not affected; the next daily run retries.
           {a.anchored_at ? ` Last anchored ${when(a.anchored_at)}.` : ""}
+        </p>
+      )}
+      {a.reset_at && (a.state === "anchored" || a.state === "behind") && (
+        <p className="m-0 break-words text-ink-secondary">Re-baselined on {when(a.reset_at)} after a restore.</p>
+      )}
+      {a.state !== "not_anchored" && (
+        <p className="m-0 break-words text-2xs text-ink-muted" data-testid="anchor-as-of">
+          {checkedAt ? `State as of the last check, ${when(checkedAt)}.` : "No check recorded yet; this is the state from the last daily run."}
         </p>
       )}
       {a.state === "mismatch" && (

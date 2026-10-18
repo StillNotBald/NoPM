@@ -22,9 +22,11 @@ export type Receipt = {
   anchored_at: string | null;
   error_text: string | null;
   streak_started_at: string | null;
+  /** When the owner last re-baselined the anchor after a restore (a `reset` row), if ever. */
+  reset_at: string | null;
 };
 
-const COLUMNS = "workspace_id, status, chain_seq, head_hash, row_count, anchored_at, error_text, streak_started_at";
+const COLUMNS = "workspace_id, status, chain_seq, head_hash, row_count, anchored_at, error_text, streak_started_at, reset_at";
 
 const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
 
@@ -43,6 +45,7 @@ export async function getReceipt(db: Db, workspaceId: string): Promise<Receipt |
       anchored_at: (r.anchored_at as string | null) ?? null,
       error_text: (r.error_text as string | null) ?? null,
       streak_started_at: (r.streak_started_at as string | null) ?? null,
+      reset_at: (r.reset_at as string | null) ?? null,
     };
   } catch {
     return null;

@@ -11,7 +11,7 @@
  * "not recorded" (blank) rather than failing the download.
  */
 import { dayAfter, type ExportRange } from "@/app/api/export/_audit-range";
-import { getChainHead, type ChainHead } from "@/lib/audit/chain-head";
+import { anchorLine, chainHeadLine, getChainHead, type ChainHead } from "@/lib/audit/chain-head";
 import { peekAnchor } from "@/lib/audit/anchor/anchor";
 import { getAnchorSink } from "@/lib/audit/anchor/get-sink";
 import type { AnchorStatus } from "@/lib/audit/anchor/compare";
@@ -449,6 +449,10 @@ export const AUDIT_PACK_COLUMNS = [
 export function auditPackCsvRows(pack: AuditPackData): unknown[][] {
   const line = (section: string, r: Row) => AUDIT_PACK_COLUMNS.map((c) => (c === "section" ? section : (r[c] ?? "")));
   const rows: unknown[][] = [];
+  // Header rows, like the PDF cover (D3): the chain head and the anchor state, one line each.
+  const head = chainHeadLine(pack.chainHead);
+  if (head) rows.push(line("pack_header", { title: head }));
+  rows.push(line("pack_header", { title: anchorLine(pack.anchor) }));
   for (const r of pack.changeRequests) rows.push(line("change_requests", r));
   for (const r of pack.evidence) {
     rows.push(line("evidence", { ...r, ref: r.reference_id, id: r.id, title: r.title, status: r.status }));

@@ -22,8 +22,12 @@ create table if not exists audit_anchors (
   anchored_at  timestamptz not null,
   source       text        not null default 'nopm',
   recorded_at  timestamptz not null default now(),
-  constraint audit_anchors_ws_seq_key unique (workspace_id, chain_seq)
+  constraint audit_anchors_source_check check (source in ('nopm', 'reset'))
 );
+
+-- One record per (workspace, chain_seq) for the app's own anchors. A 'reset' row (the owner
+-- re-baselining after a legitimate restore) may sit at any position, even one already anchored.
+create unique index if not exists audit_anchors_ws_seq_key on audit_anchors (workspace_id, chain_seq) where source <> 'reset';
 
 create or replace function audit_anchors_append_only() returns trigger
 language plpgsql as $fn$

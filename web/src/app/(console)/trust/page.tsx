@@ -91,7 +91,8 @@ function auditTime(iso: string, pref: DateDisplayPref): { date: string; time: st
   const time = Number.isNaN(d.getTime())
     ? ""
     : d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", timeZone: "UTC" });
-  const f = formatByPref(iso, pref);
+  // The date is the UTC date too (D1): a UTC-labelled time next to a local-zone date misreads late evenings.
+  const f = formatByPref(Number.isNaN(d.getTime()) ? iso : `${d.toISOString().slice(0, 10)}T12:00:00.000Z`, pref);
   return { date: f.text, time: time ? `${time} UTC` : "", exact: `${f.absolute} ${time} UTC`.trim() };
 }
 
@@ -153,13 +154,14 @@ export default async function TrustPage({
   // Audit hash chain (R-154): the newest recorded check, shown with a "Verify now" button.
   // Only admins and managers see it; GET /api/audit/verify enforces the same rule.
   let lastChainCheck: ChainCheck | null = null;
+  let lastCheckAt: string | null = null;
   // External anchor (R-170): first paint from the display receipt; "not anchored" whenever the variable is unset.
   let anchorView: AnchorView = { ...NOT_ANCHORED_VIEW };
   if (canAuditPack) {
     if (getAnchorSink().kind !== "none") {
       const { data: receipt } = await db
         .from("audit_anchor_receipts")
-        .select("status, chain_seq, anchored_at, row_count, streak_started_at")
+        .select("status, chain_seq, anchored_at, row_count, streak_started_at, reset_at")
         .maybeSingle();
       anchorView = receiptToView(
         receipt
@@ -169,6 +171,7 @@ export default async function TrustPage({
               anchored_at: (receipt.anchored_at as string | null) ?? null,
               row_count: receipt.row_count == null ? null : Number(receipt.row_count),
               streak_started_at: (receipt.streak_started_at as string | null) ?? null,
+              reset_at: (receipt.reset_at as string | null) ?? null,
             }
           : null,
         true,
@@ -182,6 +185,7 @@ export default async function TrustPage({
       .limit(1)
       .maybeSingle();
     const a = (lastCheck?.after ?? null) as { ok?: boolean; chain_ok?: boolean; checked?: number; first_bad_id?: string | null; first_bad_at?: string | null } | null;
+    lastCheckAt = (lastCheck?.created_at as string | undefined) ?? null;
     if (lastCheck && a && typeof a.ok === "boolean") {
       lastChainCheck = {
         // The badge says whether the CHAIN verified; an anchor mismatch has its own red card below it.
@@ -302,7 +306,7 @@ export default async function TrustPage({
 
       {canAuditPack && <ChainBadge initial={lastChainCheck} />}
 
-      {canAuditPack && <AnchorStatus anchor={anchorView} />}
+      {canAuditPack && <AnchorStatus anchor={anchorView} asOf={lastCheckAt} />}
 
       {canAuditPack && <AuditPackPanel />}
 

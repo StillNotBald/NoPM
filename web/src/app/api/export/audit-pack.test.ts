@@ -248,7 +248,9 @@ describe("GET /api/export?entity=audit_pack", () => {
     const rows = lines(await res.text());
     expect(rows[0].startsWith("section,id,ref,")).toBe(true);
     const sections = rows.slice(1).map((r) => r.split(",")[0]);
-    expect(sections).toEqual(["change_requests", "change_requests", "evidence", "evidence", "decisions", "approvals_audit"]);
+    // header rows first, like the PDF cover (D3): the anchor state is always there ("not anchored" when unset)
+    expect(sections).toEqual(["pack_header", "change_requests", "change_requests", "evidence", "evidence", "decisions", "approvals_audit"]);
+    expect(rows.find((r) => r.startsWith("pack_header"))).toContain("Anchor: not anchored");
     expect(rows.find((r) => r.startsWith("evidence,d1"))).toContain("UAT sign-off");
     expect(rows.find((r) => r.startsWith("approvals_audit"))).toContain("change_request.decide");
     expect(rows.find((r) => r.startsWith("approvals_audit"))).toContain("Lee Implementer");
@@ -310,10 +312,12 @@ describe("GET /api/export?entity=audit_pack", () => {
     });
   });
 
-  it("an empty workspace still yields a valid one-line CSV header and a PDF", async () => {
+  it("an empty workspace still yields a valid CSV (header row plus the anchor header line) and a PDF", async () => {
     requireAuthMock.mockResolvedValueOnce(session("admin"));
     const csv = await call("?entity=audit_pack");
-    expect(lines(await csv.text())).toHaveLength(1);
+    const csvLines = lines(await csv.text());
+    expect(csvLines).toHaveLength(2);
+    expect(csvLines[1]).toContain("Anchor: not anchored");
     requireAuthMock.mockResolvedValueOnce(session("admin"));
     const pdf = await call("?entity=audit_pack&format=pdf");
     expect(new TextDecoder().decode(new Uint8Array(await pdf.arrayBuffer()).slice(0, 5))).toBe("%PDF-");

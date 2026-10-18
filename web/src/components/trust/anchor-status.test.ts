@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AnchorStatus } from "./anchor-status";
 import type { AnchorView } from "@/lib/audit/anchor/view";
 
-const base: AnchorView = { state: "not_anchored", chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null };
+const base: AnchorView = { state: "not_anchored", chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null, reset_at: null };
 const html = (a: AnchorView | null) => renderToStaticMarkup(createElement(AnchorStatus, { anchor: a }));
 const text = (a: AnchorView | null) => html(a).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
@@ -59,5 +59,22 @@ describe("AnchorStatus (R-170a)", () => {
     expect(out).toContain("min-w-0");
     expect(out).toContain("break-words");
     expect(out).not.toMatch(/\bw-\[|\bmin-w-\[/);
+  });
+});
+
+describe("AnchorStatus: as-of line and re-baseline (W2-18, W2-08)", () => {
+  const html2 = (a: AnchorView | null, asOf: string | null) => renderToStaticMarkup(createElement(AnchorStatus, { anchor: a, asOf }));
+  const txt = (h: string) => h.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const anchored: AnchorView = { ...base, state: "anchored", row_count: 3, anchored_at: "2026-10-18T20:09:00.000Z" };
+
+  it("says when the shown state was last checked", () => {
+    expect(txt(html2(anchored, "2026-10-19T08:15:00.000Z"))).toContain("State as of the last check, 2026-10-19 08:15 UTC.");
+  });
+  it("says so when no check is recorded, and shows nothing extra for 'not anchored'", () => {
+    expect(txt(html2(anchored, null))).toContain("No check recorded yet");
+    expect(html2(base, null)).not.toContain("anchor-as-of");
+  });
+  it("shows when the owner re-baselined after a restore", () => {
+    expect(txt(html2({ ...anchored, reset_at: "2026-10-20T03:00:00.000Z" }, null))).toContain("Re-baselined on 2026-10-20 03:00 UTC after a restore.");
   });
 });

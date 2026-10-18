@@ -106,7 +106,9 @@ export class FakeAnchorDb {
   async rpc(name: string, args: Record<string, unknown>) {
     if (name === "nopm_audit_verify_chain") {
       this.verifyCalls.push(args);
-      return { data: [{ ok: this.verify.ok, checked: 1, first_bad_id: this.verify.first_bad_id ?? null }], error: null };
+      const head = Math.max(0, ...this.audit.filter((r) => r.workspace_id === args.p_workspace_id).map((r) => Number(r.chain_seq)));
+      const firstSeq = Math.max(1, head - Number(args.p_limit) + 1);
+      return { data: [{ ok: this.verify.ok, checked: 1, first_bad_id: this.verify.first_bad_id ?? null, first_seq: firstSeq }], error: null };
     }
     return { data: null, error: { message: `unexpected rpc ${name}` } };
   }

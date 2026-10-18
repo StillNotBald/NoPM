@@ -33,7 +33,7 @@ import { ANCHOR_TABLE_SQL } from "./bootstrap-sql";
 import { getAnchorSink } from "./get-sink";
 import { noopSink } from "./noop-sink";
 import { anchorClientConfig, createPostgresSink } from "./postgres-sink";
-import { safeAnchorError } from "./sink";
+import { AnchorSafeError, safeAnchorError } from "./sink";
 
 const URL_OK = "postgresql://nopm_anchor:s3cretpw@db.example.test:5432/anchors?sslmode=disable";
 const REC = { workspace_id: "11111111-1111-4111-8111-111111111111", chain_seq: 10, head_hash: "h10", row_count: 10, anchored_at: "2026-10-18T20:09:00.000Z" };
@@ -62,26 +62,26 @@ describe("getAnchorSink", () => {
 });
 
 describe("anchorClientConfig: TLS and timeouts (PR-17)", () => {
-  it("always uses TLS and strict timeouts, and drops any sslmode from the URL", () => {
+  it("always uses TLS WITH certificate verification, strict timeouts, and drops any sslmode from the URL (W2-07)", () => {
     const c = anchorClientConfig(URL_OK, {});
     if (!("config" in c)) throw new Error("expected a config");
-    expect(c.config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(c.config.ssl).toEqual({ rejectUnauthorized: true });
     expect(c.config.connectionString).not.toContain("sslmode");
     expect(c.config.connectionTimeoutMillis).toBe(5000);
     expect(c.config.statement_timeout).toBe(5000);
     expect(c.config.query_timeout).toBe(5000);
   });
-  it("verifies the certificate on request", () => {
-    const c = anchorClientConfig(URL_OK, { NOPM_ANCHOR_SSL_VERIFY: "1" });
-    expect("config" in c && c.config.ssl).toEqual({ rejectUnauthorized: true });
+  it("skips certificate verification only when NOPM_ANCHOR_SSL_VERIFY=0", () => {
+    const c = anchorClientConfig(URL_OK, { NOPM_ANCHOR_SSL_VERIFY: "0" });
+    expect("config" in c && c.config.ssl).toEqual({ rejectUnauthorized: false });
   });
   it("turns TLS off only for a loopback host AND the explicit flag", () => {
     const local = "postgresql://u:p@127.0.0.1:54322/nopm_anchor";
     const on = anchorClientConfig(local, { NOPM_ANCHOR_ALLOW_PLAINTEXT_LOOPBACK: "1" });
     expect("config" in on && on.config.ssl).toBe(false);
-    expect("config" in anchorClientConfig(local, {}) && (anchorClientConfig(local, {}) as { config: { ssl: unknown } }).config.ssl).toEqual({ rejectUnauthorized: false });
+    expect((anchorClientConfig(local, {}) as { config: { ssl: unknown } }).config.ssl).toEqual({ rejectUnauthorized: true });
     const remote = anchorClientConfig(URL_OK, { NOPM_ANCHOR_ALLOW_PLAINTEXT_LOOPBACK: "1" });
-    expect("config" in remote && remote.config.ssl).toEqual({ rejectUnauthorized: false });
+    expect("config" in remote && remote.config.ssl).toEqual({ rejectUnauthorized: true });
   });
   it("rejects a URL that is not Postgres", () => {
     expect(anchorClientConfig("https://example.test/x", {})).toHaveProperty("error");
@@ -96,7 +96,7 @@ describe("postgres sink: put", () => {
     const out = await sink.put(REC);
     expect(out).toMatchObject({ status: "stored", record: { chain_seq: 10, head_hash: "h10", row_count: 10 } });
     expect(pgState.queries[0].sql).toMatch(/insert into audit_anchors/);
-    expect(pgState.queries[0].sql).toMatch(/on conflict \(workspace_id, chain_seq\) do nothing/);
+    expect(pgState.queries[0].sql).toMatch(/on conflict \(workspace_id, chain_seq\) where source <> 'reset' do nothing/);
     expect(pgState.queries[1].sql).toMatch(/select .* from audit_anchors where workspace_id = \$1 and chain_seq = \$2/);
     expect(pgState.ended).toBe(1);
   });
@@ -122,15 +122,23 @@ describe("postgres sink: put", () => {
     expect(text).not.toContain("postgresql://");
     expect(text).not.toContain("10.1.2.3");
   });
-  it("creates the table on first use when the role may, then retries", async () => {
+  it("creates the table on first use ONLY with NOPM_ANCHOR_BOOTSTRAP=1, then retries", async () => {
     pgState.replies.push(Object.assign(new Error("relation does not exist"), { code: "42P01" }), { rowCount: 0 }, { rowCount: 1, rows: [] }, { rows: [row()] });
-    const out = await createPostgresSink(URL_OK, {}).put(REC);
+    const out = await createPostgresSink(URL_OK, { NOPM_ANCHOR_BOOTSTRAP: "1" }).put(REC);
     expect(out.status).toBe("stored");
     expect(pgState.queries[1].sql).toBe(ANCHOR_TABLE_SQL);
   });
-  it("says what to run when the role may not create the table", async () => {
-    pgState.replies.push(Object.assign(new Error("relation does not exist"), { code: "42P01" }), new Error("permission denied for schema public"));
+  it("without the flag a missing table is a clear failure and NO DDL is run (the app never owns the table)", async () => {
+    pgState.replies.push(Object.assign(new Error("relation does not exist"), { code: "42P01" }));
     const out = await createPostgresSink(URL_OK, {}).put(REC);
+    expect(out.status).toBe("failed");
+    expect((out as { error: string }).error).toContain("001_audit_anchors.sql");
+    expect(pgState.queries.some((q) => q.sql === ANCHOR_TABLE_SQL)).toBe(false);
+  });
+
+  it("says what to run when the flag is set but the role may not create the table", async () => {
+    pgState.replies.push(Object.assign(new Error("relation does not exist"), { code: "42P01" }), new Error("permission denied for schema public"));
+    const out = await createPostgresSink(URL_OK, { NOPM_ANCHOR_BOOTSTRAP: "1" }).put(REC);
     expect(out).toMatchObject({ status: "failed" });
     expect((out as { error: string }).error).toContain("001_audit_anchors.sql");
   });
@@ -143,7 +151,15 @@ describe("postgres sink: latest", () => {
     expect(out.ok).toBe(true);
     if (out.ok) expect([...out.records.values()].map((r) => r.chain_seq)).toEqual([10, 3]);
     expect(pgState.queries).toHaveLength(1);
-    expect(pgState.queries[0].sql).toMatch(/distinct on \(workspace_id\)/);
+    expect(pgState.queries[0].sql).toMatch(/distinct on \(a\.workspace_id\)/);
+  });
+  it("honours a reset row: rows inserted before the newest reset are history, and the baseline time is returned (W2-08)", async () => {
+    pgState.replies.push({ rows: [row({ source: "reset", reset_at: new Date("2026-10-20T03:00:00.000Z") })] });
+    const out = await createPostgresSink(URL_OK, {}).latest([REC.workspace_id]);
+    expect(pgState.queries[0].sql).toMatch(/source = 'reset'/);
+    expect(pgState.queries[0].sql).toMatch(/a\.id >= b\.rid/);
+    if (out.ok) expect(out.records.get(REC.workspace_id)).toMatchObject({ source: "reset", baseline_reset_at: "2026-10-20T03:00:00.000Z" });
+    else throw new Error("expected ok");
   });
   it("asks nothing for no workspaces", async () => {
     expect(await createPostgresSink(URL_OK, {}).latest([])).toEqual({ ok: true, records: new Map() });
@@ -151,18 +167,31 @@ describe("postgres sink: latest", () => {
   });
   it("returns ok:false instead of throwing when the database is down", async () => {
     pgState.connectError = new Error("timeout");
-    expect(await createPostgresSink(URL_OK, {}).latest([REC.workspace_id])).toEqual({ ok: false, error: "timeout" });
+    expect(await createPostgresSink(URL_OK, {}).latest([REC.workspace_id])).toEqual({ ok: false, error: "timed out" });
   });
 });
 
-describe("safeAnchorError", () => {
-  it("strips URLs and IP addresses and keeps the code", () => {
-    const e = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:54399 via postgres://u:p@h/db"), { code: "ECONNREFUSED" });
-    const s = safeAnchorError(e);
-    expect(s).not.toMatch(/54399|postgres:\/\/|127\.0/);
-    expect(s).toContain("ECONNREFUSED");
+describe("safeAnchorError (W2-06): a code plus a fixed phrase, never a host, role or address", () => {
+  it("maps known codes to fixed phrases and drops the original text", () => {
+    const dns = Object.assign(new Error("getaddrinfo ENOTFOUND db.provider-example.co"), { code: "ENOTFOUND" });
+    expect(safeAnchorError(dns)).toBe("ENOTFOUND: DNS lookup failed");
+    const auth = Object.assign(new Error('password authentication failed for user "nopm_anchor"'), { code: "28P01" });
+    expect(safeAnchorError(auth)).toBe("28P01: login refused");
+    const refused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:54399"), { code: "ECONNREFUSED" });
+    expect(safeAnchorError(refused)).toBe("ECONNREFUSED: connection refused");
+    for (const e of [dns, auth, refused]) expect(safeAnchorError(e)).not.toMatch(/provider-example|nopm_anchor|127\.0|54399/);
+  });
+  it("never lets free text through", () => {
+    expect(safeAnchorError(new Error("something at postgres://u:p@h/db went wrong"))).toBe("unexpected error");
+    expect(safeAnchorError(new Error("query read timeout on host db.example"))).toBe("timed out");
+    expect(safeAnchorError(new Error("SSL handshake with db.example failed"))).toBe("TLS problem");
+    expect(safeAnchorError(Object.assign(new Error("x db.example"), { code: "XX000" }))).toBe("XX000: connection or query error");
+    expect(safeAnchorError(null)).toBe("unexpected error");
+  });
+  it("passes our own fixed messages through", () => {
+    expect(safeAnchorError(new AnchorSafeError("run web/anchor-db/001_audit_anchors.sql"))).toBe("run web/anchor-db/001_audit_anchors.sql");
   });
   it("is bounded", () => {
-    expect(safeAnchorError(new Error("x".repeat(1000))).length).toBeLessThanOrEqual(200);
+    expect(safeAnchorError(new AnchorSafeError("x".repeat(1000))).length).toBeLessThanOrEqual(200);
   });
 });

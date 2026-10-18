@@ -61,8 +61,9 @@ describe("anchor database schema (web/anchor-db/001_audit_anchors.sql)", () => {
     expect(anchorDb).toContain(ANCHOR_TABLE_SQL);
   });
 
-  it("is append-only: unique (workspace_id, chain_seq) and triggers refuse update, delete and truncate", () => {
-    expect(ANCHOR_TABLE_SQL).toMatch(/unique \(workspace_id, chain_seq\)/);
+  it("is append-only: unique (workspace_id, chain_seq) for the app's rows (a reset row may sit anywhere) and triggers refuse update, delete and truncate", () => {
+    expect(ANCHOR_TABLE_SQL).toMatch(/unique index if not exists audit_anchors_ws_seq_key on audit_anchors \(workspace_id, chain_seq\) where source <> 'reset'/);
+    expect(ANCHOR_TABLE_SQL).toMatch(/source in \('nopm', 'reset'\)/);
     expect(ANCHOR_TABLE_SQL).toMatch(/before update or delete on audit_anchors/);
     expect(ANCHOR_TABLE_SQL).toMatch(/before truncate on audit_anchors/);
     expect(ANCHOR_TABLE_SQL).toMatch(/raise exception 'audit_anchors is append-only/);
