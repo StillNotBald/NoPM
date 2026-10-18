@@ -8,9 +8,10 @@
 
 export const runtime = "nodejs";
 
+import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateToken } from "@/lib/auth/tokens";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
 import type { Actor } from "@/lib/auth/guard";
 import { TOOL_SCOPES } from "./tools";
 
@@ -60,76 +61,77 @@ export async function mintEphemeralToken(actor: Actor, ctx: TokenAuditContext = 
   const scopes = scopesForActor(actor);
   const expiresAt = new Date(Date.now() + EPHEMERAL_TOKEN_TTL_MS).toISOString();
 
-  const db = createAdminClient();
-  const { data: row, error } = await db
-    .from("api_tokens")
-    .insert({
-      workspace_id: actor.workspaceId,
-      name: `AI Assistant · ${actor.label}`,
-      token_hash: hash,
-      prefix,
-      scopes,
-      // The reliable marker (0052). Only this mint path sets it; POST /api/tokens cannot.
-      kind: "assistant",
-      created_by: actor.principalId ?? (actor.type === "user" ? actor.id : null),
-      expires_at: expiresAt,
-    })
-    .select("id")
-    .single();
-
-  if (error || !row) {
-    throw new Error(`Failed to mint ephemeral assistant token: ${error?.message ?? "unknown"}`);
-  }
-
-  // A3-14: one audit row per mint, linked to the conversation. Fail-closed: a
-  // token that cannot be audited is revoked at once and the turn does not run.
+  // ONE database function (nopm_mutate_audited, migration 0103): the token row and its mint audit row are one
+  // transaction, so a token that cannot be audited is never created (A3-14, fail-closed). The row id is chosen
+  // here so the audit row can name it; the token hash is written but kept out of the audit row and out of the
+  // returned row (omitColumns).
+  const id = randomUUID();
+  const conversationId = ctx.conversationId ?? null;
   try {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
+    await auditedInsert({
+      table: "api_tokens",
       actor,
+      id,
+      patch: {
+        name: `AI Assistant · ${actor.label}`,
+        token_hash: hash,
+        prefix,
+        scopes,
+        // The reliable marker (0052). Only this mint path sets it; POST /api/tokens cannot.
+        kind: "assistant",
+        created_by: actor.principalId ?? (actor.type === "user" ? actor.id : null),
+        expires_at: expiresAt,
+      },
       action: "assistant.token.mint",
       targetType: "assistant_conversation",
-      targetId: ctx.conversationId ?? null,
-      before: null,
-      after: { token_id: row.id, conversation_id: ctx.conversationId ?? null, scopes, expires_at: expiresAt },
+      // With no conversation the audit target falls back to the token row itself.
+      auditTargetId: conversationId ?? undefined,
+      auditBefore: null,
+      auditAfter: { token_id: id, conversation_id: conversationId, scopes, expires_at: expiresAt },
+      omitColumns: ["token_hash"],
     });
   } catch (err) {
-    await db.from("api_tokens").update({ revoked: true }).eq("id", row.id);
-    throw err;
+    throw new Error(`Failed to mint ephemeral assistant token: ${(err as { message?: string } | null)?.message ?? "unknown"}`);
   }
 
-  return { raw, id: row.id };
+  return { raw, id };
 }
 
 /**
- * Revoke (set revoked=true) the ephemeral token by id.
- * Best-effort — logs on failure but does not throw.
+ * Revoke (set revoked=true) the ephemeral token by id and, when the actor is known, write the revoke audit row
+ * in the SAME transaction (A3-14). A revoke must never be skipped because its audit write failed: if the
+ * audited revoke errors, the token is revoked without it and the failure is logged loudly. Best-effort overall:
+ * a finally block must never throw.
  */
 export async function revokeEphemeralToken(
   id: string,
   ctx: (TokenAuditContext & { actor?: Actor }) = {},
 ): Promise<void> {
+  const conversationId = ctx.conversationId ?? null;
+  if (ctx.actor) {
+    try {
+      await auditedUpdate({
+        table: "api_tokens",
+        actor: ctx.actor,
+        id,
+        patch: { revoked: true },
+        action: "assistant.token.revoke",
+        targetType: "assistant_conversation",
+        auditTargetId: conversationId ?? undefined,
+        auditBefore: null,
+        auditAfter: { token_id: id, conversation_id: conversationId },
+        omitColumns: ["token_hash"],
+      });
+      return;
+    } catch (err) {
+      console.error("[assistant] audited revoke of the ephemeral token failed; revoking without the audit row", id, err);
+    }
+  }
   try {
-    const db = createAdminClient();
-    await db.from("api_tokens").update({ revoked: true }).eq("id", id);
+    let query = createAdminClient().from("api_tokens").update({ revoked: true }).eq("id", id);
+    if (ctx.actor) query = query.eq("workspace_id", ctx.actor.workspaceId);
+    await query;
   } catch (err) {
     console.error("[assistant] failed to revoke ephemeral token", id, err);
-    return;
-  }
-  // A3-14: one audit row per revoke. Fail-soft (the token is already dead and a
-  // finally block must never throw), but loud.
-  if (!ctx.actor) return;
-  try {
-    await writeAudit({
-      workspaceId: ctx.actor.workspaceId,
-      actor: ctx.actor,
-      action: "assistant.token.revoke",
-      targetType: "assistant_conversation",
-      targetId: ctx.conversationId ?? null,
-      before: null,
-      after: { token_id: id, conversation_id: ctx.conversationId ?? null },
-    });
-  } catch (err) {
-    console.error("[assistant] failed to audit ephemeral token revoke", id, err);
   }
 }

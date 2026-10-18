@@ -1,4 +1,4 @@
-import { writeAudit } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import type { Actor } from "@/lib/auth/guard";
 import { RuleError } from "@/lib/api/errors";
 import { mapAcceptRpcError } from "@/lib/governance/invite-guard";
@@ -201,7 +201,7 @@ export async function performInviteAccept(
 }
 
 type SweepClient = {
-  from: (table: string) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<{ data: unknown; error: { message?: string; code?: string } | null }>;
 };
 
 /**
@@ -209,6 +209,11 @@ type SweepClient = {
  * that email in the workspace is revoked (one audit row each), so a stale link
  * can never be used later against the account that was just created/restored.
  * Returns the revoked invite ids.
+ *
+ * One database function (migration 0109, R-164c): the bulk revoke and every
+ * invite.revoked audit row are one transaction, so an invite can never be
+ * revoked without its row. The function keeps the ilike escape (backslash, %
+ * and _ in the e-mail are literals), accepted_at is null and revoked = false.
  */
 export async function revokeOtherInvitesForEmail(
   db: SweepClient,
@@ -222,38 +227,23 @@ export async function revokeOtherInvitesForEmail(
     requestId?: string | null;
   },
 ): Promise<string[]> {
-  const pattern = args.email.replace(/[\\%_]/g, (c) => "\\" + c);
-  const { data, error } = await db
-    .from("invites")
-    .update({ revoked: true })
-    .eq("workspace_id", args.workspaceId)
-    .ilike("email", pattern)
-    .neq("id", args.keepInviteId)
-    .eq("revoked", false)
-    .is("accepted_at", null)
-    .select("id, email, role");
+  const actor: Actor = {
+    type: "user",
+    id: args.actorId,
+    label: args.actorLabel,
+    workspaceId: args.workspaceId,
+    role: undefined,
+    principalId: args.actorId,
+    principalRole: undefined,
+    channel: (args.channel ?? undefined) as Actor["channel"],
+    requestId: args.requestId ?? undefined,
+  };
+  const { data, error } = await db.rpc("nopm_revoke_other_invites", {
+    p_workspace_id: args.workspaceId,
+    p_email: args.email,
+    p_keep_invite_id: args.keepInviteId,
+    p_audit: buildRpcAudit(actor, "invite.revoked", "invite"),
+  });
   if (error) throw error;
-  const rows = (data ?? []) as { id: string; email: string; role: string }[];
-  for (const r of rows) {
-    await writeAudit({
-      workspaceId: args.workspaceId,
-      actor: {
-        type: "user",
-        id: args.actorId,
-        label: args.actorLabel,
-        workspaceId: args.workspaceId,
-        role: undefined,
-        principalId: args.actorId,
-        principalRole: undefined,
-        channel: (args.channel ?? undefined) as Actor["channel"],
-        requestId: args.requestId ?? undefined,
-      },
-      action: "invite.revoked",
-      targetType: "invite",
-      targetId: r.id,
-      before: { email: r.email, role: r.role, revoked: false },
-      after: { email: r.email, role: r.role, revoked: true, reason: "another invite for this email was accepted" },
-    });
-  }
-  return rows.map((r) => r.id);
+  return Array.isArray(data) ? (data as string[]) : [];
 }

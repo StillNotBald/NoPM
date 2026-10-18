@@ -4,11 +4,10 @@ import { route } from "@/lib/api/handler";
 import { AuthError, ConflictError, ScopeError } from "@/lib/api/errors";
 import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
 import { getMfaEnrollmentStatus, isRecentMfaChallenge, MFA_COOKIE_NAME } from "@/lib/auth/mfa";
-import { isMissingTotpStepColumn } from "@/lib/auth/mfa-factor";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { ok } from "@/lib/api/response";
+import { mfaEnroll } from "../_rpc";
 
 export const runtime = "nodejs";
 
@@ -64,33 +63,11 @@ export const POST = route(async ({ actor }) => {
   const secret = authenticator.generateSecret();
   const otpauth = authenticator.keyuri(actor.label, "NoPM", secret);
 
-  const row = {
-    user_id: actor.id,
-    // Encrypted at rest (AES-256-GCM) — never store the live TOTP seed plaintext.
-    totp_secret: encrypt(secret),
-    enabled: false,
-    // clear any stale backup codes and confirmed_at from a previous enrollment
-    backup_codes: null,
-    confirmed_at: null,
-    enrolled_at: new Date().toISOString(),
-  };
-  let { error } = await db.from("user_mfa").upsert({ ...row, last_totp_step: null }, { onConflict: "user_id" });
-  // R-8: migration 0060 not applied yet - retry without the new column.
-  if (error && isMissingTotpStepColumn(error)) {
-    ({ error } = await db.from("user_mfa").upsert(row, { onConflict: "user_id" }));
-  }
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "mfa.enroll_started",
-    targetType: "user_mfa",
-    targetId: actor.id,
-    before: null,
-    after: { enabled: false },
-  });
+  // One database function (migration 0109): the user_mfa row (secret encrypted at rest with AES-256-GCM, never
+  // stored plaintext; factor off; stale backup codes and confirmed_at cleared) and the mfa.enroll_started audit
+  // row are one transaction. The secret never enters the audit row. Without last_totp_step (migration 0060 not
+  // applied) the helper retries once without it (R-8).
+  await mfaEnroll(db, actor, encrypt(secret));
 
   return ok({ secret, otpauth });
 });

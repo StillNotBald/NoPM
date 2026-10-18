@@ -2,18 +2,16 @@ import { route } from "@/lib/api/handler";
 import { ApiError, RuleError, ScopeError } from "@/lib/api/errors";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import { getConnectorHealth } from "@/lib/integrations/health";
-import { encryptSecrets, generateRelaySecret } from "@/lib/integrations/secrets";
+import { encryptSecrets, generateRelaySecret, secretsView } from "@/lib/integrations/secrets";
 import {
-  CONNECTOR_COLUMNS,
   appBaseUrl,
   assertIntegrationAdmin,
   callbackUrls,
   isIntegrationAdmin,
   listConnectors,
   normalizeConfig,
-  toAuditConnector,
   toPublicConnector,
   toRedactedConnector,
 } from "@/lib/integrations/store";
@@ -111,39 +109,26 @@ export const POST = route(async ({ actor, request }) => {
   };
   const relay = generateRelaySecret();
 
-  const { data: row, error } = await db
-    .from("integration_connectors")
-    .insert({
-      workspace_id: actor.workspaceId, // always from the actor — never the body
-      kind: input.kind,
-      name: input.name,
-      status: "active",
-      config,
-      secret_enc: secretEnc,
-      relay_secret_hash: relay.hash,
-      created_by: actor.id,
-    })
-    .select(CONNECTOR_COLUMNS)
-    .single();
+  // ONE database function (migration 0109): the connector row and its audit row are one transaction. The audit
+  // row carries the public view only - never a secret or a hash - with the app id and group chat id masked
+  // (the audit stream is member-readable); the function builds that view, the route passes the secret
+  // PRESENCE flags it computed from the blob it just encrypted. workspace_id is always the actor's, never the body.
+  const { data: row, error } = await db.rpc("nopm_connector_write", {
+    p_workspace_id: actor.workspaceId,
+    p_op: "create",
+    p_patch: { name: input.name, config, secret_enc: secretEnc, relay_secret_hash: relay.hash },
+    p_created_by: actor.id,
+    p_secrets: secretsView(secretEnc),
+    p_audit: buildRpcAudit(actor, "integration.connector.create", "integration_connector"),
+  });
   if (error?.code === "23505") {
     throw new RuleError("This workspace already has a Lark connector.", "connector_exists");
   }
   if (error || !row) throw error ?? new Error("Failed to create connector");
 
-  const connector: ConnectorRow = { ...(row as unknown as ConnectorRow), config: normalizeConfig(row.config) };
+  const stored = row as unknown as ConnectorRow;
+  const connector: ConnectorRow = { ...stored, config: normalizeConfig(stored.config) };
   const view = toPublicConnector(connector);
-
-  // The audit row carries the public view only — never a secret or a hash — with
-  // the app id and group chat id masked (the audit stream is member-readable).
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "integration.connector.create",
-    targetType: "integration_connector",
-    targetId: connector.id,
-    before: null,
-    after: toAuditConnector(view),
-  });
 
   const base = appBaseUrl(new URL(request.url).origin);
   return created({

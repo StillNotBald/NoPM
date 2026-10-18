@@ -3,12 +3,12 @@ import { route } from "@/lib/api/handler";
 import { AuthError, NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { MFA_COOKIE_NAME, computeEnrollmentBinding, isRecentMfaChallenge } from "@/lib/auth/mfa";
-import { consumeTotp, isMissingTotpStepColumn, matchesBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
+import { consumeTotp, matchesBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
 import { disableMfaSchema } from "../_schema";
+import { mfaDisable } from "../_rpc";
 
 export const runtime = "nodejs";
 
@@ -72,49 +72,15 @@ export const POST = route(async ({ actor, request }) => {
     const secret = mfa.totp_secret.split(".").length === 3 ? decrypt(mfa.totp_secret) : mfa.totp_secret;
     const totp = secret ? await consumeTotp(db, actor.id, secret, code) : "invalid";
     if (totp !== "ok" && !matchesBackupCode(code, mfa.backup_codes)) {
-      await writeAudit({
-        workspaceId: actor.workspaceId,
-        actor,
-        action: "auth.mfa.disable_failed",
-        targetType: "user_mfa",
-        targetId: actor.id,
-        before: null,
-        after: null,
-      });
+      await mfaDisable(db, actor, "failed");
       throw new RuleError("Invalid code");
     }
   }
 
-  const cleared = {
-      enabled: false,
-      // `totp_secret` is NOT NULL (supabase/migrations/20260608000002_identity.sql)
-      // — writing null here would fail the DB constraint and 500 this whole
-      // route. An empty string is not a valid decryptable secret (and this
-      // path is unreachable anyway once `enabled` is false), so it wipes the
-      // factor material without violating the column's NOT NULL constraint.
-      totp_secret: "",
-      backup_codes: null,
-  };
-  let { error: updateError } = await db
-    .from("user_mfa")
-    .update({ ...cleared, last_totp_step: null })
-    .eq("user_id", actor.id);
-  // R-8: migration 0060 not applied yet - retry without the new column.
-  if (updateError && isMissingTotpStepColumn(updateError)) {
-    ({ error: updateError } = await db.from("user_mfa").update(cleared).eq("user_id", actor.id));
-  }
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "mfa.disabled",
-    targetType: "user_mfa",
-    targetId: actor.id,
-    before: { enabled: mfa.enabled },
-    after: { enabled: false, via: recentChallenge ? "recent_challenge" : mfa.enabled ? "code" : "cancel_enrollment" },
-  });
+  // Wipe the factor (the NOT NULL secret becomes the empty string; backup codes cleared) and write mfa.disabled
+  // in one transaction (migration 0109). Without last_totp_step (migration 0060 not applied) the helper retries
+  // once without it (R-8).
+  await mfaDisable(db, actor, recentChallenge ? "recent_challenge" : mfa.enabled ? "code" : "cancel_enrollment");
 
   // R-91 — a previously issued nopm_mfa cookie is signature-bound to this
   // enrollment's `enr` value, which does not change on disable alone (only

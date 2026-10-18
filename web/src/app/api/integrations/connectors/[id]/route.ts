@@ -2,12 +2,11 @@ import { route } from "@/lib/api/handler";
 import { ApiError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import { catchUpPendingApprovals } from "@/lib/integrations/catchup";
 import { schedule } from "@/lib/integrations/emit";
-import { decryptSecrets, encryptSecrets, generateRelaySecret } from "@/lib/integrations/secrets";
+import { decryptSecrets, encryptSecrets, generateRelaySecret, secretsView } from "@/lib/integrations/secrets";
 import {
-  CONNECTOR_COLUMNS,
   assertIntegrationAdmin,
   getConnector,
   normalizeConfig,
@@ -141,35 +140,35 @@ export const PATCH = route(async ({ actor, params, request }) => {
   }
 
   const db = createAdminClient();
-  const { data: row, error } = await db
-    .from("integration_connectors")
-    .update(patch)
-    .eq("id", connector.id)
-    .eq("workspace_id", actor.workspaceId)
-    .neq("status", "revoked")
-    .select(CONNECTOR_COLUMNS)
-    .maybeSingle();
-  if (error) throw error;
-  if (!row) throw new RuleError("This connector is revoked", "connector_revoked");
-
-  const updated: ConnectorRow = { ...(row as unknown as ConnectorRow), config: normalizeConfig(row.config) };
-  const after = toPublicConnector(updated);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "integration.connector.update",
-    targetType: "integration_connector",
-    targetId: updated.id,
-    before,
-    after: {
-      ...toAuditConnector(after),
-      // Which secrets were replaced — never their values.
+  // ONE database function (migration 0109): the update and its audit row are one transaction. The audit row
+  // records the MASKED public view (built in SQL from the stored row), which secrets changed and whether the relay
+  // secret was rotated - never a value. Only a live (not revoked) connector of this workspace can be updated.
+  const patchRecord: Record<string, unknown> = { ...patch };
+  const { data: row, error } = await db.rpc("nopm_connector_write", {
+    p_workspace_id: actor.workspaceId,
+    p_op: "update",
+    p_connector_id: connector.id,
+    p_patch: patchRecord,
+    p_secrets: secretsView(typeof patchRecord.secret_enc === "string" ? patchRecord.secret_enc : connector.secret_enc),
+    p_before: before,
+    p_extras: {
+      // Which secrets were replaced - never their values.
       secrets_changed: secretFields,
       relay_secret_rotated: rotatedRelaySecret !== null,
       tenant_pin_cleared: clearingPin && !!connector.tenant_key,
     },
+    p_audit: buildRpcAudit(actor, "integration.connector.update", "integration_connector"),
   });
+  if (error) {
+    if (/CONNECTOR_REVOKED/.test(error.message)) throw new RuleError("This connector is revoked", "connector_revoked");
+    if (/CONNECTOR_NOT_FOUND/.test(error.message)) throw new NotFoundError("Connector not found");
+    throw error;
+  }
+  if (!row) throw new RuleError("This connector is revoked", "connector_revoked");
+
+  const stored = row as unknown as ConnectorRow;
+  const updated: ConnectorRow = { ...stored, config: normalizeConfig(stored.config) };
+  const after = toPublicConnector(updated);
 
   // D-ACC-7: requests raised while the connector was paused never got a card. On
   // resume, queue cards for the ones still pending (deduped against open cards).

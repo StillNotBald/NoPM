@@ -1,27 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Actor } from "@/lib/auth/guard";
 
-const { insertSpy, updateSpy, writeAuditMock } = vi.hoisted(() => ({
-  insertSpy: vi.fn(),
+// The token row and its audit row are written by ONE database function now (nopm_mutate_audited, migration 0103),
+// so the stub records the RPC call: the patch is the row, p_audit is the audit row's description.
+const { rpcCalls, rpcResult, updateSpy } = vi.hoisted(() => ({
+  rpcCalls: [] as { fn: string; args: Record<string, any> }[], // eslint-disable-line @typescript-eslint/no-explicit-any
+  rpcResult: { error: null as null | { message: string } },
   updateSpy: vi.fn(),
-  writeAuditMock: vi.fn(async (_input: Record<string, unknown>) => {}),
 }));
-vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      if (rpcResult.error) return { data: null, error: rpcResult.error };
+      const patch = (args.p_patch ?? {}) as Record<string, unknown>;
+      const row = { id: args.p_id, workspace_id: args.p_workspace_id, ...patch };
+      return { data: { before: args.p_op === "insert" ? null : row, after: row }, error: null };
+    },
     from: (table: string) => {
       if (table !== "api_tokens") throw new Error(`unexpected table: ${table}`);
-      return {
-        insert: (row: Record<string, unknown>) => {
-          insertSpy(row);
-          return { select: () => ({ single: async () => ({ data: { id: "tok-new" }, error: null }) }) };
+      const filters: [string, string][] = [];
+      const builder = {
+        eq: (col: string, val: string) => {
+          filters.push([col, val]);
+          return builder;
         },
-        update: (patch: Record<string, unknown>) => ({
-          eq: async (col: string, val: string) => {
-            updateSpy(patch, col, val);
-            return { error: null };
-          },
-        }),
+        then: (resolve: (v: unknown) => unknown) => resolve({ error: null }),
+      };
+      return {
+        update: (patch: Record<string, unknown>) => {
+          updateSpy(patch, filters);
+          return builder;
+        },
       };
     },
   }),
@@ -60,11 +70,16 @@ describe("scopesForActor — least-privilege ephemeral token scopes", () => {
   });
 });
 
+const mintCall = () => rpcCalls.find((c) => c.args.p_op === "insert")!;
+
 // Four-eyes compares HUMANS (2026-10-16): the ephemeral token must record whose
 // assistant it is, or "the assistant requested it, the same person approved it"
 // could not be detected and the token itself could never approve (no principal).
 describe("mintEphemeralToken — records the human it acts for", () => {
-  beforeEach(() => insertSpy.mockClear());
+  beforeEach(() => {
+    rpcCalls.length = 0;
+    rpcResult.error = null;
+  });
 
   it("created_by is the signed-in user's profile id", async () => {
     const res = await mintEphemeralToken({
@@ -75,10 +90,11 @@ describe("mintEphemeralToken — records the human it acts for", () => {
       label: "Pat",
       role: "member",
     } as Actor);
-    expect(res.id).toBe("tok-new");
-    const [row] = insertSpy.mock.calls[0];
+    expect(res.id).toBe(mintCall().args.p_id);
+    const row = mintCall().args.p_patch;
     expect(row.created_by).toBe("user-7");
-    expect(row.workspace_id).toBe("w1");
+    expect(mintCall().args.p_workspace_id).toBe("w1");
+    expect(mintCall().args.p_table).toBe("api_tokens");
     expect(row.name).toBe("AI Assistant · Pat");
     // The reliable marker the Tokens list hides by (0052) — the name is only a label.
     expect(row.kind).toBe("assistant");
@@ -88,65 +104,80 @@ describe("mintEphemeralToken — records the human it acts for", () => {
 
   it("falls back to the user's own id when the Actor was built without a principal", async () => {
     await mintEphemeralToken({ type: "user", id: "user-8", workspaceId: "w1", label: "Q", role: "member" } as Actor);
-    expect(insertSpy.mock.calls[0][0].created_by).toBe("user-8");
+    expect(mintCall().args.p_patch.created_by).toBe("user-8");
   });
 
   it("never records a token id as created_by (api_tokens.created_by is a profile FK)", async () => {
     await mintEphemeralToken({ type: "token", id: "tok-9", workspaceId: "w1", label: "T", scopes: [] } as Actor);
-    expect(insertSpy.mock.calls[0][0].created_by).toBeNull();
+    expect(mintCall().args.p_patch.created_by).toBeNull();
   });
 });
 
 describe("ephemeral token lifecycle audit (A1-10, A3-14)", () => {
   const user = { type: "user", id: "u1", principalId: "u1", workspaceId: "w1", label: "Pat", role: "member" } as Actor;
   beforeEach(() => {
-    insertSpy.mockClear();
+    rpcCalls.length = 0;
     updateSpy.mockClear();
-    writeAuditMock.mockClear();
-    writeAuditMock.mockImplementation(async () => {});
+    rpcResult.error = null;
   });
 
   it("expires after the longest possible turn (10 minutes), not an hour", async () => {
     expect(EPHEMERAL_TOKEN_TTL_MS).toBe(10 * 60 * 1000);
     const before = Date.now();
     await mintEphemeralToken(user);
-    const exp = new Date(insertSpy.mock.calls[0][0].expires_at as string).getTime();
+    const exp = new Date(mintCall().args.p_patch.expires_at as string).getTime();
     expect(exp - before).toBeLessThanOrEqual(EPHEMERAL_TOKEN_TTL_MS + 1000);
     expect(exp - before).toBeGreaterThan(EPHEMERAL_TOKEN_TTL_MS - 5000);
   });
 
-  it("writes exactly one mint audit row that links the conversation id", async () => {
-    await mintEphemeralToken(user, { conversationId: "conv-1" });
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    const arg = writeAuditMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(arg.action).toBe("assistant.token.mint");
-    expect(arg.targetId).toBe("conv-1");
-    expect(arg.after).toMatchObject({ token_id: "tok-new", conversation_id: "conv-1" });
+  it("writes the token and exactly one mint audit row in ONE call, linked to the conversation, without the hash", async () => {
+    const res = await mintEphemeralToken(user, { conversationId: "conv-1" });
+    expect(rpcCalls).toHaveLength(1);
+    const audit = mintCall().args.p_audit;
+    expect(audit.action).toBe("assistant.token.mint");
+    expect(audit.target_type).toBe("assistant_conversation");
+    expect(audit.target_id).toBe("conv-1");
+    expect(audit.after).toMatchObject({ token_id: res.id, conversation_id: "conv-1" });
+    // the token hash is written but never read into the audit row or returned
+    expect(audit.omit_columns).toEqual(["token_hash"]);
+    expect(JSON.stringify(audit)).not.toContain(mintCall().args.p_patch.token_hash);
+    // no separate update, no separate audit call
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 
-  it("revokes the token and refuses the turn when the mint cannot be audited (fail-closed)", async () => {
-    writeAuditMock.mockImplementationOnce(async () => {
-      throw new Error("audit down");
-    });
+  it("refuses the turn when the mint cannot be audited, and no token row exists to clean up (fail-closed)", async () => {
+    rpcResult.error = { message: "audit down" };
     await expect(mintEphemeralToken(user, { conversationId: "conv-1" })).rejects.toThrow(/audit down/);
-    expect(updateSpy).toHaveBeenCalledWith({ revoked: true }, "id", "tok-new");
+    // the insert and the audit row are one transaction: nothing to revoke afterwards
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 
-  it("revoke marks the token revoked and writes one revoke audit row with the conversation id", async () => {
+  it("revoke marks the token revoked and writes one revoke audit row with the conversation id, in one call", async () => {
     await revokeEphemeralToken("tok-new", { actor: user, conversationId: "conv-1" });
-    expect(updateSpy).toHaveBeenCalledWith({ revoked: true }, "id", "tok-new");
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    const arg = writeAuditMock.mock.calls[0][0] as Record<string, unknown>;
-    expect(arg.action).toBe("assistant.token.revoke");
-    expect(arg.targetId).toBe("conv-1");
-    expect(arg.after).toMatchObject({ token_id: "tok-new", conversation_id: "conv-1" });
+    expect(rpcCalls).toHaveLength(1);
+    const call = rpcCalls[0].args;
+    expect(call.p_op).toBe("update");
+    expect(call.p_id).toBe("tok-new");
+    expect(call.p_patch).toEqual({ revoked: true });
+    expect(call.p_audit.action).toBe("assistant.token.revoke");
+    expect(call.p_audit.target_id).toBe("conv-1");
+    expect(call.p_audit.after).toMatchObject({ token_id: "tok-new", conversation_id: "conv-1" });
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 
-  it("a failing revoke audit never throws out of a finally block", async () => {
+  it("a revoke whose audit write fails still revokes the token (security first) and never throws", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    writeAuditMock.mockImplementationOnce(async () => {
-      throw new Error("audit down");
-    });
+    rpcResult.error = { message: "audit down" };
     await expect(revokeEphemeralToken("tok-new", { actor: user })).resolves.toBeUndefined();
+    expect(updateSpy).toHaveBeenCalledWith({ revoked: true }, [
+      ["id", "tok-new"],
+      ["workspace_id", "w1"],
+    ]);
+  });
+
+  it("revoke without an actor just revokes (no audit row is described)", async () => {
+    await revokeEphemeralToken("tok-new");
+    expect(rpcCalls).toHaveLength(0);
+    expect(updateSpy).toHaveBeenCalledWith({ revoked: true }, [["id", "tok-new"]]);
   });
 });
