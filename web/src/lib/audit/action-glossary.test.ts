@@ -48,10 +48,12 @@ function codeActions(): Set<string> {
 function sqlActions(): Set<string> {
   const found = new Set<string>();
   for (const file of walk(MIGRATIONS, /\.sql$/)) {
-    const lines = readFileSync(file, "utf8").split("\n");
+    // W1-02: comments are stripped first, so a commented-out audit call never counts as a written action
+    const lines = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, "").split("\n");
     lines.forEach((line, idx) => {
       // wave 5: functions write their row through the shared helper nopm_audit_insert (0107) instead of a direct insert
-      if (!/insert\s+into\s+(public\.)?audit_log|nopm_audit_insert\s*\(/i.test(line)) return;
+      // and only a statement-level call counts: perform|select nopm_audit_insert( at the start of a statement
+      if (!/insert\s+into\s+(public\.)?audit_log|(?:^|;|\bthen\b|\belse\b|\bbegin\b)\s*(?:perform|select)\s+(?:public\.)?nopm_audit_insert\s*\(/i.test(line)) return;
       const window = lines.slice(idx, idx + 16).join("\n");
       for (const m of window.matchAll(/'([a-z_]+(?:\.[a-z_]+)+)'/g)) found.add(m[1]);
     });

@@ -136,9 +136,43 @@ function moduleRpcNames(fileRel: string): string[] {
   return [...new Set([...src.matchAll(/["'`](nopm_\w+)["'`]/g)].map((m) => m[1]))];
 }
 
-/** true when the route imports an audited-RPC module. */
-function importsAuditedRpcModule(src: string): boolean {
-  return AUDITED_RPC_MODULES.some((m) => m.importPattern.test(src));
+/** Function names a route imports from an audited-RPC module. */
+function auditedModuleImports(src: string): string[] {
+  const names: string[] = [];
+  for (const m of src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*(from\s+["'][^"']+["'])/g)) {
+    if (!AUDITED_RPC_MODULES.some((mod) => mod.importPattern.test(m[2]))) continue;
+    for (const part of m[1].split(",")) {
+      const local = part.trim().split(/\s+as\s+/).pop();
+      if (local && !/^type\s/.test(part.trim())) names.push(local);
+    }
+  }
+  return names;
+}
+
+/**
+ * W1-01: a handler span is covered by an audited-RPC module only when it calls at least one imported module
+ * function AND contains no other mutating call: no direct .from(...).insert|update|delete|upsert( on a governed
+ * table and no .rpc( that is not audited in SQL. One RPC call followed by a direct update fails.
+ */
+function handlerCoveredByModule(span: string, imported: string[]): boolean {
+  if (!imported.some((n) => new RegExp(String.raw`\b${n}\s*\(`).test(span))) return false;
+  return findWrites(span).filter(isGoverned).every((w) => w.rpc && rpcAuditsInSql(w.table) === true);
+}
+
+/** Every POST/PATCH/PUT/DELETE handler audits itself (writeAudit / audited RPC) or is covered by a module. */
+function everyMutatingHandlerAudited(src: string): boolean {
+  const imported = auditedModuleImports(src);
+  if (imported.length === 0) return false;
+  const spans = verbSpans(src).filter((sp) => sp.verb !== "GET");
+  if (spans.length === 0) return false;
+  return spans.every((sp) => {
+    const body = src.slice(sp.start, sp.end);
+    return (
+      handlerCoveredByModule(body, imported) ||
+      WRITE_AUDIT_CALL.test(body) ||
+      [...body.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].some((m) => rpcAuditsInSql(m[1]) === true)
+    );
+  });
 }
 
 /** RPC names called by one exported function of atomic-rpc.ts (the wrapper a delegate follows into). */
@@ -198,8 +232,9 @@ describe("audit-coverage invariant", () => {
       // audited atomically inside a SQL RPC (latest definition inserts into audit_log)
       if ([...src.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].some((m) => rpcAuditsInSql(m[1]) === true)) continue;
 
-      // audited through an audited-RPC module (atomic-rpc.ts, mfa/_rpc.ts); the module itself is verified below
-      if (importsAuditedRpcModule(src)) continue;
+      // audited through an audited-RPC module (atomic-rpc.ts, mfa/_rpc.ts), PER HANDLER: every mutating
+      // handler of the file must be covered by the module (or audit by itself). The module is verified below.
+      if (everyMutatingHandlerAudited(src)) continue;
 
       const apiPath = toApiPath(file);
       if (Object.prototype.hasOwnProperty.call(ALLOWLIST, apiPath)) continue; // explicitly justified
@@ -209,6 +244,34 @@ describe("audit-coverage invariant", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+});
+
+describe("W1-01 per-handler module rule and W1-02 SQL scan (negative fixtures)", () => {
+  const imp = ["rejectDeletionAtomic"];
+  it("a handler with one module call and a later direct write is NOT covered", () => {
+    const bad = 'export const PATCH = route(async () => { await rejectDeletionAtomic(db, a); await db.from("tasks").update({ x: 1 }).eq("id", 1); });';
+    expect(handlerCoveredByModule(bad, imp)).toBe(false);
+  });
+  it("a handler that only calls the module is covered; one that never calls it is not", () => {
+    expect(handlerCoveredByModule('export const DELETE = route(async () => { await rejectDeletionAtomic(db, a); });', imp)).toBe(true);
+    expect(handlerCoveredByModule('export const PATCH = route(async () => { await db.from("tasks").update({}); });', imp)).toBe(false);
+  });
+  it("a file whose PATCH is unaudited stays a violation even though its DELETE uses the module", () => {
+    const src = [
+      'import { rejectDeletionAtomic } from "@/lib/governance/atomic-rpc";',
+      'export const PATCH = route(async () => { await db.from("tasks").update({}); });',
+      'export const DELETE = route(async () => { await rejectDeletionAtomic(db, a); });',
+    ].join("\n");
+    expect(everyMutatingHandlerAudited(src)).toBe(false);
+  });
+  it("SQL: comments, dead branches and the exception path do not count", () => {
+    expect(sqlBodyAudits("begin\n  -- perform nopm_audit_insert(a);\n  update t set x = 1;\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  /* perform nopm_audit_insert(a); */\n  update t set x = 1;\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  if false then\n    perform nopm_audit_insert(a);\n  end if;\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  update t set x = 1;\nexception when others then\n  perform nopm_audit_insert(a);\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  update t set x = 1;\n  perform nopm_audit_insert(a);\nend")).toBe(true);
+    expect(sqlBodyAudits("begin\n  insert into audit_log (x) values (1);\nend")).toBe(true);
   });
 });
 
@@ -440,8 +503,37 @@ function rpcAuditsInSql(fn: string): boolean | null {
       latest = end < 0 ? rest : rest.slice(0, end);
     }
   }
-  // wave 5: a dedicated RPC may write its row through the shared helper nopm_audit_insert (migration 0107)
-  return latest === null ? null : /insert\s+into\s+(?:public\.)?audit_log|nopm_audit_insert\s*\(/i.test(latest);
+  return latest === null ? null : sqlBodyAudits(latest);
+}
+
+/** SQL without -- line comments and block comments, so a commented-out call never counts. */
+function stripSqlComments(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, "");
+}
+
+/**
+ * W1-02: a function audits when, after comments are stripped, it holds a statement-level
+ * insert into audit_log or perform|select nopm_audit_insert( that can run: not inside a branch whose condition is
+ * literally false/null (if false then ... end if), and not inside the function's own exception handler
+ * (an exception when at the top level of the body). Calls inside ordinary conditional branches count, because
+ * wave 5 functions audit per operation (create, update, revoke).
+ */
+function sqlBodyAudits(sql: string): boolean {
+  const body = stripSqlComments(sql);
+  const tok = /\bend\s+(?:if|loop|case)\b|\bexception\s+when\b|\bif\b([\s\S]*?)\bthen\b|\bloop\b|(?:^|[;\s])(?:perform|select)\s+(?:public\.)?nopm_audit_insert\s*\(|insert\s+into\s+(?:public\.)?audit_log\b/gi;
+  const dead = /^\s*(?:not\s+true|false|null|0\s*=\s*1|1\s*=\s*0)\s*$/i;
+  const stack: boolean[] = []; // true = dead branch
+  let m: RegExpExecArray | null;
+  while ((m = tok.exec(body))) {
+    const t = m[0].toLowerCase().trim();
+    if (/^end\s/.test(t)) stack.pop();
+    else if (t.startsWith("exception")) {
+      if (stack.length === 0) return false; // top-level handler: the rest is the error path
+    } else if (t === "loop") stack.push(false);
+    else if (/^if\b/.test(t)) stack.push(dead.test(m[1] ?? ""));
+    else if (!stack.includes(true)) return true; // statement-level audit call that can run
+  }
+  return false;
 }
 
 const isGoverned = (w: Write) => (w.rpc ? !NON_MUTATING_RPC[w.table] : !NON_BUSINESS_TABLES[w.table]);
