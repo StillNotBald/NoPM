@@ -17,9 +17,9 @@ The original runner-C agent was lost when the machine had to be restarted at 22:
 | `probe-github` (GH4 now asserts a deploy never completes a task, Q7) | 8 | 0 | |
 | CLI contract tests (`cli/`, `node --test`) | 68 | 0 | |
 | Cron endpoint `GET /api/integrations/cron` | 200 | | summary has no retro or overdue-emergency counters; approvals examined 88, autoApproved 0 |
-| Playwright tier 1 / tier 2 | see below | | run after the browser retest to keep one browser at a time |
+| Playwright tier 1 (read journeys, 1 worker) | 45 | 0 (13 skipped: opt-in specs) | run 23:15–23:36 MYT against the dev server |
+| Playwright tier 2 (`E2E_WRITES=1`, 1 worker) | 75 | 9 | ENV: all nine are read-only page journeys (dashboard, demo login, dialogs, navigation, wizard absence, tokens surface) that PASSED in tier 1 twenty minutes earlier; tier 2 ran 23:37–23:42 MYT while three wave-5 builders were editing `web/src` under the same dev server, which forces full page reloads mid-test. Every write journey that tier 2 exists for passed. Re-run with a quiet tree before release if wanted. |
 
-CLI and Playwright rows are appended below when they finish.
 
 ## Defects (PRODUCT)
 
