@@ -34,6 +34,13 @@
  * read are reported in `hidden_kinds` (an empty list must not be mistaken for
  * "nothing is waiting"); a caller who can read none of them gets a 403.
  *
+ * Assignment (G5): a request may name the approver it waits for
+ * (assigned_approver_id, set on raise, always an admin or manager). Each item
+ * says whether it is assigned to THIS caller (`assigned_to_me`, compared by
+ * person like four-eyes) and `mine: true` narrows the queue to those. Assignment
+ * is routing only: it never changes `can_decide`. A caller with no resolvable
+ * person has nothing assigned to them, so `mine` is an empty queue for them.
+ *
  * Workspace isolation: token callers run on the admin client (RLS bypassed),
  * so EVERY query here filters `workspace_id`. A failing query throws (-> 500)
  * rather than counting as empty: an absent check must never look like a pass.
@@ -63,6 +70,10 @@ export interface PendingItem {
   can_decide: boolean;
   /** Why the caller cannot decide; null when `can_decide` is true. */
   reason_if_not: string | null;
+  /** The approver this request was assigned to on raise (profile id); null = nobody in particular. */
+  assigned_approver_id: string | null;
+  /** True when it is assigned to the person behind the caller. */
+  assigned_to_me: boolean;
 }
 
 export interface PendingResult {
@@ -80,6 +91,8 @@ export interface PendingOptions {
   limit?: number;
   /** Restrict to these kinds (default: all). */
   kinds?: readonly PendingKind[];
+  /** Only requests assigned to the person behind the caller (G5). */
+  mine?: boolean;
 }
 
 /**
@@ -309,17 +322,24 @@ export async function listPendingApprovals(
     ...(wanted.includes("project_deletion") ? ["project"] : []),
   ];
 
+  const actorPrincipal = resolveActorPrincipal(actor);
+  // G5: "mine" = assigned to the person behind the caller. No person, nothing assigned.
+  if (opts.mine && !actorPrincipal) return { items: [], total: 0, page, limit, hidden_kinds };
+  const onlyMine = (q: any) => (opts.mine ? q.eq("assigned_approver_id", actorPrincipal) : q); // eslint-disable-line @typescript-eslint/no-explicit-any
+
   const [deletions, changes, rebaselines] = await Promise.all([
     wantsDeletion
       ? fetchSource(db, "deletion_requests", ws, "created_at", window, (q) =>
-          q.eq("status", "pending").in("target_type", deletionTypes),
+          onlyMine(q.eq("status", "pending").in("target_type", deletionTypes)),
         )
       : { rows: [], count: 0 },
     wanted.includes("change_request")
-      ? fetchSource(db, "change_requests", ws, "raised_at", window, (q) => q.in("status", ["raised", "under_review"]))
+      ? fetchSource(db, "change_requests", ws, "raised_at", window, (q) =>
+          onlyMine(q.in("status", ["raised", "under_review"])),
+        )
       : { rows: [], count: 0 },
     wanted.includes("rebaseline")
-      ? fetchSource(db, "rebaselines", ws, "created_at", window, (q) => q.eq("status", "pending_approval"))
+      ? fetchSource(db, "rebaselines", ws, "created_at", window, (q) => onlyMine(q.eq("status", "pending_approval")))
       : { rows: [], count: 0 },
   ]);
 
@@ -365,7 +385,6 @@ export async function listPendingApprovals(
     profiles.map((p) => [p.id as string, (p.display_name || p.email || null) as string | null]),
   );
 
-  const actorPrincipal = resolveActorPrincipal(actor);
   // Probe each decide scope once, not once per row.
   const scopeProblems = new Map<PendingKind, string | null>();
   const scopeProblem = (kind: PendingKind) => {
@@ -431,6 +450,8 @@ export async function listPendingApprovals(
       requested_at: c.requested_at,
       can_decide: verdict.can_decide,
       reason_if_not: verdict.reason_if_not,
+      assigned_approver_id: typeof r.assigned_approver_id === "string" ? r.assigned_approver_id : null,
+      assigned_to_me: !!actorPrincipal && r.assigned_approver_id === actorPrincipal,
     };
   });
 

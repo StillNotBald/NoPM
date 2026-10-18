@@ -7,6 +7,7 @@ import { ConflictError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { LOCK_FIRST_MESSAGE, PENDING_REBASELINE_EXISTS_MESSAGE } from "@/lib/governance/rebaseline-rpc";
 import { announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { rebaselineEvent } from "@/lib/integrations/rebaseline-approval";
+import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
@@ -93,6 +94,8 @@ export const POST = route(async ({ actor, params, request }) => {
     );
   }
 
+  const assignedApproverId = await resolveAssignedApprover(db, actor.workspaceId, parsed.data.assigned_approver_id, requesterPrincipal);
+
   // Compute next version: max existing version for this project + 1
   const { data: maxRow, error: maxError } = await db
     .from("rebaselines")
@@ -142,6 +145,8 @@ export const POST = route(async ({ actor, params, request }) => {
       before: datesBefore,
       after: datesAfter,
       created_at: now,
+      // G5: only sent when asked for (deploy-order safe).
+      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
     })
     .select()
     .single();

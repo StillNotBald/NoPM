@@ -38,4 +38,16 @@ export const SAMPLE_NOTIFICATIONS: ReadonlyArray<NotificationEmailInput> = [
     body: "A schedule, resource or dependency clash was found and needs a decision.",
     payload: { href: "/clashes" },
   },
+  {
+    type: "item.stale",
+    title: "Stale task: a task has had no update for 14 days",
+    body: "No update for 14 days. Update it, or close it if it is done.",
+    payload: { href: "/my-tasks" },
+  },
+  {
+    type: "report.weekly",
+    title: "Weekly status report: week of the current Monday",
+    body: "A summary of projects, open high risks, pending approvals and stale items.",
+    payload: { href: "/dashboard" },
+  },
 ];

@@ -16,7 +16,7 @@ Every request (except the public routes below) requires:
 
 Tokens are scoped Personal Access Tokens (PATs) with prefix npm_.
 Scopes follow the pattern resource:action (e.g. task:read, project:write).
-A token may hold multiple scopes. Admin/manager user sessions bypass scope checks for token management.
+A token may hold multiple scopes. The newest scope is report:read, which opens GET /reports/weekly and GET /reports/handover (not privileged; report:* covers it). Admin/manager user sessions bypass scope checks for token management.
 Tokens are SHA-256 hashed at rest and shown exactly once at creation time.
 A browser session (cookie) may not write cross-site: a POST/PUT/PATCH/DELETE carrying an Origin header that is
 not this site is refused 403 (code bad_origin). Bearer-token requests are never origin-checked.
@@ -40,9 +40,9 @@ principal_id (the person behind the actor).
 
 Public routes (no Bearer token): /health, /api/openapi.json, /llms.txt, POST /auth/demo-login,
 POST /auth/signout, POST /invites/accept, and GET /calendar/{token} (the secret in the URL is the credential).
-Three more are authenticated by something other than a PAT: /integrations/lark/{connectorId}/events and
+Several more are authenticated by something other than a PAT: /integrations/lark/{connectorId}/events and
 /card (signed by Lark/Feishu), /integrations/lark/{connectorId}/relay (HMAC from the self-host worker),
-and GET /integrations/cron (Authorization: Bearer <CRON_SECRET>, the host scheduler only).
+GET /integrations/cron and GET /cron/snapshots (Authorization: Bearer <CRON_SECRET>, the host scheduler only).
 
 ## Response shape
 Success:   { "data": <object|array>, ["total": N, "page": N, "limit": N] }
@@ -269,7 +269,7 @@ POST   /members/{id}/restore               — admin session — restore a remov
 POST   /members/{id}/mfa-reset             — admin session — reset another person's two-step sign-in; returns fresh backup_codes ONCE; 422 self_reset; audited member.mfa_reset
 
 GET    /workspace-settings                 — any caller — { time_zone, default_time_zone } (IANA; default Asia/Kuala_Lumpur; server today-defaults follow it)
-PATCH  /workspace-settings                 — admin session — change { time_zone }; audited workspace.settings_update
+PATCH  /workspace-settings                 — admin session — change any non-empty subset of { time_zone, stale_days (1-365), nudges_enabled, weekly_report_enabled, weekly_report_day (ISO weekday, 1 = Monday) }; a bad value is 422 and saves nothing; audited workspace.settings_update with only the changed fields
 
 GET    /invites                            — admin/manager session — list link invites (L-47/L-48). status is DERIVED (pending|accepted|revoked|expired), never a stored column. Optional ?status= filter.
 POST   /invites                            — admin/manager session — create a link invite. Role-escalation cap (D5): invite.role must be <= the creator's own rank (viewer<member<manager<admin) — 422 if exceeded. Token prefix npi_. expires_at = now + 7 days. invite_url returned ONCE.
@@ -357,10 +357,17 @@ DELETE /allocations/{id}                   — scope:resource:write — delete a
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual = expenses only, variance, burn_pct)
 PUT    /projects/{id}/budget               — scope:budget:write — set the project budget: planned_amount required, committed_amount / currency default to 0 / USD when omitted; actual_amount, contingency_reserve, management_reserve are stored when sent
 PATCH  /projects/{id}/budget               — scope:budget:write — PARTIAL update: only the fields in the body are written (nothing is defaulted); 422 on an empty body
+  Budget forecast (R-144): PUT and PATCH budget accept estimate_to_complete (number or null), committed_open (number or null: commitments not yet invoiced; null means use committed_amount) and forecast_method (cpi or bottom_up). On a locked project these two need no change request. GET budget returns forecast { method, estimate_to_complete, committed, committed_open, eac, eac_cpi, eac_bottom_up, etc, vac }; committed is never double counted.
 GET    /projects/{id}/expenses             — scope:budget:read  — list expenses for a project
 POST   /projects/{id}/expenses             — scope:budget:write — create an expense for a project
 DELETE /expenses/{id}                      — scope:budget:write — delete an expense
 GET     /projects/{id}/evm                  — scope:budget:read — earned-value numbers as the Budget page computes them: bac, pv, ev, ac, committed, cv, sv, cpi, spi, eac, etc, vac (cpi, spi, eac, etc, vac null when undefined) plus schedule_basis (baseline_dates | completion_only).
+  GET /projects/{id}/evm also returns eac_cpi, eac_bottom_up, forecast_method, estimate_to_complete and committed_open (commitments not yet invoiced; null means the read uses committed_amount); eac, etc and vac follow forecast_method.
+GET     /projects/{id}/trend                — scope:project:read — slip and index trend from the daily snapshots, with a SUGGESTED RAG (?n=1-120, default 28); advisory, never changes the declared RAG
+GET     /projects/{id}/contingency          — scope:project:read — is this project waiting on a red project? transitive (depth 5), with the chain of projects; advisory
+GET     /projects/{id}/dependencies         — scope:project:read — project dependencies in both directions (depends_on / depended_on_by), with the other project's code, name and declared RAG
+POST    /projects/{id}/dependencies         — scope:project:write — declare a dependency { depends_on_project_id, kind (delivery|resource|decision|risk), linked_risk_id?, note? }; 422 self_dependency, invalid_reference, risk_not_in_projects, circular_dependency; 409 duplicate_dependency; allowed on a locked project; audited project.dependency.add
+DELETE /projects/{id}/dependencies/{depId} — scope:project:write — remove a dependency (204; 404 when it is not under this project); allowed on a locked project; audited project.dependency.remove
 
 GET    /documents                          — scope:document:read  — list documents (?project_id, ?doc_type, ?status, ?change_request_id filters)
 POST   /documents                          — scope:document:write — create a document record. Optional evidence fields: change_request_id (same project; evidence needs one), evidence_type (test_result|uat_signoff|deploy_record|screenshot|other), evidence_result (pass|fail|partial|n/a; needs evidence_type), tested_by_label, tested_at, evidence_note
@@ -398,6 +405,7 @@ POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — appl
 POST   /rebaselines/{id}/withdraw          — scope:project:write — the proposer withdraws a rebaseline that is still pending_approval (403 not_requester for anyone else; 422 rebaseline_not_pending); becomes cancelled, audited rebaseline.withdrawn
 
 GET    /review                             — scope:task:read or audit:read or change:read or project:read — "what is waiting for a human?": every governed decision pending in the workspace, oldest first, across deletion requests (task + project), change requests (raised/under_review) and rebaselines awaiting sign-off. READ-ONLY. ?kind=task_deletion|project_deletion|change_request|rebaseline (comma list or repeated), ?page, ?limit (1..200, default 50). Response { data: [{ kind, id, title, summary, project_id, project_name, requested_by_label, requested_at, can_decide, reason_if_not }], total, page, limit, hidden_kinds }. can_decide = holds the decide scope AND is a different person from the requester; reason_if_not says why not. Kinds the token cannot read are named in hidden_kinds (an empty list is NOT proof nothing is pending); a token that can read none gets 403.
+  GET /review?mine=1 (R-146): only the requests assigned to the person behind the token (a token counts as its creator). Each item carries assigned_approver_id and assigned_to_me. Assignment is routing only and never changes can_decide.
 
 GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed|withdrawn; target_type=task|project)
 POST   /deletion-requests/{id}/approve     — scope:<type>:delete:approve — approve and execute a pending deletion (admins and managers only — 403 role_not_permitted; per-type gate: task:delete:approve or project:delete:approve; four-eyes by PERSON: approver != requester — 403 self_approval, 403 no_principal; 422 already_decided). Optional body { "note": "<why>" } is recorded in the audit row.
@@ -409,12 +417,18 @@ PATCH  /notifications/{id}                 — scope:notification:read — mark 
 POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
 GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant|lark — R-82, unrecognized values ignored; ?since ISO 8601 timestamp — 422 if unparsable, ?after_id uuid of a row already seen — 404 if absent from this workspace, ?order asc|desc default desc — 422 otherwise; since/after_id combine — R-85). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql. A decision made from a Lark card is recorded with channel=lark plus via_connector_id / external_event_id / external_actor_ref (platform ids abbreviated; server-derived, never taken from X-NoPM-Client — a caller can only declare ui|api|cli|mcp|assistant); ?channel=lark filters to them. Connector audit rows carry the Lark app id, chat id and platform ids abbreviated (the stream is member-readable).
+  GET /audit also takes project_id (the project and every record naming it), person_id (that person's own actions and actions through a token they own), kinds (comma list of task,risk,issue,change_request,decision,document,project) and until (exclusive upper bound that pairs with since). Malformed values are 422.
 GET    /search                            — scope:project:read — full-workspace search (?q=) across projects, tasks, programs, sprints, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
+  GET /timeline also returns projectDependencies, and edges of kind dependency run milestone to milestone. Same-project task edges are unchanged.
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
 GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|programs|projects|members|tokens|identities|change_requests|audit_pack (required; members/tokens/identities = access review, admin or manager SESSION only, 403 for any token; tokens never export the hash). from/to (UTC days, inclusive) and on=created|updated apply to EVERY entity. risks also take impact_area=a,b (any-of) and export risk_category + impact_areas. Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id OPTIONAL (omitted = whole workspace) + status/severity(/priority for issues)/q/sort; projects: rag_status/phase/program_id/q/sort; clashes: none; audit: target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, lenient — bad value dropped, not 422; after_id NOT supported here); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel, request_id, principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
   audit_pack: GET /api/export?entity=audit_pack&from=&to=&format=csv|pdf — admin or manager SESSION only (403 for any token, member, viewer). One CSV (first column section = change_requests | evidence | decisions | approvals_audit) or a PDF: every change request raised or decided in range with approver, evidence, implemented date, plus the change audit trail. Audited as export.audit_pack.
+
+GET    /reports/handover                   — scope:report:read — handover and key-person report: open items with a single owner and no backup, unowned items, per-person bus_factor_1 (?project_id, ?format=json|csv)
+GET    /reports/weekly                     — scope:report:read — the stored weekly status report as HTML (?week=<calendar day or ISO week>; 404 when none was generated; 422 when the week is unreadable)
+POST   /reports/weekly                     — admin or manager SESSION only (403 for members, viewers and every token) — send the weekly report now: refresh this week's stored report, notify every admin and manager, audit report.weekly.generated
 
 GET    /reports/deck                       — scope:audit:read AND budget:read (both required — the deck carries budget figures) — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read AND budget:read (both required) — portfolio deck (POST variant)
@@ -447,6 +461,7 @@ GET    /integrations/identities            — signed-in user session — linked
 POST   /integrations/identities/link-code  — signed-in user session — mint a one-time NPL-XXXX-XXXX code (10 minutes, single use); DM "link <code>" to the bot to bind that Lark account to YOU (never by email)
 DELETE /integrations/identities/{id}       — signed-in user session — unlink a platform account (your own, or any for an admin)
 GET    /integrations/cron                  — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — daily tick (01:07 UTC): retry due deliveries, send each connector's weekly digest on its weekday (a missed weekday is made up by a later tick in the same ISO week, unless the connector was edited after that day began), prune old bookkeeping rows; idempotent. Only the FLOOR of the retry ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead) — due retries also drain whenever the workspace has approval traffic. Stops starting work at 40 s of its 60 s budget; the rest stays queued. Summary: { connectors, deliveries, digests, skippedForDeadline, timedOut, pruned, elapsedMs }
+GET    /cron/snapshots                     — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — nightly project snapshot tick (17:37 UTC): one project_snapshots row per project per workspace day, idempotent; one snapshot.taken audit row per workspace per run
 POST   /integrations/lark/{connectorId}/events — public, signed by Lark/Feishu (verification token, plus Encrypt Key signature when set) — event subscription endpoint: url_verification handshake, bot DM commands (help, link <code>, approvals). Answers in the platform's contract, NOT { data }: { challenge }, {} or { toast, card }. One generic 401 { error: "Invalid request" } for any verification failure AND for an unknown, paused or revoked connector (404 only for a malformed id); 503 if the active connector cannot decrypt its own secrets; failed verifications are capped per connector and per client network (429).
 POST   /integrations/lark/{connectorId}/card — public, signed by Lark/Feishu — card.action.trigger callback: the Approve / Reject button click. Replies 200 { toast, card? } within 3 s; a refused click (unlinked, expired, not the recipient, self-approval, already decided, or "changed" — the request was edited after the card was sent, so nothing was decided and a fresh card follows) is a toast, not an HTTP error.
 POST   /integrations/lark/{connectorId}/relay — public, HMAC-signed by the self-host worker (headers X-NoPM-Relay-Timestamp, X-NoPM-Relay-Signature: v1=hex(HMAC-SHA256 over "<timestamp>.<raw body>", key = the 64-char hex text of SHA-256(relay secret)), within ±300 s) — body { type: ping | event | card, payload }. Same governed path as the webhooks. An unknown connector id is the same 401 invalid_relay_signature as a wrong signature; 404 only for a malformed id; 403 connector_inactive / wrong_mode only to an authenticated caller; 503 connector_unavailable if its secrets cannot be decrypted. The pre-auth per-network cap keys on the address your own proxy appended to X-Forwarded-For (self-host: set NOPM_TRUSTED_PROXY_HOPS).
@@ -520,6 +535,7 @@ workspace search, budget, clashes, resources, the audit log, and list_pending_ap
 MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agent. The same tools are served
 remotely at POST /mcp (Streamable HTTP) with your own PAT in the Authorization header.
 list_pending_approvals is read-only (it calls GET /review): it answers "what is waiting for a human?" and reports
+Also read-only: get_handover_report (GET /reports/handover) and get_project_trend (GET /projects/{id}/trend). list_pending_approvals takes mine=true (GET /review?mine=1).
 can_decide / reason_if_not per item, but there is deliberately no approve or decide tool.
 The stdio server (web/mcp/server.mjs) can also raise a change request (create_change_request), propose a rebaseline
 (propose_rebaseline), sign one off or apply it (sign_off_rebaseline, apply_rebaseline — these call the approve

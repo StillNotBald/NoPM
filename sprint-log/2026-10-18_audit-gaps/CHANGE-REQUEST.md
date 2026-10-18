@@ -38,6 +38,19 @@ Outcome mapping (CLAUDE.md scope posture): M-items, G-items and K-items serve ou
 | A7 | Audit tamper evidence is a hash chain (`prev_hash`, `row_hash`) set by the insert trigger; no external anchor yet. | Additive, verifiable with one query; external anchoring is a later decision. |
 | A8 | Deletion-by-request extends to expenses, approved documents, risks, issues, milestones (G8). Tasks and projects already have it. | The brief: "deletion requires a request, not a direct delete". |
 
+## Owner decisions raised by wave 3
+
+Wave 3 built a default for each of these. Each one needs an explicit yes or no from the owner. The builder's default stays in place until she decides.
+
+| Decision | Builder's default (built) | What changes if she says no |
+|---|---|---|
+| D1. Nudge cadence | One reminder per stale item every 7 days, one batch audit row per run, at most 200 per run. | Daily reminders instead of one every 7 days. The daily ceiling is already in the schema, so the change is to the cooldown only. |
+| D2. Weekly report catch-up | The report goes out only on the chosen weekday. A missed cron or a busy day loses that week unless an admin presses Send now. | Send late: the report goes out on any day after the chosen day, if the week has no report yet. |
+| D3. Self-assignment of approvals | A request cannot be assigned to its own requester. The assignee must be an admin or manager. | Allow assigning a request to its own requester. Four-eyes still blocks that person from deciding. |
+| D4. ETC on locked projects | The to-finish estimate and the forecast method change on a locked project with no change request. Both changes are audited. | Gate both fields behind an approved change request, by removing them from the exempt list. |
+| D5. Dependencies on locked projects | Allowed and audited. A locked schedule does not change. | Refuse adding or removing a dependency on a locked project. |
+| D6. Committed money | The system does not reduce committed when an invoice is entered. A visible hint tells the user (F5). | Build an automatic link from invoices to committed. That is new scope for this programme. |
+
 ## Owner-visible changes
 
 Kept in `OWNER-VISIBLE.md` per wave and summarised in the PR.

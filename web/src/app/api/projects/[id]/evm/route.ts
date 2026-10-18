@@ -27,18 +27,23 @@ export const GET = route(async ({ actor, params }) => {
     .maybeSingle();
   if (!project) throw new NotFoundError("Project not found");
 
-  const { data: budget } = await db
+  const { data: budget, error: budgetError } = await db
     .from("project_budget")
-    .select("planned_amount, committed_amount, currency")
+    .select("planned_amount, committed_amount, currency, estimate_to_complete, forecast_method, committed_open")
     .eq("project_id", projectId)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
 
-  const { data: expenses } = await db
+  // A failed read must never look like "no budget": on a database without 0097 the new columns
+  // make this read fail, and zeros would read as a project with no spend.
+  if (budgetError) throw new Error(`evm: budget read failed: ${budgetError.message}`);
+
+  const { data: expenses, error: expenseError } = await db
     .from("expenses")
     .select("amount")
     .eq("project_id", projectId)
     .eq("workspace_id", actor.workspaceId);
+  if (expenseError) throw new Error(`evm: expenses read failed: ${expenseError.message}`);
   const actual = (expenses ?? []).reduce((sum: number, row: { amount: number | null }) => sum + (row.amount ?? 0), 0);
 
   const asOf = await workspaceToday(actor.workspaceId);
@@ -50,6 +55,10 @@ export const GET = route(async ({ actor, params }) => {
     baseline_start_date: project.baseline_start_date,
     baseline_target_date: project.baseline_target_date,
     as_of_date: asOf,
+    // B3: the bottom-up forecast needs the manual to-finish estimate and the chosen method.
+    estimate_to_complete: budget?.estimate_to_complete == null ? null : Number(budget.estimate_to_complete),
+    committed_open: budget?.committed_open == null ? null : Number(budget.committed_open),
+    forecast_method: budget?.forecast_method === "bottom_up" ? "bottom_up" : "cpi",
   });
 
   return ok({

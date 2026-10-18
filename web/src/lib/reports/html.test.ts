@@ -32,6 +32,11 @@ const EVM: EvmResult = {
   cpi: 0.9048,
   spi: 0.95,
   eac: 1_105_263,
+  eac_cpi: 1_105_263,
+  eac_bottom_up: null,
+  committed_open: 500_000,
+  forecast_method: "cpi",
+  estimate_to_complete: null,
   etc: 685_263,
   vac: -105_263,
 };

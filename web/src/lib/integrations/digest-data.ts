@@ -3,6 +3,8 @@ import { appBaseUrl } from "@/lib/integrations/store";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import { getWorkspaceTimeZone, shiftToZone } from "@/lib/integrations/time-zone";
 import type { DigestData } from "@/lib/integrations/types";
+import { getNudgeSettings } from "@/lib/nudges/settings";
+import { countStaleItems } from "@/lib/nudges/stale";
 
 /**
  * Gather the data a weekly digest renders — workspace-filtered, read-only,
@@ -21,7 +23,7 @@ const HEALTH_RANK: Record<string, number> = { red: 0, amber: 1, green: 2, not_st
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Q = any;
 type CountResult = { count: number | null; error: unknown };
-type ProjectRow = { id: string; name: string; rag_status: string | null; is_locked: boolean | null };
+type ProjectRow = { id: string; name: string; code?: string | null; rag_status: string | null; is_locked: boolean | null };
 type MilestoneRow = { id: string; name: string; project_id: string; target_date: string };
 
 async function safe<T>(label: string, fallback: T, run: () => PromiseLike<T>): Promise<T> {
@@ -57,7 +59,7 @@ export async function gatherDigestData(
     return n ?? 0;
   };
 
-  const [workspaceName, projects, milestones, openHighRisks, pendingApprovals] = await Promise.all([
+  const [workspaceName, projects, milestones, openHighRisks, pendingApprovals, stale] = await Promise.all([
     safe("workspace", "Workspace", async () => {
       const { data, error } = await db.from("workspaces").select("name").eq("id", workspaceId).maybeSingle();
       if (error) throw error;
@@ -66,7 +68,7 @@ export async function gatherDigestData(
     safe("projects", [] as ProjectRow[], async () => {
       const { data, error } = await db
         .from("projects")
-        .select("id, name, rag_status, is_locked")
+        .select("id, name, code, rag_status, is_locked")
         .eq("workspace_id", workspaceId)
         .order("name", { ascending: true })
         .limit(200);
@@ -97,6 +99,11 @@ export async function gatherDigestData(
       ]);
       return deletions + changes + rebaselines;
     }),
+    // The "Stale items" line (R-141): the same threshold the kanban flag and the nudges use.
+    safe("stale", { staleDays: 14, staleItems: 0 }, async () => {
+      const { stale_days } = await getNudgeSettings(workspaceId);
+      return { staleDays: stale_days, staleItems: await countStaleItems(workspaceId, stale_days, now) };
+    }),
   ]);
 
   const projectNames = new Map(projects.map((p) => [p.id, p.name]));
@@ -111,6 +118,7 @@ export async function gatherDigestData(
     projects: ranked.map((p) => ({
       id: p.id,
       name: p.name,
+      code: p.code ?? null,
       health: p.rag_status ?? null,
       status: p.is_locked ? "locked" : p.rag_status === "complete" ? "complete" : "active",
     })),
@@ -122,5 +130,7 @@ export async function gatherDigestData(
     })),
     openHighRisks,
     pendingApprovals,
+    staleItems: stale.staleItems,
+    staleDays: stale.staleDays,
   };
 }

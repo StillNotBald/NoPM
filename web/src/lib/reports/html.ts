@@ -5,7 +5,7 @@ import type { EvmResult } from "@/lib/evm";
 // App palette: white canvas / near-black ink / vibrant terminal-green accent.
 // Matches globals.css light theme exactly.
 
-const P = {
+export const P = {
   canvas:  "#ffffff",
   surface: "#f0f0f2",
   ink:     "#161616",
@@ -19,7 +19,7 @@ const P = {
   info:    "#2563eb",
 } as const;
 
-const TONE: Record<string, string> = {
+export const TONE: Record<string, string> = {
   green:       P.green,
   on_track:    P.green,
   amber:       P.amber,
@@ -39,7 +39,7 @@ const SEV_COLOR: Record<string, string> = {
   urgent:   P.red,
 };
 
-const esc = (s: string) =>
+export const esc = (s: string) =>
   String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c] as string);
 
 const fmt = (n: number | null | undefined, decimals = 0): string =>
@@ -50,7 +50,7 @@ const fmtIdx = (n: number | null | undefined): string =>
 
 // ─── shared CSS ──────────────────────────────────────────────────────────────
 
-const BASE_CSS = `
+export const BASE_CSS = `
   :root{
     --canvas:${P.canvas};--surface:${P.surface};--ink:${P.ink};--muted:${P.muted};
     --line:${P.line};--accent:${P.accent};

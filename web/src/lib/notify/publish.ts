@@ -13,7 +13,11 @@ export type NotificationType =
   /** Your Lark account link was replaced by a newer link code (Integration Hub). */
   | "integration.link_replaced"
   /** An admin reset your two-step sign-in; use a backup code to sign in. */
-  | "member.mfa_reset";
+  | "member.mfa_reset"
+  /** A task, risk or issue has had no update for the workspace's stale threshold (R-141). */
+  | "item.stale"
+  /** The weekly status report was generated; the payload links to the rendered view (R-142). */
+  | "report.weekly";
 
 export type NotifyInput = {
   workspaceId: string;
@@ -64,6 +68,52 @@ export async function notify(input: NotifyInput): Promise<void> {
     }
   } catch (err) {
     console.error("[notify] unexpected error:", err);
+  }
+}
+
+export type NotifyEachInput = Omit<NotifyInput, "recipientIds" | "workspaceId"> & { recipientId: string };
+
+/**
+ * Fail-soft batch variant of notify() for one message PER recipient (each with
+ * its own title/body/payload): ONE membership lookup and ONE insert for the lot,
+ * instead of a lookup per message. Same workspace-membership rule as notify().
+ * Returns how many rows were written (0 on any failure, which is logged).
+ */
+export async function notifyEach(workspaceId: string, items: NotifyEachInput[]): Promise<number> {
+  if (items.length === 0) return 0;
+  try {
+    const db = createAdminClient();
+    const ids = [...new Set(items.map((i) => i.recipientId))];
+    const { data: members, error: memberError } = await db
+      .from("profiles")
+      .select("id")
+      .eq("workspace_id", workspaceId)
+      .in("id", ids);
+    if (memberError) {
+      console.error("[notify] recipient lookup error:", memberError.message);
+      return 0;
+    }
+    const allowed = new Set((members ?? []).map((m: { id: string }) => m.id));
+    const rows = items
+      .filter((i) => allowed.has(i.recipientId))
+      .map((i) => ({
+        workspace_id: workspaceId,
+        recipient_id: i.recipientId,
+        type: i.type,
+        title: i.title,
+        body: i.body ?? null,
+        payload: i.payload ?? null,
+      }));
+    if (rows.length === 0) return 0;
+    const { error } = await db.from("notifications").insert(rows);
+    if (error) {
+      console.error("[notify] insert error:", error.message);
+      return 0;
+    }
+    return rows.length;
+  } catch (err) {
+    console.error("[notify] unexpected error:", err);
+    return 0;
   }
 }
 

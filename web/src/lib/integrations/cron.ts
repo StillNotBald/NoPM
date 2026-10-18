@@ -15,6 +15,7 @@ import {
 import { gatherDigestData } from "@/lib/integrations/digest-data";
 import { getWorkspaceTimeZone, shiftToZone } from "@/lib/integrations/time-zone";
 import { sanitizeError } from "@/lib/integrations/secrets";
+import { EMPTY_NUDGE_STEP, runNudgeStep, type NudgeStepSummary } from "@/lib/nudges/step";
 import { CONNECTOR_COLUMNS, maskExternalId, normalizeConfig } from "@/lib/integrations/store";
 import type { ConnectorRow, DeliveryRow } from "@/lib/integrations/types";
 
@@ -120,6 +121,8 @@ export type CronSummary = {
   /** Connector jobs that overran the deadline and were abandoned. */
   timedOut: number;
   pruned: PruneSummary;
+  /** The daily stale-item nudge + weekly report step (R-141 / R-142); runs for every workspace, connector or not. */
+  nudges: NudgeStepSummary;
   elapsedMs: number;
 };
 
@@ -146,6 +149,7 @@ export async function runCron(
     skippedForDeadline: 0,
     timedOut: 0,
     pruned: { deliveries: 0, action_tokens: 0, inbound_actions: 0 },
+    nudges: { ...EMPTY_NUDGE_STEP },
     elapsedMs: 0,
   };
 
@@ -215,6 +219,16 @@ export async function runCron(
     }
     summary.digests[run.digest] += 1;
   });
+
+  // Phase 2b: stale-item nudges + weekly report, per workspace (not per connector). Database
+  // work only, before housekeeping so a long prune cannot starve it.
+  if (Date.now() < deadline) {
+    try {
+      summary.nudges = await runNudgeStep(now, deadline);
+    } catch (err) {
+      console.error("[integrations] cron nudge step failed:", sanitizeError(err));
+    }
+  }
 
   // Phase 3: retention, only with time to spare.
   if (Date.now() < deadline) {

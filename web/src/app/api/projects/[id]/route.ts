@@ -20,7 +20,9 @@ import {
   projectChildCounts,
 } from "@/lib/governance/project-children";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers, effective } from "@/lib/handover/backup";
 import { updateProjectSchema, ProjectDeleteRequestSchema } from "../_schema";
+import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { PROGRAM_ATTACH_MESSAGE, REOPEN_PROJECT_MESSAGE, requireManagerOrAdmin } from "@/lib/work/roles";
 
@@ -124,8 +126,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: fields.owner_id, field: "owner_id" },
+    { table: "profiles", id: fields.backup_owner_id, field: "backup_owner_id" },
     { table: "programs", id: fields.program_id, field: "program_id" },
   ]);
+
+  // M6: a backup is somebody else than the owner (checked on the values the row will have).
+  assertBackupDiffers(
+    effective(fields.owner_id, before.owner_id),
+    effective(fields.backup_owner_id, before.backup_owner_id),
+    "backup_owner_id",
+    "owner_id",
+  );
 
   // D-WRK-17: completion is calculated from the tasks (roll-up trigger), so a
   // manual value would be overwritten on the next task change. An echo of the
@@ -279,6 +290,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
   }
 
   const { reason } = parsed.data;
+  const assignedApproverId = await resolveAssignedApprover(db, actor.workspaceId, parsed.data.assigned_approver_id, requesterPrincipal);
 
   // R1/M5: snapshot what hangs off the project, not only the project row. The
   // approval is refused (422 `children_changed`) if the project gained records
@@ -300,6 +312,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
       // four-eyes compares this, not the actor id.
       requested_principal_id: requesterPrincipal,
       before: snapshot,
+      // G5: only sent when asked for (deploy-order safe).
+      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
     })
     .select()
     .single();
@@ -323,7 +337,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
     targetType: "project",
     targetId: params.id,
     before: snapshot,
-    after: null,
+    after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
   });
 
   // Notify approvers — fail-soft (never throws)

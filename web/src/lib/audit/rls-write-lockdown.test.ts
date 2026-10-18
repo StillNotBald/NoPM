@@ -62,6 +62,10 @@ const GOVERNED = [
   "profiles", "notifications",
 ] as const;
 
+/** API-only tables created AFTER 0048 (the pre-0048 canary does not apply); same final-state rules. */
+const GOVERNED_LATER = ["nudge_log", "weekly_reports"] as const;
+const ALL_GOVERNED = [...GOVERNED, ...GOVERNED_LATER];
+
 /** RLS on, zero policies, or `revoke all` — service role only, by design. */
 const DENY_ALL = [
   "user_mfa", "api_tokens", "assistant_credentials", "assistant_conversations",
@@ -196,7 +200,7 @@ describe("RLS write lockdown — final state after every migration", () => {
   });
 
   it("every governed table still exists (a rename/removal must update this guard)", () => {
-    for (const t of GOVERNED) expect(st.tables.has(t), `${t} no longer created by any migration`).toBe(true);
+    for (const t of ALL_GOVERNED) expect(st.tables.has(t), `${t} no longer created by any migration`).toBe(true);
   });
 
   it("no table has an active insert/update/delete/all policy (no exceptions)", () => {
@@ -211,7 +215,7 @@ describe("RLS write lockdown — final state after every migration", () => {
   });
 
   it("no governed table grants INSERT/UPDATE/DELETE to anon or authenticated", () => {
-    for (const t of GOVERNED) {
+    for (const t of ALL_GOVERNED) {
       for (const role of ROLES) {
         const held = WRITE_PRIVS.filter((p) => st.grants.get(t)![role].has(p));
         expect(held, `${role} still holds ${held.join("/")} on ${t} — add it to a revoke in ${LOCKDOWN_FILE} (or a later migration)`).toEqual([]);
@@ -220,7 +224,7 @@ describe("RLS write lockdown — final state after every migration", () => {
   });
 
   it("every governed table keeps a read policy (the console reads through the session client)", () => {
-    for (const t of GOVERNED) {
+    for (const t of ALL_GOVERNED) {
       const cmds = [...(st.policies.get(t) ?? new Map<string, Cmd>()).values()];
       expect(cmds.includes("select"), `${t} lost its select policy`).toBe(true);
     }

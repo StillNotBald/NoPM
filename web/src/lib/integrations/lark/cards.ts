@@ -433,6 +433,13 @@ export function buildDigestCard(data: DigestData): LarkCard {
   ];
   elements.push(md(ids, stats.join(" · ")));
 
+  // R-141: only when something is stale, so a quiet week keeps the card as it was.
+  if (data.staleItems && data.staleItems > 0) {
+    const days = data.staleDays ? ` with no update for ${data.staleDays}+ days` : "";
+    elements.push(md(ids, `**Stale items**
+**${data.staleItems}** open task${data.staleItems === 1 ? "" : "s"}, risks or issues${days}`));
+  }
+
   if (data.projects.length === 0) {
     elements.push(md(ids, "**Projects**\nNo projects yet."));
   } else {

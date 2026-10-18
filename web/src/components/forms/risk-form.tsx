@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { Field, FieldError, FieldLabel, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
+import { BackupOwnerField, useBackupOwner } from "@/components/forms/backup-owner-field";
 import { IMPACT_AREA_OPTIONS } from "@/lib/risk/impact-areas";
 import { validateFields } from "@/lib/forms/validate";
 
@@ -56,6 +57,8 @@ export interface Risk {
   /** @deprecated use impact_areas (kept for rows read before 0091). */
   impact_area?: RiskImpactArea | null;
   impact_areas?: RiskImpactArea[];
+  /** M6: a login who picks this risk up if its owner is away. */
+  backup_owner_id?: string | null;
   trigger?: string | null;
   residual_risk?: string | null;
   resolution?: string | null;
@@ -150,6 +153,7 @@ export function RiskForm({
 
   const [resolution, setResolution] = useState(risk?.resolution ?? "");
 
+  const backup = useBackupOwner("risks", risk?.id, risk?.backup_owner_id);
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -204,6 +208,7 @@ export function RiskForm({
       trigger: trigger.trim() || null,
       residual_risk: residualRisk.trim() || null,
       resolution: resolution.trim() || null,
+      ...backup.payload(Boolean(risk)),
       // Optimistic concurrency (R-90) — only meaningful (and only sent) on
       // an edit of an existing record; a create has nothing to be stale.
       ...(risk?.updated_at ? { expected_updated_at: risk.updated_at } : {}),
@@ -309,6 +314,8 @@ export function RiskForm({
             </SelectInput>
           </Field>
 
+          {/* Backup owner (M6) */}
+          <BackupOwnerField state={backup} error={fieldErrors.backup_owner_id} />
         </FormGrid>
       </FormSection>
 

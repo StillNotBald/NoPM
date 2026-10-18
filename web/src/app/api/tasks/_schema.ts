@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assignedApproverIdField } from "@/lib/review/assignee";
 
 export const StatusType = z.enum([
   "backlog",
@@ -27,6 +28,7 @@ export const TaskCreateSchema = z.object({
   status: z.string().max(100).nullable().optional(),
   status_type: StatusType.optional().default("backlog"),
   assignee_id: z.string().uuid("assignee_id must be a UUID").nullable().optional(),
+  backup_assignee_id: z.string().uuid("backup_assignee_id must be a UUID").nullable().optional(),
   priority: Priority.optional().default("medium"),
   start_date: z.string().nullable().optional(), // ISO date string
   due_date: z.string().nullable().optional(),
@@ -57,6 +59,7 @@ export const TaskUpdateSchema = z.object({
   status: z.string().max(100).nullable().optional(),
   status_type: StatusType.optional(),
   assignee_id: z.string().uuid("assignee_id must be a UUID").nullable().optional(),
+  backup_assignee_id: z.string().uuid("backup_assignee_id must be a UUID").nullable().optional(),
   priority: Priority.optional(),
   start_date: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(),
@@ -87,6 +90,8 @@ export const TaskUpdateSchema = z.object({
 
 export const TaskDeleteRequestSchema = z.object({
   reason: z.string().min(1, "reason is required").max(1000),
+  // G5: optional named approver (an admin or manager of the workspace, not the requester).
+  assigned_approver_id: assignedApproverIdField,
 });
 
 export type TaskCreateInput = z.infer<typeof TaskCreateSchema>;

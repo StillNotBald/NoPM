@@ -76,6 +76,7 @@ const ALLOWLIST: Record<string, string> = {
   "api/notifications/[id]": NOTIFICATION_READ_STATE,
   "api/notifications/read-all": NOTIFICATION_READ_STATE,
   "api/documents/[id]/file/sign": "signed URL issuance, no row mutation",
+  "api/reports/weekly": "audited inside generateWeeklyReport (report.weekly.generated), which stores the snapshot and writes the row before anyone is notified",
   "api/reports/deck": "read that renders; scopes audit:read + budget:read (budget figures in the output)",
   "api/reports/project/[id]": "read that renders; scopes audit:read + budget:read (budget figures in the output)",
   "api/assistant/chat": "conversation persistence is per-user convenience; every tool call goes through the audited API",

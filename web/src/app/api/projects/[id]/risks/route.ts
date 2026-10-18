@@ -11,6 +11,7 @@ import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolut
 import { createRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
 import { RISK_SELECT } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers } from "@/lib/handover/backup";
 import { parseListSelection } from "@/lib/api/views";
 import { nextRefId } from "@/lib/ref-id";
 import { parseSort, orderOptions } from "@/lib/api/sort";
@@ -118,7 +119,9 @@ export const POST = route(async ({ actor, params, request }) => {
   // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: input.owner_id, field: "owner_id" },
+    { table: "profiles", id: input.backup_owner_id, field: "backup_owner_id" },
   ]);
+  assertBackupDiffers(input.owner_id, input.backup_owner_id, "backup_owner_id", "owner_id");
 
   const refId = await nextRefId(db, actor.workspaceId, "risks", "R");
   const impactAreasInput = resolveImpactAreas(input) ?? [];
@@ -135,6 +138,7 @@ export const POST = route(async ({ actor, params, request }) => {
       likelihood: input.likelihood,
       mitigation: input.mitigation ?? null,
       owner_id: input.owner_id ?? null,
+      backup_owner_id: input.backup_owner_id ?? null,
       status: input.status,
       raised_at: input.raised_at ?? (await workspaceToday(actor.workspaceId)), // NOT NULL date — default to today (workspace zone)
       due_date: input.due_date ?? null,

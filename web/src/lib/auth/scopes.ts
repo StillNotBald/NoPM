@@ -34,6 +34,7 @@ export const SCOPES = [
   "decision:read", "decision:write",
   "notification:read",
   "audit:read",
+  "report:read",
   "assistant:read", "assistant:write",
   "saved_view:read", "saved_view:write",
 ] as const;

@@ -118,6 +118,8 @@ describe("GET /api/review", () => {
         requested_at: "2026-10-09T08:00:00+00:00",
         can_decide: true,
         reason_if_not: null,
+        assigned_approver_id: null,
+        assigned_to_me: false,
       },
     ]);
     // every query carries the caller's workspace

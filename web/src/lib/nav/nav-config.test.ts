@@ -147,8 +147,11 @@ describe("Wave 6 IA — grouping, icons, single label map", () => {
     ]);
   });
 
-  it("keeps all 23 routes reachable", () => {
-    expect(ALL_NAV_ITEMS).toHaveLength(23);
+  it("keeps all 25 routes reachable", () => {
+    expect(ALL_NAV_ITEMS).toHaveLength(25);
+    expect(ALL_HREFS).toContain("/handover");
+    expect(ALL_HREFS).toContain("/changes");
+    expect(labelForHref("/changes")).toBe("What changed");
     expect(labelForHref("/people")).toBe("People");
     expect(ALL_HREFS).toContain("/people");
   });

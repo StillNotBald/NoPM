@@ -25,6 +25,8 @@ interface DeletionRequest {
   requested_by_type: string;
   requested_by_id: string;
   requested_principal_id: string | null;
+  /** G5: the approver this request was assigned to on raise; null = nobody in particular. */
+  assigned_approver_id?: string | null;
   requested_by_label: string;
   approved_by_label: string | null;
   closed_reason?: string | null;
@@ -107,10 +109,12 @@ function TargetSummary({
 export default async function ApprovalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; scope?: string }>;
 }) {
-  const { status: statusParam, page: pageParam } = await searchParams;
+  const { status: statusParam, page: pageParam, scope: scopeParam } = await searchParams;
   const view = statusParam === "decided" ? "decided" : "pending";
+  // G5: "Mine" = pending requests assigned to the signed-in person. Applies to the pending queue only.
+  const scope = scopeParam === "mine" ? "mine" : "all";
 
   const db = await createClient();
   const {
@@ -160,7 +164,8 @@ export default async function ApprovalsPage({
   );
   const pending = (pendingRes.data ?? []) as DeletionRequest[];
   const pendingCapped = pending.length >= PENDING_CAP;
-  const rows = view === "pending" ? pending : decided;
+  const assignedToMe = pending.filter((r) => r.assigned_approver_id === user.id);
+  const rows = view === "pending" ? (scope === "mine" ? assignedToMe : pending) : decided;
 
   // Four-eyes, decided the way the API decides: by person (a token counts as
   // the person who created it), not by actor id. Only the rows the viewer can
@@ -202,21 +207,38 @@ export default async function ApprovalsPage({
 
       <FourEyesNote variant="quiet" />
 
-      <UrlFilter
-        label="Approval status"
-        value={view}
-        defaultValue="pending"
-        options={[
-          { value: "pending", label: "Pending", count: pending.length, attention: mine.length > 0 },
-          { value: "decided", label: "Decided", count: decidedTotal },
-        ]}
-      />
+      {/* Stacks on a phone, side by side from sm up. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+        <UrlFilter
+          label="Approval status"
+          value={view}
+          defaultValue="pending"
+          options={[
+            { value: "pending", label: "Pending", count: pending.length, attention: mine.length > 0 },
+            { value: "decided", label: "Decided", count: decidedTotal },
+          ]}
+        />
+        {view === "pending" && (
+          <UrlFilter
+            param="scope"
+            label="Whose approvals"
+            value={scope}
+            defaultValue="all"
+            options={[
+              { value: "all", label: "All", count: pending.length },
+              { value: "mine", label: "Mine", count: assignedToMe.length, attention: assignedToMe.length > 0 },
+            ]}
+          />
+        )}
+      </div>
 
       {rows.length === 0 ? (
         <EmptyState
           purpose={
             view === "pending"
-              ? "All clear. No deletion requests are pending approval right now."
+              ? scope === "mine"
+                ? "Nothing is assigned to you. Switch to All to see every pending request."
+                : "All clear. No deletion requests are pending approval right now."
               : "No deletion requests have been decided yet."
           }
         />

@@ -165,7 +165,18 @@ const spec = {
       "/integrations/lark/{connectorId}/* routes are called by the platform (or the self-host " +
       "relay worker), authenticate by signature rather than a NoPM token, and answer in the " +
       "PLATFORM's contract, not the { data } envelope. A read-only milestone calendar feed " +
-      "(/calendar-feeds, /calendar/{token}) lets any calendar app subscribe.",
+      "(/calendar-feeds, /calendar/{token}) lets any calendar app subscribe. " +
+      "WAVE 3 (2026-10-18). BACKUP OWNERS: projects, risks, issues accept backup_owner_id and tasks accept backup_assignee_id " +
+      "(uuid or null; a person in this workspace, different from the owner or assignee; 422 invalid_reference or a field-named " +
+      "validation error). GET /reports/handover lists open items whose single owner has no backup. APPROVER ASSIGNMENT: the raise " +
+      "routes (change requests, rebaselines, task and project deletion requests) accept an optional assigned_approver_id (an admin " +
+      "or manager other than the requester; 422 invalid_assigned_approver). Assignment is routing only and never changes can_decide. " +
+      "GET /review?mine=1 narrows the queue to requests assigned to the caller's person. SCOPE report:read opens GET /reports/weekly " +
+      "and GET /reports/handover (not privileged; report:* covers it). STALE NUDGES and the weekly report run in the scheduler tick; the nightly snapshot " +
+      "runs at GET /cron/snapshots under CRON_SECRET (internal). TREND and CONTINGENCY are advisory: GET /projects/{id}/trend and " +
+      "GET /projects/{id}/contingency suggest a RAG and never change a declared RAG. DEPENDENCIES: POST /projects/{id}/dependencies " +
+      "declares that a project depends on another; refused with 422 self_dependency, circular_dependency or risk_not_in_projects, " +
+      "and 409 duplicate_dependency for the same pair and kind.",
   },
   servers: [{ url: "https://stillnotbald.com/api", description: "Production" }],
   components: {
@@ -744,7 +755,7 @@ const spec = {
       get: {
         tags: ["workspace"],
         summary: "Read workspace settings (time zone)",
-        description: "scope: any authenticated caller. Returns { time_zone, default_time_zone }. The default is Asia/Kuala_Lumpur. Server-side today defaults (due dates, sprint timing, reminders) follow this zone.",
+        description: "scope: any authenticated caller. Returns { time_zone, default_time_zone, stale_days, nudges_enabled, weekly_report_enabled, weekly_report_day }. The time zone default is Asia/Kuala_Lumpur. stale_days (1-365, default 14) is the age after which an open item is nudged as stale; weekly_report_day is an ISO weekday (1 = Monday) read in time_zone. Server-side defaults (due dates, sprint timing, reminders) follow the time zone.",
         operationId: "getWorkspaceSettings",
         parameters: [],
         responses: {
@@ -754,10 +765,10 @@ const spec = {
       patch: {
         tags: ["workspace"],
         summary: "Change the workspace time zone (admin)",
-        description: "scope: admin USER SESSION only. Body { time_zone } as an IANA name such as Asia/Kuala_Lumpur; anything else is 422 validation_failed. Audited as workspace.settings_update.",
+        description: "scope: admin USER SESSION only. Body is any non-empty subset of time_zone (an IANA name such as Asia/Kuala_Lumpur), stale_days (integer 1-365), nudges_enabled, weekly_report_enabled (booleans) and weekly_report_day (integer 1-7, ISO weekday). A bad value is 422 Validation failed with fields, and nothing is saved. One workspace.settings_update audit row holds only the fields that changed; no row is written when nothing changed.",
         operationId: "updateWorkspaceSettings",
         parameters: [],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["time_zone"], properties: { time_zone: { type: "string", example: "Asia/Kuala_Lumpur" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { time_zone: { type: "string", example: "Asia/Kuala_Lumpur" }, stale_days: { type: "integer", minimum: 1, maximum: 365 }, nudges_enabled: { type: "boolean" }, weekly_report_enabled: { type: "boolean" }, weekly_report_day: { type: "integer", minimum: 1, maximum: 7, description: "ISO weekday, 1 = Monday" } } } } } },
         responses: {
           "200": { description: "{ time_zone, default_time_zone }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -848,7 +859,8 @@ const spec = {
         summary: "Create a project",
         description:
           "scope: project:write. A project is never created locked: is_locked (and locked_at / locked_by) in the body are " +
-          "ignored. Locking happens only through POST /projects/{id}/lock, which also snapshots the baselines.",
+          "ignored. Locking happens only through POST /projects/{id}/lock, which also snapshots the baselines. " +
+          "backup_owner_id (uuid or null) names a backup owner: a profile in this workspace, different from owner_id (422 invalid_reference, or a field-named 422 when equal).",
         operationId: "createProject",
         requestBody: zodBody(createProjectSchema),
         responses: {
@@ -878,7 +890,7 @@ const spec = {
           "as for tasks and milestones — the way to move a frozen baseline is a governed unlock or an approved rebaseline, " +
           "never one holder of project:write. A field sent with its stored value is not a change. Name, owner, RAG, " +
           "commentary and the rest stay editable under lock. owner_id must be a member of THIS workspace (422 " +
-          "invalid_reference otherwise). program_id (uuid or null) is accepted on create and PATCH; a program outside the workspace is 422. completion_pct is calculated from the tasks: a PATCH that sends a value different from the stored one is 422 (\"Project completion is calculated from its tasks\").",
+          "invalid_reference otherwise). backup_owner_id (uuid or null; null clears, omitting keeps) must be a member of THIS workspace and differ from owner_id (422). program_id (uuid or null) is accepted on create and PATCH; a program outside the workspace is 422. completion_pct is calculated from the tasks: a PATCH that sends a value different from the stored one is 422 (\"Project completion is calculated from its tasks\").",
         operationId: "updateProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateProjectSchema),
@@ -1726,7 +1738,7 @@ const spec = {
       get: {
         tags: ["budget"],
         summary: "Get budget summary for a project",
-        description: "scope: budget:read. Returns planned, committed, actual (expenses only; hour logging was removed, decision 18), variance, burn_pct.",
+        description: "scope: budget:read. Returns planned, committed, actual (expenses only; hour logging was removed, decision 18), variance, burn_pct, estimate_to_complete, committed_open and forecast_method. The forecast object is { method, estimate_to_complete, committed, committed_open, eac, eac_cpi, eac_bottom_up, etc, vac }. committed_open is commitments not yet invoiced; null means the read uses committed_amount: eac_cpi = budget / CPI (null until money is spent); eac_bottom_up = spent (expenses only) + committed + estimate_to_complete (null while no estimate exists); eac follows the method and is null when that method cannot be computed (no silent fallback); etc = eac minus spent; vac = budget minus eac. Committed is never double counted.",
         operationId: "getProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -1740,10 +1752,10 @@ const spec = {
         description:
           "scope: budget:write. States the whole budget: planned_amount is required, committed_amount and currency fall " +
           "back to 0 / USD when omitted. actual_amount, contingency_reserve and management_reserve are stored when sent " +
-          "and left as they were when not. For a partial change use PATCH.",
+          "and left as they were when not. estimate_to_complete (number or null), committed_open (number or null) and forecast_method (cpi | bottom_up) may also be sent; on a locked project they need no change request, because they move the forecast and not the approved plan. For a partial change use PATCH.",
         operationId: "upsertProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["planned_amount"], properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0, default: 0 }, currency: { type: "string", default: "USD" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["planned_amount"], properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0, default: 0 }, currency: { type: "string", default: "USD" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 }, estimate_to_complete: { type: ["number", "null"], minimum: 0 }, committed_open: { type: ["number", "null"], minimum: 0 }, forecast_method: { type: "string", enum: ["cpi", "bottom_up"] } } } } } },
         responses: {
           "200": { description: "Budget upserted", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1755,11 +1767,11 @@ const spec = {
         description:
           "scope: budget:write. Truly partial: ONLY the columns named in the body are written; nothing is defaulted, so " +
           "omitting committed_amount or currency leaves the stored values alone. Send at least one of planned_amount, " +
-          "committed_amount, currency, actual_amount, contingency_reserve, management_reserve (an empty body is a 422). " +
+          "committed_amount, currency, actual_amount, contingency_reserve, management_reserve, estimate_to_complete, forecast_method (an empty body is a 422). Sending only estimate_to_complete, committed_open or forecast_method on a locked project needs no change request; any other field does. " +
           "On a project with no budget row yet it creates one holding what was sent, with the column defaults for the rest.",
         operationId: "patchProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 }, estimate_to_complete: { type: ["number", "null"], minimum: 0 }, committed_open: { type: ["number", "null"], minimum: 0 }, forecast_method: { type: "string", enum: ["cpi", "bottom_up"] } } } } } },
         responses: {
           "200": { description: "Budget updated", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error, or nothing to change", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1904,6 +1916,8 @@ const spec = {
         summary: "Query the immutable audit log",
         description:
           "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id, " +
+          "?project_id (uuid; the project itself and every record whose audited row names it), ?person_id (uuid; that person's own actions and actions made through a token they own), " +
+          "?kinds (comma list of task,risk,issue,change_request,decision,document,project), ?until (ISO 8601 timestamp, exclusive upper bound that pairs with since; 422 when malformed), " +
           "?channel (R-82: one of ui|api|cli|mcp|assistant|lark, unrecognized values ignored). " +
           "R-85 cursor params for tailing the log: ?since (ISO 8601 timestamp, rows with " +
           "created_at >= since; 422 if unparsable), ?after_id (uuid of a row already seen; " +
@@ -2114,7 +2128,7 @@ const spec = {
       get: {
         tags: ["system"],
         summary: "Portfolio timeline graph",
-        description: "scope: project:read. Returns the full governed timeline graph for the workspace (projects, milestones, tasks, risks, issues).",
+        description: "scope: project:read. Returns the full governed timeline graph for the workspace (projects, milestones, tasks, risks, issues). projectDependencies lists project-to-project dependencies, and edges with kind dependency are milestone-to-milestone (label = dependency kind). Same-project task edges are unchanged.",
         operationId: "getTimeline",
         responses: {
           "200": { description: "Timeline graph", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -2439,7 +2453,7 @@ const spec = {
         tags: ["budget"],
         summary: "Earned-value numbers for a project",
         description:
-          "scope: budget:read. Earned-value numbers for one project, computed as the Budget page does. schedule_basis says which basis the schedule figures used: baseline_dates or completion_only. cpi, spi, eac, etc and vac are null when they are undefined.",
+          "scope: budget:read. Earned-value numbers for one project, computed as the Budget page does. schedule_basis says which basis the schedule figures used: baseline_dates or completion_only. cpi, spi, eac, etc and vac are null when they are undefined. eac_cpi, eac_bottom_up, committed_open and forecast_method (cpi | bottom_up) sit beside eac; committed_open is the commitments figure the bottom-up forecast used; eac, etc and vac follow forecast_method and are null when that method cannot be computed.",
         operationId: "getProjectEvm",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -2467,6 +2481,11 @@ const spec = {
                         cpi: { type: ["number", "null"] },
                         spi: { type: ["number", "null"] },
                         eac: { type: ["number", "null"] },
+                        eac_cpi: { type: ["number", "null"] },
+                        eac_bottom_up: { type: ["number", "null"] },
+                        forecast_method: { type: "string", enum: ["cpi", "bottom_up"] },
+                        estimate_to_complete: { type: ["number", "null"] },
+                        committed_open: { type: ["number", "null"] },
                         etc: { type: ["number", "null"] },
                         vac: { type: ["number", "null"] },
                       },
@@ -2855,6 +2874,79 @@ const spec = {
         },
       },
     },
+    "/projects/{id}/dependencies": {
+      get: {
+        tags: ["projects"],
+        summary: "List a project's dependencies (both directions)",
+        description: "scope: project:read. Each row carries direction (depends_on or depended_on_by), kind (delivery | resource | decision | risk), linked_risk_id, note and other_project { id, code, name, rag_status }. Workspace-filtered; 404 when the project is not in the caller's workspace.",
+        operationId: "listProjectDependencies",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Array of dependency rows", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["projects"],
+        summary: "Declare that this project depends on another project",
+        description: "scope: project:write. Body: depends_on_project_id (uuid, required), kind (delivery | resource | decision | risk, required), linked_risk_id (uuid or null; a risk in one of the two projects), note (max 500 characters, or null). Refused: 422 self_dependency; 422 invalid_reference (the other project or the risk is not in this workspace); 422 risk_not_in_projects; 422 circular_dependency (the link would close a loop, of any length and kind); 409 duplicate_dependency (the same pair and kind already exists). Allowed on a locked project, because the locked schedule is not changed. Audited as project.dependency.add. Returns 201 with the row.",
+        operationId: "addProjectDependency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["depends_on_project_id", "kind"], properties: { depends_on_project_id: { type: "string", format: "uuid" }, kind: { type: "string", enum: ["delivery", "resource", "decision", "risk"] }, linked_risk_id: { type: ["string", "null"], format: "uuid" }, note: { type: ["string", "null"], maxLength: 500 } } } } } },
+        responses: {
+          "201": { description: "The dependency row", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "409": { description: "duplicate_dependency (same pair and kind already declared)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; self_dependency; invalid_reference; risk_not_in_projects; circular_dependency; or cross_workspace (database backstop)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/dependencies/{depId}": {
+      delete: {
+        tags: ["projects"],
+        summary: "Remove a project dependency",
+        description: "scope: project:write. Returns 204. 404 when the dependency is not under this project in this workspace. Allowed on a locked project. Audited as project.dependency.remove (before = the row, after = null).",
+        operationId: "removeProjectDependency",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "depId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "204": { description: "Removed" },
+          "404": { description: "Dependency not found under this project in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/contingency": {
+      get: {
+        tags: ["projects"],
+        summary: "Is this project waiting on a red project?",
+        description: "scope: project:read. Transitive over project dependencies (depth at most 5, cycle-safe). Returns declared_rag, worst_dependency_rag, contingent_on_red and the chain of projects from this project to the red one (empty when not contingent), plus depth_capped. Advisory only: it never changes a declared RAG.",
+        operationId: "getProjectContingency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Contingency summary", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/trend": {
+      get: {
+        tags: ["budget"],
+        summary: "Slip and index trend with a suggested RAG",
+        description: "scope: project:read. Read-only and derived from the daily project snapshots; nothing is written or audited. n (1 to 120, default 28) is how many of the latest snapshots to use. Returns declared_rag, suggested_rag (green | amber | red, or null with no snapshots or when the project is complete), reason, confidence (low under 3 snapshots, otherwise ok), trend, thresholds and the series (oldest first). The suggestion never changes the declared RAG.",
+        operationId: "getProjectTrend",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "n", in: "query", schema: { type: "integer", default: 28, minimum: 1, maximum: 120 } },
+        ],
+        responses: {
+          "200": { description: "Trend and suggested RAG", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "n is not an integer from 1 to 120", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/reports/deck": {
       get: {
         tags: ["reports"],
@@ -2914,6 +3006,50 @@ const spec = {
           "403": { description: "Missing audit:read or budget:read (code forbidden_scope) — both are required", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Invalid format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/reports/handover": {
+      get: {
+        tags: ["reports"],
+        summary: "Handover and key-person report",
+        description: "scope: report:read (not privileged; report:* covers it). Read-only and derived; workspace-filtered. Per project: the open items whose single owner has no backup, grouped by owner with counts, plus the open items with no owner at all. Workspace key-person matrix: per person, items solely owned, projects touched, items backed up for others and bus_factor_1 (true when the person solely owns at least one open item). Open means: project not complete, risk not closed, issue not resolved or closed, task not completed or canceled. A resource member linked to a login is reported as that login. format=csv returns the same data as one CSV with a section column (item, unowned or person) and writes one export.csv audit row (entity handover); the JSON read writes no audit row.",
+        operationId: "getHandoverReport",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Limit the report to one project in the caller's workspace (404 when it is not there, 422 when malformed)" },
+          { name: "format", in: "query", schema: { type: "string", enum: ["json", "csv"], default: "json" }, description: "Any other value is 422" },
+        ],
+        responses: {
+          "200": { description: "{ data: { generated_for, summary, projects, key_people } } as JSON, or text/csv when format=csv", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } }, "text/csv": { schema: { type: "string" } } } },
+          "403": { description: "Missing report:read (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "project_id is not in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Malformed project_id or format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/reports/weekly": {
+      get: {
+        tags: ["reports"],
+        summary: "Stored weekly status report (HTML)",
+        description: "scope: report:read. Renders the report as it was generated (a stored snapshot, not live figures) as text/html with cache-control private, no-store. week = a calendar day (2026-10-22) or an ISO week (2026-W43), resolved to that week's Monday; omitted = the current week in the workspace time zone. Contents: workspace name, week, counts (projects, open high risks, pending approvals, stale items), a project table with project codes, milestones due in 14 days and the stalest items. Workspace-filtered.",
+        operationId: "getWeeklyReport",
+        parameters: [{ name: "week", in: "query", schema: { type: "string" }, description: "A calendar day or an ISO week" }],
+        responses: {
+          "200": { description: "The stored weekly report as HTML", content: { "text/html": { schema: { type: "string" } } } },
+          "403": { description: "Missing report:read (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No report was generated for that week", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "week is unreadable", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["reports"],
+        summary: "Send the weekly report now",
+        description: "scope: admin or manager SESSION only (403 for members, viewers and every token). No body. Refreshes the current week's stored report, creates a report.weekly notification for every admin and manager, and writes one report.weekly.generated audit row. It does not use the scheduled run's once-a-day slot, and it works while the scheduled report is disabled. Returns { week_start, recipients, report_url }.",
+        operationId: "sendWeeklyReportNow",
+        responses: {
+          "200": { description: "{ week_start, recipients, report_url }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin or manager session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The workspace has no admin or manager to notify", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2996,9 +3132,12 @@ const spec = {
           "person in the console, on a Lark card, or with the existing decision routes. Items the caller raised are still " +
           "listed, flagged as ones it cannot decide. `can_decide` is advisory — the decision routes re-check everything. " +
           "`total` is the exact count across the kinds the caller can read; paging reaches at most the oldest 1000 items " +
-          "per kind. Also available as the MCP / assistant tool list_pending_approvals and as `nopm review` in the CLI.",
+          "per kind. " +
+          "Each item also carries assigned_approver_id (uuid or null) and assigned_to_me (boolean). Assignment is routing only and never changes can_decide. " +
+          "Also available as the MCP / assistant tool list_pending_approvals and as `nopm review` in the CLI.",
         operationId: "listPendingApprovals",
         parameters: [
+          { name: "mine", in: "query", schema: { type: "boolean" }, description: "1 or true: only requests assigned to the person behind the caller (a token counts as its creator). A caller with no resolvable person gets an empty list. total and paging reflect the filter." },
           {
             name: "kind",
             in: "query",
@@ -3491,6 +3630,19 @@ const spec = {
         },
       },
     },
+    "/cron/snapshots": {
+      get: {
+        tags: ["integrations"],
+        summary: "Nightly project snapshot tick (host cron only)",
+        description: "NOT a user or PAT route. The only credential is Authorization: Bearer <CRON_SECRET>, the same check as GET /integrations/cron. 401 otherwise, including when CRON_SECRET is unset. Takes one project_snapshots row per project per workspace for the workspace's current day. Idempotent: a second call the same day inserts nothing. Writes one snapshot.taken audit row per workspace per run, with taken_at, projects, taken and already_taken. Vercel Cron runs it at 37 17 * * * (17:37 UTC, 01:37 in the default Asia/Kuala_Lumpur zone), with maxDuration 60 seconds.",
+        security: [{ cronSecret: [] }],
+        operationId: "runSnapshotsCron",
+        responses: {
+          "200": { description: "{ data: { workspaces, projects, taken, skipped } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "401": { description: "Missing or wrong CRON_SECRET (also when it is unset)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/integrations/cron": {
       get: {
         tags: ["integrations"],
@@ -3509,7 +3661,8 @@ const spec = {
           "ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead): due retries are also drained whenever the workspace has " +
           "approval traffic. It is built to finish inside the 60 s function limit: every connector's digest is queued " +
           "first (database work only, so being cut off cannot lose a week's digest), connectors are drained 3 at a time, " +
-          "and no new work STARTS after 40 s — what is left stays queued for the next tick.",
+          "and no new work STARTS after 40 s — what is left stays queued for the next tick. " +
+          "A nudge step runs for every workspace, with or without a connector: open items older than stale_days get one in-app notification each (at most once per item per day), and the weekly report is stored and notified on its configured weekday. The summary gains nudges { workspaces, staleNudged, weeklyReports, failed, skippedForDeadline }.",
         security: [{ cronSecret: [] }],
         operationId: "runIntegrationsCron",
         responses: {

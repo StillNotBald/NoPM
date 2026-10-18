@@ -166,6 +166,8 @@ const ALLOWED_TASK_FIELDS = [
   "name",
   "description",
   "labels",
+  // M6 (0095): naming a backup is not a schedule change, so it stays editable on a locked project.
+  "backup_assignee_id",
   "priority",
   "assignee_id",
   "sort_order",

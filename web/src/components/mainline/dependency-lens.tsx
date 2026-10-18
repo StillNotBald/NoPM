@@ -8,6 +8,7 @@ import { packDagPositions, capLabels } from "@/lib/mainline/layout";
 import { calculateCriticalPath, toCpmMap, type CpmInputDep, type CpmInputTask } from "@/lib/schedule/cpm";
 import type { TLGraph } from "@/lib/timeline/gather";
 import { TimelineTable } from "@/components/timeline/timeline-table";
+import { ProjectDependencySection } from "@/components/mainline/project-dependency-section";
 
 export interface DependencyEdgeRow {
   id: string;
@@ -29,7 +30,7 @@ function lagLabel(days: number): string {
 }
 
 /**
- * Lens 3 — Network (Dependency): the cross-project task dependency graph
+ * Lens 3 — Network (Dependency): the task dependency graph plus the project-to-project dependencies (R-147)
  * (`task_dependencies` rows, typed + lag) rendered as a layered DAG (inline
  * SVG, no new chart dep — same idiom as gantt.tsx's arrow overlay).
  * Critical-path edges/nodes are tokenized in the danger accent; every other
@@ -99,6 +100,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
   }, [nodeIds]);
 
   if (dependencies.length === 0 || nodeIds.length === 0) {
+    if (graph.projectDependencies.length > 0) return <ProjectDependencySection graph={graph} />;
     return (
       <EmptyState purpose="No task dependencies recorded yet — add a dependency between two tasks in a project to see the Network lens." canWrite={false} />
     );
@@ -216,6 +218,8 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
           criticalIds.has(d.predecessor_id) && criticalIds.has(d.successor_id) ? "yes" : "no",
         ])}
       />
+
+      <ProjectDependencySection graph={graph} />
 
       {/* Legend */}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1">

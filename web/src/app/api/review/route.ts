@@ -30,7 +30,8 @@ export const runtime = "nodejs";
  * them gets 403. Query logic lives in @/lib/review/pending.
  *
  * Query: ?kind=<comma list of task_deletion|project_deletion|change_request|
- * rebaseline> · ?page (default 1) · ?limit (1..200, default 50).
+ * rebaseline> · ?mine=1 (only requests assigned to the person behind the caller;
+ * an empty list for a caller with no person) · ?page (default 1) · ?limit (1..200, default 50).
  * Response: { data: PendingItem[], total, page, limit, hidden_kinds }.
  */
 export const GET = route(async ({ actor, request }) => {
@@ -49,6 +50,9 @@ export const GET = route(async ({ actor, request }) => {
     ]);
   }
 
+  const mineParam = searchParams.get("mine");
+  const mine = mineParam === "1" || mineParam === "true";
+
   const result = await listPendingApprovals(
     createAdminClient(),
     // Only what the query layer needs; it filters every query by workspaceId
@@ -64,7 +68,7 @@ export const GET = route(async ({ actor, request }) => {
         return e instanceof Error ? e.message : "Insufficient scope";
       }
     },
-    { page, limit, kinds: kindParam.length > 0 ? (kindParam as PendingKind[]) : undefined },
+    { page, limit, mine, kinds: kindParam.length > 0 ? (kindParam as PendingKind[]) : undefined },
   );
 
   return NextResponse.json({

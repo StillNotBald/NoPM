@@ -5,6 +5,7 @@ import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { z } from "zod";
 import { parseAuditFilters } from "./_query";
+import { FEED_KINDS, applyFeedFilters, isFeedKind, type FeedFilters } from "@/lib/changes/feed";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,24 @@ const querySchema = z.object({
   // workspace is checked below with a DB read (404 if absent) since that
   // needs the actor's workspaceId, which zod has no access to.
   after_id: z.string().uuid().optional(),
+  // R-143 (change feed): cross-project filters. `project_id` matches the project itself and
+  // every record whose audited row names it; `kinds` is a comma list of record types;
+  // `person_id` matches a person's own actions AND actions through a token they own;
+  // `until` is the exclusive upper bound that pairs with `since`.
+  project_id: z.string().uuid().optional(),
+  person_id: z.string().uuid().optional(),
+  kinds: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || v.split(",").every((k) => isFeedKind(k.trim())), {
+      message: `kinds must be a comma list of: ${FEED_KINDS.join(", ")}`,
+    }),
+  until: z
+    .string()
+    .optional()
+    .refine((v) => v === undefined || !Number.isNaN(Date.parse(v)), {
+      message: "until must be a parsable ISO 8601 timestamp",
+    }),
 });
 
 export const GET = route(async ({ actor, request }) => {
@@ -96,6 +115,14 @@ export const GET = route(async ({ actor, request }) => {
   // chains .gte()/.gt() as AND), so the more restrictive one simply wins.
   if (filters.since !== undefined) query = query.gte("created_at", filters.since);
   if (afterCreatedAt !== undefined) query = query.gt("created_at", afterCreatedAt);
+
+  const feed: FeedFilters = {
+    projectId: parsed.data.project_id,
+    actorId: parsed.data.person_id,
+    kinds: parsed.data.kinds?.split(",").map((k) => k.trim()).filter(isFeedKind),
+    to: parsed.data.until,
+  };
+  query = applyFeedFilters(query, feed);
 
   const { data, error, count } = await query
     .order("created_at", { ascending })

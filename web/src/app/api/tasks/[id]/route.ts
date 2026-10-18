@@ -7,10 +7,12 @@ import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/err
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
 import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_schema";
+import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
 import { assertProjectUnlocked, changedScheduleShapeFields, SCHEDULE_SHAPE_TASK_FIELDS } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertTaskBackupDiffers, effective } from "@/lib/handover/backup";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 
 export const runtime = "nodejs";
@@ -98,8 +100,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
   // in THIS workspace. null clears the reference and is always allowed.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "resource_members", id: input.assignee_id, field: "assignee_id" },
+    { table: "resource_members", id: input.backup_assignee_id, field: "backup_assignee_id" },
     { table: "tasks", id: input.blocked_by, field: "blocked_by" },
   ]);
+
+  // M6: a backup is somebody else than the assignee (checked on the values the row will have).
+  await assertTaskBackupDiffers(
+    db,
+    actor.workspaceId,
+    effective(input.assignee_id, existing.assignee_id),
+    effective(input.backup_assignee_id, existing.backup_assignee_id),
+  );
 
   // If milestone_id is being changed, validate it belongs to the same project + workspace
   if (input.milestone_id !== undefined && input.milestone_id !== null) {
@@ -219,6 +230,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
   }
 
   const { reason } = parsed.data;
+  const assignedApproverId = await resolveAssignedApprover(db, actor.workspaceId, parsed.data.assigned_approver_id, requesterPrincipal);
 
   const { data: deletionRequest, error: insertError } = await db
     .from("deletion_requests")
@@ -236,6 +248,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
       // token was refused above.
       requested_principal_id: requesterPrincipal,
       before: task,
+      // G5: only sent when asked for (deploy-order safe).
+      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
     })
     .select()
     .single();
@@ -260,7 +274,7 @@ export const DELETE = route(async ({ actor, params, request }) => {
     targetType: "task",
     targetId: params.id,
     before: task,
-    after: null,
+    after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
   });
 
   // Notify approvers — fail-soft (never throws)

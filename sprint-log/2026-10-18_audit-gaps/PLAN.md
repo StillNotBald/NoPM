@@ -52,7 +52,9 @@ Wave-2 seams: W2-B owns `evidence-panel.tsx` AND the one-line mount in `change-d
 | W3-B nudges-and-reports (builder agent) | A3, A4, A5 | 0096 | R-141, R-142, R-143 | stale threshold in workspace settings; stale nudge → notifications + digest line; weekly report to in-app notification + email preview; cross-project "what changed" console view over `/api/audit` |
 | W3-C forecast-and-trends (builder agent) | B3, B6, G5 | 0097, 0098 | R-144, R-145, R-146 | `estimate_to_complete` on project_budget + EAC = AC + committed + ETC (CPI-based kept as alternative); `project_snapshots` table + nightly cron snapshot + drift/slip trend + suggested RAG; review queue assigned-to-me filter + optional `assigned_approver_id` |
 | W3-D cross-project (builder agent) | B5 | 0099 | R-147 | `project_dependencies` (depends_on_project_id, kind) + `linked_risk_id` on dependencies; contingent flag rollup in portfolio + program rollup + Mainline edges |
-| W3-E docs (docs agent) | | none | none | use-case docs for handover, trends, dependencies; UAT-PLAN additions |
+| W3-E docs (docs agent, runs AFTER A–D report) | OpenAPI + llms.txt from `rtm/w3x-openapi-notes.md`, use-case docs for handover, trends, dependencies; UAT-PLAN + OWNER-VISIBLE wave-3 rows; CUTOVER/11 extension | none | none | `openapi.json/route.ts`, `llms.txt/route.ts`, `web/mcp/README.md`, docs |
+
+Wave-3 seams: `integrations/cron/route.ts` + `cron.ts` + `notify/publish.ts` + `workspace-settings/**` = W3-B only; W3-C gets its own `api/cron/snapshots/route.ts` and is the only one to edit `vercel.json`; `web/mcp/tools.mjs` + `assistant/tools.ts` = W3-A only (get_handover_report); portfolio page + program rollup = W3-D only; budget page = W3-C only; project page `(console)/projects/[id]/page.tsx`: W3-A and W3-D each add ONE import + ONE mount line for their own self-contained panel component, done last after re-reading the file; `views.ts`: W3-A adds `backup_owner_id` to the project/risk/issue/task column lists, nobody else touches it. Builders never edit OpenAPI/llms.
 
 ## Wave 4 — governance tiers, deletion flow, atomic audit, work events
 

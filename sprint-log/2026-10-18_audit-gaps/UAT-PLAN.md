@@ -95,7 +95,24 @@ Scope: a handover report names the backup owner for each project and shows key-p
 
 | Step | Role | Device | Do | Expect | Pass/Fail |
 |---|---|---|---|---|---|
-| | | | | | |
+| 3-1 | Member | Phone 390 px | Open a project that has no backup owner. Look at the project header. | A **No backup owner** badge shows. It does not overlap the title. | |
+| 3-2 | Manager | Phone 390 px | Open the project edit form. Open the **Backup owner** picker, choose a person other than the owner, and save. | The backup owner saves and shows on the project. The picker lists people in this workspace only, and no field is cut off. | |
+| 3-3 | Manager | Phone 390 px | Set the backup owner to the same person as the owner, and save. | The save is refused with a message that the backup must be a different person from the owner. | |
+| 3-4 | Manager | Phone 390 px | Open **Handover** from the Portfolio section of the navigation. | Open items with an owner and no backup appear under that owner, with counts. Unowned items appear in their own list. The cards stack, with no horizontal scroll. | |
+| 3-5 | Manager | Desktop | On the Handover page, select **Export CSV**. | A CSV downloads. Its first column is `section`, and each row reads `item`, `unowned` or `person`. | |
+| 3-6 | Manager | Desktop | Open **Integrations**. Find the **Nudges and weekly report** card beside the time zone. Set the stale threshold to 3 days and save. Reload. | The card shows 3 after the reload. | |
+| 3-7 | Member | Desktop | After the daily tick has run, open an open task whose last update is more than 3 days old. Check your notifications. | One stale-item notification appears for that task, with a link to it. Refreshing the page the same day adds no new notification. | |
+| 3-8 | Admin | Desktop | On the Integrations page, select **Send weekly report now**. | A success message appears. Every admin and manager gets a weekly report notification. | |
+| 3-9 | Manager | Phone 390 px | Open the weekly report notification. | The report opens as a page with project codes and a project table. It reads at phone width. | |
+| 3-10 | Admin | Desktop | Open **Email previews**. Find the weekly report and the stale-item samples. | Both render as previews. Nothing is sent to any inbox. | |
+| 3-11 | Manager | Desktop | Open **What changed** from the Portfolio section. Set the project, kind, person and date filters. | Only matching rows show, newest first, grouped by day, 50 per page. | |
+| 3-12 | Manager | Desktop | Open the **Budget** page for a project. In **Forecast and trend**, enter an estimate to complete and change the method to bottom-up. | Both forecasts show, EAC (CPI) and EAC (bottom-up). The method is named beside EAC, and the figures recalculate. | |
+| 3-13 | Manager | Phone 390 px | Check the **Forecast and trend** card at phone width. | The estimate input and the method selector stack, and neither overlaps the figures. | |
+| 3-14 | Manager | Desktop | On the Budget page, read **Suggested RAG** beside the declared RAG. | The suggestion shows its reason and the line "Advice only; the declared RAG is yours to set". The declared RAG keeps the value you set. | |
+| 3-15 | Manager | Desktop | Open **Approvals** and switch between **Mine** and **All**. | **Mine** shows only requests assigned to you, and its count matches. With none assigned, it shows "nothing assigned to you". | |
+| 3-16 | Manager | Desktop | Open a project and its **Project dependencies** panel. Add a dependency on another project with a kind and a note. Then remove it. | The dependency lists under "depends on" after adding. It disappears after removing. | |
+| 3-17 | Manager | Desktop | Declare a dependency that would close a loop, for example A depends on B when B already depends on A. | The save is refused, with a message that a circular dependency is not allowed. | |
+| 3-18 | Manager | Desktop | Declare a dependency from a green project on a red one. Open **Portfolio**. | The green project shows an amber **Contingent** tag. Hovering the tag names the red project. The project's own health colour and label do not change. | |
 
 ## Wave 4 — governance tiers, deletion flow, atomic audit, work events
 

@@ -166,10 +166,13 @@ export type DigestData = {
   workspaceName: string;
   generatedAt: string;
   appUrl: string;
-  projects: { id: string; name: string; health: string | null; status: string | null }[];
+  projects: { id: string; name: string; health: string | null; status: string | null; code?: string | null }[];
   milestonesDueSoon: { id: string; name: string; projectName: string | null; dueDate: string }[];
   openHighRisks: number;
   pendingApprovals: number;
+  /** Open tasks, risks and issues with no update for `staleDays` (R-141). Absent on a digest built before it existed. */
+  staleItems?: number;
+  staleDays?: number;
 };
 
 /** Outcome of an inbound approve/reject — the adapter turns it into a toast + card. */

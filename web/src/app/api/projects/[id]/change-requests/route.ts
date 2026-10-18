@@ -7,6 +7,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { insertWithReference } from "@/lib/governance/next-ref";
+import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 
 export const runtime = "nodejs";
@@ -80,6 +81,7 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   const input = parsed.data;
+  const assignedApproverId = await resolveAssignedApprover(db, actor.workspaceId, input.assigned_approver_id, requesterPrincipal);
   const { data: row, error } = await insertWithReference(db, actor.workspaceId, "change_request", (refId) => db
     .from("change_requests")
     .insert({
@@ -107,6 +109,8 @@ export const POST = route(async ({ actor, params, request }) => {
       // The HUMAN behind the requester (the user, or the token's creator) —
       // four-eyes compares this, not the actor id.
       requested_principal_id: requesterPrincipal,
+      // G5: only sent when asked for, so a database without 0097 still accepts every other raise.
+      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
     })
     .select()
     .single());

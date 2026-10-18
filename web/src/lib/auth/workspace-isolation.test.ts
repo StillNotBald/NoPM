@@ -146,9 +146,15 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
   },
   "lib/auth/mfa.ts": { "from:user_mfa": PER_USER },
   "lib/auth/mfa-factor.ts": { "from:user_mfa": PER_USER, "rpc:nopm_rate_check": RATE },
+  "lib/nudges/step.ts": {
+    "from:workspaces": "system job: lists every workspace id once (keyset page), then each pass runs with that single workspace id",
+  },
   "lib/people/members.ts": {
     "rpc:nopm_revoke_user_sessions": "ends one removed person's sessions by user id (service-role function, 0087); the workspace check is the preceding member RPC",
     "from:user_mfa": "per-user row keyed by a profile id already verified in the caller's workspace (user_mfa has no workspace_id)",
+  },
+  "lib/insight/snapshots.ts": {
+    "from:project_snapshots": "scheduler insert: every row is built from one workspace's own projects and carries that workspace_id (the unique key is per project and day)",
   },
   "lib/integrations/cron.ts": {
     "from:integration_connectors": "global by design: cron iterates every active connector, then works under connector.workspace_id",

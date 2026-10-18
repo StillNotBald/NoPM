@@ -36,6 +36,11 @@ export interface PortfolioProject {
   completion_pct: number | null;
   start_date: string | null;
   target_date: string | null;
+  /**
+   * R-147: set when this project's declared health is not red/complete but a project it
+   * (transitively) depends on is red. A suggestion only; the declared health is unchanged.
+   */
+  contingent_on?: { code: string; name: string } | null;
 }
 
 export interface PortfolioMilestone {
@@ -270,7 +275,7 @@ export function PortfolioRoadmap({ projects, milestones, axisSpan, filtered = fa
                   className="focus-ring flex items-center gap-2 border-b border-border-subtle px-3 cursor-pointer hover:bg-well/60 transition-colors duration-100"
                   style={{ height: ROW_H }}
                   title={`${project.code} — ${project.name}`}
-                  aria-label={`Open project ${project.code} ${project.name}, ${ragLabel(project.rag_status)}`}
+                  aria-label={`Open project ${project.code} ${project.name}, ${ragLabel(project.rag_status)}${project.contingent_on ? `, contingent on delayed project ${project.contingent_on.code}` : ""}`}
                 >
                   {/* RAG dot */}
                   <span
@@ -286,6 +291,14 @@ export function PortfolioRoadmap({ projects, milestones, axisSpan, filtered = fa
                         <span className="text-[12px] font-medium text-ink truncate">
                           {project.name}
                         </span>
+                        {project.contingent_on && (
+                          <span
+                            className="shrink-0 rounded border border-warning/40 bg-warning/10 px-1 text-[10px] font-medium uppercase tracking-wide text-warning-ink"
+                            title={`Contingent on ${project.contingent_on.code} ${project.contingent_on.name}, which is delayed. This project's own health is unchanged.`}
+                          >
+                            Contingent
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="h-1 flex-1 min-w-0 overflow-hidden rounded-full bg-well">

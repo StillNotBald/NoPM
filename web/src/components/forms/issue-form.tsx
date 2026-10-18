@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
+import { BackupOwnerField, useBackupOwner } from "@/components/forms/backup-owner-field";
 import { validateFields } from "@/lib/forms/validate";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
@@ -53,6 +54,8 @@ export interface Issue {
   impact?: string | null;
   resolution_eta?: string | null;
   resolved_at?: string | null;
+  /** M6: a login who picks this issue up if its owner is away. */
+  backup_owner_id?: string | null;
   // Optimistic concurrency (R-90) — present on any record loaded from the
   // API; carried back on PATCH as expected_updated_at when editing.
   updated_at?: string | null;
@@ -122,6 +125,7 @@ export function IssueForm({
     issue?.resolved_at?.slice(0, 10) ?? ""
   );
 
+  const backup = useBackupOwner("issues", issue?.id, issue?.backup_owner_id);
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -165,6 +169,7 @@ export function IssueForm({
       impact: impact.trim() || null,
       resolution_eta: resolutionEta || null,
       resolved_at: resolvedAt || null,
+      ...backup.payload(Boolean(issue)),
       // Optimistic concurrency (R-90) — only meaningful (and only sent) on
       // an edit of an existing record; a create has nothing to be stale.
       ...(issue?.updated_at ? { expected_updated_at: issue.updated_at } : {}),
@@ -269,6 +274,9 @@ export function IssueForm({
               ))}
             </SelectInput>
           </Field>
+
+          {/* Backup owner (M6) */}
+          <BackupOwnerField state={backup} error={fieldErrors.backup_owner_id} />
         </FormGrid>
       </FormSection>
 

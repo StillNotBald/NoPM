@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assignedApproverIdField } from "@/lib/review/assignee";
 
 const categoryEnum = z.enum(["scope", "schedule", "cost", "quality", "resource", "other"]);
 /**
@@ -49,6 +50,8 @@ export const createChangeRequestSchema = z.object({
   impact_cost: z.number().min(-999_999_999_999).max(999_999_999_999).optional().nullable(),
   target_date: z.string().date().optional().nullable(),
   raised_at: z.string().datetime({ offset: true }).optional().nullable(),
+  // G5: optional named approver (an admin or manager of the workspace, not the requester).
+  assigned_approver_id: assignedApproverIdField,
 });
 
 // NOTE: `status` is intentionally NOT updatable here — all status transitions

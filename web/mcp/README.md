@@ -104,6 +104,8 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `update_issue` | PATCH /api/issues/:id | `issue:write` |
 | `get_budget` | GET /api/projects/:id/budget | `budget:read` |
 | `get_evm` | GET /api/projects/:id/evm (BAC, AC, EV, PV, CV, SV, CPI, SPI, EAC, ETC, VAC, committed; same numbers as the Budget page) | `budget:read` |
+| `get_project_trend` | GET /api/projects/:id/trend (daily snapshot trend and the RAG it suggests, with the reason; optional `n`) | `project:read` |
+| `get_handover_report` | GET /api/reports/handover (open items whose single owner has no backup, per project and owner, plus the key-person matrix with `bus_factor_1`; optional `project_id`) | `report:read` |
 | `list_change_requests` | GET /api/change-requests (filters `project_id`, `status`; `view` / `fields`) | `change:read` |
 | `get_change_request` | GET /api/change-requests/:id | `change:read` |
 | `list_decisions` | GET /api/decisions (filters `project_id`, `status`; `view` / `fields`) | `decision:read` |

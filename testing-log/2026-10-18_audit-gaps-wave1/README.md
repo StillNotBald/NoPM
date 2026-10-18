@@ -55,9 +55,33 @@ After the fix pass (0092 and 0094 re-rehearsed: dry run 30 ms, atomic 30 ms, pro
 | requester by principal | implemented |
 | document unlinked from its change request | the five evidence fields cleared by the 0094 trigger |
 
+## Wave 3 rehearsal (0095–0099 held back behind seeded data)
+
+| Check | Result |
+|---|---|
+| Dry run of 0095–0099 | 5 files applied cleanly in 61 ms, rolled back |
+| Atomic apply | committed in one transaction, 60 ms |
+| Probes | `probe-migrations.mjs` 9/9, `probe-four-eyes.mjs` 28/28 |
+| `project_dependencies` triggers | self-dependency and transitive A→B→C→A refused (`DEPENDENCY_CYCLE`); duplicate refused (unique); cross-workspace refused (`CROSS_WORKSPACE`) |
+| Deletion guard | `nopm_project_child_counts` (redefined in 0099) runs and counts dependencies |
+| Backup owner | `projects_backup_differs` refuses backup = owner; a different backup is accepted |
+| Snapshots / settings | second snapshot on the same day refused (`project_snapshots_project_day_uniq`); `stale_days = 0` refused |
+| RLS | enabled on `project_dependencies`, `project_snapshots`, `nudge_log`, `weekly_reports` |
+| Write grants | FAILED for `nudge_log`: `anon`/`authenticated` still hold INSERT/UPDATE/DELETE (blocked by RLS-without-policies today, but the 0048 convention revokes them); sent to the wave-3 review |
+
 ## Observations for the next review
 
 - Unlocking by direct SQL (`is_locked = false`) clears `locked_by_actor_id` through the 0088 trigger but leaves `locked_at` set. The unlock RPC clears everything; the trigger should too (P2).
 - Node 24 on Windows prints `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` at exit of the seed scripts after their work completes. Harmless here; not a product bug.
 - With a project locked, `seed-mainline-deps.mjs` is refused by the lock backstop (`PROJECT_LOCKED`) at its first step. Correct product behaviour; the seed is for fresh installs.
 - Release order stands: 0088–0091 before the build serves traffic; 0091 is a hard dependency of the risk routes.
+
+### Wave 3 after the fix pass
+
+| Check | Result |
+|---|---|
+| 0095–0099 re-rehearsed | dry run 63 ms, atomic 63 ms; probes 9/9 and 28/28 |
+| Browser-role grants on `project_dependencies`, `project_snapshots`, `nudge_log`, `weekly_reports` | SELECT only (F9 fixed) |
+| Deletion guard | one definition; counts `project_dependencies`, excludes `project_snapshots` (F3 fixed) |
+| Wave-3 CHECKs | all validated; the only NOT VALID checks left on `project_budget` are the two from migration 0078 (pre-existing) |
+| Gates | tsc 0, vitest 6008/6009 (CRLF case only), lint 0 errors, cli 63, rtm:verify OK (137 R-IDs), commit-gate clean (171 files) |

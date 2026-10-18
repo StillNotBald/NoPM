@@ -8,6 +8,7 @@ import { writeAudit } from "@/lib/audit/write";
 import { updateRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
 import { RISK_SELECT } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers, effective } from "@/lib/handover/backup";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote, rankIncreased } from "@/lib/work/resolution";
@@ -74,7 +75,15 @@ export const PATCH = route(async ({ actor, params, request }) => {
   // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: input.owner_id, field: "owner_id" },
+    { table: "profiles", id: input.backup_owner_id, field: "backup_owner_id" },
   ]);
+  // M6: a backup is somebody else than the owner (checked on the values the row will have).
+  assertBackupDiffers(
+    effective(input.owner_id, existing.owner_id),
+    effective(input.backup_owner_id, existing.backup_owner_id),
+    "backup_owner_id",
+    "owner_id",
+  );
 
   // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
   // the caller doesn't send it (today's last-write-wins, unchanged).
@@ -88,6 +97,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.likelihood !== undefined) updates.likelihood = input.likelihood;
   if (input.mitigation !== undefined) updates.mitigation = input.mitigation;
   if (input.owner_id !== undefined) updates.owner_id = input.owner_id;
+  if (input.backup_owner_id !== undefined) updates.backup_owner_id = input.backup_owner_id;
   if (input.status !== undefined) updates.status = input.status;
   if (input.raised_at !== undefined) updates.raised_at = input.raised_at;
   if (input.due_date !== undefined) updates.due_date = input.due_date;

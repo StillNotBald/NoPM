@@ -284,11 +284,15 @@ const CHILD_TABLES = [
   "project_budget",
   "calendar_feeds",
   "clashes",
+  // added by 0099: they cascade from projects too
+  "project_dependencies",
 ] as const;
 
 /** Child tables that name the project in a column other than `project_id`: a clash cascades from EITHER project it names. */
 const CHILD_PROJECT_COLUMNS: Record<string, readonly string[]> = {
   clashes: ["project_a_id", "project_b_id"],
+  /** A dependency cascades from BOTH projects it names (0099). */
+  project_dependencies: ["project_id", "depends_on_project_id"],
 };
 
 /** Mirrors nopm_project_child_counts (0049, extended by 0054): one count per child table that hangs off a project. */

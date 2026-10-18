@@ -664,7 +664,10 @@ const RAW_TOOLS = [
     name: "get_evm",
     description:
       "Get the earned-value numbers for a project, computed exactly as the Budget page does: BAC, AC, EV, PV, CV, SV, " +
-      "CPI, SPI, EAC, ETC, VAC plus committed. An index is null when it is undefined (for example CPI before any cost is " +
+      "CPI, SPI, EAC, ETC, VAC plus committed. EAC follows the project's forecast_method: cpi (budget / CPI) or " +
+      "bottom_up (spent + committed + the manual estimate_to_complete). Both are returned as eac_cpi and eac_bottom_up; " +
+      "eac_bottom_up is null until someone has entered an estimate_to_complete, and eac is then null too when the " +
+      "method is bottom_up. An index is null when it is undefined (for example CPI before any cost is " +
       "booked). schedule_basis says whether PV came from the baseline dates or only from completion (then SPI is 1.00).",
     parameters: {
       type: "object",
@@ -673,6 +676,48 @@ const RAW_TOOLS = [
       additionalProperties: false,
     },
     toRequest: (args) => ({ path: `/api/projects/${idSeg("project_id", args.project_id)}/evm`, method: "GET" }),
+  },
+
+  {
+    name: "get_project_trend",
+    description:
+      "Get the daily snapshot trend of a project and the RAG it SUGGESTS (green, amber or red) with the reason, " +
+      "for example 'SPI 0.86 falling over 3 weeks'. The suggestion is advice shown beside the declared RAG; " +
+      "it never changes it. Optional n = how many days of snapshots (default 28, max 120). READ-ONLY.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID" },
+        n: { type: "number", description: "Snapshots to use (default 28, max 120)" },
+      },
+      required: ["project_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/trend${args.n ? `?n=${encodeURIComponent(String(args.n))}` : ""}`,
+      method: "GET",
+    }),
+  },
+
+  {
+    name: "get_handover_report",
+    description:
+      "Handover / key-person report (\"runs without you\"): the open items (project, risks, issues, tasks) whose single " +
+      "owner has no backup owner, grouped by project and owner with counts, the open items nobody owns, and a key-person " +
+      "matrix per person (items solely owned, projects touched, bus_factor_1 flag). Optional project_id narrows it to one " +
+      "project. READ-ONLY: naming a backup owner is done on the item (update_project, update_risk, update_issue, update_task).",
+    parameters: {
+      type: "object",
+      properties: { project_id: { type: "string", description: "Only this project (UUID); omit for the whole workspace" } },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path:
+        "/api/reports/handover" +
+        (args.project_id !== undefined && args.project_id !== null ? `?project_id=${idSeg("project_id", args.project_id)}` : ""),
+      method: "GET",
+    }),
   },
 
   // ── Decision prep (read-only): change requests, decisions, documents ──────
@@ -862,11 +907,14 @@ const RAW_TOOLS = [
       "there is deliberately no approve/decide tool: a person decides in the console. Use this " +
       "to answer \"what is waiting for me?\" and to tell the user what needs their decision. " +
       "`hidden_kinds` lists kinds this token's scopes cannot read, so an empty list is not " +
-      "proof that nothing is pending.",
+      "proof that nothing is pending. Pass mine=true to see only the requests assigned to the person behind this token " +
+      "(each item also carries assigned_to_me and assigned_approver_id). Assignment is routing only: " +
+      "it never changes can_decide.",
     parameters: {
       type: "object",
       properties: {
         kind: { type: "string", enum: PENDING_APPROVAL_KINDS, description: "Only this kind (default: all readable kinds)" },
+        mine: { type: "boolean", description: "Only requests assigned to the person behind this token (default false: the whole queue)" },
         page,
         limit: { type: "number", description: "Results per page (default 50, max 200)" },
       },
@@ -876,6 +924,7 @@ const RAW_TOOLS = [
     toRequest: (args) => {
       const params = new URLSearchParams();
       if (args.kind) params.set("kind", String(args.kind));
+      if (args.mine === true) params.set("mine", "1");
       if (args.page) params.set("page", String(args.page));
       if (args.limit) params.set("limit", String(args.limit));
       const qs = params.toString();

@@ -44,6 +44,7 @@ const ID_ARGS: Record<string, string[]> = {
   update_issue: ["issue_id"],
   get_budget: ["project_id"],
   get_evm: ["project_id"],
+  get_project_trend: ["project_id"],
   get_change_request: ["change_request_id"],
   get_document: ["document_id"],
 };

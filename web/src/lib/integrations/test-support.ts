@@ -85,6 +85,10 @@ const DEFAULTS: Record<string, () => Row> = {
 
 /** The unique indexes of migrations 0046, 0051 and 0053 (partial predicates included). */
 const UNIQUES: Record<string, UniqueSpec[]> = {
+  // 0096: one nudge per item per recipient per workspace day
+  nudge_log: [
+    { name: "nudge_log_once_per_day", cols: ["workspace_id", "kind", "target_type", "target_id", "recipient_id", "sent_on"] },
+  ],
   integration_connectors: [
     { name: "uniq_live_connector_per_kind", cols: ["workspace_id", "kind"], where: (r) => r.status !== "revoked" },
   ],
@@ -303,6 +307,7 @@ class FakeQuery implements PromiseLike<Result> {
   private filters: Filter[] = [];
   private orderBy: { col: string; asc: boolean } | null = null;
   private limitN: number | null = null;
+  private rangeFrom = 0;
   private returning = false;
   private head = false;
   private wantCount = false;
@@ -382,6 +387,12 @@ class FakeQuery implements PromiseLike<Result> {
     this.orderBy = { col, asc: opts?.ascending !== false };
     return this;
   }
+  /** PostgREST range(from, to): inclusive offsets, applied after ordering. */
+  range(from: number, to: number): this {
+    this.rangeFrom = from;
+    this.limitN = to - from + 1;
+    return this;
+  }
   limit(n: number): this {
     this.limitN = n;
     return this;
@@ -439,7 +450,7 @@ class FakeQuery implements PromiseLike<Result> {
     if (this.op === "select") {
       let rows = this.matching();
       const total = rows.length;
-      if (this.limitN !== null) rows = rows.slice(0, this.limitN);
+      if (this.limitN !== null) rows = rows.slice(this.rangeFrom, this.rangeFrom + this.limitN);
       if (db.maxRows !== null) rows = rows.slice(0, db.maxRows);
       if (this.head) return { data: null, error: null, count: total };
       const shaped = this.shape(rows);

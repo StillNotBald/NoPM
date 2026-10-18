@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { ProjectActions } from "@/components/tracking/project-actions";
 import { ProjectTabs } from "@/components/tracking/project-tabs";
+import { HandoverBadge } from "@/components/tracking/handover-badge";
+import { ProjectDependenciesPanel } from "@/components/tracking/project-dependencies-panel";
 import { CrumbLabel } from "@/lib/nav/crumb-label";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import { fetchTaskStatusAges } from "@/lib/insight/status-age";
@@ -192,6 +194,7 @@ export default async function ProjectDetailPage({
                 {safeProject.locked_by_label ? `Locked by ${safeProject.locked_by_label}` : "Locked"}
               </Badge>
             )}
+            <HandoverBadge projectId={safeProject.id} />
             <ProjectActions project={safeProject} />
           </div>
         </div>
@@ -230,6 +233,7 @@ export default async function ProjectDetailPage({
         dependencies={dependencies ?? []}
         charterDoc={charterDocs?.[0] ?? null}
       />
+      <ProjectDependenciesPanel projectId={safeProject.id} />
     </div>
   );
 }

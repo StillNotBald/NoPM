@@ -62,6 +62,43 @@ Rows added when wave 3 starts.
 
 | Change | Kind | Where | Why | Agent | Status |
 |---|---|---|---|---|---|
+| Projects, risks, issues and tasks gain an optional backup (Backup owner or Backup assignee). A backup must be a different person from the owner or assignee. | added | Project, risk, issue and task forms; their API | M6 | W3-A | planned |
+| A project with no backup owner shows a "No backup owner" badge on its header. | added | Project header | M6 | W3-A | planned |
+| New **Handover** page in the Portfolio section: open items with an owner and no backup, unowned items, and a key-person list flagging a single point of failure. It exports as CSV. | added | Navigation, Handover page | M6 | W3-A | planned |
+| New read-only AI tool `get_handover_report`, in the MCP server and the in-app assistant. | added | MCP server, in-app assistant | M6 | W3-A | planned |
+| Migration 0095 must be applied before the new build is deployed. | behaviour | Release | Release order | W3-A | planned |
+| Integrations page gains a **Nudges and weekly report** card beside the time zone: stale threshold in days (default 14), nudges on or off, weekly report on or off, and its weekday. | added | Integrations settings | A3, A4 | W3-B | planned |
+| Open tasks, risks and issues with no update for the stale threshold get one in-app notification each, to their assignee or owner. Each item is nudged at most once a day and not again within 7 days. | added | Notifications | A4 | W3-B | planned |
+| The Kanban stale flag follows the workspace threshold instead of a fixed 14 days. | behaviour | Kanban board | A4 | W3-B | planned |
+| The Lark weekly digest card gains a "Stale items" line when there are stale items. | added | Lark weekly digest | A4 | W3-B | planned |
+| A weekly status report is stored and sent on the configured weekday. Every admin and manager gets a notification that links to the report. | added | Notifications, Reports | A3 | W3-B | planned |
+| The weekly report is an HTML page with project codes, milestones due in 14 days and the stalest items. It is readable at phone width. | added | Reports (API) | A3 | W3-B | planned |
+| Integrations card gains **Send weekly report now** (admin or manager). It refreshes this week's report and notifies the same people. | added | Integrations settings | A3 | W3-B | planned |
+| New API scope `report:read` for the weekly report. It is not privileged. | added | API scopes, Tokens page | A3 | W3-B | planned |
+| New **What changed** page in the Portfolio section: the audit trail across all projects, newest first, grouped by day, 50 per page, with filters for project, kind, person and date. | added | Navigation, What changed page | A5 | W3-B | planned |
+| Email previews gain the weekly report and stale-item samples. Nothing is sent. | added | Email previews | A3, A4 | W3-B | planned |
+| Migration 0096 must be applied before or with the new build. Without it, saving the new settings fails. | behaviour | Release | Release order | W3-B | planned |
+| Budget page gains a **Forecast and trend** card per project: the classic forecast, a forecast of spent plus committed plus the amount still to spend, a to-finish input and a method selector. | added | Budget page | B3 | W3-C | planned |
+| The EVM table names the forecast method beside EAC. The budget CSV gains three columns: EAC (CPI), EAC (bottom-up) and forecast method. | added | Budget page, budget CSV | B3 | W3-C | planned |
+| The to-finish estimate and the forecast method can be changed on a locked project without a change request. Other budget fields still need one. | behaviour | Budget API and page | B3 | W3-C | planned |
+| Budget page shows a **Suggested RAG** beside the declared RAG, with its reason and the line "Advice only; the declared RAG is yours to set". The declared RAG is never changed by the suggestion. | added | Budget page | B6 | W3-C | planned |
+| A nightly snapshot of each project is taken, so a trend and a suggestion appear from the next morning. Confidence reads low until three snapshots exist. | added | Scheduler, Budget page | B6 | W3-C | planned |
+| Approvals page gains an **All / Mine** control, with counts. **Mine** shows requests assigned to you. | added | Approvals page | G5 | W3-C | planned |
+| Change requests, rebaselines and deletion requests can name an approver (an admin or manager other than the requester). Nothing is assigned automatically. | added | Raise routes (API) | G5 | W3-C | planned |
+| MCP tool `list_pending_approvals` gains a `mine` parameter. The lead applies it from the W3-C tools note. | added | MCP server | G5 | W3-C | planned |
+| Migrations 0097 and 0098 must be applied before the new build is deployed. | behaviour | Release | Release order | W3-C | planned |
+| Project page gains a **Project dependencies** panel: what the project depends on and who depends on it, with an Add dependency form (project, kind, optional risk, note) and Remove. | added | Project page | B5 | W3-D | planned |
+| Portfolio roadmap shows an amber "Contingent" tag next to a project that is not red but depends on a red one; the tooltip names the red project. The project's own health colour and label do not change. | added | Portfolio | B5 | W3-D | planned |
+| Mainline Network lens lists project-to-project dependencies under the task graph; its caption now says project dependencies are included. | added, renamed caption | Mainline | B5 | W3-D | planned |
+| A project can no longer depend on itself, on a project in another workspace, or in a loop. | behaviour | Project API | B5 | W3-D | planned |
+| Migration 0099 must be applied before the new build is deployed. | behaviour | Release | Release order | W3-D | planned |
+| Menu gains **What changed** (`/changes`), placed after Mainline, and **Handover** (`/handover`), placed after Projects. | added | Navigation | M6, A5 (F23) | W3-A, W3-B | planned |
+| Budget page portfolio line is relabelled "Forecast (EAC, by CPI)", so it is not read as the bottom-up figure. | renamed | Budget page, portfolio line | B3 (F23) | W3-C | planned |
+| The EVM table on the Budget page shows the forecast method on each row. | added | Budget page, EVM table | B3 (F23) | W3-C | planned |
+| Approvals rows assigned to you carry an "assigned to me" cue. | added | Approvals page | G5 (F23) | W3-C | planned |
+| Bell and email previews gain two notification types: "Needs an update" (stale item) and "Weekly report". | added | Notifications, Email previews | A3, A4 (F23) | W3-B | planned |
+| Project API accepts and returns `backup_owner_id` and `backup_assignee_id`, and accepts `assigned_approver_id` on change requests, rebaselines and deletion requests. | added | Project, risk, issue and task API | M6, G5 (F23) | W3-A, W3-C | planned |
+| `GET /api/review?mine=1` returns only the requests assigned to the caller. | added | Review API | G5 (F23) | W3-C | planned |
 
 ## Wave 4 — governance tiers, deletion flow, atomic audit, work events
 

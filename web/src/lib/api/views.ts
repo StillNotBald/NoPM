@@ -18,7 +18,7 @@ export type ViewEntity = "projects" | "tasks" | "milestones" | "risks" | "issues
 /** Columns a caller may pick with `fields=` (and what `view=full` returns). */
 export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
   projects: [
-    "id", "workspace_id", "code", "name", "description", "program", "program_id", "owner_id", "rag_status",
+    "id", "workspace_id", "code", "name", "description", "program", "program_id", "owner_id", "backup_owner_id", "rag_status",
     "completion_pct", "start_date", "target_date", "currency", "is_locked", "locked_by", "locked_at",
     "lock_reason", "locked_by_actor_type", "locked_by_actor_id", "locked_by_label", "created_at", "updated_at", "business_case", "objective", "scope_summary", "sponsor",
     "project_manager", "phase", "health_commentary", "baseline_start_date", "baseline_target_date",
@@ -26,7 +26,7 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
   ],
   tasks: [
     "id", "workspace_id", "project_id", "milestone_id", "name", "description", "status", "status_type",
-    "assignee_id", "priority", "start_date", "due_date", "completion_pct", "sort_order", "created_at",
+    "assignee_id", "backup_assignee_id", "priority", "start_date", "due_date", "completion_pct", "sort_order", "created_at",
     "updated_at", "acceptance_criteria", "estimate_hours", "story_points", "labels", "blocked_by", "checklist",
     "baseline_start_date", "baseline_due_date", "sprint_id", "source", "external_ref", "external_url",
     "content_updated_at",
@@ -39,13 +39,13 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
   // risks.category (legacy free text) is deliberately absent: deprecated by 0090.
   risks: [
     "id", "workspace_id", "project_id", "reference_id", "title", "description", "severity", "likelihood",
-    "mitigation", "owner_id", "status", "raised_at", "due_date", "created_at", "updated_at", "probability_pct",
+    "mitigation", "owner_id", "backup_owner_id", "status", "raised_at", "due_date", "created_at", "updated_at", "probability_pct",
     "impact_score", "response_strategy", "risk_category", "impact_area", "impact_areas", "trigger",
     "residual_risk", "resolution", "source", "external_ref", "external_url",
   ],
   issues: [
     "id", "workspace_id", "project_id", "reference_id", "title", "description", "priority", "severity",
-    "issue_category", "impact", "resolution", "resolution_eta", "resolved_at", "owner_id", "status",
+    "issue_category", "impact", "resolution", "resolution_eta", "resolved_at", "owner_id", "backup_owner_id", "status",
     "raised_at", "due_date", "created_at", "updated_at", "source", "external_ref", "external_url",
   ],
   // Columns that exist today; a column added by a later migration joins this list when it ships.
@@ -65,11 +65,11 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
 /** The default list payload: enough to scan, filter and link; no long text, no lock detail, no seam columns. */
 export const SUMMARY_COLUMNS: Record<ViewEntity, readonly string[]> = {
   projects: [
-    "id", "code", "name", "rag_status", "owner_id", "program_id", "phase", "start_date", "target_date",
+    "id", "code", "name", "rag_status", "owner_id", "backup_owner_id", "program_id", "phase", "start_date", "target_date",
     "completion_pct", "is_locked", "updated_at",
   ],
   tasks: [
-    "id", "project_id", "milestone_id", "name", "status", "status_type", "priority", "assignee_id",
+    "id", "project_id", "milestone_id", "name", "status", "status_type", "priority", "assignee_id", "backup_assignee_id",
     "start_date", "due_date", "completion_pct", "estimate_hours", "sprint_id", "blocked_by", "sort_order",
     "updated_at",
   ],
@@ -78,11 +78,11 @@ export const SUMMARY_COLUMNS: Record<ViewEntity, readonly string[]> = {
   ],
   risks: [
     "id", "reference_id", "project_id", "title", "severity", "likelihood", "status", "risk_category",
-    "impact_areas", "owner_id", "due_date", "updated_at",
+    "impact_areas", "owner_id", "backup_owner_id", "due_date", "updated_at",
   ],
   issues: [
     "id", "reference_id", "project_id", "title", "severity", "priority", "status", "issue_category",
-    "owner_id", "due_date", "updated_at",
+    "owner_id", "backup_owner_id", "due_date", "updated_at",
   ],
   change_requests: [
     "id", "reference_id", "project_id", "title", "category", "priority", "status", "impact_schedule_days",

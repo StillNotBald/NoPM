@@ -18,9 +18,11 @@ export const maxDuration = 60;
  * calls and which is compared in constant time. An unset CRON_SECRET authorises
  * nobody (and is logged, because it otherwise looks like a cron that merely
  * never runs). It drains deliveries that are due for retry, posts each
- * connector's weekly digest on its configured weekday, and prunes old
- * bookkeeping rows. Idempotent: a second call the same day re-drains (leases
- * prevent double sends) and never repeats a digest.
+ * connector's weekly digest on its configured weekday, nudges the owners of
+ * stale tasks, risks and issues and sends each workspace's weekly status report on
+ * its configured day (R-141 / R-142; per workspace, connector or not), and prunes
+ * old bookkeeping rows. Idempotent: a second call the same day re-drains (leases
+ * prevent double sends) and never repeats a digest, a nudge or a weekly report.
  */
 export const GET = route(
   async ({ request }) => {

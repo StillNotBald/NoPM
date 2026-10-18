@@ -315,11 +315,11 @@ describe("P1-3 — a project deletion is refused when budget / clash / calendar-
     return String(db.rows("deletion_requests")[0].id);
   }
 
-  it("the request snapshot carries a count for all fifteen child tables", async () => {
+  it("the request snapshot carries a count for all sixteen child tables", async () => {
     await requestDeletion();
     const counts = (db.rows("deletion_requests")[0].before as { child_counts: Record<string, number> }).child_counts;
     expect(Object.keys(counts)).toEqual(expect.arrayContaining(["project_budget", "clashes", "calendar_feeds"]));
-    expect(Object.keys(counts)).toHaveLength(15);
+    expect(Object.keys(counts)).toHaveLength(16); // 15 + project_dependencies (0099); project_snapshots is derived and exempt
   });
 
   it.each([

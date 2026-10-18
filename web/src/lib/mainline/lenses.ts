@@ -26,7 +26,7 @@ export const LENS_META: Record<MainlineLens, { display: string; functional: stri
   dependency: {
     display: "Network",
     functional: "Dependency",
-    caption: "The cross-project task dependency graph — critical path highlighted.",
+    caption: "Task dependencies plus project-to-project dependencies across the portfolio — critical path highlighted.",
   },
 };
 

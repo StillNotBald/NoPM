@@ -9,6 +9,7 @@ import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertTaskBackupDiffers } from "@/lib/handover/backup";
 import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
 export const runtime = "nodejs";
@@ -102,8 +103,11 @@ export const POST = route(async ({ actor, params, request }) => {
   // task, both of which must live in THIS workspace (the FKs accept any row).
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "resource_members", id: input.assignee_id, field: "assignee_id" },
+    { table: "resource_members", id: input.backup_assignee_id, field: "backup_assignee_id" },
     { table: "tasks", id: input.blocked_by, field: "blocked_by" },
   ]);
+
+  await assertTaskBackupDiffers(db, actor.workspaceId, input.assignee_id, input.backup_assignee_id);
 
   // Validate milestone belongs to same workspace + project if provided
   if (input.milestone_id) {
@@ -140,6 +144,7 @@ export const POST = route(async ({ actor, params, request }) => {
         input.status_type.charAt(0).toUpperCase() + input.status_type.slice(1),
       status_type: input.status_type,
       assignee_id: input.assignee_id ?? null,
+      backup_assignee_id: input.backup_assignee_id ?? null,
       priority: input.priority,
       start_date: input.start_date ?? null,
       due_date: input.due_date ?? null,

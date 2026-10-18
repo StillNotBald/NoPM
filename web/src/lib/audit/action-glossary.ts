@@ -25,6 +25,8 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "task.delete", description: "Task hard-deleted after approval" },
   { action: "task_dependency.create", description: "A task dependency was added" },
   { action: "task_dependency.delete", description: "A task dependency was removed" },
+  { action: "project.dependency.add", description: "A project-to-project dependency was declared" },
+  { action: "project.dependency.remove", description: "A project-to-project dependency was removed" },
   { action: "dependency.create.blocked", description: "Dependency creation refused (e.g. cycle or lock)" },
   { action: "dependency.delete.blocked", description: "Dependency removal refused by a rule" },
   // Deletion requests (maker-checker)
@@ -99,6 +101,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "expense.create", description: "An expense was recorded" },
   { action: "expense.delete", description: "An expense was deleted" },
   { action: "budget.update", description: "A project budget was changed" },
+  { action: "snapshot.taken", description: "The nightly project snapshots were taken (counts of projects and new snapshots)" },
   { action: "budget.overspend", description: "Spending passed a warning or over-budget threshold (warning only, nothing blocked)" },
   // Sprints and saved views
   { action: "sprint.create", description: "A sprint was created" },
@@ -126,6 +129,8 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "member.restore", description: "A removed member was restored to the workspace" },
   { action: "member.mfa_reset", description: "An admin reset a member's two-step sign-in" },
   { action: "workspace.settings_update", description: "Workspace settings were changed" },
+  { action: "nudge.sent", description: "The daily check told owners about stale items (one row per batch, with the count and ids)" },
+  { action: "report.weekly.generated", description: "The weekly status report was generated and sent to admins and managers" },
   { action: "profile.update", description: "A user profile was updated" },
   { action: "mfa.enroll_started", description: "Two-factor enrolment started" },
   { action: "mfa.enabled", description: "Two-factor authentication enabled" },

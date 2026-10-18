@@ -50,6 +50,9 @@ Each use case is one file, `UC-NN-<slug>.md`, with a fixed structure: Goal, Acto
 | [UC-25](UC-25-lark-weekly-digest.md) | Lark weekly digest | Admin / Project Manager | easier reporting | Integrations, Notifications | see file | — |
 | [UC-26](UC-26-calendar-feed-subscription.md) | Subscribe to the milestone calendar feed | Team member / Project Manager | presentable multi-project | Calendar, Milestones | see file | — |
 | [UC-27](UC-27-audit-pack.md) | Export an audit pack for a date range | PMO lead / Admin | easier reporting | Change control, Documents, Trust Center | R-138, R-134, R-137 | — |
+| [UC-28](UC-28-handover-report.md) | Handover and key-person report | Project Manager / Admin | easier reporting | Handover, Projects, Tasks, Risks, Issues | R-140 | — |
+| [UC-29](UC-29-forecast-and-trend.md) | Forecast at completion and project trend | Finance / PMO / Project Manager | easier reporting | Budget, Snapshots | R-144, R-145 | — |
+| [UC-30](UC-30-cross-project-dependencies.md) | Cross-project dependencies and contingency | Project Manager / Admin | presentable multi-project | Projects, Portfolio, Mainline | R-147 | — |
 
 \* Diagram exists on disk today under this exact filename.
 
