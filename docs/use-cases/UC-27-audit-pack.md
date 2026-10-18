@@ -15,6 +15,7 @@
 3. The CSV is one file. Its first column, `section`, says which part each row belongs to: `change_requests`, `evidence`, `decisions` or `approvals_audit`.
 4. A change request is in the pack when it was raised or decided in the period. Its evidence and decisions come with it.
 5. The file downloads as `nopm-audit-pack-<date>.csv` or `nopm-audit-pack-<date>.pdf`. The date in the name is set by the server.
+6. The PDF cover prints the audit chain head and, below it, one anchor line: "Anchor: not anchored", "Anchor: anchored <time> (n rows)", "MISMATCH" or "unreachable". The line reads "not anchored" when no second database is set up. See UC-33.
 
 ## Alternate and exception flows
 
