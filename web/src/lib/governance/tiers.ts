@@ -269,7 +269,19 @@ export async function loadApprovalPolicy(db: Db, workspaceId: string): Promise<A
 
 // ── classification (G1, G7) ───────────────────────────────────────────────
 
-export type ClassifyKind = "change_request" | "task_deletion" | "project_deletion" | "expense_deletion" | "rebaseline";
+export type ClassifyKind =
+  | "change_request"
+  | "task_deletion"
+  | "project_deletion"
+  | "expense_deletion"
+  | "rebaseline"
+  // Wave 5 registers (R-176). Their tier is fixed by the build and not routable in Settings (D15): a program is
+  // high_risk, the other four are normal. A requester may still ask for more scrutiny, never less than the floor.
+  | "program_deletion"
+  | "sprint_deletion"
+  | "resource_deletion"
+  | "allocation_deletion"
+  | "clash_deletion";
 
 export type ClassifyInput = {
   kind: ClassifyKind;
@@ -305,7 +317,7 @@ const STRATEGIC_MESSAGE = "Only an admin can raise a strategic request.";
  *  - `requested_tier: 'strategic'` -> strategic (admin only).
  *  - `requested_tier: 'routine'` -> routine, change requests only, and only with no cost and no
  *    schedule impact (else 422): a second human decides money and dates.
- *  - otherwise `normal`; a project deletion starts at high_risk (never lower), and so does an expense
+ *  - otherwise `normal`; a project or program deletion starts at high_risk (never lower), and so does an expense
  *    deletion whose amount reaches the cost threshold (owner decision Q5).
  *  - a normal change request with |cost| at or above the cost threshold, or a schedule impact of more
  *    than `schedule_threshold_days`, becomes high_risk (G7).
@@ -338,12 +350,17 @@ export function classify(input: ClassifyInput): Classification {
     }
   }
 
-  const floor: Tier = kind === "project_deletion" ? "high_risk" : "normal";
+  const floor: Tier = kind === "project_deletion" || kind === "program_deletion" ? "high_risk" : "normal";
   let tier: Tier = asked ?? floor;
   // Routine (validated above: a change request with no money and no dates) is the one tier below the floor.
   if (asked !== "routine" && TIER_RANK[tier] < TIER_RANK[floor]) tier = floor;
 
-  let reason: string | null = tier !== "normal" && tier === floor && !asked ? "Deleting a whole project is high risk." : null;
+  let reason: string | null =
+    tier !== "normal" && tier === floor && !asked
+      ? kind === "program_deletion"
+        ? "Deleting a whole program is high risk."
+        : "Deleting a whole project is high risk."
+      : null;
   let bump = false;
   if (kind === "expense_deletion" && tier === "normal") {
     const amount = Math.abs(Number(input.amount ?? 0) || 0);

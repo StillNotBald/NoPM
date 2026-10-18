@@ -278,3 +278,25 @@ describe("validatePolicyInput / mergePolicy (the settings PATCH)", () => {
     }
   });
 });
+
+describe("wave 5 registers (R-176, D15): the tier is fixed by the kind", () => {
+  it("a program deletion is high_risk and cannot be asked for lower; the other four are normal", () => {
+    expect(classify({ ...base, kind: "program_deletion" }).tier).toBe("high_risk");
+    expect(classify({ ...base, kind: "program_deletion", requested_tier: "normal" }).tier).toBe("high_risk");
+    expect(classify({ ...base, kind: "program_deletion" }).reason).toBe("Deleting a whole program is high risk.");
+    for (const kind of ["sprint_deletion", "resource_deletion", "allocation_deletion", "clash_deletion"] as const) {
+      expect(classify({ ...base, kind }).tier).toBe("normal");
+    }
+  });
+
+  it("a requester may ask for more scrutiny on a normal kind, and the workspace policy cannot lower the program floor", () => {
+    expect(classify({ ...base, kind: "sprint_deletion", requested_tier: "high_risk" }).tier).toBe("high_risk");
+    const lenient = policyOf({ tiers: { high_risk: { approver_role: "manager", turnaround_hours: 24 } } });
+    expect(classify({ ...base, kind: "program_deletion", policy: lenient }).tier).toBe("high_risk");
+  });
+
+  it("an expense amount never lifts a register kind, and an emergency path is refused for them", () => {
+    expect(classify({ ...base, kind: "clash_deletion", amount: 9_000_000 }).tier).toBe("normal");
+    expect(() => classify({ ...base, kind: "program_deletion", is_emergency: true })).toThrowError(FieldsError);
+  });
+});

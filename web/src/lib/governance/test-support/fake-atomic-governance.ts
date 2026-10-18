@@ -23,6 +23,11 @@ const ENTITY_TABLE: Record<string, string> = {
   expense: "expenses",
   document: "documents",
   milestone: "milestones",
+  program: "programs",
+  sprint: "sprints",
+  resource: "resource_members",
+  allocation: "allocations",
+  clash: "clashes",
 };
 
 const err = (code: string, message: string): RpcResult => ({ data: null, error: { message, code } });
@@ -114,6 +119,25 @@ export const requestDeletionRpc: RpcHandler = (args, db) =>
     if (entity === "project") before = { ...before, child_counts: projectChildCounts(db, id) };
     if (entity === "milestone") {
       before = { ...before, child_counts: { tasks: db.rows("tasks").filter((t) => t.workspace_id === ws && t.milestone_id === id).length } };
+    }
+
+    // 0113: the child counts the approver is shown (nopm_deletion_entities.child_count_sql).
+    if (entity === "program") {
+      before = { ...before, child_counts: { projects: db.rows("projects").filter((p) => p.workspace_id === ws && p.program_id === id).length } };
+    }
+    if (entity === "sprint") {
+      before = { ...before, child_counts: { tasks: db.rows("tasks").filter((t) => t.workspace_id === ws && t.sprint_id === id).length } };
+    }
+    if (entity === "resource") {
+      const allocs = db.rows("allocations").filter((a) => a.workspace_id === ws && a.member_id === id);
+      before = {
+        ...before,
+        child_counts: {
+          allocations: allocs.length,
+          allocation_ids: allocs.map((a) => a.id).sort(),
+          assigned_tasks: db.rows("tasks").filter((t) => t.workspace_id === ws && t.assignee_id === id).length,
+        },
+      };
     }
 
     if (db.rows("deletion_requests").some((r) => r.target_type === entity && r.target_id === id && r.status === "pending")) {

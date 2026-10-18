@@ -27,7 +27,8 @@ for (const t of ["deletion_requests", "notifications", "clashes", "resource_memb
   const { error } = await db.from(t).delete().eq("workspace_id", W);
   if (error) {
     // Deleting projects cascades into risks, issues, expenses, documents and milestones, which are deleted only
-    // by an approved deletion request (migration 0102). A populated database cannot be re-seeded in place.
+    // by an approved deletion request (migration 0102). Clashes and resource members are the same since migration
+    // 0114 (also sprints, allocations and programs). A populated database cannot be re-seeded in place.
     const hint = error.code === "P0040" || /DELETE_NEEDS_REQUEST/.test(error.message)
       ? " This database already holds governed records; seed:all only runs on a fresh or newly reset database."
       : "";

@@ -49,6 +49,12 @@ export class FakeDb {
     nopm_commit_document_deletion: commitDeletionRpc,
     nopm_commit_milestone_deletion: commitDeletionRpc,
     nopm_commit_project_deletion: commitDeletionRpc,
+    // Wave 5 (0113): programs, sprints, resources, allocations and clashes.
+    nopm_commit_program_deletion: commitDeletionRpc,
+    nopm_commit_sprint_deletion: commitDeletionRpc,
+    nopm_commit_resource_deletion: commitDeletionRpc,
+    nopm_commit_allocation_deletion: commitDeletionRpc,
+    nopm_commit_clash_deletion: commitDeletionRpc,
     nopm_apply_rebaseline: applyRebaselineRpc,
     nopm_unlock_project_audited: unlockProjectAuditedRpc,
     nopm_signoff_rebaseline: signoffRebaselineRpc,
@@ -324,6 +330,11 @@ const DELETION_TABLES: Record<string, string> = {
   expense: "expenses",
   document: "documents",
   milestone: "milestones",
+  program: "programs",
+  sprint: "sprints",
+  resource: "resource_members",
+  allocation: "allocations",
+  clash: "clashes",
 };
 
 const CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant", "lark"]);
@@ -381,9 +392,27 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
       const live = db.rows("tasks").filter((t) => t.milestone_id === r.target_id).length;
       if (typeof expected === "number" && expected !== live) return rpcError("P0016", "CHILDREN_CHANGED");
     }
+    // 0113: the scope recorded on a program, sprint or resource request must still hold (P0016); a started sprint
+    // (P0063) and a member with archived timesheets (P0062) are refused.
+    const fingerprint = (r.before as { child_counts?: Record<string, number> } | null)?.child_counts;
+    if (target && r.target_type === "program") {
+      const live = db.rows("projects").filter((p) => p.program_id === r.target_id).length;
+      if (typeof fingerprint?.projects === "number" && fingerprint.projects !== live) return rpcError("P0016", "CHILDREN_CHANGED");
+    }
+    if (target && r.target_type === "sprint") {
+      if (target.state !== undefined && target.state !== "planned") return rpcError("P0063", "SPRINT_NOT_PLANNED");
+      const live = db.rows("tasks").filter((t) => t.sprint_id === r.target_id).length;
+      if (typeof fingerprint?.tasks === "number" && fingerprint.tasks !== live) return rpcError("P0016", "CHILDREN_CHANGED");
+    }
+    if (target && r.target_type === "resource") {
+      if (db.rows("timesheet_submissions").some((x) => x.member_id === r.target_id)) return rpcError("P0062", "HAS_TIMESHEET_RECORDS");
+      const live = db.rows("allocations").filter((a) => a.member_id === r.target_id).length;
+      if (typeof fingerprint?.allocations === "number" && fingerprint.allocations !== live) return rpcError("P0016", "CHILDREN_CHANGED");
+    }
     // 0106 (owner decision Q4): an approved document has no admin gate; its request tier names the approver role.
     if (!target) return rpcError("P0017", "TARGET_GONE");
     db.tables[table] = db.rows(table).filter((t) => t.id !== r.target_id);
+    if (r.target_type === "resource") db.tables.allocations = db.rows("allocations").filter((a) => a.member_id !== r.target_id);
     if (r.target_type === "milestone") {
       for (const t of db.rows("tasks")) if (t.milestone_id === r.target_id) t.milestone_id = null;
     }

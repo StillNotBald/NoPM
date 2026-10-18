@@ -71,7 +71,8 @@ describe("scope ceiling — an agent can list approvals but never decide them", 
   });
 
   it("the decide scopes are exactly the privileged (wildcard-proof) scopes, rebaselines included", () => {
-    expect([...Object.values(DECIDE_SCOPES)].sort()).toEqual([...PRIVILEGED_SCOPES].sort());
+    // Several kinds share a verb (the wave-5 registers use project:delete:approve and task:delete:approve), so compare the set.
+    expect([...new Set(Object.values(DECIDE_SCOPES))].sort()).toEqual([...PRIVILEGED_SCOPES].sort());
   });
 
   it("only list_pending_approvals touches /api/review, and only with GET", () => {

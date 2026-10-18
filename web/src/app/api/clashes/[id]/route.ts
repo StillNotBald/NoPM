@@ -1,8 +1,9 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
-import { ok, noContent, safeJson, validationError } from "@/lib/api/response";
+import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
-import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { requestDeletion } from "@/lib/governance/request-deletion";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClashSchema, patchClashSchema } from "../_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -102,28 +103,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return ok(updated);
 });
 
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "clash:write");
-
-  const db = createAdminClient();
-  const { data: existing, error: fetchError } = await db
-    .from("clashes")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw fetchError;
-  if (!existing) throw new NotFoundError("Clash not found");
-
-  // Row and audit row are one transaction (nopm_mutate_audited).
-  await auditedDelete({
-    table: "clashes",
-    actor,
-    action: "clash.delete",
-    id: params.id,
-    notFoundMessage: "Clash not found",
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/clashes/[id] — does NOT delete the clash. It raises a deletion request (scope clash:write, as the direct
+ * delete had) with a required `reason` and returns 202 with the deletion_requests row. Deleting a clash the system
+ * created needs a request too (decision D16). Resolving a clash is a status change (PATCH) and is not affected (R-176).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "clash", id: params.id }),
+);

@@ -17,10 +17,14 @@ import type {
 } from "@/lib/integrations/types";
 import { AlreadyDecidedSignal, rejectDeletionAtomic, withdrawDeletionAtomic } from "@/lib/governance/atomic-rpc";
 import {
+  isRegisterDeletionTarget,
+  registerDeletionKindFor,
   requireDeletionRequestScope,
   resolveDeletionApproveScope,
   resolveDeletionCommitRpc,
+  type RegisterDeletionKind,
 } from "@/lib/governance/deletion-dispatch";
+import { detectOverAllocationSafe } from "@/lib/clash/detect";
 
 /**
  * One governed decision path for every surface (UI, REST, CLI, MCP, Lark).
@@ -44,7 +48,8 @@ import {
  */
 
 export type DecisionResult = {
-  kind: ApprovalKind;
+  /** The approval kind; the five wave-5 registers (program, sprint, resource, allocation, clash) have kinds of their own. */
+  kind: ApprovalKind | RegisterDeletionKind;
   id: string;
   /** The request's status after the decision (e.g. "committed", "rejected", "approved"). */
   status: string;
@@ -62,6 +67,11 @@ type Db = ReturnType<typeof createAdminClient>;
 
 export const CHILDREN_CHANGED_MESSAGE =
   "This project gained records (tasks, milestones, risks, ...) after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
+export const REGISTER_CHILDREN_CHANGED_MESSAGE =
+  "The records under this item changed after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
+export const HAS_TIMESHEET_RECORDS_MESSAGE =
+  "This member has archived hours from before hour logging was removed. They are kept for the record, so the member can't be deleted — remove their allocations instead.";
+export const SPRINT_NOT_PLANNED_MESSAGE = "Only a planned sprint can be deleted";
 export const MILESTONE_CHILDREN_CHANGED_MESSAGE =
   "The tasks on this milestone changed after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 
@@ -343,8 +353,24 @@ async function loadDeletion(db: Db, actor: Actor, id: string): Promise<DeletionR
   return data as DeletionRow;
 }
 
-function deletionKind(row: DeletionRow): ApprovalKind {
-  return deletionKindFor(row.target_type);
+function deletionKind(row: DeletionRow): DecisionResult["kind"] {
+  return isRegisterDeletionTarget(row.target_type) ? registerDeletionKindFor(row.target_type) : deletionKindFor(row.target_type);
+}
+
+/**
+ * Tell the chat hub a deletion request was decided, and describe it for the caller's result. The five wave-5 registers
+ * send no chat card (R-176), so for them nothing is announced.
+ */
+async function settleDeletionEvent(
+  db: Db,
+  actor: Actor,
+  row: DeletionRow,
+  status: string,
+): Promise<{ kind: DecisionResult["kind"]; title: string }> {
+  if (isRegisterDeletionTarget(row.target_type)) return { kind: deletionKind(row), title: deletionTitle(row) };
+  const base = await deletionBaseEvent(db, actor, row);
+  announceDecided(decidedFrom(actor, base, status));
+  return { kind: base.kind, title: base.title };
 }
 
 function deletionTitle(row: DeletionRow): string {
@@ -363,7 +389,8 @@ async function deletionBaseEvent(db: Db, actor: Actor, row: DeletionRow): Promis
     : await projectNameOf(db, actor.workspaceId, projectId);
   return {
     workspaceId: actor.workspaceId,
-    kind: deletionKind(row),
+    // The chat hub's seven kinds only: the five wave-5 registers never reach this function (settleDeletionEvent).
+    kind: deletionKindFor(row.target_type),
     id: row.id,
     title: deletionTitle(row),
     summary: row.reason,
@@ -441,13 +468,17 @@ async function closeDeletionRequest(
     await withdrawDeletionAtomic(db, actor, row.id, reason);
   } catch (err) {
     // Already decided or gone while we looked: nothing to close, the 422 the caller is about to throw stands and
-    // the next approve attempt retries the tidy-up. Any other failure (the audit row could not be written)
-    // surfaces: the database function rolled the close back, so no close ever stands without its trail (A3-5).
+    // the next approve attempt retries the tidy-up.
     if (err instanceof RuleError || err instanceof NotFoundError) return;
-    throw err;
+    // An audit failure surfaces: the database function rolled the close back, so no close ever stands without its
+    // trail (A3-5).
+    if (/INVALID_(ACTION|CHANNEL|ACTOR|AUDIT)|audit/i.test(err instanceof Error ? err.message : String(err))) throw err;
+    // Any other failure (a transient database error, a build deployed before the function exists) changed nothing:
+    // log it and let the caller's 422 stand, exactly as the old close did.
+    console.error("[deletion] could not close the stale request", row.id, err);
+    return;
   }
-  const base = await deletionBaseEvent(db, actor, row);
-  announceDecided(decidedFrom(actor, base, "withdrawn"));
+  await settleDeletionEvent(db, actor, row, "withdrawn");
 }
 
 /** What a decided deletion request reads as to a person ("approved", not the stored "committed"). */
@@ -573,7 +604,20 @@ export async function approveDeletion(
     // 0049 trigger on projects). The approver must see the CURRENT scope, so the
     // request is refused; withdraw it and raise a new one.
     if (m.includes("CHILDREN_CHANGED") || error.code === "P0016")
-      throw new RuleError(row.target_type === "milestone" ? MILESTONE_CHILDREN_CHANGED_MESSAGE : CHILDREN_CHANGED_MESSAGE, "children_changed");
+      throw new RuleError(
+        row.target_type === "milestone"
+          ? MILESTONE_CHILDREN_CHANGED_MESSAGE
+          : isRegisterDeletionTarget(row.target_type)
+            ? REGISTER_CHILDREN_CHANGED_MESSAGE
+            : CHILDREN_CHANGED_MESSAGE,
+        "children_changed",
+      );
+    // Wave 5 registers (0113): a member with archived timesheets, and a sprint that has left `planned`, are refused at
+    // approval as they were by the direct delete. The commit rolled back; the approver rejects the request.
+    if (m.includes("HAS_TIMESHEET_RECORDS") || error.code === "P0062")
+      throw new RuleError(HAS_TIMESHEET_RECORDS_MESSAGE, "has_timesheet_records");
+    if (m.includes("SPRINT_NOT_PLANNED") || error.code === "P0063")
+      throw new RuleError(SPRINT_NOT_PLANNED_MESSAGE, "sprint_not_planned");
     throw new Error(error.message || "Failed to commit deletion");
   }
 
@@ -593,6 +637,12 @@ export async function approveDeletion(
     await removeStoredFiles(typeof path === "string" ? [path] : [], actor.workspaceId);
   }
 
+  // An allocation left: re-check the member's load, as the direct delete did (clashes may open or resolve). Fail-soft.
+  if (row.target_type === "allocation") {
+    const memberId = row.before?.member_id;
+    if (typeof memberId === "string") await detectOverAllocationSafe(db, actor.workspaceId, memberId, actor);
+  }
+
   // Notify the original requester (their human, not a token id) — fail-soft
   // (outside the transaction by design).
   void notify({
@@ -604,8 +654,7 @@ export async function approveDeletion(
     payload: { requestId: row.id, targetType: row.target_type, targetId: row.target_id },
   });
 
-  const base = await deletionBaseEvent(db, actor, row);
-  announceDecided(decidedFrom(actor, base, "committed"));
+  const base = await settleDeletionEvent(db, actor, row, "committed");
 
   return {
     result: {
@@ -684,8 +733,7 @@ export async function rejectDeletion(
     payload: { requestId: row.id, targetType: row.target_type, targetId: row.target_id },
   });
 
-  const base = await deletionBaseEvent(db, actor, row);
-  announceDecided(decidedFrom(actor, base, "rejected"));
+  const base = await settleDeletionEvent(db, actor, row, "rejected");
 
   return {
     result: {
@@ -728,8 +776,7 @@ export async function withdrawDeletion(actor: Actor, id: string): Promise<KindOu
   // Compare-and-set on pending under a row lock; the status change and the audit row are one database transaction.
   await withdrawDeletionAtomic(db, actor, id, null);
 
-  const base = await deletionBaseEvent(db, actor, row);
-  announceDecided(decidedFrom(actor, base, "withdrawn"));
+  const base = await settleDeletionEvent(db, actor, row, "withdrawn");
 
   return {
     result: {

@@ -6,8 +6,9 @@
  * that is waiting on a human, across the maker-checker families:
  *
  *   task_deletion / project_deletion / risk_deletion / issue_deletion / expense_deletion /
- *   document_deletion / milestone_deletion
- *                                      deletion_requests   status 'pending' (one kind per target_type, G8)
+ *   document_deletion / milestone_deletion / program_deletion / sprint_deletion / resource_deletion /
+ *   allocation_deletion / clash_deletion
+ *                                      deletion_requests   status 'pending' (one kind per target_type, G8, R-176)
  *   change_request                     change_requests     status raised | under_review
  *   rebaseline                         rebaselines         status 'pending_approval'
  *
@@ -51,6 +52,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Actor } from "@/lib/auth/guard";
 import { ScopeError } from "@/lib/api/errors";
 import { DELETION_KIND_BY_TARGET, deletionKindFor, isDeletionKind, targetTypeOfDeletionKind } from "@/lib/integrations/types";
+import {
+  isRegisterDeletionKind,
+  isRegisterDeletionTarget,
+  registerDeletionKindFor,
+  registerEntityOfKind,
+  resolveDeletionApproveScope,
+  type RegisterDeletionKind,
+} from "@/lib/governance/deletion-dispatch";
 import { describeChildCounts, type ChildCountLine } from "./deletion-target";
 import {
   loadApprovalPolicy,
@@ -69,10 +78,25 @@ export const PENDING_KINDS = [
   "expense_deletion",
   "document_deletion",
   "milestone_deletion",
+  "program_deletion",
+  "sprint_deletion",
+  "resource_deletion",
+  "allocation_deletion",
+  "clash_deletion",
   "change_request",
   "rebaseline",
 ] as const;
 export type PendingKind = (typeof PENDING_KINDS)[number];
+
+/** Any deletion kind: the seven governed records and the five wave-5 registers. */
+type AnyDeletionKind = (typeof DELETION_KIND_BY_TARGET)[keyof typeof DELETION_KIND_BY_TARGET] | RegisterDeletionKind;
+function isAnyDeletionKind(kind: string): kind is AnyDeletionKind {
+  return isDeletionKind(kind) || isRegisterDeletionKind(kind);
+}
+/** The `deletion_requests.target_type` a deletion kind decides ("risk_deletion" is "risk", "sprint_deletion" is "sprint"). */
+function targetTypeOfAnyDeletionKind(kind: AnyDeletionKind): string {
+  return isRegisterDeletionKind(kind) ? registerEntityOfKind(kind) : targetTypeOfDeletionKind(kind);
+}
 
 export interface PendingItem {
   kind: PendingKind;
@@ -146,6 +170,11 @@ export const READ_SCOPES: Readonly<Record<PendingKind, readonly string[]>> = {
   expense_deletion: ["budget:read", "audit:read"],
   document_deletion: ["document:read", "audit:read"],
   milestone_deletion: ["milestone:read", "audit:read"],
+  program_deletion: ["program:read", "audit:read"],
+  sprint_deletion: ["sprint:read", "audit:read"],
+  resource_deletion: ["resource:read", "audit:read"],
+  allocation_deletion: ["resource:read", "audit:read"],
+  clash_deletion: ["clash:read", "audit:read"],
   change_request: ["change:read"],
   rebaseline: ["project:read"],
 };
@@ -159,6 +188,12 @@ export const DECIDE_SCOPES: Readonly<Record<PendingKind, string>> = {
   expense_deletion: "expense:delete:approve",
   document_deletion: "document:delete:approve",
   milestone_deletion: "milestone:delete:approve",
+  // The wave-5 registers are decided with an existing privileged verb (see deletion-dispatch.ts): one source of truth.
+  program_deletion: resolveDeletionApproveScope("program"),
+  sprint_deletion: resolveDeletionApproveScope("sprint"),
+  resource_deletion: resolveDeletionApproveScope("resource"),
+  allocation_deletion: resolveDeletionApproveScope("allocation"),
+  clash_deletion: resolveDeletionApproveScope("clash"),
   change_request: "change:decide",
   rebaseline: "rebaseline:approve",
 };
@@ -249,9 +284,9 @@ type Candidate = {
 };
 
 function kindOfDeletion(row: Row): PendingKind | null {
-  return Object.prototype.hasOwnProperty.call(DELETION_KIND_BY_TARGET, String(row.target_type))
-    ? deletionKindFor(String(row.target_type))
-    : null;
+  const type = String(row.target_type);
+  if (isRegisterDeletionTarget(type)) return registerDeletionKindFor(type);
+  return Object.prototype.hasOwnProperty.call(DELETION_KIND_BY_TARGET, type) ? deletionKindFor(type) : null;
 }
 
 /** Who raised the request, as the row records it (no lookups). */
@@ -263,7 +298,7 @@ export function requesterOf(c: Pick<Candidate, "kind" | "row">): Requester {
   const explicit: string | null =
     (typeof r.requested_principal_id === "string" && r.requested_principal_id) ||
     null;
-  if (isDeletionKind(c.kind)) {
+  if (isAnyDeletionKind(c.kind)) {
     return { type: r.requested_by_type ?? null, id: r.requested_by_id ?? null, principal: explicit };
   }
   switch (c.kind) {
@@ -281,7 +316,7 @@ export function requesterOf(c: Pick<Candidate, "kind" | "row">): Requester {
 function projectIdOf(c: Candidate): string | null {
   const r = c.row;
   if (c.kind === "project_deletion") return typeof r.target_id === "string" ? r.target_id : null;
-  if (isDeletionKind(c.kind)) return typeof r.before?.project_id === "string" ? r.before.project_id : null;
+  if (isAnyDeletionKind(c.kind)) return typeof r.before?.project_id === "string" ? r.before.project_id : null;
   switch (c.kind) {
     case "change_request":
     case "rebaseline":
@@ -352,9 +387,9 @@ export async function listPendingApprovals(
     throw new ScopeError(`API token is missing a read scope for the requested approvals: needs one of ${needed}`);
   }
 
-  const wantedDeletions = wanted.filter(isDeletionKind);
+  const wantedDeletions = wanted.filter(isAnyDeletionKind);
   const wantsDeletion = wantedDeletions.length > 0;
-  const deletionTypes: string[] = wantedDeletions.map((k) => targetTypeOfDeletionKind(k));
+  const deletionTypes: string[] = wantedDeletions.map((k) => targetTypeOfAnyDeletionKind(k));
 
   const actorPrincipal = resolveActorPrincipal(actor);
   // G5: "mine" = assigned to the person behind the caller. No person, nothing assigned.
@@ -467,8 +502,13 @@ export async function listPendingApprovals(
       case "issue_deletion":
       case "expense_deletion":
       case "document_deletion":
-      case "milestone_deletion": {
-        const type = targetTypeOfDeletionKind(c.kind);
+      case "milestone_deletion":
+      case "program_deletion":
+      case "sprint_deletion":
+      case "resource_deletion":
+      case "allocation_deletion":
+      case "clash_deletion": {
+        const type = targetTypeOfAnyDeletionKind(c.kind);
         const name =
           clip(r.before?.name ?? r.before?.title ?? r.before?.description, 120) ??
           (type === "project" ? projectName.get(r.target_id) : undefined) ??
@@ -505,8 +545,8 @@ export async function listPendingApprovals(
       reason_if_not: verdict.reason_if_not,
       assigned_approver_id: typeof r.assigned_approver_id === "string" ? r.assigned_approver_id : null,
       assigned_to_me: !!actorPrincipal && r.assigned_approver_id === actorPrincipal,
-      removes: isDeletionKind(c.kind)
-        ? describeChildCounts(r.before, targetTypeOfDeletionKind(c.kind)).map(({ label: what, count, governed }) => ({
+      removes: isAnyDeletionKind(c.kind)
+        ? describeChildCounts(r.before, targetTypeOfAnyDeletionKind(c.kind)).map(({ label: what, count, governed }) => ({
             label: what,
             count,
             governed,

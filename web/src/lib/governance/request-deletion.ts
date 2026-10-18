@@ -8,15 +8,16 @@ import { writeAudit } from "@/lib/audit/write";
 import { assignedApproverIdField, resolveAssignedApprover } from "@/lib/review/assignee";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
-import { requireDeletionRequestScope } from "@/lib/governance/deletion-dispatch";
+import { isRegisterDeletionTarget, requireDeletionRequestScope } from "@/lib/governance/deletion-dispatch";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { deletionKindFor } from "@/lib/integrations/types";
 import { requestDeletionAtomic } from "@/lib/governance/atomic-rpc";
-import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
+import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy, type ClassifyKind } from "@/lib/governance/tiers";
 
 /**
- * The maker step of deletion-by-request for the five records that used to be hard-deleted
- * directly (audit gap G8, migration 0102): risks, issues, expenses, documents and milestones.
+ * The maker step of deletion-by-request for the records that used to be hard-deleted directly (audit gap G8):
+ * risks, issues, expenses, documents and milestones (migration 0102), then programs, sprints, resources
+ * (resource_members), allocations and clashes (wave 5, R-176, migrations 0113 and 0114).
  * Tasks and projects keep their own handlers; they were built first and carry extras
  * (task edit-binding, the project child-count fingerprint).
  *
@@ -29,7 +30,18 @@ import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy
  * The audit action strings below are written out per entity (not built from a variable) so a
  * search for "risk.delete_requested" finds the line that writes it.
  */
-export const REQUESTABLE_ENTITIES = ["risk", "issue", "expense", "document", "milestone"] as const;
+export const REQUESTABLE_ENTITIES = [
+  "risk",
+  "issue",
+  "expense",
+  "document",
+  "milestone",
+  "program",
+  "sprint",
+  "resource",
+  "allocation",
+  "clash",
+] as const;
 export type RequestableEntity = (typeof REQUESTABLE_ENTITIES)[number];
 
 const TABLE: Record<RequestableEntity, string> = {
@@ -38,6 +50,11 @@ const TABLE: Record<RequestableEntity, string> = {
   expense: "expenses",
   document: "documents",
   milestone: "milestones",
+  program: "programs",
+  sprint: "sprints",
+  resource: "resource_members",
+  allocation: "allocations",
+  clash: "clashes",
 };
 
 const NOUN: Record<RequestableEntity, string> = {
@@ -46,6 +63,11 @@ const NOUN: Record<RequestableEntity, string> = {
   expense: "expense",
   document: "document",
   milestone: "milestone",
+  program: "program",
+  sprint: "sprint",
+  resource: "resource member",
+  allocation: "allocation",
+  clash: "clash",
 };
 
 // One constant per audit action, so the drift guard (action-glossary.test.ts) and a text search both find them.
@@ -55,6 +77,11 @@ const EXPENSE_REQUESTED_AUDIT_ACTION = "expense.delete_requested";
 const DOCUMENT_REQUESTED_AUDIT_ACTION = "document.delete_requested";
 const MILESTONE_REQUESTED_AUDIT_ACTION = "milestone.delete_requested";
 const MILESTONE_BLOCKED_AUDIT_ACTION = "milestone.delete_request.blocked";
+const PROGRAM_REQUESTED_AUDIT_ACTION = "program.delete_requested";
+const SPRINT_REQUESTED_AUDIT_ACTION = "sprint.delete_requested";
+const RESOURCE_REQUESTED_AUDIT_ACTION = "resource.delete_requested";
+const ALLOCATION_REQUESTED_AUDIT_ACTION = "allocation.delete_requested";
+const CLASH_REQUESTED_AUDIT_ACTION = "clash.delete_requested";
 
 const REQUESTED_ACTION: Record<RequestableEntity, string> = {
   risk: RISK_REQUESTED_AUDIT_ACTION,
@@ -62,6 +89,11 @@ const REQUESTED_ACTION: Record<RequestableEntity, string> = {
   expense: EXPENSE_REQUESTED_AUDIT_ACTION,
   document: DOCUMENT_REQUESTED_AUDIT_ACTION,
   milestone: MILESTONE_REQUESTED_AUDIT_ACTION,
+  program: PROGRAM_REQUESTED_AUDIT_ACTION,
+  sprint: SPRINT_REQUESTED_AUDIT_ACTION,
+  resource: RESOURCE_REQUESTED_AUDIT_ACTION,
+  allocation: ALLOCATION_REQUESTED_AUDIT_ACTION,
+  clash: CLASH_REQUESTED_AUDIT_ACTION,
 };
 
 export const DeletionRequestBodySchema = z.object({
@@ -74,7 +106,8 @@ type Row = Record<string, unknown>;
 
 function labelOf(entity: RequestableEntity, row: Row, id: string): string {
   const v = entity === "risk" || entity === "issue" || entity === "document" ? row.title : row.name ?? row.title ?? row.description;
-  return typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : id;
+  if (typeof v === "string" && v.trim()) return v.trim().slice(0, 120);
+  return entity === "allocation" ? `allocation ${id.slice(0, 8)}` : id;
 }
 
 export async function requestDeletion(args: {
@@ -116,6 +149,35 @@ export async function requestDeletion(args: {
     );
   }
 
+  // The rules the direct deletes of these registers had stay, now at request time (the commit repeats them).
+  if (entity === "sprint") {
+    if (row.state !== "planned") throw new RuleError("Only a planned sprint can be deleted");
+    const { data: attached, error: attachedError } = await db
+      .from("tasks")
+      .select("id")
+      .eq("workspace_id", actor.workspaceId)
+      .eq("sprint_id", id)
+      .limit(1);
+    if (attachedError) throw new Error(attachedError.message);
+    if ((attached ?? []).length > 0) throw new RuleError("Sprint has attached tasks — detach them before deleting");
+  }
+  if (entity === "resource") {
+    // Archived timesheets cascade from the member and are the approval history of every sheet: refuse, don't erase.
+    const { data: sheets, error: sheetsError } = await db
+      .from("timesheet_submissions")
+      .select("id")
+      .eq("member_id", id)
+      .eq("workspace_id", actor.workspaceId)
+      .limit(1);
+    if (sheetsError) throw new Error(sheetsError.message);
+    if (sheets && sheets.length > 0) {
+      throw new RuleError(
+        "This member has archived hours from before hour logging was removed. They are kept for the record, so the member can't be deleted — remove their allocations instead.",
+        "has_timesheet_records",
+      );
+    }
+  }
+
   const duplicate = () =>
     new RuleError(`A pending deletion request already exists for this ${NOUN[entity]}`, "duplicate_deletion_request");
 
@@ -142,8 +204,13 @@ export async function requestDeletion(args: {
   // deleted on the manager tier like any other document (the audit trail tracks it, no admin gate). Q5: an
   // expense whose amount reaches the currency threshold is high_risk, like a project.
   const policy = await loadApprovalPolicy(db, actor.workspaceId);
+  // The five wave-5 registers have a FIXED tier (program high_risk, the others normal; D15): classify() reads it from the kind.
   const { tier } = classify({
-    kind: entity === "expense" ? "expense_deletion" : "task_deletion",
+    kind: isRegisterDeletionTarget(entity)
+      ? (`${entity}_deletion` as ClassifyKind)
+      : entity === "expense"
+        ? "expense_deletion"
+        : "task_deletion",
     amount: entity === "expense" ? Number(row.amount ?? 0) : undefined,
     requester_role: humanRoleOf(actor as Parameters<typeof humanRoleOf>[0]),
     policy,
@@ -188,19 +255,22 @@ export async function requestDeletion(args: {
   );
 
   // Tell the integration hub (chat approval cards): never throws, runs after the request and its audit row exist.
-  announceRequested({
-    workspaceId: actor.workspaceId,
-    kind: deletionKindFor(entity),
-    id: deletionRequest.id,
-    title: `Delete ${NOUN[entity]} "${label}"`,
-    summary: reason,
-    projectId,
-    projectName: await projectNameOf(db, actor.workspaceId, projectId),
-    requestedByLabel: actorLabel(actor),
-    requesterPrincipalId: requesterPrincipal,
-    tier,
-    ...(assignedApproverId ? { assignedApproverId } : {}),
-  });
+  // The five wave-5 registers send no chat card (R-176): they are decided in Approvals or through the API.
+  if (!isRegisterDeletionTarget(entity)) {
+    announceRequested({
+      workspaceId: actor.workspaceId,
+      kind: deletionKindFor(entity),
+      id: deletionRequest.id,
+      title: `Delete ${NOUN[entity]} "${label}"`,
+      summary: reason,
+      projectId,
+      projectName: await projectNameOf(db, actor.workspaceId, projectId),
+      requestedByLabel: actorLabel(actor),
+      requesterPrincipalId: requesterPrincipal,
+      tier,
+      ...(assignedApproverId ? { assignedApproverId } : {}),
+    });
+  }
 
   return NextResponse.json({ data: deletionRequest }, { status: 202 });
 }

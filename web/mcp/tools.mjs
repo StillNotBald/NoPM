@@ -54,6 +54,11 @@ export const PENDING_APPROVAL_KINDS = [
   "expense_deletion",
   "document_deletion",
   "milestone_deletion",
+  "program_deletion",
+  "sprint_deletion",
+  "resource_deletion",
+  "allocation_deletion",
+  "clash_deletion",
   "change_request",
   "rebaseline",
 ];
@@ -602,13 +607,129 @@ const RAW_TOOLS = [
     }),
   },
   {
+    name: "request_program_deletion",
+    description:
+      "Request deletion of a program (scope: program:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=program) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. A program deletion is high risk (an admin approves it). Its projects are kept and lose the grouping.",
+    parameters: {
+      type: "object",
+      properties: {
+        program_id: { type: "string", description: "Program UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["program_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/programs/${idSeg("program_id", args.program_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_sprint_deletion",
+    description:
+      "Request deletion of a sprint (scope: sprint:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=sprint) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. Only a planned sprint with no attached tasks can be deleted (refused with 422 otherwise).",
+    parameters: {
+      type: "object",
+      properties: {
+        sprint_id: { type: "string", description: "Sprint UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["sprint_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/sprints/${idSeg("sprint_id", args.sprint_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_resource_deletion",
+    description:
+      "Request deletion of a resource member (scope: resource:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=resource) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. Refused (422 has_timesheet_records) while the member has archived timesheets. Approving also deletes the member's allocations; they are listed on the audit trail.",
+    parameters: {
+      type: "object",
+      properties: {
+        resource_id: { type: "string", description: "Resource member UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["resource_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/resources/${idSeg("resource_id", args.resource_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_allocation_deletion",
+    description:
+      "Request deletion of an allocation (scope: allocation:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=allocation) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. The member's over-allocation is re-checked when it is approved.",
+    parameters: {
+      type: "object",
+      properties: {
+        allocation_id: { type: "string", description: "Allocation UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["allocation_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/allocations/${idSeg("allocation_id", args.allocation_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_clash_deletion",
+    description:
+      "Request deletion of a clash (scope: clash:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=clash) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. Needed for any clash, including one the system created. Resolving a clash is a status change (update through the clash PATCH), not a deletion.",
+    parameters: {
+      type: "object",
+      properties: {
+        clash_id: { type: "string", description: "Clash UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["clash_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/clashes/${idSeg("clash_id", args.clash_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
     // Q-GOV-27 (2026-10-17): the maker can take their own request back. This is the ONLY deletion verb
     // the agent surfaces besides requesting: it never approves or rejects (those stay human, 403 for a token).
     name: "withdraw_deletion_request",
     description:
       "Withdraw a deletion request that YOU (or the person this token acts for) raised, while it is still " +
       "pending. Use it when the request was a mistake or is no longer wanted. It cancels the request " +
-      "without deleting anything and is audited. It cannot approve or reject anything, and it only works " +
+      "without deleting anything and is audited. It works for a request of any kind (task, project, risk, issue, " +
+      "expense, document, milestone, program, sprint, resource, allocation or clash). It cannot approve or reject anything, and it only works " +
       "on your own pending request: a request someone else raised, or one already decided, is refused.",
     parameters: {
       type: "object",

@@ -144,6 +144,23 @@ describe("0109 atomic_security: R-163 two-step", () => {
   });
 });
 
+describe("0109 atomic_security: fix pass (review wave 1)", () => {
+  it("W1-05: the two pure helpers pin the search_path too", () => {
+    for (const fn of HELPERS) expect(body(fn)).toContain("set search_path = public");
+  });
+  it("W1-06: an empty id masks to an empty string", () => {
+    expect(body("nopm_mask_external_id")).toContain("when p_id = '' then ''");
+  });
+  it("W1-10: the connector before view comes from the locked row, the rules before from the workspace row in the transaction", () => {
+    const c = body("nopm_connector_write");
+    expect(c).not.toContain("p_before ");
+    expect(c).toContain("nopm_lark_connector_audit_view(v_cur, p_before_secrets)");
+    const g = body("nopm_github_connector_write");
+    expect(g).not.toContain("p_rules_before");
+    expect(g).toContain("select work_event_rules into v_rules_before from workspaces where id = p_workspace_id for update");
+  });
+});
+
 describe("0109 atomic_security: R-164", () => {
   it("connector writes build the masked audit view in SQL (ids masked, secrets only as presence flags)", () => {
     const v = body("nopm_lark_connector_audit_view");
@@ -184,8 +201,8 @@ describe("0109 atomic_security: R-164", () => {
     }
     expect(b).toContain("exception when unique_violation then");
     expect(b).toContain("'integration.identity.link.blocked'");
-    // only a refusal's own record is best effort
-    expect((b.match(/exception when others then/g) ?? []).length).toBe(1);
+    // no swallowed failure anywhere: the refusal record is part of the transaction too
+    expect(b).not.toMatch(/exception when others/);
     // the order inside the transaction: pin, burn, revoke previous, insert, then the audit row
     const at = (needle: string) => b.lastIndexOf(needle);
     expect(at("set tenant_key = p_external_tenant")).toBeLessThan(at("insert into external_identities"));

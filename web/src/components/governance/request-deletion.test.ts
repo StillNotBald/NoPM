@@ -103,3 +103,34 @@ describe("mounted on the panels", () => {
     expect(src("app/(console)/budget/page.tsx")).toContain("<ExpenseLedger");
   });
 });
+
+// ── wave 5 (R-177): programs, sprints, resources, allocations and clashes ─────────────────────────────────
+
+import { SprintTransitionActions } from "@/components/sprints/sprint-transition-actions";
+
+describe("R-177: the five wave-5 registers use the same control", () => {
+  it.each(["program", "sprint", "resource", "allocation", "clash"] as const)("%s: offers Request deletion, 44px tall on a phone", (entity) => {
+    const html = render(createElement(RequestDeletionControl, { entity, id: "x1", name: "Thing" }));
+    expect(html).toContain("Request deletion");
+    expect(html).toContain("h-11");
+    expect(html).not.toContain("Deletion requested");
+  });
+
+  it("the sprint detail card replaces its direct Delete button with the request control", () => {
+    const html = render(createElement(SprintTransitionActions, { sprintId: "s1", state: "planned", hasAttachedTasks: false }));
+    expect(html).toContain("Request deletion");
+    expect(html).not.toMatch(/>\s*Delete\s*</);
+  });
+
+  it("a sprint with attached tasks shows the request button disabled, with the reason", () => {
+    const html = render(createElement(SprintTransitionActions, { sprintId: "s1", state: "planned", hasAttachedTasks: true }));
+    expect(html).toContain("Detach all tasks before requesting deletion");
+    expect(html).toMatch(/<button[^>]*disabled/);
+  });
+
+  it("no register page calls DELETE directly any more", () => {
+    expect(src("components/sprints/sprint-transition-actions.tsx")).not.toContain("apiDelete");
+    expect(src("components/governance/request-deletion.tsx")).toContain('sprint: "sprints"');
+    expect(src("components/governance/request-deletion.tsx")).toContain('allocation: "allocations"');
+  });
+});
