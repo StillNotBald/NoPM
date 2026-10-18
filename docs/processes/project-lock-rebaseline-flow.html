@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A locked schedule stays locked — the database enforces it twice.</title>
+<style>
+  :root{
+    --bg:#ffffff;
+    --surface:#f7f8f9;
+    --ink:#1a1d21;
+    --ink-soft:#4a5057;
+    --ink-faint:#6b7178;
+    --line:#e3e6e9;
+    --accent:#0f766e;
+    --accent-soft:#e6f2f0;
+    --accent-ink:#0b574f;
+    --warn-soft:#fbf0dd;
+    --warn-line:#b06a2c;
+    --warn-ink:#7a4a12;
+    --radius:14px;
+    --maxw:880px;
+  }
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    color:var(--ink);
+    background:var(--surface);
+    line-height:1.55;
+    font-size:16px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:var(--maxw);margin:0 auto;background:var(--bg);padding:48px 56px 56px;}
+  h1{font-size:34px;line-height:1.1;margin:0;letter-spacing:-0.02em;font-weight:680;}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:0.09em;color:var(--accent-ink);font-weight:680;margin:0;}
+  p{margin:0 0 12px;color:var(--ink-soft);}
+  .muted{color:var(--ink-faint);font-size:14px;}
+  strong{color:var(--ink);font-weight:640;}
+  header{display:flex;align-items:center;gap:18px;padding-bottom:26px;border-bottom:1px solid var(--line);}
+  .mark{flex:0 0 auto;width:56px;height:56px;border-radius:16px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;}
+  .role{font-size:14px;color:var(--ink-faint);margin-top:4px;}
+  section{padding:34px 0 0;}
+  .icon-head{display:flex;align-items:center;gap:9px;margin-bottom:14px;}
+  .icon-head svg{color:var(--accent);flex:0 0 auto;}
+  ul.points{margin:6px 0 4px;padding:0;list-style:none;}
+  ul.points li{position:relative;padding:3px 0 3px 22px;font-size:15px;color:var(--ink-soft);}
+  ul.points li::before{content:"";position:absolute;left:2px;top:11px;width:7px;height:7px;border-radius:2px;background:var(--accent);}
+  ul.points li strong{color:var(--ink);}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;margin:14px 2px 14px;font-size:12.5px;color:var(--ink-soft);}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .legend .key{flex:0 0 auto;}
+  .flowwrap{display:flex;gap:14px;align-items:stretch;}
+  .diagram{flex:1 1 auto;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:10px;}
+  .diagram svg{display:block;width:100%;height:auto;}
+  .mvp{flex:0 0 188px;background:var(--accent);color:#fff;border-radius:var(--radius);padding:18px 16px;display:flex;flex-direction:column;}
+  .mvp h3{margin:0 0 2px;font-size:14.5px;font-weight:680;color:#fff;letter-spacing:-0.01em;}
+  .mvp .sub{font-size:11.5px;color:rgba(255,255,255,.82);margin-bottom:14px;}
+  .mvp ol{margin:0;padding:0;list-style:none;counter-reset:m;flex:1;}
+  .mvp li{position:relative;counter-increment:m;padding:0 0 0 30px;margin:0 0 14px;font-size:12.5px;line-height:1.35;color:#fff;}
+  .mvp li:last-child{margin-bottom:0;}
+  .mvp li::before{content:counter(m);position:absolute;left:0;top:-1px;width:21px;height:21px;border-radius:50%;background:rgba(255,255,255,.16);color:#fff;font-size:11.5px;font-weight:680;display:flex;align-items:center;justify-content:center;}
+  .mvp li .t{font-weight:640;display:block;}
+  .mvp li .d{color:rgba(255,255,255,.78);font-size:11px;}
+  .mvp .foot{margin-top:14px;font-size:11px;color:rgba(255,255,255,.8);border-top:1px solid rgba(255,255,255,.22);padding-top:10px;}
+  .diag-note{font-size:13px;color:var(--ink-faint);margin:12px 2px 0;}
+  .promise{margin-top:6px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:var(--radius);padding:18px 22px;display:flex;gap:14px;align-items:flex-start;}
+  .promise svg{color:var(--accent);flex:0 0 auto;margin-top:2px;}
+  .promise h3{font-size:15px;margin:0 0 6px;font-weight:660;color:var(--accent-ink);}
+  .promise ul.points li{font-size:14px;color:var(--ink-soft);}
+  @media (max-width:680px){
+    .page{padding:32px 22px 40px;}
+    h1{font-size:28px;}
+    header{flex-wrap:wrap;}
+    .flowwrap{flex-direction:column;}
+    .mvp{flex:1 1 auto;}
+  }
+  @media print{
+    @page{size:A4;margin:14mm;}
+    body{background:#fff;font-size:11.5pt;}
+    .page{max-width:none;width:auto;padding:0;}
+    section{padding:14px 0 0;page-break-inside:avoid;}
+    .flowwrap,.diagram,.mvp,.promise{page-break-inside:avoid;}
+    .mark,.diagram,.mvp,.promise,.legend{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <div class="mark" aria-hidden="true">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22V4a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v18"/><path d="M3 12h11"/><path d="M14 8h2.5a2.5 2.5 0 0 1 2.5 2.5V17a2 2 0 0 0 2 2 2 2 0 0 0 2-2v-6.5L19 6"/></svg>
+    </div>
+    <div>
+      <h1>A locked schedule stays locked — the database enforces it twice.</h1>
+      <div class="role">NoPM project lock, rebaseline sign-off, and governed unlock — app guard and DB trigger agree, or nothing moves.</div>
+    </div>
+  </header>
+
+  <section>
+    <div class="icon-head">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 0 0 4-4V8M15 5H9a4 4 0 0 0-4 4v7"/></svg>
+      <h2>Project lock &amp; rebaseline — end to end</h2>
+    </div>
+    <ul class="points">
+      <li><strong>Two-layer lock</strong> — an application guard AND a Postgres trigger both refuse a locked-project edit; only one bypass exists, scoped to the apply RPC.</li>
+      <li><strong>Apply ≠ unlock</strong> — applying a rebaseline overwrites the baseline regardless of lock state; unlocking is a separate, independently-reasoned verb.</li>
+    </ul>
+
+    <div class="legend">
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg> Mail = email (demo-preview, rendered)</span>
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg> Bell = in-app notification</span>
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn-line)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 21 12 12 21 3 12 z"/></svg> Diamond = decision / gate</span>
+      <span><svg class="key" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--warn-line)" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg> Amber = blocked / failure path</span>
+    </div>
+
+    <div class="flowwrap">
+      <div class="diagram">
+        <svg viewBox="-22 -34 1034 776" role="img" aria-label="End-to-end flow for the NoPM project lock and rebaseline process on a two-column grid. Phase 1, lock: an administrator locks a project with an optional reason; an automatic scope gate denies callers without the project colon write scope; the lock is set, snapshotting baseline columns once if they were empty; while locked, any attempt to edit a schedule-shaping field on a task, milestone, or dependency is rejected twice, first by an application guard returning 422 project underscore locked, and backed by a database trigger raising PROJECT LOCKED error P0010, looping back to the still-locked state; a rebaseline is then requested with a mandatory reason, entering pending approval because the project is already locked. The pending rebaseline crosses over to phase 2, sign-off and apply: a reviewer opens the rebaseline; an automatic scope gate requires the rebaseline colon approve scope; a human four-eyes gate requires a different person than the requester (a token counts as the person who created it), blocked twice, by an application guard and a database trigger raising error P0003, on the sign-off vote; a human vote gate records go or no-go, with no-go rejecting the rebaseline and looping back to a fresh request; on go, the rebaseline is approved and applied through an atomic database function that bypasses the lock trigger deliberately to overwrite the baseline columns, whether or not the project is still locked; a final human gate decides whether to unlock now, which is an independent action requiring its own mandatory reason; the terminal state is either a project still locked with a fresh baseline, or unlocked and carrying the fresh baseline.">
+          <defs>
+            <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#6b7178"/></marker>
+            <marker id="arrW" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#b06a2c"/></marker>
+            <g id="mail"><circle r="13" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.2"/><g transform="translate(-8,-8)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0b574f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 6 10-6"/></svg></g></g>
+            <g id="bell"><circle r="13" fill="#fff" stroke="#0f766e" stroke-width="1.2"/><g transform="translate(-8,-8)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0b574f" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></g></g>
+          </defs>
+<text x="690" y="-14" text-anchor="middle" fill="#0b574f" font-size="11.5" font-weight="700" letter-spacing="0.07em" font-family="-apple-system,Segoe UI,sans-serif">2 · SIGN-OFF &amp; APPLY</text>
+<line x1="572" y1="-28" x2="808" y2="-28" stroke="#cfe1dd" stroke-width="1"/>
+<text x="300" y="-14" text-anchor="middle" fill="#0b574f" font-size="11.5" font-weight="700" letter-spacing="0.07em" font-family="-apple-system,Segoe UI,sans-serif">1 · LOCK &amp; BLOCK</text>
+<line x1="182" y1="-28" x2="418" y2="-28" stroke="#cfe1dd" stroke-width="1"/>
+<rect x="168.5" y="0" width="263" height="58" rx="11" fill="#0f766e" stroke="#0f766e" stroke-width="1.4"/>
+<text x="300" y="20" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Admin locks the project</text>
+<text x="300" y="35" text-anchor="middle" fill="#cfe8e4" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">POST /projects/:id/lock · reason optional</text>
+<polygon points="300,84 380,124 300,164 220,124" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="300" y="121" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Has project:write</text>
+<text x="300" y="136" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">scope?</text>
+<rect x="180" y="188" width="240" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
+<text x="300" y="208" text-anchor="middle" fill="#0b574f" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Project locked</text>
+<text x="300" y="223" text-anchor="middle" fill="#0b574f" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">is_locked=true · baseline snapshotted</text>
+<polygon points="300,272 380,312 300,352 220,312" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="300" y="309" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Schedule-shape edit</text>
+<text x="300" y="324" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">attempted?</text>
+<rect x="150" y="376" width="300" height="58" rx="11" fill="#fff" stroke="#e3e6e9" stroke-width="1.4"/>
+<text x="300" y="396" text-anchor="middle" fill="#1a1d21" font-size="13.5" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Rebaseline requested</text>
+<text x="300" y="411" text-anchor="middle" fill="#6b7178" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">reason required · status=pending_approval (already locked)</text>
+<rect x="552.5" y="0" width="275" height="58" rx="11" fill="#fff" stroke="#e3e6e9" stroke-width="1.4"/>
+<text x="690" y="20" text-anchor="middle" fill="#1a1d21" font-size="13.5" font-weight="600" font-family="-apple-system,Segoe UI,sans-serif">Approver opens rebaseline</text>
+<text x="690" y="35" text-anchor="middle" fill="#6b7178" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">/rebaselines/:id · scope rebaseline:approve</text>
+<polygon points="690,84 770,124 690,164 610,124" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.5"/>
+<text x="690" y="121" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Has</text>
+<text x="690" y="136" text-anchor="middle" fill="#7a4a12" font-size="12" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">rebaseline:approve scope?</text>
+<polygon points="690,188 770,228 690,268 610,228" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
+<text x="690" y="225" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Approver ≠</text>
+<text x="690" y="240" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">requester?</text>
+<polygon points="690,292 770,332 690,372 610,332" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
+<text x="690" y="336" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Sign-off vote?</text>
+<rect x="570" y="396" width="240" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
+<text x="690" y="416" text-anchor="middle" fill="#0b574f" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Rebaseline approved</text>
+<text x="690" y="431" text-anchor="middle" fill="#0b574f" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">votes rolled up to status=approved</text>
+<rect x="540" y="480" width="300" height="58" rx="11" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.4"/>
+<text x="690" y="500" text-anchor="middle" fill="#0b574f" font-size="13.5" font-weight="660" font-family="-apple-system,Segoe UI,sans-serif">Apply rebaseline</text>
+<text x="690" y="515" text-anchor="middle" fill="#0b574f" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">RPC nopm_apply_rebaseline_snapshot · bypasses lock via GUC</text>
+<polygon points="690,564 770,604 690,644 610,604" fill="#e6f2f0" stroke="#0f766e" stroke-width="1.6"/>
+<text x="690" y="608" text-anchor="middle" fill="#0b574f" font-size="12" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Unlock now?</text>
+<rect x="565.5" y="668" width="249" height="58" rx="11" fill="#0f766e" stroke="#0f766e" stroke-width="1.4"/>
+<text x="690" y="688" text-anchor="middle" fill="#fff" font-size="13.5" font-weight="680" font-family="-apple-system,Segoe UI,sans-serif">Unlocked — fresh baseline live</text>
+<text x="690" y="703" text-anchor="middle" fill="#cfe8e4" font-size="10.5" font-family="-apple-system,Segoe UI,sans-serif">reason required · is_locked=false</text>
+<line x1="300" y1="58" x2="300" y2="84" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="300" y1="164" x2="300" y2="188" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="312" y="180" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="300" y1="246" x2="300" y2="272" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="300" y1="352" x2="300" y2="376" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="312" y="368" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<line x1="690" y1="58" x2="690" y2="84" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="690" y1="164" x2="690" y2="188" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="180" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="690" y1="268" x2="690" y2="292" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="284" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<line x1="690" y1="372" x2="690" y2="396" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="388" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">go</text>
+<line x1="690" y1="454" x2="690" y2="480" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="690" y1="538" x2="690" y2="564" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<line x1="690" y1="644" x2="690" y2="668" stroke="#6b7178" stroke-width="1.6" marker-end="url(#arr)"/>
+<text x="702" y="660" text-anchor="start" fill="#0b574f" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<rect x="-6" y="90" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="52" y="106" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">403 —</text>
+<text x="52" y="118.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">forbidden_scope</text>
+<text x="52" y="131" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">missing</text>
+<text x="52" y="142.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">project:write</text>
+<text x="52" y="152" text-anchor="middle" fill="#b06a2c" font-size="9" font-weight="700" font-family="-apple-system,Segoe UI,sans-serif">BLOCKED</text>
+<line x1="220" y1="124" x2="110" y2="124" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="214" y="120" text-anchor="end" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<rect x="384" y="90" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="442" y="106" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">403 —</text>
+<text x="442" y="118.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">forbidden_scope</text>
+<text x="442" y="131" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">missing</text>
+<text x="442" y="142.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">rebaseline:approve</text>
+<text x="442" y="152" text-anchor="middle" fill="#b06a2c" font-size="9" font-weight="700" font-family="-apple-system,Segoe UI,sans-serif">BLOCKED</text>
+<line x1="610" y1="124" x2="500" y2="124" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="604" y="120" text-anchor="end" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<rect x="880" y="200.5" width="116" height="55" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="938" y="216.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">Blocked twice</text>
+<text x="938" y="229" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">app guard · DB</text>
+<text x="938" y="240.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">trigger P0003</text>
+<text x="938" y="249.5" text-anchor="middle" fill="#b06a2c" font-size="9" font-weight="700" font-family="-apple-system,Segoe UI,sans-serif">BLOCKED</text>
+<line x1="770" y1="228" x2="880" y2="228" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="224" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no — same person</text>
+<rect x="880" y="304.5" width="116" height="55" rx="9" fill="#fff" stroke="#e3e6e9" stroke-width="1.3"/>
+<text x="938" y="320.5" text-anchor="middle" fill="#1a1d21" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">No-go — rejected</text>
+<text x="938" y="333" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">rebaseline stays</text>
+<text x="938" y="344.5" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">rejected · audited</text>
+<line x1="770" y1="332" x2="880" y2="332" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="328" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no-go</text>
+<path d="M880 304.5 C 880 278.5, 665 405, 450 405" stroke="#b06a2c" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#arrW)"/>
+<text x="665" y="298.5" text-anchor="middle" fill="#b06a2c" font-size="10" font-family="-apple-system,Segoe UI,sans-serif">revise → resubmit</text>
+<rect x="880" y="570" width="116" height="68" rx="9" fill="#fff" stroke="#e3e6e9" stroke-width="1.3"/>
+<text x="938" y="586" text-anchor="middle" fill="#1a1d21" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">Stays locked</text>
+<text x="938" y="598.5" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">baseline applied ·</text>
+<text x="938" y="610" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">unlock is</text>
+<text x="938" y="621.5" text-anchor="middle" fill="#6b7178" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">independent, still pending</text>
+<line x1="770" y1="604" x2="880" y2="604" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="776" y="600" text-anchor="start" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">no</text>
+<rect x="-6" y="278" width="116" height="68" rx="9" fill="#fbf0dd" stroke="#b06a2c" stroke-width="1.3"/>
+<text x="52" y="294" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">422</text>
+<text x="52" y="306.5" text-anchor="middle" fill="#7a4a12" font-size="11" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">project_locked · P0010</text>
+<text x="52" y="319" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">app guard + DB</text>
+<text x="52" y="330.5" text-anchor="middle" fill="#9a6a32" font-size="9" font-family="-apple-system,Segoe UI,sans-serif">trigger refuse</text>
+<line x1="220" y1="312" x2="110" y2="312" stroke="#b06a2c" stroke-width="1.5" marker-end="url(#arrW)"/>
+<text x="214" y="308" text-anchor="end" fill="#b06a2c" font-size="10.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">yes</text>
+<path d="M110 278 C 110 252, 145 217, 180 217" stroke="#b06a2c" stroke-width="1.3" fill="none" stroke-dasharray="4 4" marker-end="url(#arrW)"/>
+<text x="145" y="211" text-anchor="middle" fill="#b06a2c" font-size="10" font-family="-apple-system,Segoe UI,sans-serif">still locked</text>
+<path d="M300 434 L300 454 L426.25 454 L426.25 29 L552.5 29" stroke="#6b7178" stroke-width="1.6" fill="none" marker-end="url(#arr)"/>
+<rect x="406.25" y="445" width="40" height="18" rx="9" fill="#fff"/>
+<text x="426.25" y="458" text-anchor="middle" fill="#6b7178" font-size="9.5" font-weight="640" font-family="-apple-system,Segoe UI,sans-serif">then</text>
+        </svg>
+      </div>
+
+      <aside class="mvp" aria-label="Fastest path">
+        <h3>Fastest path</h3>
+        <div class="sub">the shortest governed rebaseline</div>
+        <ol>
+          <li><span class="t">Lock the project</span><span class="d">reason optional</span></li>
+          <li><span class="t">Request rebaseline</span><span class="d">reason required</span></li>
+          <li><span class="t">A different person signs off</span><span class="d">go vote · a token counts as its creator</span></li>
+          <li><span class="t">Apply</span><span class="d">RPC overwrites baseline · lock bypassed by GUC only here</span></li>
+          <li><span class="t">Unlock (optional)</span><span class="d">own mandatory reason</span></li>
+        </ol>
+        <div class="foot">The DB trigger backs up the app guard — a locked project cannot be quietly edited even if a route forgets to check.</div>
+      </aside>
+    </div>
+
+    <p class="diag-note">Confirmed absence, shown honestly: no bell or email notification fires anywhere in lock, rebaseline, sign-off, apply, or unlock — this whole governance layer is silent-but-audited today.</p>
+  </section>
+
+  <section>
+    <div class="promise">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      <div>
+        <h3>Why it holds</h3>
+        <ul class="points">
+      <li>The DB trigger is the backstop even if an app-layer check is ever missed — P0010 fires either way.</li>
+      <li>Self-signoff is blocked the same two ways as self-approval elsewhere: app guard + DB trigger (P0003).</li>
+      <li>Unlock requires its own mandatory reason — never a silent side-effect of applying a baseline.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+</body>
+</html>

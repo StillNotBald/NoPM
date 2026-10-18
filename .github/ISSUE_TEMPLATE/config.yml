@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/StillNotBald/NoPM/security/policy
+    about: Do not open a public issue for a security report. See docs/SECURITY.md for the private reporting channel.
+  - name: Paid services and change requests
+    url: https://github.com/StillNotBald/NoPM/blob/main/docs/guide/05-getting-help-and-paid-services.md
+    about: What's free, what's paid (implementation guide, change requests, training), and how to raise one.
+  - name: Live demo
+    url: https://stillnotbald.com
+    about: Try NoPM before filing an issue — data resets periodically and is not private.

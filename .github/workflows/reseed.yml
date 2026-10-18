@@ -1,0 +1,71 @@
+name: Demo reseed (manual)
+
+# Resets the live demo workspace to a clean, rich seeded state so the public
+# "Try the live demo" flow (R-53) never shows stale or visitor-mutated data.
+#
+# MANUAL-ONLY by owner decision (2026-07-12): the demo is not yet shared
+# broadly, so the nightly cron is off. Trigger from the GitHub Actions tab
+# ("Run workflow") or `gh workflow run reseed.yml`, or run `npm run seed:all`
+# locally. To re-enable nightly resets, restore under `on:`:
+#   schedule:
+#     - cron: "0 19 * * *"   # 19:00 UTC = 03:00 Asia/Singapore, low traffic
+#
+# Required GitHub Actions secrets (Settings → Secrets and variables →
+# Actions) — this workflow fails until both are set on the repo:
+#   NEXT_PUBLIC_SUPABASE_URL   — the Supabase project URL
+#   SUPABASE_SERVICE_ROLE_KEY  — server-only service-role key (bypasses RLS;
+#                                 never log it, never echo it to workflow output)
+#
+# web/scripts/seed.mjs (and every script in the `seed:all` chain) reads its
+# Supabase credentials via scripts/lib/env.mjs, which merges web/.env.local
+# (if present) with process.env — process.env always wins. This runner has
+# no web/.env.local at all, so the two secrets below are passed as plain
+# job-step env vars; no file is written or needed.
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  reseed:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          # supabase-js realtime needs native WebSocket — Node 22+
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Reseed demo workspace
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run seed:all
+
+      - name: Repair demo login (password ↔ env sync)
+        # Reseed never touches auth passwords; this step re-aligns the demo
+        # user's password with the DEMO_PASSWORD secret and probes a real
+        # sign-in. Skips safely when the DEMO_* secrets aren't configured.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DEMO_EMAIL: ${{ secrets.DEMO_EMAIL }}
+          DEMO_PASSWORD: ${{ secrets.DEMO_PASSWORD }}
+        run: |
+          if [ -z "$DEMO_EMAIL" ] || [ -z "$DEMO_PASSWORD" ]; then
+            echo "skipped — DEMO_EMAIL / DEMO_PASSWORD secrets not configured on this repo"
+            exit 0
+          fi
+          node scripts/fix-demo-auth.mjs
+
+      - name: Success summary
+        run: echo "Demo workspace reseeded successfully at $(date -u +'%Y-%m-%dT%H:%M:%SZ')."

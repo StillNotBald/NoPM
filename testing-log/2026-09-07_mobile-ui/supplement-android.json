@@ -1,0 +1,33 @@
+{
+  "board": {
+    "found": true,
+    "clientWidth": 328,
+    "scrollWidth": 1399,
+    "canScroll": true,
+    "columnCount": 5
+  },
+  "gantt": {
+    "clientWidth": 326,
+    "scrollWidth": 709,
+    "canScroll": true
+  },
+  "confirmModal": {
+    "found": true,
+    "isBottomSheet": true,
+    "width": 360,
+    "height": 232,
+    "fullWidth": true
+  },
+  "exactSizes": {
+    "[aria-label=\"Close panel\"]": {
+      "w": 32,
+      "h": 32,
+      "onscreen": false
+    },
+    "[aria-label=\"Dismiss hint\"]": {
+      "w": 20,
+      "h": 20,
+      "onscreen": true
+    }
+  }
+}

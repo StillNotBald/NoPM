@@ -1,0 +1,57 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "setup": "node scripts/setup.mjs",
+    "rtm:verify": "node scripts/rtm-verify.mjs",
+    "seed:all": "node scripts/seed.mjs && node scripts/seed-members.mjs && node scripts/seed-approvals.mjs && node scripts/seed-change-control.mjs && node scripts/seed-people-link.mjs && node scripts/seed-documents.mjs && node scripts/seed-document-files.mjs && node scripts/seed-baselines.mjs && node scripts/seed-mainline-deps.mjs && node scripts/seed-sprints-timesheets.mjs",
+    "mcp": "node mcp/server.mjs",
+    "lark:worker": "node scripts/lark-worker.mjs",
+    "test:worker": "node --test scripts/lark-worker.test.mjs",
+    "gen:metrics": "node scripts/gen-metrics.mjs",
+    "prepare": "node scripts/prepare.mjs"
+  },
+  "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@larksuiteoapi/node-sdk": "1.74.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.107.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.53.0",
+    "next": "^16.4.0",
+    "otplib": "^12.0.1",
+    "pg": "^8.23.1",
+    "pptxgenjs": "^4.0.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwind-merge": "3.7.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "^16.4.0",
+    "supabase": "^2.120.0",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "image-size": "^2.0.4"
+  }
+}

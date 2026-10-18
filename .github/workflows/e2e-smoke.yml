@@ -1,0 +1,42 @@
+name: E2E smoke (authenticated)
+
+# Authenticated page-render rehearsal against the LIVE site. Mints a real
+# admin session server-side (Supabase generateLink + verifyOtp — no password
+# in CI) and fetches every console page as that admin, catching
+# server-component render errors an unauthenticated probe can't see.
+#
+# This is the check that historically caught bugs the unit suite and data
+# checks both missed (see memory: live-authenticated-rehearsal). Weekly +
+# on-demand rather than per-push: it exercises production, not the branch.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * 1" # Mondays 21:00 UTC
+
+jobs:
+  auth-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Authenticated page-render smoke (live site)
+        run: node scripts/auth-smoke.mjs
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}

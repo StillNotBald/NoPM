@@ -1,0 +1,49 @@
+# deps & build
+node_modules/
+**/node_modules/
+web/.next/
+web/out/
+web/coverage/
+web/test-results/
+
+# env & secrets (never commit) — .env.example is allowed
+**/.env
+**/.env.local
+**/.env.*.local
+
+# os / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# CLI-generated report artifacts
+cli/*.html
+cli/*.pdf
+cli/*.pptx
+
+# Pitch material + rendered reels stay out of the repo (190MB media; pitch plan convention)
+nopm-pitch-assets/
+nopm-reels/
+
+# private research + dead orchestration scripts (removed from tracking 2026-08-13; history purged before publish)
+docs/research/
+scripts/wf-*.js
+web/scripts/mainline-*.html
+
+# machine-local harness + impeccable local state
+.claude/settings.local.json
+.impeccable/config.local.json
+.impeccable/cache/
+
+# browser-automation artifacts
+.playwright-mcp/
+/*.png
+
+# graphify generated outputs
+graphify-out/
+
+# testing-log raw captures are regenerable evidence (see testing-log/README.md rule 3)
+testing-log/**/*.png
+
+# Owner-only journey-map working files (decision sheets, generated flows) — never published
+journeys/

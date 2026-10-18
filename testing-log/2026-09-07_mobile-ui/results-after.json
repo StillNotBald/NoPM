@@ -1,0 +1,3811 @@
+{
+  "results": {
+    "iphone": {
+      "home": {
+        "path": "/",
+        "innerW": 473,
+        "scrollW": 473,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 2,
+        "tinyTop": [
+          {
+            "sig": "a.rounded-md.bg-accent.px-3.py-1.5",
+            "count": 1
+          },
+          {
+            "sig": "a.text-sm.font-medium.text-ink-secondary.hover:text-ink",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 11,
+        "smallTextTop": [
+          {
+            "sig": "code.font-mono.text-xs.text-ink",
+            "count": 4
+          },
+          {
+            "sig": "dt.font-mono.text-xs.font-semibold",
+            "count": 3
+          },
+          {
+            "sig": "span.ml-2.font-mono.text-xs",
+            "count": 1
+          },
+          {
+            "sig": "code.font-mono",
+            "count": 1
+          },
+          {
+            "sig": "p.mt-1.text-xs.text-ink-muted",
+            "count": 1
+          }
+        ],
+        "headerOverlap": null,
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": null
+      },
+      "login": {
+        "path": "/login",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 1,
+        "tinyTop": [
+          {
+            "sig": "a.text-2xl.font-semibold.tracking-tight.text-ink",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 5,
+        "smallTextTop": [
+          {
+            "sig": "label.text-xs.font-medium.uppercase",
+            "count": 2
+          },
+          {
+            "sig": "p.mt-1.text-xs.text-ink-muted",
+            "count": 1
+          },
+          {
+            "sig": "p.text-xs.text-ink-muted",
+            "count": 1
+          },
+          {
+            "sig": "p.mt-5.text-center.text-xs",
+            "count": 1
+          }
+        ],
+        "headerOverlap": null,
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": null
+      },
+      "case-study": {
+        "path": "/case-study",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 1,
+        "tinyTop": [
+          {
+            "sig": "a.flex.items-center.gap-2",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 32,
+        "smallTextTop": [
+          {
+            "sig": "p.text-[11px].font-semibold.uppercase",
+            "count": 7
+          },
+          {
+            "sig": "span.mt-1.text-xs.text-ink-muted",
+            "count": 5
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink",
+            "count": 5
+          },
+          {
+            "sig": "code.font-mono.text-xs.text-ink",
+            "count": 4
+          },
+          {
+            "sig": "dt.font-mono.text-xs.font-semibold",
+            "count": 3
+          }
+        ],
+        "headerOverlap": null,
+        "wideTables": [
+          {
+            "width": 640,
+            "hasScrollWrapper": true
+          }
+        ],
+        "dataListCards": null,
+        "firstRowOffset": 4205,
+        "bottomNav": null
+      },
+      "start": {
+        "path": "/start",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.flex.h-11.items-center.rounded-md",
+            "count": 1
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 39,
+        "smallTextTop": [
+          {
+            "sig": "p.mt-0.5.text-xs.text-ink-muted",
+            "count": 5
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          },
+          {
+            "sig": "p.mt-1.text-xs.leading-relaxed",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "dashboard": {
+        "path": "/dashboard",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 9,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 6
+          },
+          {
+            "sig": "button.relative.flex.h-9.w-8[aria-label=\"Choose export format\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.rounded-md.p-1.text-ink-muted[aria-label=\"Dismiss governance tour\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 94,
+        "smallTextTop": [
+          {
+            "sig": "th.px-5.py-3.text-left",
+            "count": 8
+          },
+          {
+            "sig": "span.inline-flex.min-w-[1.6rem].justify-center",
+            "count": 8
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 7
+          },
+          {
+            "sig": "span.font-mono.text-xs.font-medium",
+            "count": 6
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 6
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "div.mx-auto"
+        },
+        "wideTables": [
+          {
+            "width": 1067,
+            "hasScrollWrapper": true
+          }
+        ],
+        "dataListCards": null,
+        "firstRowOffset": 1963,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "my-work": {
+        "path": "/my-work",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 11,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 7
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "a.inline-flex.items-center.gap-1.5.rounded",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 106,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 20
+          },
+          {
+            "sig": "span.shrink-0.rounded.bg-sunken",
+            "count": 18
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 13
+          },
+          {
+            "sig": "span.shrink-0.whitespace-nowrap.rounded-full",
+            "count": 5
+          },
+          {
+            "sig": "span.text-2xs.leading-none.text-sev-high",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "my-tasks": {
+        "path": "/my-tasks",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 19,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 12
+          },
+          {
+            "sig": "button.relative.inline-flex.items-center.gap-1.5",
+            "count": 4
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 66,
+        "smallTextTop": [
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 8
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 7
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 7
+          },
+          {
+            "sig": "span.shrink-0.rounded-full.bg-sunken",
+            "count": 5
+          },
+          {
+            "sig": "span.ml-1.5.rounded-full.bg-danger/10",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "portfolio": {
+        "path": "/portfolio",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 7,
+        "tinyTop": [
+          {
+            "sig": "button.text-xs.font-medium.text-accent.hover:underline",
+            "count": 2
+          },
+          {
+            "sig": "button.ml-auto.rounded-md.p-1.text-ink-muted",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 124,
+        "smallTextTop": [
+          {
+            "sig": "span.ml-0.5.font-mono.text-2xs",
+            "count": 18
+          },
+          {
+            "sig": "span.text-[11px].text-ink-muted",
+            "count": 18
+          },
+          {
+            "sig": "span.text-[11px].font-semibold.text-ink-secondary",
+            "count": 16
+          },
+          {
+            "sig": "span.font-mono.text-2xs.text-ink-muted",
+            "count": 12
+          },
+          {
+            "sig": "p.text-[11px].uppercase.tracking-wide",
+            "count": 8
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "projects": {
+        "path": "/projects",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 10,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 6
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 54,
+        "smallTextTop": [
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 9
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 7
+          },
+          {
+            "sig": "span.text-xs.text-ink-secondary.tabular-nums",
+            "count": 6
+          },
+          {
+            "sig": "td.px-4.py-3.text-ink-secondary",
+            "count": 6
+          },
+          {
+            "sig": "span.text-xs.text-ink-muted",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [
+          {
+            "width": 936,
+            "hasScrollWrapper": true
+          }
+        ],
+        "dataListCards": null,
+        "firstRowOffset": 307,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "projects_detail": {
+        "path": "/projects/52400da2-09d6-46d4-b3ef-74536a5dec98",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 7,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 2
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "a",
+            "count": 1
+          },
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 41,
+        "smallTextTop": [
+          {
+            "sig": "span.text-2xs.font-medium.uppercase",
+            "count": 6
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "tasks": {
+        "path": "/tasks",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 5,
+        "tinyTop": [
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 630,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 300
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-secondary",
+            "count": 100
+          },
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 100
+          },
+          {
+            "sig": "span.min-w-0.truncate.text-ink-secondary",
+            "count": 100
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 50
+        },
+        "firstRowOffset": 451,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "mainline": {
+        "path": "/mainline",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 131,
+        "smallTextTop": [
+          {
+            "sig": "span.max-w-[90px].truncate.text-2xs",
+            "count": 84
+          },
+          {
+            "sig": "span.block.truncate.text-[11px]",
+            "count": 6
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 6
+          },
+          {
+            "sig": "span.text-[11px].text-ink-muted",
+            "count": 5
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "sprints": {
+        "path": "/sprints",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 38,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 6
+          },
+          {
+            "sig": "text",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "timesheets": {
+        "path": "/timesheets",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "input.h-4.w-4.rounded.border-border-subtle",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 69,
+        "smallTextTop": [
+          {
+            "sig": "span.block.font-mono.text-xs",
+            "count": 12
+          },
+          {
+            "sig": "span.block.font-mono.text-2xs",
+            "count": 12
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 4
+          },
+          {
+            "sig": "span.ml-0.5.text-danger",
+            "count": 4
+          },
+          {
+            "sig": "label.text-[11px].font-medium.uppercase",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 1839,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "resources": {
+        "path": "/resources",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 126,
+        "smallTextTop": [
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 28
+          },
+          {
+            "sig": "span.min-w-0.truncate.font-mono",
+            "count": 28
+          },
+          {
+            "sig": "text",
+            "count": 14
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 10
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 8
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 7
+        },
+        "firstRowOffset": 822,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "budget": {
+        "path": "/budget",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 182,
+        "smallTextTop": [
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 24
+          },
+          {
+            "sig": "span.min-w-0.truncate.font-mono",
+            "count": 24
+          },
+          {
+            "sig": "span.block.text-ink-muted",
+            "count": 22
+          },
+          {
+            "sig": "span.block.truncate.font-mono",
+            "count": 22
+          },
+          {
+            "sig": "span.ml-2.text-xs.text-ink-muted",
+            "count": 12
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 708,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "risks": {
+        "path": "/risks",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 177,
+        "smallTextTop": [
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 24
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 24
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 15
+          },
+          {
+            "sig": "span.text-xs.text-ink-secondary",
+            "count": 12
+          },
+          {
+            "sig": "span.tabular-nums.text-xs.text-ink-secondary",
+            "count": 12
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 663,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "issues": {
+        "path": "/issues",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 89,
+        "smallTextTop": [
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 12
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 12
+          },
+          {
+            "sig": "span.tabular-nums.text-xs.text-ink-secondary",
+            "count": 12
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 6
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 6
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 226,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "clashes": {
+        "path": "/clashes",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 5,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 60,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 11
+          },
+          {
+            "sig": "th.px-5.py-3.text-left",
+            "count": 7
+          },
+          {
+            "sig": "span",
+            "count": 4
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 4
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 2
+        },
+        "firstRowOffset": 253,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "documents": {
+        "path": "/documents",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 212,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 38
+          },
+          {
+            "sig": "span.text-xs.text-ink-muted",
+            "count": 20
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 19
+          },
+          {
+            "sig": "p.mt-0.5.max-w-[28ch].truncate",
+            "count": 19
+          },
+          {
+            "sig": "span.shrink-0.font-mono.text-2xs",
+            "count": 19
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 19
+        },
+        "firstRowOffset": 291,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "decisions": {
+        "path": "/decisions",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 86,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 16
+          },
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 16
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 8
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 8
+          },
+          {
+            "sig": "span.text-ink-secondary.tabular-nums",
+            "count": 8
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 8
+        },
+        "firstRowOffset": 226,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "change-control": {
+        "path": "/change-control",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 112,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 36
+          },
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 18
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 9
+          },
+          {
+            "sig": "span.block.min-w-0.max-w-[160px]",
+            "count": 9
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 9
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 9
+        },
+        "firstRowOffset": 296,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "baselines": {
+        "path": "/baselines",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 5,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 33,
+        "smallTextTop": [
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 1
+        },
+        "firstRowOffset": 319,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "approvals": {
+        "path": "/approvals",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 31,
+        "smallTextTop": [
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          },
+          {
+            "sig": "p.text-xs.text-ink-muted",
+            "count": 3
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "review": {
+        "path": "/review",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 11,
+        "tinyTop": [
+          {
+            "sig": "button.flex.items-center.gap-1.5.rounded-md",
+            "count": 7
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 120,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 18
+          },
+          {
+            "sig": "span.shrink-0.font-mono.text-[11px]",
+            "count": 18
+          },
+          {
+            "sig": "span.shrink-0.rounded-md.bg-accent",
+            "count": 18
+          },
+          {
+            "sig": "span.shrink-0.rounded.bg-sunken",
+            "count": 12
+          },
+          {
+            "sig": "span",
+            "count": 10
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "trust": {
+        "path": "/trust",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 463,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 51
+          },
+          {
+            "sig": "time.block.text-xs.font-medium",
+            "count": 50
+          },
+          {
+            "sig": "span.block.text-2xs.text-ink-muted",
+            "count": 50
+          },
+          {
+            "sig": "span.inline-flex.items-center.rounded-full",
+            "count": 50
+          },
+          {
+            "sig": "span.inline-flex.items-center.rounded",
+            "count": 50
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "tokens": {
+        "path": "/tokens",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 62,
+        "tinyTop": [
+          {
+            "sig": "input.h-4.w-4.rounded.border-border-subtle",
+            "count": 58
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 206,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 149
+          },
+          {
+            "sig": "p.font-mono.text-xs.text-ink-secondary",
+            "count": 11
+          },
+          {
+            "sig": "span.text-xs.text-ink-muted",
+            "count": 11
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 5
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 11
+        },
+        "firstRowOffset": 1002,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "settings": {
+        "path": "/settings",
+        "innerW": 556,
+        "scrollW": 556,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 9,
+        "tinyTop": [
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 2
+          },
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 2
+          },
+          {
+            "sig": "a.text-sm.text-accent.hover:underline.focus-visible:outline-none",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 51,
+        "smallTextTop": [
+          {
+            "sig": "a.flex.h-11.shrink-0",
+            "count": 6
+          },
+          {
+            "sig": "label.text-xs.font-semibold.uppercase",
+            "count": 6
+          },
+          {
+            "sig": "th.px-5.py-3.font-medium",
+            "count": 4
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": 2340,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "email-previews": {
+        "path": "/email-previews",
+        "innerW": 390,
+        "scrollW": 390,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 55,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 16
+          },
+          {
+            "sig": "time.shrink-0.text-xs.text-ink-muted",
+            "count": 15
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      }
+    },
+    "android": {
+      "home": {
+        "path": "/",
+        "innerW": 472,
+        "scrollW": 472,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 2,
+        "tinyTop": [
+          {
+            "sig": "a.rounded-md.bg-accent.px-3.py-1.5",
+            "count": 1
+          },
+          {
+            "sig": "a.text-sm.font-medium.text-ink-secondary.hover:text-ink",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 11,
+        "smallTextTop": [
+          {
+            "sig": "code.font-mono.text-xs.text-ink",
+            "count": 4
+          },
+          {
+            "sig": "dt.font-mono.text-xs.font-semibold",
+            "count": 3
+          },
+          {
+            "sig": "span.ml-2.font-mono.text-xs",
+            "count": 1
+          },
+          {
+            "sig": "code.font-mono",
+            "count": 1
+          },
+          {
+            "sig": "p.mt-1.text-xs.text-ink-muted",
+            "count": 1
+          }
+        ],
+        "headerOverlap": null,
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": null
+      },
+      "login": {
+        "path": "/login",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 1,
+        "tinyTop": [
+          {
+            "sig": "a.text-2xl.font-semibold.tracking-tight.text-ink",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 5,
+        "smallTextTop": [
+          {
+            "sig": "label.text-xs.font-medium.uppercase",
+            "count": 2
+          },
+          {
+            "sig": "p.mt-1.text-xs.text-ink-muted",
+            "count": 1
+          },
+          {
+            "sig": "p.text-xs.text-ink-muted",
+            "count": 1
+          },
+          {
+            "sig": "p.mt-5.text-center.text-xs",
+            "count": 1
+          }
+        ],
+        "headerOverlap": null,
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": null
+      },
+      "case-study": {
+        "path": "/case-study",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 1,
+        "tinyTop": [
+          {
+            "sig": "a.flex.items-center.gap-2",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 32,
+        "smallTextTop": [
+          {
+            "sig": "p.text-[11px].font-semibold.uppercase",
+            "count": 7
+          },
+          {
+            "sig": "span.mt-1.text-xs.text-ink-muted",
+            "count": 5
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink",
+            "count": 5
+          },
+          {
+            "sig": "code.font-mono.text-xs.text-ink",
+            "count": 4
+          },
+          {
+            "sig": "dt.font-mono.text-xs.font-semibold",
+            "count": 3
+          }
+        ],
+        "headerOverlap": null,
+        "wideTables": [
+          {
+            "width": 640,
+            "hasScrollWrapper": true
+          }
+        ],
+        "dataListCards": null,
+        "firstRowOffset": 4414,
+        "bottomNav": null
+      },
+      "start": {
+        "path": "/start",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.flex.h-11.items-center.rounded-md",
+            "count": 1
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 39,
+        "smallTextTop": [
+          {
+            "sig": "p.mt-0.5.text-xs.text-ink-muted",
+            "count": 5
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          },
+          {
+            "sig": "p.mt-1.text-xs.leading-relaxed",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "dashboard": {
+        "path": "/dashboard",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 9,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 6
+          },
+          {
+            "sig": "button.relative.flex.h-9.w-8[aria-label=\"Choose export format\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.rounded-md.p-1.text-ink-muted[aria-label=\"Dismiss governance tour\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 94,
+        "smallTextTop": [
+          {
+            "sig": "th.px-5.py-3.text-left",
+            "count": 8
+          },
+          {
+            "sig": "span.inline-flex.min-w-[1.6rem].justify-center",
+            "count": 8
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 7
+          },
+          {
+            "sig": "span.font-mono.text-xs.font-medium",
+            "count": 6
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 6
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "div.mx-auto"
+        },
+        "wideTables": [
+          {
+            "width": 1067,
+            "hasScrollWrapper": true
+          }
+        ],
+        "dataListCards": null,
+        "firstRowOffset": 1977,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "my-work": {
+        "path": "/my-work",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 11,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 7
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "a.inline-flex.items-center.gap-1.5.rounded",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 106,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 20
+          },
+          {
+            "sig": "span.shrink-0.rounded.bg-sunken",
+            "count": 18
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 13
+          },
+          {
+            "sig": "span.shrink-0.whitespace-nowrap.rounded-full",
+            "count": 5
+          },
+          {
+            "sig": "span.text-2xs.leading-none.text-sev-high",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "my-tasks": {
+        "path": "/my-tasks",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 19,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 12
+          },
+          {
+            "sig": "button.relative.inline-flex.items-center.gap-1.5",
+            "count": 4
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 66,
+        "smallTextTop": [
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 8
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 7
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 7
+          },
+          {
+            "sig": "span.shrink-0.rounded-full.bg-sunken",
+            "count": 5
+          },
+          {
+            "sig": "span.ml-1.5.rounded-full.bg-danger/10",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "portfolio": {
+        "path": "/portfolio",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 7,
+        "tinyTop": [
+          {
+            "sig": "button.text-xs.font-medium.text-accent.hover:underline",
+            "count": 2
+          },
+          {
+            "sig": "button.ml-auto.rounded-md.p-1.text-ink-muted",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 124,
+        "smallTextTop": [
+          {
+            "sig": "span.ml-0.5.font-mono.text-2xs",
+            "count": 18
+          },
+          {
+            "sig": "span.text-[11px].text-ink-muted",
+            "count": 18
+          },
+          {
+            "sig": "span.text-[11px].font-semibold.text-ink-secondary",
+            "count": 16
+          },
+          {
+            "sig": "span.font-mono.text-2xs.text-ink-muted",
+            "count": 12
+          },
+          {
+            "sig": "p.text-[11px].uppercase.tracking-wide",
+            "count": 8
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "projects": {
+        "path": "/projects",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 10,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 6
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 54,
+        "smallTextTop": [
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 9
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 7
+          },
+          {
+            "sig": "span.text-xs.text-ink-secondary.tabular-nums",
+            "count": 6
+          },
+          {
+            "sig": "td.px-4.py-3.text-ink-secondary",
+            "count": 6
+          },
+          {
+            "sig": "span.text-xs.text-ink-muted",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [
+          {
+            "width": 936,
+            "hasScrollWrapper": true
+          }
+        ],
+        "dataListCards": null,
+        "firstRowOffset": 307,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "projects_detail": {
+        "path": "/projects/52400da2-09d6-46d4-b3ef-74536a5dec98",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 7,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 2
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "a",
+            "count": 1
+          },
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 41,
+        "smallTextTop": [
+          {
+            "sig": "span.text-2xs.font-medium.uppercase",
+            "count": 6
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "tasks": {
+        "path": "/tasks",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 5,
+        "tinyTop": [
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 630,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 300
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-secondary",
+            "count": 100
+          },
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 100
+          },
+          {
+            "sig": "span.min-w-0.truncate.text-ink-secondary",
+            "count": 100
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 5
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 50
+        },
+        "firstRowOffset": 451,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "mainline": {
+        "path": "/mainline",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 131,
+        "smallTextTop": [
+          {
+            "sig": "span.max-w-[90px].truncate.text-2xs",
+            "count": 84
+          },
+          {
+            "sig": "span.block.truncate.text-[11px]",
+            "count": 6
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 6
+          },
+          {
+            "sig": "span.text-[11px].text-ink-muted",
+            "count": 5
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "sprints": {
+        "path": "/sprints",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 38,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 6
+          },
+          {
+            "sig": "text",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "timesheets": {
+        "path": "/timesheets",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "input.h-4.w-4.rounded.border-border-subtle",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 69,
+        "smallTextTop": [
+          {
+            "sig": "span.block.font-mono.text-xs",
+            "count": 12
+          },
+          {
+            "sig": "span.block.font-mono.text-2xs",
+            "count": 12
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 4
+          },
+          {
+            "sig": "span.ml-0.5.text-danger",
+            "count": 4
+          },
+          {
+            "sig": "label.text-[11px].font-medium.uppercase",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 1839,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "resources": {
+        "path": "/resources",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 126,
+        "smallTextTop": [
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 28
+          },
+          {
+            "sig": "span.min-w-0.truncate.font-mono",
+            "count": 28
+          },
+          {
+            "sig": "text",
+            "count": 14
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 10
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 8
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 7
+        },
+        "firstRowOffset": 822,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "budget": {
+        "path": "/budget",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 182,
+        "smallTextTop": [
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 24
+          },
+          {
+            "sig": "span.min-w-0.truncate.font-mono",
+            "count": 24
+          },
+          {
+            "sig": "span.block.text-ink-muted",
+            "count": 22
+          },
+          {
+            "sig": "span.block.truncate.font-mono",
+            "count": 22
+          },
+          {
+            "sig": "span.ml-2.text-xs.text-ink-muted",
+            "count": 12
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 728,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "risks": {
+        "path": "/risks",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 177,
+        "smallTextTop": [
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 24
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 24
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 15
+          },
+          {
+            "sig": "span.text-xs.text-ink-secondary",
+            "count": 12
+          },
+          {
+            "sig": "span.tabular-nums.text-xs.text-ink-secondary",
+            "count": 12
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 663,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "issues": {
+        "path": "/issues",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 89,
+        "smallTextTop": [
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 12
+          },
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 12
+          },
+          {
+            "sig": "span.tabular-nums.text-xs.text-ink-secondary",
+            "count": 12
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 6
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 6
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 6
+        },
+        "firstRowOffset": 226,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "clashes": {
+        "path": "/clashes",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 5,
+        "tinyTop": [
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 60,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 11
+          },
+          {
+            "sig": "th.px-5.py-3.text-left",
+            "count": 7
+          },
+          {
+            "sig": "span",
+            "count": 4
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 4
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 2
+        },
+        "firstRowOffset": 269,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "documents": {
+        "path": "/documents",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 212,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 38
+          },
+          {
+            "sig": "span.text-xs.text-ink-muted",
+            "count": 20
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 19
+          },
+          {
+            "sig": "p.mt-0.5.max-w-[28ch].truncate",
+            "count": 19
+          },
+          {
+            "sig": "span.shrink-0.font-mono.text-2xs",
+            "count": 19
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 19
+        },
+        "firstRowOffset": 307,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "decisions": {
+        "path": "/decisions",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 86,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 16
+          },
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 16
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 8
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 8
+          },
+          {
+            "sig": "span.text-ink-secondary.tabular-nums",
+            "count": 8
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 8
+        },
+        "firstRowOffset": 226,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "change-control": {
+        "path": "/change-control",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 112,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 36
+          },
+          {
+            "sig": "span.shrink-0.text-ink-muted",
+            "count": 18
+          },
+          {
+            "sig": "span.font-mono.text-xs.bg-sunken",
+            "count": 9
+          },
+          {
+            "sig": "span.block.min-w-0.max-w-[160px]",
+            "count": 9
+          },
+          {
+            "sig": "span.text-ink-secondary",
+            "count": 9
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 9
+        },
+        "firstRowOffset": 296,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "baselines": {
+        "path": "/baselines",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 5,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "a.inline-flex.max-w-full.items-center.gap-1.5",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 33,
+        "smallTextTop": [
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 1
+        },
+        "firstRowOffset": 319,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "approvals": {
+        "path": "/approvals",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 31,
+        "smallTextTop": [
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          },
+          {
+            "sig": "p.text-xs.text-ink-muted",
+            "count": 3
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "review": {
+        "path": "/review",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 11,
+        "tinyTop": [
+          {
+            "sig": "button.flex.items-center.gap-1.5.rounded-md",
+            "count": 7
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 120,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 18
+          },
+          {
+            "sig": "span.shrink-0.font-mono.text-[11px]",
+            "count": 18
+          },
+          {
+            "sig": "span.shrink-0.rounded-md.bg-accent",
+            "count": 18
+          },
+          {
+            "sig": "span.shrink-0.rounded.bg-sunken",
+            "count": 12
+          },
+          {
+            "sig": "span",
+            "count": 10
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "trust": {
+        "path": "/trust",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 4,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 463,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 51
+          },
+          {
+            "sig": "time.block.text-xs.font-medium",
+            "count": 50
+          },
+          {
+            "sig": "span.block.text-2xs.text-ink-muted",
+            "count": 50
+          },
+          {
+            "sig": "span.inline-flex.items-center.rounded-full",
+            "count": 50
+          },
+          {
+            "sig": "span.inline-flex.items-center.rounded",
+            "count": 50
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "tokens": {
+        "path": "/tokens",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 62,
+        "tinyTop": [
+          {
+            "sig": "input.h-4.w-4.rounded.border-border-subtle",
+            "count": 58
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 206,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 149
+          },
+          {
+            "sig": "p.font-mono.text-xs.text-ink-secondary",
+            "count": 11
+          },
+          {
+            "sig": "span.text-xs.text-ink-muted",
+            "count": 11
+          },
+          {
+            "sig": "th.px-5.py-3.text-xs",
+            "count": 5
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": {
+          "present": true,
+          "visible": true,
+          "itemCount": 11
+        },
+        "firstRowOffset": 1046,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "settings": {
+        "path": "/settings",
+        "innerW": 556,
+        "scrollW": 556,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 9,
+        "tinyTop": [
+          {
+            "sig": "a.text-accent.hover:underline",
+            "count": 2
+          },
+          {
+            "sig": "button.inline-flex.items-center.justify-center.font-medium",
+            "count": 2
+          },
+          {
+            "sig": "a.text-sm.text-accent.hover:underline.focus-visible:outline-none",
+            "count": 2
+          },
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 51,
+        "smallTextTop": [
+          {
+            "sig": "a.flex.h-11.shrink-0",
+            "count": 6
+          },
+          {
+            "sig": "label.text-xs.font-semibold.uppercase",
+            "count": 6
+          },
+          {
+            "sig": "th.px-5.py-3.font-medium",
+            "count": 4
+          },
+          {
+            "sig": "span.font-mono.text-xs.text-ink-muted",
+            "count": 4
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": 2396,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      },
+      "email-previews": {
+        "path": "/email-previews",
+        "innerW": 360,
+        "scrollW": 360,
+        "overflow": false,
+        "offenders": [],
+        "tinyCount": 3,
+        "tinyTop": [
+          {
+            "sig": "a.font-mono.text-[11px].text-ink-muted.transition-colors",
+            "count": 1
+          },
+          {
+            "sig": "button.relative.shrink-0.rounded-md.p-1[aria-label=\"Dismiss hint\"]",
+            "count": 1
+          },
+          {
+            "sig": "button.grid.h-8.w-8.place-items-center[aria-label=\"Close assistant panel\"]",
+            "count": 1
+          }
+        ],
+        "smallTextCount": 55,
+        "smallTextTop": [
+          {
+            "sig": "span.inline-flex.items-center.gap-1",
+            "count": 16
+          },
+          {
+            "sig": "time.shrink-0.text-xs.text-ink-muted",
+            "count": 15
+          },
+          {
+            "sig": "span.max-w-full.truncate.px-0.5",
+            "count": 4
+          },
+          {
+            "sig": "div.px-2.5.pb-1.pt-3",
+            "count": 3
+          },
+          {
+            "sig": "span",
+            "count": 3
+          }
+        ],
+        "headerOverlap": {
+          "headerBottom": 56,
+          "elementJustBelow": "nav.flex"
+        },
+        "wideTables": [],
+        "dataListCards": null,
+        "firstRowOffset": null,
+        "bottomNav": {
+          "visible": true,
+          "height": 58,
+          "mainPaddingBottom": "80px"
+        }
+      }
+    }
+  },
+  "panelResults": {
+    "iphone": {
+      "risks_panel": {
+        "path": "/risks",
+        "fullScreen": true,
+        "width": 390,
+        "height": 844,
+        "top": 0,
+        "bodyOverflow": "hidden",
+        "closeReachable": {
+          "inViewport": true,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        },
+        "focusInside": true,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "issues_panel": {
+        "path": "/issues",
+        "fullScreen": true,
+        "width": 390,
+        "height": 844,
+        "top": 0,
+        "bodyOverflow": "hidden",
+        "closeReachable": {
+          "inViewport": true,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        },
+        "focusInside": true,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "tasks_panel": {
+        "path": "/tasks",
+        "fullScreen": true,
+        "width": 390,
+        "height": 844,
+        "top": 844,
+        "bodyOverflow": "visible",
+        "closeReachable": {
+          "inViewport": false,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        },
+        "focusInside": false,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "projects_detail_panel": {
+        "path": "/projects/52400da2-09d6-46d4-b3ef-74536a5dec98",
+        "opened": false
+      },
+      "resources_panel": {
+        "path": "/resources",
+        "fullScreen": true,
+        "width": 390,
+        "height": 844,
+        "top": 0,
+        "bodyOverflow": "hidden",
+        "closeReachable": {
+          "inViewport": true,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        },
+        "focusInside": true,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "project_board_kanban_tap": {
+        "path": "/projects/52400da2-09d6-46d4-b3ef-74536a5dec98",
+        "opened": true,
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        }
+      },
+      "tasks_filtersheet": {
+        "path": "/tasks",
+        "opened": true,
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        }
+      },
+      "notif_bell": {
+        "path": "/dashboard",
+        "opened": true,
+        "closeSize": null
+      }
+    },
+    "android": {
+      "risks_panel": {
+        "path": "/risks",
+        "fullScreen": true,
+        "width": 360,
+        "height": 800,
+        "top": 0,
+        "bodyOverflow": "hidden",
+        "closeReachable": {
+          "inViewport": true,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        },
+        "focusInside": true,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "issues_panel": {
+        "path": "/issues",
+        "fullScreen": true,
+        "width": 360,
+        "height": 800,
+        "top": 0,
+        "bodyOverflow": "hidden",
+        "closeReachable": {
+          "inViewport": true,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        },
+        "focusInside": true,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "tasks_panel": {
+        "path": "/tasks",
+        "fullScreen": true,
+        "width": 360,
+        "height": 800,
+        "top": 800,
+        "bodyOverflow": "visible",
+        "closeReachable": {
+          "inViewport": false,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        },
+        "focusInside": false,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "projects_detail_panel": {
+        "path": "/projects/52400da2-09d6-46d4-b3ef-74536a5dec98",
+        "opened": false
+      },
+      "resources_panel": {
+        "path": "/resources",
+        "fullScreen": true,
+        "width": 360,
+        "height": 800,
+        "top": 0,
+        "bodyOverflow": "hidden",
+        "closeReachable": {
+          "inViewport": true,
+          "w": 44,
+          "h": 44
+        },
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        },
+        "focusInside": true,
+        "afterCloseLockInfo": {
+          "bodyPosition": "static",
+          "shellInert": false
+        }
+      },
+      "project_board_kanban_tap": {
+        "path": "/projects/52400da2-09d6-46d4-b3ef-74536a5dec98",
+        "opened": true,
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        }
+      },
+      "tasks_filtersheet": {
+        "path": "/tasks",
+        "opened": true,
+        "lockInfo": {
+          "bodyPosition": "fixed",
+          "shellInert": true
+        }
+      },
+      "notif_bell": {
+        "path": "/dashboard",
+        "opened": true,
+        "closeSize": null
+      }
+    }
+  },
+  "consoleErrors": {
+    "iphone": {},
+    "android": {}
+  },
+  "firstProjectId": "52400da2-09d6-46d4-b3ef-74536a5dec98"
+}

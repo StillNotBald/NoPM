@@ -1,0 +1,12 @@
+# Owner decisions — 2026-10-17 journey-audit fixes
+
+Decisions made while the journey map and the 2026-10-17 audit were turned into fixes. Numbering continues from [`../2026-10-17_post-live-followups/DECISIONS.md`](../2026-10-17_post-live-followups/DECISIONS.md) (decisions 4 and 6–15). Decision 16 is the owner's; decision 17 is Claude's extension of it and **still needs the owner's confirmation**.
+
+| # | Decision | Owner choice | Consequence | Where recorded |
+|---|---|---|---|---|
+| 16 | Who may approve or decide ("follow Lark rules"); resolves decision 6 | Admins and managers only, on every channel: deletion approve and reject, change-request decide, rebaseline sign-off and apply, timesheet approve, reject and reopen. Members and viewers are refused. A token is judged by the current role of the person who created it. | Built. 403 `role_not_permitted` "Only managers and admins can approve" from `requireApprover` in every decide route, repeated in the database (trigger on `deletion_requests`, migration 0061; checks inside the sign-off, apply and change-request RPCs, 0062 and 0063). Approve controls are hidden from members in the console. `llms.txt` no longer says agents never approve: it says approvals need an admin or manager human principal and that a token with an approve scope inherits its creator's current role. Removed from the ROADMAP backlog. | ADR 0014; R-113; `requirements/REQUIREMENTS.md`; `docs/ROADMAP.md`; UC-08, UC-10, UC-11, UC-12, UC-17, UC-23; this sprint's SPRINT_SUMMARY |
+| 17 | Whose hours a member may log (Claude's extension of 16; **owner to confirm**) | A member logs, edits and deletes only their own hours. Admins and managers may do it for others. Same rule for tokens, judged by the person who created them. | Built. 403 `not_your_hours` "You can only log your own hours" on `POST` and `DELETE /api/time-entries`; the log-time form offers a member only themselves. Chosen because approval of a timesheet is meaningless if anyone can write the hours being approved. If the owner prefers the old open rule, remove the check in `web/src/app/api/time-entries/_own.ts` and the two route calls; no migration is involved. | R-114; UC-08; this sprint's SPRINT_SUMMARY |
+
+## Still open (owner questions)
+
+The Priority 1 list in [`journeys/OPEN-QUESTIONS.md`](../../journeys/OPEN-QUESTIONS.md) had 21 questions when written; the first one (who may approve) is answered by decision 16, the rest are still open. The ROADMAP backlog carries one line pointing there.
