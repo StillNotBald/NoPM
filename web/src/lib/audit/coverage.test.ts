@@ -387,7 +387,8 @@ function rpcAuditsInSql(fn: string): boolean | null {
       latest = end < 0 ? rest : rest.slice(0, end);
     }
   }
-  return latest === null ? null : /insert\s+into\s+(?:public\.)?audit_log/i.test(latest);
+  // wave 5: a dedicated RPC may write its row through the shared helper nopm_audit_insert (migration 0107)
+  return latest === null ? null : /insert\s+into\s+(?:public\.)?audit_log|nopm_audit_insert\s*\(/i.test(latest);
 }
 
 const isGoverned = (w: Write) => (w.rpc ? !NON_MUTATING_RPC[w.table] : !NON_BUSINESS_TABLES[w.table]);

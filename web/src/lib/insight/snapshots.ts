@@ -6,7 +6,7 @@
  * the declared RAG and the RAG the trend rules suggest. Taken by the snapshot cron
  * (/api/cron/snapshots) with the service role.
  *
- * Idempotent: the (project_id, taken_at) unique key plus `ignoreDuplicates` means a
+ * Idempotent: the (project_id, taken_at) unique key plus `on conflict do nothing` (inside nopm_snapshot_run) means a
  * second run on the same day inserts nothing. Each run still writes exactly ONE
  * `snapshot.taken` audit row per workspace it touched, carrying the counts
  * (projects seen, snapshots taken, already there), so a re-run is visible, not silent.
@@ -20,7 +20,8 @@
  *   slip_days    = forecast_end − planned_end in calendar days (negative = ahead).
  */
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit, systemActor } from "@/lib/audit/write";
+import { systemActor } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import { computeEvm } from "@/lib/evm";
 import { workspaceToday } from "@/lib/integrations/time-zone";
 import { computeTrend, normalizeSeries, TREND_WINDOW, type SnapshotPoint } from "@/lib/insight/trend";
@@ -285,23 +286,23 @@ export async function takeSnapshots(
       }),
     );
 
-    const { data: inserted, error } = await db
-      .from("project_snapshots")
-      .upsert(rows, { onConflict: "project_id,taken_at", ignoreDuplicates: true })
-      .select("id");
-    if (error) throw new Error(`snapshots: write failed: ${error.message}`);
-    const taken = (inserted ?? []).length;
-    const skipped = rows.length - taken;
-
-    await writeAudit({
-      workspaceId,
-      actor: systemActor(workspaceId, "snapshots", { channel: "api" }),
-      action: SNAPSHOT_AUDIT_ACTION,
-      targetType: "workspace",
-      targetId: workspaceId,
-      before: null,
-      after: { taken_at: today, projects: rows.length, taken, already_taken: skipped },
+    // One transaction per workspace (R-165): the run's snapshot rows (on conflict do nothing, so a second
+    // run the same day adds none) and the ONE snapshot.taken audit row, written with the system actor.
+    const { data: ran, error } = await db.rpc("nopm_snapshot_run", {
+      p_workspace_id: workspaceId,
+      p_taken_at: today,
+      p_rows: rows,
+      p_audit: buildRpcAudit(
+        systemActor(workspaceId, "snapshots", { channel: "api" }),
+        SNAPSHOT_AUDIT_ACTION,
+        "workspace",
+        {},
+        workspaceId,
+      ),
     });
+    if (error) throw new Error(`snapshots: write failed: ${error.message}`);
+    const taken = Number((ran as { taken?: number } | null)?.taken ?? 0);
+    const skipped = rows.length - taken;
 
     summary.workspaces += 1;
     summary.projects += rows.length;

@@ -11,17 +11,51 @@
  *  - dropping back to <=100% resolves the open clash
  *  - the member/workspace filters keep members isolated from each other
  *
- * No live DB — the Supabase client is a hand-rolled chainable stub and
- * @/lib/audit/write is mocked.
+ * Atomicity (R-165): create and update-existing go through the atomic wrapper (audited-write.ts) and
+ * auto-resolve through the nopm_clash_auto_resolve RPC, so every audit row is written inside the
+ * database transaction of its change. No live DB — the Supabase client is a hand-rolled chainable stub,
+ * the wrapper is mocked, and `audit` records the audit row each atomic path would have written.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Actor } from "@/lib/auth/guard";
 
-const { writeAudit } = vi.hoisted(() => ({
-  writeAudit: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),
+const h = vi.hoisted(() => {
+  /** One call per audit row the atomic paths write (the wrapper and the resolve RPC write it in SQL). */
+  const audit = vi.fn<(input: Record<string, unknown>) => void>();
+  /** Per-test inputs the mocks read (set by makeDb). */
+  const state: {
+    existing: Record<string, unknown> | null;
+    insertErrors: unknown[];
+    updateError: unknown;
+    live: Record<string, unknown>[];
+    rpcError: unknown;
+    lostRace: boolean;
+  } = { existing: null, insertErrors: [], updateError: null, live: [], rpcError: null, lostRace: false };
+  const auditedInsert = vi.fn(async (i: { workspaceId: string; actor: unknown; action: string; targetType: string; patch: Record<string, unknown> }) => {
+    if (state.insertErrors.length) throw state.insertErrors.shift();
+    const after = { id: "clash_new", ...i.patch };
+    audit({ workspaceId: i.workspaceId, actor: i.actor, action: i.action, targetType: i.targetType, targetId: after.id, before: null, after });
+    return after;
+  });
+  const auditedUpdate = vi.fn(
+    async (i: { workspaceId: string; actor: unknown; action: string; targetType: string; id: string; patch: Record<string, unknown> }) => {
+      if (state.updateError) throw state.updateError;
+      const before = state.existing ?? { id: i.id };
+      const after = { id: i.id, ...i.patch };
+      audit({ workspaceId: i.workspaceId, actor: i.actor, action: i.action, targetType: i.targetType, targetId: i.id, before, after });
+      return { before, after };
+    },
+  );
+  return { audit, state, auditedInsert, auditedUpdate };
+});
+const writeAudit = h.audit;
+const { auditedInsert, auditedUpdate } = h;
+vi.mock("@/lib/audit/audited-write", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/audit/audited-write")>()),
+  auditedInsert: h.auditedInsert,
+  auditedUpdate: h.auditedUpdate,
 }));
-vi.mock("@/lib/audit/write", () => ({ writeAudit }));
 
 import { detectOverAllocation, detectOverAllocationSafe } from "./detect";
 
@@ -50,6 +84,10 @@ type DbConfig = {
   liveClashes?: Record<string, unknown>[];
   insertError?: { message: string } | null;
   updateError?: { message: string } | null;
+  /** The resolve RPC reports a failure. */
+  rpcError?: { message: string } | null;
+  /** The resolve RPC finds the clash already resolved (lost race): returns null, writes nothing. */
+  lostRace?: boolean;
 };
 
 /**
@@ -104,20 +142,7 @@ function makeDb(cfg: DbConfig) {
       return { data: cfg.allocations?.[memberId] ?? [], error: null };
     }
     if (q.table === "clashes") {
-      if (hasOp(q, "insert")) {
-        return cfg.insertError
-          ? { data: null, error: cfg.insertError }
-          : { data: { id: "clash_new", ...(q.calls[0].args[0] as object) }, error: null };
-      }
-      if (hasOp(q, "update")) {
-        if (hasOp(q, "in") && eqArg(q, "id")) {
-          // resolve path: per-clash update by id
-          return { data: { id: eqArg(q, "id"), status: "resolved" }, error: null };
-        }
-        return cfg.updateError
-          ? { data: null, error: cfg.updateError }
-          : { data: { id: "clash_existing", ...(q.calls[0].args[0] as object) }, error: null };
-      }
+      if (hasOp(q, "insert") || hasOp(q, "update")) throw new Error("FakeDb: clash writes must go through the atomic paths");
       if (q.many) return { data: cfg.liveClashes ?? [], error: null };
       return { data: cfg.existingClash ?? null, error: null };
     }
@@ -130,20 +155,45 @@ function makeDb(cfg: DbConfig) {
     return q;
   });
 
+  auditedInsert.mockClear();
+  auditedUpdate.mockClear();
+  h.state.existing = cfg.existingClash ?? null;
+  h.state.insertErrors = cfg.insertError ? [cfg.insertError] : [];
+  h.state.updateError = cfg.updateError ?? null;
+  h.state.live = cfg.liveClashes ?? [];
+  h.state.rpcError = cfg.rpcError ?? null;
+  h.state.lostRace = cfg.lostRace === true;
+
+  /** The resolve RPC: records the audit row the SQL function writes, unless the clash is no longer live. */
+  const rpc = vi.fn(async (fn: string, args: { p_workspace_id: string; p_clash_id: string; p_audit: Record<string, unknown> }) => {
+    if (h.state.rpcError) return { data: null, error: h.state.rpcError };
+    if (h.state.lostRace) return { data: null, error: null };
+    const before = h.state.live.find((c) => c.id === args.p_clash_id) ?? { id: args.p_clash_id };
+    const after = { ...before, status: "resolved" };
+    writeAudit({
+      workspaceId: args.p_workspace_id,
+      p_audit: args.p_audit,
+      action: args.p_audit.action,
+      targetType: args.p_audit.target_type,
+      targetId: args.p_clash_id,
+      before,
+      after,
+    });
+    return { data: { before, after }, error: null, fn };
+  });
+
   return {
     from,
+    rpc,
     queries,
-    client: { from } as unknown as SupabaseClient,
+    client: { from, rpc } as unknown as SupabaseClient,
     /** All queries against a table. */
     on: (table: string) => queries.filter((q) => q.table === table),
-    /** The payload passed to the first insert()/update() on a table. */
-    payload: (table: string, op: "insert" | "update") => {
-      for (const q of queries.filter((x) => x.table === table)) {
-        const c = q.calls.find((x) => x.op === op);
-        if (c) return c.args[0] as Record<string, unknown>;
-      }
-      return undefined;
-    },
+    /** The patch passed to the atomic insert / update of a clash (the table argument is kept for the old call sites). */
+    payload: (_table: string, op: "insert" | "update") =>
+      (op === "insert" ? auditedInsert.mock.calls[0]?.[0]?.patch : auditedUpdate.mock.calls[0]?.[0]?.patch) as
+        | Record<string, unknown>
+        | undefined,
   };
 }
 
@@ -155,6 +205,8 @@ function alloc(id: string, pct: number, start: string | null, end: string | null
 
 beforeEach(() => {
   writeAudit.mockClear();
+  auditedInsert.mockClear();
+  auditedUpdate.mockClear();
 });
 
 // ---------------------------------------------------------------------------
@@ -369,8 +421,9 @@ describe("detectOverAllocation — new clash insert", () => {
     await expect(detectOverAllocation(db.client, WS, "m1", actor())).resolves.toBe(true);
 
     const payload = db.payload("clashes", "insert");
+    // the wrapper sets the workspace itself, so the patch carries no workspace_id
+    expect(auditedInsert.mock.calls[0][0].workspaceId).toBe(WS);
     expect(payload).toMatchObject({
-      workspace_id: WS,
       type: "resource",
       status: "open",
       resource_member_id: "m1",
@@ -497,10 +550,11 @@ describe("detectOverAllocation — resolution when allocation drops back under t
       ["type", "resource"],
     ]);
     expect(list.calls.find((c) => c.op === "in")?.args).toEqual(["status", ["open", "investigating"]]);
-    const updates = db.on("clashes").filter((q) => q.calls.some((c) => c.op === "update"));
-    expect(updates).toHaveLength(2);
-    expect(updates[0].calls.find((c) => c.op === "update")?.args[0]).toEqual({ status: "resolved" });
-    expect(updates.map((q) => q.calls.find((c) => c.op === "eq" && c.args[0] === "id")?.args[1])).toEqual(["c1", "c2"]);
+    // The status guard is in SQL: the code only asks the RPC, once per live clash, never with a direct update.
+    expect(db.on("clashes").filter((q) => q.calls.some((c) => c.op === "update"))).toHaveLength(0);
+    expect(db.rpc.mock.calls.map((c) => c[0])).toEqual(["nopm_clash_auto_resolve", "nopm_clash_auto_resolve"]);
+    expect(db.rpc.mock.calls.map((c) => c[1].p_clash_id)).toEqual(["c1", "c2"]);
+    expect(db.rpc.mock.calls.every((c) => c[1].p_workspace_id === WS)).toBe(true);
   });
 
   it("writes exactly one clash.auto_resolve audit row per resolved clash, by the triggering actor", async () => {
@@ -510,7 +564,22 @@ describe("detectOverAllocation — resolution when allocation drops back under t
     const calls = writeAudit.mock.calls.map((c) => c[0]);
     expect(calls.map((c) => c.action)).toEqual(["clash.auto_resolve", "clash.auto_resolve"]);
     expect(calls.map((c) => c.targetId)).toEqual(["c1", "c2"]);
-    expect(calls[0]).toMatchObject({ workspaceId: WS, actor: actor(), targetType: "clash", before: { id: "c1", status: "open" }, after: { status: "resolved" } });
+    expect(calls[0]).toMatchObject({ workspaceId: WS, targetType: "clash", before: { id: "c1", status: "open" }, after: { status: "resolved" } });
+    // the audit object carries the caller, not a system actor
+    expect(calls[0].p_audit).toMatchObject({ actor_type: "user", actor_id: "usr_1", actor_label: "Alice PM", target_type: "clash" });
+  });
+
+  it("writes no second audit row when another request resolved the clash first (the RPC returns null)", async () => {
+    const db = makeDb({ ...UNDER, liveClashes: [{ id: "c1", status: "open" }], lostRace: true });
+    await expect(detectOverAllocation(db.client, WS, "m1", actor())).resolves.toBe(false);
+    expect(db.rpc).toHaveBeenCalledTimes(1);
+    expect(writeAudit).not.toHaveBeenCalled();
+  });
+
+  it("propagates a resolve RPC failure instead of pretending the clash was resolved", async () => {
+    const db = makeDb({ ...UNDER, liveClashes: [{ id: "c1", status: "open" }], rpcError: { message: "audit down" } });
+    await expect(detectOverAllocation(db.client, WS, "m1", actor())).rejects.toMatchObject({ message: "audit down" });
+    expect(writeAudit).not.toHaveBeenCalled();
   });
 
   it("writes no audit row when there is no live clash to resolve", async () => {
@@ -557,6 +626,45 @@ describe("detectOverAllocation — members are isolated from each other", () => 
       ["member_id", "m2"],
       ["workspace_id", WS],
     ]);
+  });
+});
+
+describe("detectOverAllocation — atomic create / update (R-165)", () => {
+  const over = {
+    members: MEMBERS,
+    allocations: { m1: [alloc("a1", 80, "2026-01-01", "2026-06-01"), alloc("a2", 60, "2026-01-01", "2026-06-01")] },
+  };
+
+  it("creates through the wrapper on clashes with the CALLER as the actor", async () => {
+    const db = makeDb({ ...over, existingClash: null });
+    await detectOverAllocation(db.client, WS, "m1", actor());
+    expect(auditedInsert).toHaveBeenCalledTimes(1);
+    expect(auditedInsert.mock.calls[0][0]).toMatchObject({ table: "clashes", workspaceId: WS, actor: actor(), action: "clash.auto_detected", targetType: "clash" });
+  });
+
+  it("updates the existing clash through the wrapper, by id, with the caller as the actor", async () => {
+    const db = makeDb({ ...over, existingClash: { id: "clash_existing", status: "open" } });
+    await detectOverAllocation(db.client, WS, "m1", actor());
+    expect(auditedUpdate).toHaveBeenCalledTimes(1);
+    expect(auditedUpdate.mock.calls[0][0]).toMatchObject({ table: "clashes", id: "clash_existing", workspaceId: WS, actor: actor(), action: "clash.auto_detected" });
+    expect(auditedInsert).not.toHaveBeenCalled();
+  });
+
+  it("keeps the 23505 retry: the losing insert (rolled back with its audit row) re-runs once and updates the winner", async () => {
+    const db = makeDb({ ...over, existingClash: null, insertError: { message: "duplicate", code: "23505" } as never });
+    await expect(detectOverAllocation(db.client, WS, "m1", actor())).resolves.toBe(true);
+    expect(auditedInsert).toHaveBeenCalledTimes(2); // the refused insert, then the retry
+    expect(auditedUpdate).not.toHaveBeenCalled(); // this fake read finds no winner, so the retry inserts again
+    expect(writeAudit).toHaveBeenCalledTimes(1); // only the second, successful insert wrote an audit row
+  });
+
+  it("retries only once, then gives up with the error", async () => {
+    const dupe = { message: "duplicate", code: "23505" };
+    const db = makeDb({ ...over, existingClash: null });
+    h.state.insertErrors = [dupe, dupe];
+    await expect(detectOverAllocation(db.client, WS, "m1", actor())).rejects.toMatchObject({ code: "23505" });
+    expect(auditedInsert).toHaveBeenCalledTimes(2);
+    expect(writeAudit).not.toHaveBeenCalled();
   });
 });
 

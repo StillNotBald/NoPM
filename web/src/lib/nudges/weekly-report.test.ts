@@ -1,16 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
-const { writeAuditMock } = vi.hoisted(() => ({
-  writeAuditMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),
-}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
-vi.mock("@/lib/audit/write", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/audit/write")>()),
-  writeAudit: writeAuditMock,
-}));
 
-import { FakeDb, TEST_ENCRYPTION_KEY, WS, ids, seedWorkspace } from "@/lib/integrations/test-support";
+import { TEST_ENCRYPTION_KEY, WS, ids, seedWorkspace } from "@/lib/integrations/test-support";
+import { WeeklyReportFakeDb } from "./weekly-report-test-support";
 import { generateWeeklyReport, isoWeekdayInZone, loadWeeklySnapshot, parseWeekParam, weekStartOfDay } from "./weekly-report";
 import { renderWeeklyReportHtml } from "@/lib/reports/weekly-html";
 import { runNudgeStep } from "./step";
@@ -21,15 +15,15 @@ const TUESDAY = new Date("2026-10-20T01:00:00.000Z");
 // Sunday 2026-10-18 20:00 UTC is already Monday 04:00 in Kuala Lumpur.
 const SUNDAY_NIGHT_UTC = new Date("2026-10-18T20:00:00.000Z");
 
-let db: FakeDb;
+// The claim, the report and the audit row are ONE database call (nopm_weekly_report_store, R-165);
+// the fake mirrors it, so db.audits holds the audit rows that call wrote.
+let db: WeeklyReportFakeDb;
 
 beforeEach(() => {
   vi.stubEnv("NOPM_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
   vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://pm.example.test");
   vi.spyOn(console, "error").mockImplementation(() => {});
-  writeAuditMock.mockReset();
-  writeAuditMock.mockResolvedValue(undefined);
-  db = new FakeDb();
+  db = new WeeklyReportFakeDb();
   state.db = db;
   seedWorkspace(db);
   db.seed("projects", [{ id: "p1", workspace_id: WS, code: "APO", name: "Apollo", owner_id: ids.manager, rag_status: "red", is_locked: false }]);
@@ -75,8 +69,15 @@ describe("scheduled weekly report", () => {
     const snap = await loadWeeklySnapshot(WS, "2026-10-19");
     expect(snap?.digest.projects[0]).toMatchObject({ code: "APO", name: "Apollo" });
 
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    expect(writeAuditMock.mock.calls[0][0]).toMatchObject({ action: "report.weekly.generated", after: { week_start: "2026-10-19", trigger: "scheduled" } });
+    expect(db.audits).toHaveLength(1);
+    expect(db.audits[0]).toMatchObject({
+      action: "report.weekly.generated",
+      actor_label: "system:weekly-report",
+      actor_id: "00000000-0000-0000-0000-000000000000",
+      after: { week_start: "2026-10-19", trigger: "scheduled", recipients: 4 },
+    });
+    // every scheduled recipient got a ledger row from the same call
+    expect(db.rows("nudge_log")).toHaveLength(4);
   });
 
   it("a second tick the same day sends nothing", async () => {
@@ -86,7 +87,39 @@ describe("scheduled weekly report", () => {
     expect(again.status).toBe("already_sent");
     expect(db.rows("notifications").filter((n) => n.type === "report.weekly")).toHaveLength(4);
     expect(db.rows("weekly_reports")).toHaveLength(1);
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    expect(db.audits).toHaveLength(1); // the replay wrote no second audit row
+  });
+
+  it("a replayed run changes nothing: no second report write, claim or audit row", async () => {
+    await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" });
+    const snapshot = () => JSON.stringify({ r: db.rows("weekly_reports"), n: db.rows("nudge_log"), a: db.audits, m: db.rows("notifications") });
+    const before = snapshot();
+    const callsBefore = db.weeklyCalls.length;
+    const again = await generateWeeklyReport(WS, { now: new Date(MONDAY.getTime() + 60_000), trigger: "scheduled" });
+    expect(again.status).toBe("already_sent");
+    expect(db.weeklyCalls.length).toBe(callsBefore); // the early read short-circuits before the snapshot is even built
+    expect(snapshot()).toBe(before);
+  });
+
+  it("a lost claim race returns already_sent and writes nothing", async () => {
+    db.loseClaim = true;
+    const res = await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" });
+    expect(res.status).toBe("already_sent");
+    expect(db.weeklyCalls).toHaveLength(1);
+    expect(db.rows("weekly_reports")).toHaveLength(0);
+    expect(db.rows("nudge_log")).toHaveLength(0);
+    expect(db.audits).toHaveLength(0);
+    expect(db.rows("notifications")).toHaveLength(0);
+  });
+
+  it("builds the snapshot first and sends the claim, the snapshot and the audit object in ONE call", async () => {
+    await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" });
+    expect(db.weeklyCalls).toHaveLength(1);
+    const call = db.weeklyCalls[0];
+    expect(call).toMatchObject({ p_workspace_id: WS, p_week_start: "2026-10-19", p_sent_on: "2026-10-19", p_trigger: "scheduled", p_generated_by: "system:weekly-report" });
+    expect((call.p_snapshot as { weekStart: string }).weekStart).toBe("2026-10-19");
+    expect((call.p_recipients as string[]).length).toBe(4);
+    expect(call.p_audit).toMatchObject({ action: "report.weekly.generated", target_type: "workspace", actor_type: "token", actor_label: "system:weekly-report", principal_id: null });
   });
 
   it("does nothing on any other weekday, and when disabled", async () => {
@@ -120,11 +153,14 @@ describe("scheduled weekly report", () => {
     expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("generated");
   });
 
-  it("frees the day's slot when the audit row cannot be written", async () => {
-    writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
+  it("leaves no claim, report or audit row when the audit write fails, so the next tick retries", async () => {
+    db.failAudit = true;
     expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("failed");
     expect(db.rows("notifications")).toHaveLength(0);
     expect(db.rows("nudge_log")).toHaveLength(0);
+    expect(db.rows("weekly_reports")).toHaveLength(0);
+    expect(db.audits).toHaveLength(0);
+    db.failAudit = false;
     expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("generated");
   });
 });
@@ -140,8 +176,9 @@ describe("manual weekly report", () => {
     expect(second.status).toBe("generated");
     expect(db.rows("weekly_reports")).toHaveLength(1); // refreshed, not duplicated
     expect(db.rows("nudge_log")).toHaveLength(0);
-    expect(writeAuditMock).toHaveBeenCalledTimes(2);
-    expect(writeAuditMock.mock.calls[0][0]).toMatchObject({ action: "report.weekly.generated", actor: { label: "Ada Admin" }, after: { trigger: "manual" } });
+    expect(db.audits).toHaveLength(2);
+    expect(db.audits[0]).toMatchObject({ action: "report.weekly.generated", actor_label: "Ada Admin", actor_type: "user", after: { trigger: "manual" } });
+    expect(db.weeklyCalls.every((c) => c.p_trigger === "manual")).toBe(true);
 
     // Monday's scheduled report still goes out.
     expect((await generateWeeklyReport(WS, { now: MONDAY, trigger: "scheduled" })).status).toBe("generated");
