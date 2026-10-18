@@ -1,0 +1,164 @@
+# Wave 4 review (governance wave): tiers, timers, emergency, deletion by request, atomic audit, hash chain, GitHub events
+
+Reviewer: wave-4 reviewer. Branch `feat/audit-gaps-2026-10-18`, wave 4 uncommitted. One pass, read-only on code.
+
+What was run, so the evidence is reproducible:
+
+- `npx tsc --noEmit`: 0 errors.
+- `npx vitest run` (whole suite): 6576 passed, 1 failed. The one failure is the known CRLF marketing test (`marketing.test.ts`, soft-wrap regex), not wave 4.
+- Live SQL probes against the running local Supabase database (`supabase_db_web`, ledger already at 0105). Every probe ran inside `begin ... rollback`, so nothing persisted. About 60 cases: tier trigger, role backstop, emergency decide/implement, all five commit RPCs, project cascade, document and milestone rules, `nopm_mutate_audited` abuse, hash-chain tamper tests, grants and RLS. Results are in "Verified OK".
+- The graph was not used. This was a direct read of the migrations, handlers and tests plus the SQL probes (see "Graph leads used").
+
+Counts: P0 0, P1 4, P2 24. No release blocker found. The four P1 items are real gaps against the stated requirements and should be fixed before the PR.
+
+## Findings
+
+| ID | Sev | Area | File:line | What is wrong | Fix (one line) | Owner |
+|---|---|---|---|---|---|---|
+| W4-01 | P1 | Deletion / timers (G3, G7, A8) | `web/src/lib/governance/request-deletion.ts:185-202` | The maker step for risk, issue, expense, document and milestone inserts the request with no `tier` and no `approval_deadline_at`. Tier defaults to `normal`; the deadline stays null. `timers.ts:102-103` only reads rows with a deadline, so these five kinds are never reminded or escalated, and there is no `deadline_set` event. R-149 says "every waiting request has a deadline"; OpenAPI says every row carries both. Task and project deletes do set them (`tasks/[id]/route.ts:221`, `projects/[id]/route.ts:280`). An expense (a money record) also skips the tier engine entirely. | Load the policy, call `classify`/`deadlineFor`, write `tier` and `approval_deadline_at`, and record `deadline_set`, exactly as the task route does; add a route test per entity. | W4-B |
+| W4-02 | P1 | Atomic audit (M1) | `web/src/lib/work/apply-task-status.ts:34-57`, `web/src/lib/integrations/github/process.ts:119-150` | The GitHub work-event write is mutate-then-audit: a direct `tasks` update, then `writeAudit`. A failure between them moves a task with no trail, which is the exact M1 defect wave 4 closes, written after the wrapper existed. The locked-project skip row is also a separate audit call. `atomicity*.test.ts` scan only `route.ts` files, so this lives in `lib/` and no test sees it. | Use `auditedUpdate({table:"tasks", expectedUpdatedAt})` inside `applyTaskStatus`, keeping the connector actor; map the 412 to `conflict`. | W4-D |
+| W4-03 | P1 | Atomic audit / governance config | `web/src/app/api/workspace-settings/route.ts:147-149` | The approval policy PATCH (the file that decides who may approve what) updates `workspaces` and then writes the audit row. A failed audit insert leaves a changed policy with no record. It is not in any exception list. It is also an unpinned read-modify-write (two admins can overwrite each other without a 412). | Add `workspaces` to the `nopm_mutate_audited` allowlist (column-limited) or use a dedicated RPC; pin `updated_at`. | W4-A |
+| W4-04 | P1 | Atomic audit honesty | `web/src/lib/audit/atomicity.test.ts:45-57`, `atomicity-group2.test.ts:20-28,84-85` | "Left non-atomic" is not the full list. Missed: change-request edit and withdraw (`change-requests/[id]/route.ts:116-129,173-184`), four MFA routes (`auth/mfa/{challenge,disable,enroll,verify}`), the GitHub connector create, update and revoke (`integrations/github/connector/route.ts:72-99,143-162,169-180,192-211`, filtered out of the scan), and the five new `*.delete_requested` writes (they moved into `lib/request-deletion.ts`, so the scanner no longer sees them). Four `OTHER_WAVE` entries (risks, issues, expenses, milestones DELETE) are now stale: `stillNeeded:false` switches off the staleness check. A route-wide scan I ran lists exactly these as `NONATOMIC`. | Extend the scan to all of `src/app/api` plus `src/lib/**` writers, list every remaining handler with a reason, delete the stale `OTHER_WAVE` entries. | W4-C1 / lead |
+| W4-05 | P2 | Governance (A1) | `web/src/lib/governance/tiers.ts:308-316`, `0101:84-86` | A requester picks `routine` for themselves. The only condition is zero cost and zero schedule days. A change with `impact_scope` text or a `target_date` still qualifies. With the default policy this changes nothing (routine and normal are both manager). If an admin sets normal to admin, or switches routine auto-approve on, a requester can route around the stronger approver, and a scope-only change then needs no human at all. | Before auto-approve can be enabled, require an approver to confirm `routine` (or let only managers raise it) and refuse `routine` when `impact_scope` is set. See Decisions 2. | W4-A / owner |
+| W4-06 | P2 | Governance (A3) | `0100:341-350`, `tiers.ts:326-337` | The threshold test is on cost only. A large schedule slip never lifts the tier. Default `currency` is null, so a cost is compared as a bare number whatever the project currency (50,000 in a weak currency passes as "small"). | Decision (owner): add a days threshold and ship the default `currency: 'MYR'` so other currencies go to the higher tier. | owner / W4-A |
+| W4-07 | P2 | Emergency (A3) | `0100:63-65,259`, `tiers.ts:299` | A sole admin who raises an emergency, a strategic request, or any high-risk request can never get it decided: admin tier needs a second admin and four-eyes forbids self-decision. The emergency stays flagged for ever, with one overdue notice. There is no documented escape. | Decision (owner): require two admins before an admin-tier policy is accepted, or allow break-glass with a loud audit row. | owner |
+| W4-08 | P2 | Emergency | `web/src/app/api/change-requests/[id]/route.ts` (PATCH/DELETE status guard), `change-transition.ts` | A raised emergency that has not been implemented (status `emergency`) cannot be edited or withdrawn: both handlers treat any status outside raised/under_review as decided. A mistaken emergency can only be rejected by an admin. | Allow the requester to withdraw while status is `emergency` and not implemented. | W4-A |
+| W4-09 | P2 | Surfacing | `lib/governance/pending-counts.ts:70`, `lib/integrations/catchup.ts:79`, `lib/integrations/deliveries.ts:273,322` | Emergency changes (status `emergency`, or `implemented` and awaiting retro) are not in the nav badge count, the chat catch-up, or the hub's "pending" test. `deliveries.ts:322` reports such a request as `decided`, so its chat card is retired or refused. The web queue (`pending.ts:377`) is right; chat and badge are not. | Add `emergency` and the awaiting-retro predicate to all three. | W4-A |
+| W4-10 | P2 | DB error codes | `0100:359` (P0030), `0102:665` (P0030), `0101:76` (P0031), `0102:464` (P0031); also 0103 re-uses P0022 to P0025 | Same SQLSTATE for different meanings: P0030 is both `TIER_LOCKED` and `DELETE_NEEDS_REQUEST`; P0031 is both `AUTO_APPROVE_OFF` and `APPROVED_DOCUMENT_NEEDS_ADMIN`. Callers branch on `error.code` (`decide.ts:594`, `timers.ts:220`), so a wrong mapping is one refactor away. Today each call site only sees its own. | Give new codes (P0034+) or match on the message only; add a test that no code is reused. | W4-B / lead |
+| W4-11 | P2 | Deletion | `0102:795-841` | The project commit audits cascade rows for change requests, decisions, documents, sign-offs and rebaselines, but not for the expenses, risks, issues, milestones and tasks it removes. Money records vanish with only the project row's `before`. Probed: after a project commit only `document.cascade_delete` exists for the children. | Add `cascade_delete` rows for expenses, risks, issues, milestones (tasks already visible via counts). | W4-B |
+| W4-12 | P2 | Lock ordering | `0102:795-841`, `0104:192-198` | The project commit inserts its cascade audit rows first, which takes the per-workspace audit advisory lock until commit, and then runs the DELETE, which needs row locks. Any concurrent transaction that holds a task row lock and then writes its own audit row waits on the advisory lock: a deadlock the database will break by aborting one side. Rare (admin-only action) but real. | Move the `delete from projects` before the audit inserts, or take the advisory lock first in every writer. | W4-B / W4-C2 |
+| W4-13 | P2 | Seeds | `web/scripts/seed-documents.mjs:30` | The brief and RTM say the seed "fails by design". It does not: the client has no `throwOnError`, the error object is dropped, "cleared existing documents" prints, and the run only fails later at insert on a re-seed (duplicates), or silently seeds on top. `seed:all` is advertised as idempotent. Fresh databases are fine (zero rows, no trigger). | Check `error` and stop with a clear message; for a re-seed, document `db reset`, or add a `nopm_seed_reset` helper that sets the guard setting. | W4-B |
+| W4-14 | P2 | Approved-document rule | `0102:453-465`, `request-deletion.ts:128` | Decision 25 is implemented as "the requester must be an admin". The approver is chosen by tier, which is `normal` (a manager), so an approved document, which is a sign-off record, is deleted by an admin plus a manager. If the intent was admin-only, that is not met. Status is checked at commit, not only at request, which is good. | Decision (owner); if admin-only, set tier `high_risk` for approved documents at request time. | owner / W4-B |
+| W4-15 | P2 | Chain verify | `web/src/app/api/audit/verify/route.ts:21-35`, `0104:176-228` | The verify function walks the whole workspace chain row by row in plpgsql with no limit; a manager can call it repeatedly; each call also adds an `audit.verified` row under the advisory lock. On a large workspace it can exceed the function time limit. Local run: 14 rows, 1.4 ms, so scale is untested. | Rate-limit the route, cap or page the walk (`from` + `limit`), and measure at 100k rows before release. | W4-C2 |
+| W4-16 | P2 | Chain | `0104:56-58,140-143` | The hash chain proves internal consistency only. Deleting the newest rows is invisible without an external copy of `head_hash` (stated in the migration, probed: `deleted-newest` returns ok). Nothing in the product asks anyone to store `head_hash` elsewhere. | Show `head_hash` in the Trust Center badge with a "copy and keep elsewhere" note; optional weekly email of the head. | W4-C2 / owner |
+| W4-17 | P2 | Generic RPC | `0103:41-49`, `audited-write.ts:23-49` | The allowlist includes `profiles` (role, workspace data) and `api_tokens`, `invites`, `assistant_credentials` with every column writable. Today's callers only send safe patches (probed: a profile `role` patch works through the RPC). A future handler that forwards a user-supplied patch would bypass the member-role RPCs and last-admin guard. The audit `action`, `actor_label` and `after` are also taken verbatim from the caller (probed: a forged "CEO / nothing.happened" row was accepted). Service role only, so a trust issue, not an exposure. | Add a per-table column allowlist inside the function (profiles: display name only), and a note that `p_audit` is trusted input. | W4-C1 |
+| W4-18 | P2 | Atomic audit | `0103:119-123`, `0103` update branch | `expectedUpdatedAt` on a table with no `updated_at` (expenses, calendar_feeds, invites, api_tokens, notifications, external_identities, profiles, task_dependencies) can never match, so it answers STALE_ROW (412) every time. No current caller passes it for those tables, but the wrapper does not prevent it. | Raise `UNKNOWN_COLUMN` when `updated_at` is absent and a pin is given. | W4-C1 |
+| W4-19 | P2 | GitHub | `lib/integrations/github/http.ts:120-121` | Replay protection is the delivery id, which is a header and not covered by the signature. Someone holding one captured signed body can resend it with a fresh `X-GitHub-Delivery` and it processes again (bounded by forward-only and idempotent moves, and there is no timestamp window). | Also key the claim on a hash of the body (or the payload's own id and `updated_at`). | W4-D |
+| W4-20 | P2 | GitHub | `lib/integrations/github/parse.ts:321`, `process.ts:171` | A deployment naming more than 5 pull requests silently drops the rest: they are neither processed nor recorded in `work_events`. | Record a `truncated` row, or raise the cap and loop in batches. | W4-D |
+| W4-21 | P2 | GitHub | `web/src/app/api/tasks/_schema.ts:46,78` | The brief asked for `external_ref` format validation. It exists only in the UI field (`normalizePullRefInput`). The API accepts any 200-character string for `source: "github"`. A mixed-case reference never matches (lookup tries only the exact and the lower-case event spelling) and the task silently never moves. | When `source` is `github`, require `parsePullRef(...)` and store lower-case. | W4-D |
+| W4-22 | P2 | GitHub | `process.ts:111-130` | "Never on a locked project" is an application read, then a write, with no database enforcement for a status-only move (the lock triggers guard schedule fields). A lock taken between the read and the write is missed. | Accept (tiny window) or re-check inside the atomic write; state it. | W4-D |
+| W4-23 | P2 | GitHub | `lib/integrations/github/rules.ts:238-244` | Brief asked "in_review". Built as `started` with label "In review" (the task model has no review state), rank 3 between started and completed. Acceptable, and forward-only holds. The default `deploy_success -> completed` closes tasks with no human step; that is a policy choice for the owner. | Accept; add to Decisions. | owner |
+| W4-24 | P2 | Connectors | `web/src/app/api/integrations/connectors/[id]/route.ts:145`, `lib/integrations/store.ts:68-79` | The generic connector PATCH loads by id with no `kind` filter, so an admin can PATCH or rotate the relay secret of a GitHub connector through the Lark route; a Lark-format secret write breaks GitHub decrypt (503 on every delivery). The create path and the cron do filter on kind. | Filter `.eq("kind","lark")` in `getConnector` (or in that route). | W4-D |
+| W4-25 | P2 | Timers | `lib/governance/timers.ts:81,103,126` | Each source is `limit(500)` with no order. Above 500 waiting items the same first 500 are always examined, so the tail is never reminded. A workspace's whole timer pass is one audit row and one failure counts the item, not the run. | Order by deadline and page like `runApprovalTimerStep` does for workspaces. | W4-A |
+| W4-26 | P2 | Tests | `lib/governance/approval-tiers-migration.test.ts`, `deletion-by-request-migration.test.ts`, `hash-chain-migration.test.ts`, `fake-rpcs.ts` | The migration tests are text scans, and route tests run against hand-written fakes that mirror the SQL, so none of the DB rules (role backstop, P0018 on a direct update, the delete guard, tamper detection) run in CI. They do hold (my probes), but a regression in the SQL would pass the suite. There is no wave-4 probe script or `testing-log` entry for 0100 to 0105 (wave 1 had `probe-four-eyes.mjs`, 28 checks). | Commit the probe SQL as `scripts/local-db/probe-wave4.mjs` and write `testing-log/...wave4`. | lead |
+| W4-27 | P2 | Tests | missing 403/422 paths | I found no route test for: `strategic` requested by a manager (403), `is_emergency` by a member (403), a project deletion decided by a manager under default policy through the real route, an approver assigned who is below the tier (422), and `routine` with cost (422) over HTTP. Several are covered by the pure `classify` tests only. | Add the five route-level cases to `route.tiers.test.ts`. | W4-A |
+| W4-28 | P2 | Cascade | `0102:803`, pending requests | A pending deletion request for a risk or milestone stays `pending` after its project is deleted (the target is gone). It then shows in the queue and its approval fails with TARGET_GONE. | Close the child requests inside the project commit. | W4-B |
+| W4-29 | P2 | Audit shape | `lib/audit/audited-write.ts` (risks) | The risk audit `after` now includes the deprecated `category` column because it is `to_jsonb` of the row. Acceptable: no secret, harmless extra key, and it is covered by the chain. Noted because any audit consumer comparing `after` keys sees a new key. | Accept; mention in the changelog. | W4-C1 |
+| W4-30 | P2 | Owner-visible | `sprint-log/2026-10-18_audit-gaps/OWNER-VISIBLE.md:103-105` | The wave-4 section is still the placeholder, "Rows added when wave 4 starts". The diff has at least these owner-visible changes (see list below). | Docs agent to add the rows. | W4-E / lead |
+
+Owner-visible rows missing from `OWNER-VISIBLE.md` (all of them, section is empty):
+
+1. Deleting a risk, issue, expense, document or milestone now files a request that a second person approves; a reason is required. Milestone controls say "Request deletion".
+2. Deleting a whole project now needs an admin, not a manager (default tier high risk).
+3. An approved document can only be deleted on a request raised by an admin.
+4. Settings: new "Approval policy" card (decider role, turnaround hours, routine auto-approve warning, cost threshold, currency, emergency window).
+5. New emergency change request path (manager or admin raises; flagged until an admin gives the retro decision; overdue line in the digest and weekly report).
+6. New daily notices: reminder at half the turnaround, escalation to admins, auto-approved notice (off by default), retro overdue.
+7. Approvals and change-control pages show tier, decide-by date and retro flag. The inspector hides Approve when the viewer's role is below the tier.
+8. Trust Center shows "Chain verified" and a Verify now button (admins and managers). The audit CSV gains a last `row_hash` column. The audit-pack CSV gains six tier and retro columns.
+9. Integrations page has a GitHub card (admin creates it, secret shown once, rules editable, recent work events). Tasks linked by pull request move on events.
+10. Token scopes: `risk:delete` and `issue:delete` now mean "request"; new `<entity>:delete:request` and `<entity>:delete:approve` scopes. The CLI `rm` commands take `--reason`.
+11. Dev: `seed:all` no longer clears documents on a re-seed (W4-13).
+
+## Release order
+
+Hard dependencies: every wave-4 table or column the new build reads or writes must exist first, so **all six migrations go in before the build serves traffic**, in numeric order, via `apply-migrations.mjs --dry-run` then `--atomic`.
+
+| Step | What | Why it must come first |
+|---|---|---|
+| 1 | 0100 and 0101 | Raise routes write `tier` and `approval_deadline_at`; the change-control page selects them; the cron calls the timer (`approval_events`, `nopm_auto_approve_routine`). |
+| 2 | 0103 | Every converted handler (groups 1 and 2, about 60) calls `nopm_mutate_audited`; without it creates, updates and deletes answer 500. |
+| 3 | 0104 | Takes a table lock for the backfill length (hashes every existing audit row). Run it in a quiet window. The export route selects `row_hash`; the Trust Center calls `nopm_audit_verify_chain`. Old builds keep working after it. |
+| 4 | 0105 | The GitHub card and webhook need `work_events`, the `github` connector kind and the `github` audit channel. |
+| 5 | 0102, then the deploy, in one window | The only migration that breaks the OLD build: its DELETE calls on the five tables get P0030 (500). The new build is the only one that raises requests and approves them through the new RPCs. |
+
+Notes:
+
+- 0100, 0101, 0103, 0104, 0105 are safe for the old build, so they can be applied early; 0102 and the deploy go together.
+- 0100 re-creates `cr_maker_checker` and `cr_implemented_after_decision`; each is added NOT VALID then validated in a skip block, so a legacy row cannot abort the release. Check the notices for `left NOT VALID`.
+- Rehearse 0100 to 0105 with legacy-shaped data first (wave 1 did this for 0088 to 0091). Measure 0104 on a copy of production-sized `audit_log`.
+- After release: run `GET /api/audit/verify` once and store `head_hash` outside the database.
+- Do not run `seed:all` on a populated database (W4-13).
+
+## Verified OK
+
+Everything below was observed, not assumed. "Probe" means a rolled-back SQL run against the local database.
+
+**Migrations**
+
+- All six apply cleanly (ledger at 0105). Constraints `workspaces_approval_policy_valid`, `cr_tier_values`, `dr_tier_values`, `rb_tier_values`, `cr_emergency_shape`, `cr_implemented_needs_decision`, `cr_maker_checker`, `cr_implemented_after_decision`, `deletion_requests_target_type_check`, `integration_connectors_kind_check`, `audit_channel_check`, `workspaces_work_event_rules_check` are all validated. NOT VALID plus VALIDATE in skip blocks is used wherever legacy rows could exist (`0100:204-231`).
+- One overload each of `nopm_decide_change_request`, `nopm_implement_change_request`, `nopm_commit_project_deletion` (catalog query). The 0102 project commit drops the 5-argument and 7-argument legacy forms and replaces the 12-argument one.
+- No `updated_at` bump anywhere in 0100 to 0105, and no backfill of business columns. The only audit_log UPDATE is the sanctioned 0104 backfill of the three chain columns.
+- `approval_events` and `work_events`: RLS on, one SELECT policy each, INSERT/UPDATE/DELETE not granted to `anon` or `authenticated` (probed with `has_table_privilege`).
+- Function grants: `nopm_mutate_audited`, `nopm_audit_verify_chain`, `nopm_auto_approve_routine`, `nopm_commit_risk_deletion` are executable by `service_role` only (not public, anon, authenticated).
+- The three audit_log immutability triggers (update, delete, truncate) are enabled after 0104 (`pg_trigger`).
+
+**Tier engine and role backstop (probes)**
+
+- Normal request with cost 60,000, and with cost -90,000, becomes `high_risk`; `routine` with cost or with 3 schedule days becomes `normal`; lowering a tier is refused (`TIER_LOCKED`); editing the cost of a pending request to a high value raises it; a cost edit to zero does not lower it.
+- Tier is set by the server (`classify` in the raise route), never trusted from the client. A client cannot insert `tier='emergency'` without the flag: `cr_emergency_shape` rejects it.
+- A manager deciding an admin-tier request is refused in the route (`requireTierRole`, `decide.ts:526,658,904`, `rebaselines/[id]/signoff/route.ts:47`) and in the database: `nopm_decide_change_request` raises `ROLE_NOT_PERMITTED`, the `trg_cr_tier_guard` trigger refuses a direct UPDATE that names a manager as decider, and `trg_deletion_approver_role` / `trg_signoff_tier_role` do the same for deletions and sign-offs. A member as principal is refused.
+- Four-eyes is intact for the retro decision: the raiser cannot give it (SELF_APPROVAL), a live emergency cannot be deferred, a second decision is refused (`ALREADY_DECIDED`), `retro_decided_at` and `retro_outcome` are stamped.
+- An emergency request can be implemented at once, stays `implemented`, and remains flagged until an admin's retro decision. Overdue state is computed live (`isRetroOverdue`), written once to `approval_events`, and shown in the approvals queue, digest card, weekly report, audit pack CSV and a daily admin notice.
+- Who may raise an emergency: manager or admin only (`tiers.ts:299`); a member gets 403 `role_not_permitted` before anything is stored. Strategic is admin only (`tiers.ts:307`).
+- Auto-approve: the database function refuses when the policy is off, for any tier but routine, for an emergency, for a request with cost or schedule days, when not due, and when already decided (`0101:73-100`). It writes one decision, one `approval_events` row and one audit row. The TS timer only calls it when the policy flag is on (`timers.ts:193`). With the policy off the request is escalated and the RPC is never called.
+
+**Deletion flow (probes)**
+
+- Direct DELETE on risks, issues, expenses, documents and milestones is refused with `DELETE_NEEDS_REQUEST` even as superuser; the same through `nopm_mutate_audited` delete.
+- `nopm.deletion_commit` is a transaction-local `set_config(..., true)` inside the commit RPCs only. It is not callable through PostgREST (`pg_catalog.set_config` is not an exposed function), and each RPC call is its own transaction, so a service-role caller cannot set it and then DELETE. It does stay on for the rest of the same transaction (probed), which is harmless inside one RPC.
+- A project commit still cascades to risks, expenses, milestones and documents (all four counts were 0 afterwards) with the setting propagated.
+- Each commit RPC writes exactly two audit rows (`<entity>.delete` and `deletion_request.approved`) in one transaction; self-approval and a non-approver role are refused; a manager cannot approve a project deletion under the default policy; approving a request with the wrong entity function returns NOT_FOUND.
+- Milestone: refused on a locked project (`PROJECT_LOCKED`), refused when the task count moved (`CHILDREN_CHANGED`), tasks detach cleanly when the count matches. Document: an approved document with a non-admin requester is refused (`APPROVED_DOCUMENT_NEEDS_ADMIN`); with an admin requester it commits.
+- `uniq_pending_deletion` (target type, target id, pending) dedupes pending requests; the route also pre-checks and maps 23505 to a 422.
+- Scopes: `<entity>:delete:approve` are in `PRIVILEGED_SCOPES` (never granted by a wildcard); `risk:delete` and `issue:delete` are accepted only as request scopes (`scopes.ts:57-84`).
+
+**Atomic audit**
+
+- `nopm_mutate_audited` abuse probes: table-name injection, op injection, a patch key carrying SQL, `workspace_id` in the patch, a different workspace id, a table outside the allowlist, a stale pin: all refused with the intended code. A correct update returns the new row and writes exactly one audit row. All 25 allowlisted tables have `workspace_id` and `id` (`project_budget` is keyed by `project_id`, handled). Identifiers use `format('%I')`; values go through `jsonb_populate_record`.
+- Sampled handlers keep contracts: tasks PATCH (`tasks/[id]/route.ts:133-142`, 404, 412 through STALE_ROW, same body), tokens and calendar feeds (hash omitted via `omitColumns`, `tokens/route.ts:104-111`, `calendar-feeds/route.ts:145-155`), invites (token hash omitted, renew audits a safe summary), assistant credentials (`api_key_enc` omitted), `me`, budget. Wrapper errors map `NOT_FOUND` to 404 and `STALE_ROW` to 412 (`audited-write.ts:141-151`).
+- `coverage.test.ts` was not weakened as far as I can tell (all suites green, wrapper calls counted as audited).
+
+**Hash chain (probes)**
+
+- Canonical text covers all 18 business and provenance columns, including `via_connector_id`, `external_event_id`, `external_actor_ref`, `principal_id` and `chain_seq`.
+- Verify detects: an edited `after` (false), an edited provenance column (false), an edited actor label (false), a row removed from the middle (false), a re-ordered or renumbered row (false, gap). Restoring the value returns true. A caller-supplied `chain_seq`, `row_hash`, `prev_hash` on insert is overwritten (the forged insert verified clean).
+- Not detected, as the migration states: deleting the newest rows, or rewriting everything and recomputing every later hash.
+- Backfill orders by `(created_at, id)` per workspace and writes `chain_seq`; the per-workspace advisory lock is taken before the previous row is read; `(workspace_id, chain_seq)` is unique.
+- The immutability test still bites: the carve-out is limited to the 0104 file, the one `trg_audit_no_update` pair, and the test still checks the pair is closed.
+
+**GitHub events**
+
+- The signature is HMAC-SHA256 over the raw body, compared with `timingSafeEqual` over equal-length buffers (`verify.ts:12-17`). A decoy secret is verified for an unknown connector so cost and body are the same. Failed attempts are rate-limited per connector and per IP before the real budget.
+- Body cap 1 MiB (`http.ts:45,75`). A paused or revoked connector gets the same generic 401 (kill switch). The secret is AES-256-GCM in `secret_enc` like Lark's, shown once, never returned (`secrets.ts`).
+- Moves are forward-only, skip canceled and completed tasks, skip locked projects with one `work_event.skipped` audit row, are workspace-scoped, and pin `updated_at` (a lost race is a `conflict` row, not an error). The actor is the connector (`type: token`, `viaConnectorId`, delivery id, `github:<login>`). Only an admin session can create, pause, rotate or revoke (`assertIntegrationAdmin`), and `uniq_live_connector_per_kind` allows one GitHub connector beside one Lark one.
+- Once authenticated and recorded the answer is 200 `{ok:true}`. A failure before recording is a 503 so GitHub redelivers; a bad body after auth is 400. The "200 always" wording in the brief holds only for recorded deliveries.
+
+**Seams**
+
+- `decide.ts` (W4-A tier checks + W4-B dispatch) compiles; both rule sets hold (tier role, scope per target, retro branches); `pending.ts` uses W4-A's `isRetroOverdue` and `roleMeetsTier`; `lifecycle-guards-2.test.ts` changed only to use an admin approver (project deletion is high risk) and a mutate-failure hook, with its invariants (children changed, budget, clash) still asserted; `cron.ts` runs nudges and approvals as separate phases; `audit-pack.ts` tier columns and the audit CSV `row_hash` column are different files and do not collide; `views.ts` exposes `tier` and `is_emergency` in the summary view.
+
+## Decisions for the owner
+
+1. **Emergency path.** A manager can raise and ship an emergency of any size, with an admin retro within 48 hours. Is that cap-free, or should an amount above the threshold need an admin to raise it? What if there is only one admin (W4-07)?
+2. **Routine tier.** Should a requester be allowed to label their own request routine? Before routine auto-approve is ever enabled, should routine also exclude scope changes?
+3. **Threshold.** Add a schedule-days threshold, and default the currency to MYR so projects in other currencies go to the admin tier (W4-06)?
+4. **Approved documents.** Admin requests plus a manager approves, or admin on both sides (W4-14)?
+5. **Expense deletions.** Should a deletion over the threshold be high risk like a project (W4-01)?
+6. **Rebaselines.** They change dates and money but stay `normal`. Keep, or make them high risk?
+7. **GitHub.** Keep `deploy_success -> completed` as the default (it closes tasks with no human step), and accept "In review" as a label on a started task (W4-23)?
+8. **External anchor.** Who stores `head_hash` outside the database, and how often (W4-16)?
+9. **Project cascade.** Per-record audit rows for the children of a deleted project (W4-11), yes or no?
+
+## Graph leads used
+
+None. `graphify` was not run; the review was done by reading the migrations, handlers and tests directly, and by running the live SQL probes above. Leads worth a graph query next time: the callers of `nopm_mutate_audited` outside `audited-write.ts` (none found by grep), and every writer of `change_requests.status` in `lib/` (to confirm nothing else sets `emergency` or `implemented`).
+
+## Addendum: local rehearsal result (from the lead)
+
+| ID | Sev | Area | File:line | What is wrong | Fix (one line) | Owner |
+|---|---|---|---|---|---|---|
+| W4-31 | P1 | Release probe | `web/scripts/local-db/probe-four-eyes.mjs:432-440` (P2), `:465-500` (L3), `fixtures.mjs:135-171` | Both checks commit a project deletion with the manager fixture (`bToken`). A project deletion is now high risk, so the trigger refuses a manager with `ROLE_NOT_PERMITTED` (P0018). The release runbook relies on this probe, so it fails on the intended behaviour. The fixture already makes an `admin` user, but no admin actor is exported. | Export an admin actor (user and token) from `fixtures.mjs`; use it as the approver in P2 and in the project half of L3; keep the manager for the task halves. Add a probe that a manager is refused (P0018) on a project deletion. | W4-A |
+| W4-32 | P2 | Error text | `0100:~440` (`nopm_deletion_approver_role`), `decide.ts:~590` | The text says "only managers and admins can approve" even when the tier needs an admin. It should name the tier role (the decide RPC already does: "this request needs a admin"). Note the grammar "a admin" in the decide RPC too. | Use `nopm_tier_required_role` in the message; route maps P0018 to `tierRoleMessage`. | W4-A |
+
+L3 confirmation: the provenance logic is unchanged by wave 4. My rolled-back probe committed a project deletion as an admin approver and wrote the expected audit rows (project cascade rows, `project.delete`, `deletion_request.approved`). So L3 should pass once its project half uses an admin approver. I did not run the probe file itself, because it writes persistent fixtures to the shared local database.

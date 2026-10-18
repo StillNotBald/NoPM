@@ -34,6 +34,7 @@ import {
 } from "@/lib/theme/appearance";
 import { cn } from "@/lib/cn";
 import { InvitesCard } from "@/components/invite/invites-card";
+import { ApprovalPolicyCard } from "@/components/integrations/approval-policy-card";
 import { usePreferences } from "@/lib/prefs/use-preferences";
 import {
   type NavMode,
@@ -586,6 +587,31 @@ function DisableCodeField({ valueRef }: { valueRef: { current: string } }) {
 
 // ── Settings page ──────────────────────────────────────────────────────────────
 
+/**
+ * UAT-010: who may approve what lives with the workspace settings, not under Integrations.
+ * Admins edit it; managers read it; members and viewers do not see it.
+ */
+function ApprovalPolicySection() {
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    apiGet<{ role?: string | null } | null>("/api/me")
+      .then((me) => {
+        if (live) setRole(me?.role ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (role !== "admin" && role !== "manager") return null;
+  return (
+    <div id="settings-approval-policy" className="scroll-mt-20">
+      <ApprovalPolicyCard role={role} />
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const modal = useModal();
@@ -729,6 +755,9 @@ export default function SettingsPage() {
         <div id="settings-invites" className="scroll-mt-20">
           <InvitesCard />
         </div>
+
+        {/* ── Approval policy (G1-G4, G7) — admins edit, managers read ─────────── */}
+        <ApprovalPolicySection />
 
         {/* ── Security ───────────────────────────────────────────────────────── */}
         <div id="settings-security" className="scroll-mt-20">

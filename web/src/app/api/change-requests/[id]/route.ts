@@ -25,7 +25,8 @@ export const runtime = "nodejs";
  * corrected by raising a new one. The write itself is a compare-and-set on the
  * open statuses, so a decision landing between our read and our write wins.
  */
-const OPEN_STATUSES = [...RAISE_TIME_STATUSES];
+// W4-08: an emergency request that has not gone live yet (status emergency) is still the requester's to edit or withdraw.
+const OPEN_STATUSES = [...RAISE_TIME_STATUSES, "emergency"];
 
 function assertStillOpen(status: string, verb: "edited" | "deleted"): void {
   if (!OPEN_STATUSES.includes(status as (typeof OPEN_STATUSES)[number])) {
@@ -107,6 +108,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.impact_summary !== undefined) updates.impact_summary = input.impact_summary;
   if (input.impact_schedule_days !== undefined) updates.impact_schedule_days = input.impact_schedule_days;
   if (input.impact_cost !== undefined) updates.impact_cost = input.impact_cost;
+  if (input.impact_scope !== undefined) updates.impact_scope = input.impact_scope;
   if (input.target_date !== undefined) updates.target_date = input.target_date;
   if (input.raised_at !== undefined) updates.raised_at = input.raised_at;
 

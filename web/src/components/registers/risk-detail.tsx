@@ -1,5 +1,6 @@
 "use client";
 
+import { RequestDeletionControl } from "@/components/governance/request-deletion";
 import Link from "next/link";
 import { History } from "lucide-react";
 import { useInspector } from "@/components/layout/app-shell";
@@ -8,6 +9,7 @@ import { Severity } from "@/components/ui/severity";
 import { Button } from "@/components/ui/button";
 import { EntityLink } from "@/components/ui/entity-link";
 import { DataList, type DataListColumn } from "@/components/ui/data-list";
+import { impactAreaLabel } from "@/lib/risk/impact-areas";
 import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { RiskForm, type Risk, type RiskResponseStrategy } from "@/components/forms/risk-form";
 import {
@@ -60,14 +62,6 @@ const RISK_CATEGORY_LABELS: Record<string, string> = {
   organisational: "Organisational / Change",
 };
 
-const IMPACT_AREA_LABELS: Record<string, string> = {
-  schedule: "Schedule",
-  cost: "Cost",
-  scope: "Scope",
-  quality: "Quality",
-  reputation: "Reputation",
-  compliance: "Compliance",
-};
 
 
 // ── RiskDetailRow — a labelled field row ──────────────────────────────────────
@@ -140,6 +134,10 @@ export function RiskDetail({ risk, projectName, ownerName, dateDisplayPref = "ab
             Edit
           </Button>
         </div>
+      </div>
+      {/* G8: a risk is deleted by request; a different person approves it. */}
+      <div className="flex flex-wrap items-center justify-end gap-2 py-2 border-b border-border-subtle">
+        <RequestDeletionControl entity="risk" id={risk.id} name={risk.title} />
       </div>
 
       {/* Status / severity chips */}
@@ -218,13 +216,16 @@ export function RiskDetail({ risk, projectName, ownerName, dateDisplayPref = "ab
           />
         </DetailRow>
 
-        <DetailRow label="Impact Area">
+        <DetailRow label="Impact Areas">
           <TextValue
-            value={
-              risk.impact_area
-                ? (IMPACT_AREA_LABELS[risk.impact_area] ?? risk.impact_area)
-                : null
-            }
+            value={(() => {
+              const areas = risk.impact_areas?.length
+                ? risk.impact_areas
+                : risk.impact_area
+                  ? [risk.impact_area]
+                  : [];
+              return areas.length > 0 ? areas.map((a) => impactAreaLabel(a)).join(", ") : null;
+            })()}
           />
         </DetailRow>
 

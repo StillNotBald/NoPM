@@ -1,3 +1,4 @@
+import { DOCUMENT_EVIDENCE_COLUMNS } from "@/lib/documents/columns";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 import { Lock } from "lucide-react";
@@ -5,6 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
 import { ProjectActions } from "@/components/tracking/project-actions";
 import { ProjectTabs } from "@/components/tracking/project-tabs";
+import { HandoverBadge } from "@/components/tracking/handover-badge";
+import { ProjectDependenciesPanel } from "@/components/tracking/project-dependencies-panel";
 import { CrumbLabel } from "@/lib/nav/crumb-label";
 import { ragLabel, ragTone, type RagStatus } from "@/lib/status";
 import { fetchTaskStatusAges } from "@/lib/insight/status-age";
@@ -64,12 +67,12 @@ export default async function ProjectDetailPage({
       .from("tasks")
       // created_at (L-23 "since created" fallback) + estimate_hours (already
       // selected, L-33 variance basis) are both additive to this list.
-      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, baseline_start_date, baseline_due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by, created_at")
+      .select("id, project_id, milestone_id, name, description, status, status_type, priority, start_date, due_date, baseline_start_date, baseline_due_date, completion_pct, sort_order, assignee_id, checklist, acceptance_criteria, estimate_hours, story_points, labels, blocked_by, created_at, source, external_ref, external_url")
       .eq("project_id", id)
       .order("sort_order", { ascending: true }),
     db
       .from("risks")
-      .select("id, project_id, title, description, severity, likelihood, category, mitigation, status, raised_at, due_date")
+      .select("id, project_id, title, description, severity, likelihood, risk_category, impact_area, impact_areas, mitigation, status, raised_at, due_date")
       .eq("project_id", id)
       .order("raised_at", { ascending: false }),
     db
@@ -79,7 +82,7 @@ export default async function ProjectDetailPage({
       .order("raised_at", { ascending: false }),
     db
       .from("documents")
-      .select("id, workspace_id, project_id, reference_id, folder, title, doc_type, status, version, summary, body, external_url, owner_id, created_at")
+      .select(`id, workspace_id, project_id, reference_id, folder, title, doc_type, status, version, summary, body, external_url, owner_id, created_at, ${DOCUMENT_EVIDENCE_COLUMNS}`)
       .eq("project_id", id)
       .eq("doc_type", "charter")
       .order("created_at", { ascending: false })
@@ -88,6 +91,14 @@ export default async function ProjectDetailPage({
 
   if (projectError || !project) notFound();
 
+  // Who locked it (migration 0088). Read apart from the main select and fail-soft, so a
+  // build that is live a moment before the migration still renders the page.
+  let lockedByLabel: string | null = null;
+  if (project.is_locked) {
+    const { data: lockRow } = await db.from("projects").select("locked_by_label").eq("id", id).maybeSingle();
+    lockedByLabel = (lockRow as { locked_by_label?: string | null } | null)?.locked_by_label ?? null;
+  }
+
   const safeProject = {
     ...project,
     description:    project.description    ?? null,
@@ -95,6 +106,7 @@ export default async function ProjectDetailPage({
     start_date:     project.start_date     ?? null,
     target_date:    project.target_date    ?? null,
     lock_reason:    project.lock_reason    ?? null,
+    locked_by_label: lockedByLabel,
     currency:       project.currency       ?? "USD",
     completion_pct: project.completion_pct ?? 0,
   };
@@ -153,9 +165,9 @@ export default async function ProjectDetailPage({
           crushing the title to nothing under the badges and actions. The
           header now lays out by its own width. */}
       <div className="@container">
-        {/* Title row: stacks until the header is `@4xl` (56rem) wide, then sits
+        {/* Title row: stacks until the header is `@6xl` (72rem) wide, then sits
             side by side (wayfinding handled by the shell-level Breadcrumbs bar) */}
-        <div className="flex flex-col gap-3 @4xl:flex-row @4xl:items-start @4xl:justify-between">
+        <div className="flex flex-col gap-3 @6xl:flex-row @6xl:items-start @6xl:justify-between">
           <div className="flex items-start gap-3 min-w-0">
             {safeProject.code && (
               <span className="mt-1 font-mono text-xs text-ink-muted bg-well border border-border-subtle rounded px-2 py-0.5 shrink-0">
@@ -173,16 +185,17 @@ export default async function ProjectDetailPage({
           </div>
 
           {/* Right: badges + actions */}
-          <div className="flex items-center gap-2 flex-wrap @4xl:flex-nowrap @4xl:justify-end @4xl:shrink-0">
+          <div className="flex items-center gap-2 flex-wrap @6xl:flex-nowrap @6xl:justify-end @6xl:shrink-0">
             <Badge tone={ragTone(safeProject.rag_status as RagStatus)}>
               {ragLabel(safeProject.rag_status as RagStatus)}
             </Badge>
             {safeProject.is_locked && (
               <Badge tone="warning" className="flex items-center gap-1">
                 <Lock size={11} />
-                Locked
+                {safeProject.locked_by_label ? `Locked by ${safeProject.locked_by_label}` : "Locked"}
               </Badge>
             )}
+            <HandoverBadge projectId={safeProject.id} />
             <ProjectActions project={safeProject} />
           </div>
         </div>
@@ -221,6 +234,7 @@ export default async function ProjectDetailPage({
         dependencies={dependencies ?? []}
         charterDoc={charterDocs?.[0] ?? null}
       />
+      <ProjectDependenciesPanel projectId={safeProject.id} />
     </div>
   );
 }

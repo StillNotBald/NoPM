@@ -23,6 +23,7 @@ const patch = (body: unknown) =>
   PATCH(new NextRequest("http://localhost:3000/api/workspace-settings", { method: "PATCH", body: JSON.stringify(body), headers: { "content-type": "application/json" } }), NO_PARAMS);
 
 let db: FakeDb;
+const audits = () => db.rows("audit_log").filter((a) => a.action === "workspace.settings_update");
 beforeEach(() => {
   vi.stubEnv("NOPM_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
   writeAuditMock.mockReset();
@@ -42,20 +43,65 @@ describe("/api/workspace-settings", () => {
     const res = await patch({ time_zone: "Asia/Singapore" });
     expect(res.status).toBe(200);
     expect(db.rows("workspaces").find((w) => w.id === WS)?.time_zone).toBe("Asia/Singapore");
-    expect(writeAuditMock).toHaveBeenCalledTimes(1);
-    expect(writeAuditMock.mock.calls[0][0]).toMatchObject({ action: "workspace.settings_update", after: { time_zone: "Asia/Singapore" } });
+    expect(audits()).toHaveLength(1);
+    expect(audits()[0]).toMatchObject({ action: "workspace.settings_update", after: { time_zone: "Asia/Singapore" } });
   });
   it("PATCH with the same zone writes nothing and no audit row", async () => {
     await patch({ time_zone: "Asia/Kuala_Lumpur" });
-    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(audits()).toHaveLength(0);
   });
   it("rejects an unknown zone with 422 and changes nothing", async () => {
     const res = await patch({ time_zone: "Mars/Base" });
     expect(res.status).toBe(422);
-    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(audits()).toHaveLength(0);
   });
   it("is admin-only", async () => {
     requireAuthMock.mockResolvedValue(actor("manager"));
     expect((await patch({ time_zone: "Asia/Singapore" })).status).toBe(403);
+  });
+});
+
+describe("/api/workspace-settings nudge + weekly report settings (R-141 / R-142)", () => {
+  it("GET returns the defaults when the columns are unset", async () => {
+    const res = await GET(new NextRequest("http://localhost:3000/api/workspace-settings"), NO_PARAMS);
+    expect((await res.json()).data).toMatchObject({
+      stale_days: 14,
+      nudges_enabled: true,
+      weekly_report_enabled: true,
+      weekly_report_day: 1,
+    });
+  });
+  it("PATCH saves several settings at once with exactly one audit row naming only what changed", async () => {
+    const res = await patch({ stale_days: 30, nudges_enabled: false, weekly_report_day: 5, weekly_report_enabled: true });
+    expect(res.status).toBe(200);
+    const ws = db.rows("workspaces").find((w) => w.id === WS)!;
+    expect(ws).toMatchObject({ stale_days: 30, nudges_enabled: false, weekly_report_day: 5 });
+    expect(audits()).toHaveLength(1);
+    expect(audits()[0]).toMatchObject({
+      action: "workspace.settings_update",
+      before: { stale_days: 14, nudges_enabled: true, weekly_report_day: 1 },
+      after: { stale_days: 30, nudges_enabled: false, weekly_report_day: 5 },
+    });
+    expect((audits()[0].after as Record<string, unknown>).weekly_report_enabled).toBeUndefined();
+    expect((await res.json()).data).toMatchObject({ stale_days: 30, nudges_enabled: false });
+  });
+  it("rejects out-of-range or mistyped values with 422 and changes nothing", async () => {
+    for (const body of [{ stale_days: 0 }, { stale_days: 366 }, { stale_days: 1.5 }, { stale_days: "14" }, { weekly_report_day: 0 }, { weekly_report_day: 8 }, { nudges_enabled: "yes" }]) {
+      const res = await patch(body);
+      expect(res.status, JSON.stringify(body)).toBe(422);
+    }
+    expect(audits()).toHaveLength(0);
+    expect(db.rows("workspaces").find((w) => w.id === WS)?.stale_days).toBeUndefined();
+  });
+  it("rejects an empty patch", async () => {
+    expect((await patch({})).status).toBe(422);
+  });
+  it("a valid field next to an invalid one saves nothing", async () => {
+    expect((await patch({ stale_days: 20, weekly_report_day: 9 })).status).toBe(422);
+    expect(db.rows("workspaces").find((w) => w.id === WS)?.stale_days).toBeUndefined();
+  });
+  it("an unchanged value writes nothing and no audit row", async () => {
+    await patch({ stale_days: 14, nudges_enabled: true });
+    expect(audits()).toHaveLength(0);
   });
 });

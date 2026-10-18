@@ -234,11 +234,13 @@ function stripComments(source: string): string {
  * `create table X` / `alter table X`, so it also finds columns declared
  * mid-table and constraints added by a later ALTER.
  */
-function tablesCascadingFromProjects(): Map<string, string> {
+/** Tables that cascade from projects, as of migration `upTo` (default: all migrations). */
+function tablesCascadingFromProjects(upTo?: string): Map<string, string> {
   const found = new Map<string, string>();
   const token =
     /create\s+table\s+(?:if\s+not\s+exists\s+)?(?:public\.)?(\w+)|alter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:public\.)?(\w+)|(references\s+(?:public\.)?projects\b[^,;]*?on\s+delete\s+cascade)/gi;
   for (const file of migrationFiles) {
+    if (upTo && file > upTo) break;
     let current = "";
     for (const m of stripComments(readFileSync(join(migrationsDir, file), "utf8")).matchAll(token)) {
       if (m[1] || m[2]) current = (m[1] ?? m[2]).toLowerCase();
@@ -270,6 +272,15 @@ function countedTables(body: string): { key: string; table: string }[] {
   }));
 }
 
+/**
+ * Tables that cascade from projects but are NOT in the deletion fingerprint, each with the reason.
+ * Only derived system data belongs here: nothing a person authored or approved, and regenerated
+ * by a job. Counting such a table would void every pending deletion request each time the job runs.
+ */
+const DERIVED_UNCOUNTED: Record<string, string> = {
+  project_snapshots: "derived trend data written by the nightly snapshot cron (0098); regenerated, never authored",
+};
+
 describe("M4 — nopm_project_child_counts covers every table that cascades from projects", () => {
   const cascading = tablesCascadingFromProjects();
   const latest = latestChildCountsDefinition();
@@ -282,10 +293,15 @@ describe("M4 — nopm_project_child_counts covers every table that cascades from
     }
   });
 
-  it("the latest definition counts every one of them", () => {
+  it("the latest definition (0099 or later, not pinned to 0056) counts every one of them, bar the derived allowlist", () => {
+    expect(latest.file >= "20261018000099_project_dependencies.sql").toBe(true);
+    for (const t of Object.keys(DERIVED_UNCOUNTED)) {
+      expect(cascading.has(t), `${t} is allowlisted but no longer cascades`).toBe(true);
+      expect(counted.some((c) => c.table === t), `${t} is derived and must stay out of the fingerprint`).toBe(false);
+    }
     const countedSet = new Set(counted.map((c) => c.table));
     const missing = [...cascading.entries()]
-      .filter(([table]) => !countedSet.has(table))
+      .filter(([table]) => !countedSet.has(table) && !(table in DERIVED_UNCOUNTED))
       .map(([table, file]) => `${table} (${file})`);
     expect(missing, `${latest.file} must count these tables or a project deletion destroys their rows unannounced`).toEqual([]);
   });
@@ -307,7 +323,7 @@ describe("M4 — nopm_project_child_counts covers every table that cascades from
 
   it("canary: the 0049 definition alone is caught — it missed exactly the three tables 0054 adds", () => {
     const at0049 = new Set(countedTables(latestChildCountsDefinition(FILE).body).map((c) => c.table));
-    const missing = [...cascading.keys()].filter((table) => !at0049.has(table)).sort();
+    const missing = [...tablesCascadingFromProjects("20261017000054_lifecycle_guards_2.sql").keys()].filter((table) => !at0049.has(table)).sort();
     expect(missing).toEqual(["calendar_feeds", "clashes", "project_budget"]);
   });
 
@@ -599,10 +615,11 @@ describe("0056 file — review fixes", () => {
     const trigger = fn("nopm_assert_project_children_unchanged");
 
     it("still counts every table that cascades from projects, with the same signature and attributes", () => {
-      const cascading = tablesCascadingFromProjects();
+      // As of 0056: later migrations (0099) redefine the function again for the tables they add.
+      const cascading = tablesCascadingFromProjects(FILE_56);
       const counted = new Set(countedTables(counts).map((c) => c.table));
       expect([...cascading.keys()].filter((t) => !counted.has(t))).toEqual([]);
-      expect(latestChildCountsDefinition().file).toBe(FILE_56);
+      expect(latestChildCountsDefinition(FILE_56).file).toBe(FILE_56);
       for (const attr of [/returns jsonb/i, /language plpgsql/i, /\bstable\b/i, /set search_path = public/i]) expect(counts).toMatch(attr);
       expect(counts).not.toMatch(/security definer/i);
       expect(sql56).toMatch(/revoke execute on function nopm_project_child_counts\(uuid\) from public, anon, authenticated/);
@@ -615,7 +632,7 @@ describe("0056 file — review fixes", () => {
       // volatile roll-up columns must not void an approval
       expect(body).toMatch(/to_jsonb\(p\) - 'completion_pct' - 'rag_status' - 'updated_at'/);
       const ids = [...body.matchAll(/'(\w+)', \(select md5\(coalesce\(string_agg\((\w+)::text, ',' order by \2\), ''\)\) from (\w+) where/g)];
-      const cascading = tablesCascadingFromProjects();
+      const cascading = tablesCascadingFromProjects(FILE_56);
       expect(ids.map((m) => m[3]).sort()).toEqual([...cascading.keys()].sort());
       for (const m of ids) expect(m[1], "digest key is the table name").toBe(m[3]);
       // project_budget has no id column: its primary key is project_id

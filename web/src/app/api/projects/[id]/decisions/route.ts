@@ -3,7 +3,8 @@ import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
+import { asInsertResult } from "@/lib/audit/insert-result";
 import { insertWithReference } from "@/lib/governance/next-ref";
 import { createDecisionSchema } from "@/app/api/decisions/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -93,12 +94,16 @@ export const POST = route(async ({ actor, params, request }) => {
   // with a 500.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "decisions", id: input.supersedes, field: "supersedes" },
+    // B1: the linked change request must be in this workspace AND on this project.
+    { table: "change_requests", id: input.change_request_id, field: "change_request_id", match: { project_id: projectId } },
   ]);
 
-  const { data: row, error } = await insertWithReference(db, actor.workspaceId, "decision", (refId) => db
-    .from("decisions")
-    .insert({
-      workspace_id: actor.workspaceId,
+  // The row and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const { data: inserted, error } = await insertWithReference(db, actor.workspaceId, "decision", (refId) => asInsertResult(auditedInsert({
+    table: "decisions",
+    actor,
+    action: "decision.create",
+    patch: {
       project_id: projectId,
       reference_id: refId,
       title: input.title,
@@ -111,29 +116,20 @@ export const POST = route(async ({ actor, params, request }) => {
       decided_by_label: actor.label,
       decided_at: input.decided_at ?? new Date().toISOString(),
       supersedes: input.supersedes ?? null,
+      change_request_id: input.change_request_id ?? null,
+      options_structured: input.options_structured ?? null,
       // ── complement seam (0041, R-81) ─────────────────────────────────────────
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
-    })
-    .select()
-    .single());
-
-  if (error || !row) throw new Error(error?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "decision.create",
-    targetType: "decision",
-    targetId: row.id,
-    before: null,
-    after: row,
-  });
+    },
+  })));
+  if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
+  const row = inserted;
 
   // Q-GOV-15: an accepted decision that replaces an earlier one marks it superseded.
   if (status === "accepted" && input.supersedes) {
-    await markReplacedSuperseded(db, actor, input.supersedes, row.id);
+    await markReplacedSuperseded(db, actor, input.supersedes, row.id as string);
   }
 
   return created(row);

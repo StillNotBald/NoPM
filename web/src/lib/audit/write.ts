@@ -1,43 +1,9 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Actor } from "@/lib/auth/guard";
+import { auditPrincipalId, buildAuditRow, type AuditInput } from "@/lib/audit/row";
 
-export type AuditInput = {
-  workspaceId: string;
-  actor: Actor;
-  action: string; // verb.noun, e.g. "task.create"
-  targetType: string;
-  targetId?: string | null;
-  before?: unknown;
-  after?: unknown;
-};
-
-/**
- * Connector provenance (migration 0046): which integration relayed the action,
- * the platform's event id and the platform user reference. They are written
- * ONLY when the Actor carries them, so first-party writes keep the exact row
- * shape they always had (and keep working on a database that has not applied
- * 0046 yet); a connector-originated action is non-repudiable without stuffing
- * the `after` JSON.
- */
-function connectorProvenance(actor: Actor): Record<string, string> {
-  return {
-    ...(actor.viaConnectorId ? { via_connector_id: actor.viaConnectorId } : {}),
-    ...(actor.externalEventId ? { external_event_id: actor.externalEventId } : {}),
-    ...(actor.externalActorRef ? { external_actor_ref: actor.externalActorRef } : {}),
-  };
-}
-
-/**
- * The HUMAN principal behind an actor (A3-12): the session user, the PAT's
- * creator, or the verified linked profile of a connector action. Falls back to
- * the actor's own id for a session user. Null for system actors and legacy
- * tokens with no recorded creator. Stored in audit_log.principal_id (0071).
- */
-export function auditPrincipalId(actor: Actor): string | null {
-  if (actor.principalId) return actor.principalId;
-  if (actor.principalId === undefined && actor.type === "user") return actor.id;
-  return null;
-}
+export { auditPrincipalId, buildAuditRow };
+export type { AuditInput };
 
 /**
  * Fixed id of the system actor (A3-10). Cron, digest, auto-close and clash
@@ -83,20 +49,7 @@ export function isSystemActor(actor: { id: string; type?: string | null; label?:
  */
 export async function writeAudit(input: AuditInput): Promise<void> {
   const admin = createAdminClient();
-  const row: Record<string, unknown> = {
-    workspace_id: input.workspaceId,
-    actor_type: input.actor.type,
-    actor_id: input.actor.id,
-    actor_label: input.actor.label,
-    action: input.action,
-    target_type: input.targetType,
-    target_id: input.targetId ?? null,
-    before: (input.before as object) ?? null,
-    after: (input.after as object) ?? null,
-    channel: input.actor.channel ?? null,
-    request_id: input.actor.requestId ?? null,
-    ...connectorProvenance(input.actor),
-  };
+  const row = buildAuditRow(input);
   const principalId = auditPrincipalId(input.actor);
   let { error } = await admin
     .from("audit_log")

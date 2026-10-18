@@ -1,6 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { columnsOf, pickColumns } from "@/lib/audit/pick";
 import { ok } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { assertCanManageInvites, assertCanRevokeCreatedBy, assertRevocable } from "@/lib/governance/invite-guard";
@@ -44,25 +45,18 @@ export const POST = route(async ({ actor, params }) => {
     assertCanRevokeCreatedBy(actor.role, creator?.role);
   }
 
-  const { data: updated, error } = await db
-    .from("invites")
-    .update({ revoked: true })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select(SAFE_COLUMNS)
-    .single();
-
-  if (error || !updated) throw error ?? new Error("Failed to revoke invite");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const { after } = await auditedUpdate({
+    table: "invites",
     actor,
     action: "invite.revoked",
-    targetType: "invite",
-    targetId: invite.id,
-    before: { email: invite.email, role: invite.role, revoked: false },
-    after: { email: invite.email, role: invite.role, revoked: true },
+    id: invite.id,
+    patch: { revoked: true },
+    notFoundMessage: "Invite not found",
+    auditBefore: { email: invite.email, role: invite.role, revoked: false },
+    auditAfter: { email: invite.email, role: invite.role, revoked: true },
   });
+  const updated = pickColumns(after, columnsOf(SAFE_COLUMNS));
 
   return ok({ ...updated, status: "revoked" });
 });

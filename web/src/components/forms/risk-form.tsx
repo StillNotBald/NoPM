@@ -8,8 +8,10 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
-import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
+import { Field, FieldError, FieldLabel, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
+import { BackupOwnerField, useBackupOwner } from "@/components/forms/backup-owner-field";
+import { IMPACT_AREA_OPTIONS } from "@/lib/risk/impact-areas";
 import { validateFields } from "@/lib/forms/validate";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
@@ -41,7 +43,6 @@ export interface Risk {
   description: string;
   severity: "low" | "medium" | "high" | "critical";
   likelihood: "low" | "medium" | "high" | "critical";
-  category: string;
   mitigation: string;
   status: "open" | "mitigating" | "closed" | "accepted";
   raised_at: string;
@@ -53,7 +54,11 @@ export interface Risk {
   impact_score?: number | null;
   response_strategy?: RiskResponseStrategy;
   risk_category?: RiskCategoryValue | null;
+  /** @deprecated use impact_areas (kept for rows read before 0091). */
   impact_area?: RiskImpactArea | null;
+  impact_areas?: RiskImpactArea[];
+  /** M6: a login who picks this risk up if its owner is away. */
+  backup_owner_id?: string | null;
   trigger?: string | null;
   residual_risk?: string | null;
   resolution?: string | null;
@@ -73,14 +78,6 @@ const RISK_CATEGORY_OPTIONS: { value: RiskCategoryValue; label: string }[] = [
   { value: "organisational", label: "Organisational / Change" },
 ];
 
-const IMPACT_AREA_OPTIONS: { value: RiskImpactArea; label: string }[] = [
-  { value: "schedule", label: "Schedule" },
-  { value: "cost", label: "Cost" },
-  { value: "scope", label: "Scope" },
-  { value: "quality", label: "Quality" },
-  { value: "reputation", label: "Reputation" },
-  { value: "compliance", label: "Compliance" },
-];
 
 // ── RiskForm ──────────────────────────────────────────────────────────────────
 
@@ -123,7 +120,6 @@ export function RiskForm({
   const [likelihood, setLikelihood] = useState<Risk["likelihood"]>(
     risk?.likelihood ?? "medium"
   );
-  const [category, setCategory] = useState(risk?.category ?? "");
   const [mitigation, setMitigation] = useState(risk?.mitigation ?? "");
   const [showMitigation, setShowMitigation] = useState(
     !!(risk?.mitigation && risk.mitigation.trim().length > 0)
@@ -140,9 +136,12 @@ export function RiskForm({
   const [riskCategory, setRiskCategory] = useState<RiskCategoryValue | "">(
     risk?.risk_category ?? ""
   );
-  const [impactArea, setImpactArea] = useState<RiskImpactArea | "">(
-    risk?.impact_area ?? ""
+  const [impactAreas, setImpactAreas] = useState<RiskImpactArea[]>(
+    risk?.impact_areas ?? (risk?.impact_area ? [risk.impact_area] : [])
   );
+  function toggleImpactArea(area: RiskImpactArea) {
+    setImpactAreas((cur) => (cur.includes(area) ? cur.filter((a) => a !== area) : [...cur, area]));
+  }
   const [probabilityPct, setProbabilityPct] = useState(
     risk?.probability_pct != null ? String(risk.probability_pct) : ""
   );
@@ -154,6 +153,7 @@ export function RiskForm({
 
   const [resolution, setResolution] = useState(risk?.resolution ?? "");
 
+  const backup = useBackupOwner("risks", risk?.id, risk?.backup_owner_id);
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -196,19 +196,19 @@ export function RiskForm({
       description: description.trim(),
       severity,
       likelihood,
-      category: category.trim(),
       mitigation: mitigation.trim(),
       status,
       due_date: dueDate || null,
       // Content-enrichment (0008) — optional PMBOK fields
       response_strategy: responseStrategy,
       risk_category: riskCategory || null,
-      impact_area: impactArea || null,
+      impact_areas: impactAreas,
       probability_pct: probabilityValue,
       impact_score: impactValue,
       trigger: trigger.trim() || null,
       residual_risk: residualRisk.trim() || null,
       resolution: resolution.trim() || null,
+      ...backup.payload(Boolean(risk)),
       // Optimistic concurrency (R-90) — only meaningful (and only sent) on
       // an edit of an existing record; a create has nothing to be stale.
       ...(risk?.updated_at ? { expected_updated_at: risk.updated_at } : {}),
@@ -314,15 +314,8 @@ export function RiskForm({
             </SelectInput>
           </Field>
 
-          {/* Category (free-text) */}
-          <Field label="Category (free text)" error={fieldErrors.category}>
-            <Input
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              placeholder="Technical, Resource…"
-              className="h-11 sm:h-10 text-base sm:text-sm"
-            />
-          </Field>
+          {/* Backup owner (M6) */}
+          <BackupOwnerField state={backup} error={fieldErrors.backup_owner_id} />
         </FormGrid>
       </FormSection>
 
@@ -357,22 +350,29 @@ export function RiskForm({
             />
           </Field>
 
-          {/* Impact area */}
-          <Field label="Impact Area" error={fieldErrors.impact_area}>
-            <SelectInput
-              value={impactArea}
-              onChange={(e) =>
-                setImpactArea(e.target.value as RiskImpactArea | "")
-              }
-            >
-              <option value="">— Select area —</option>
+          {/* Impact areas (K2): a risk can touch more than one */}
+          <fieldset className="min-w-0 sm:col-span-2" aria-describedby={fieldErrors.impact_areas ? "impact-areas-error" : undefined}>
+            <legend className="p-0">
+              <FieldLabel>Impact Areas</FieldLabel>
+            </legend>
+            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
               {IMPACT_AREA_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
+                <label
+                  key={opt.value}
+                  className="flex min-h-[44px] cursor-pointer items-center gap-2 text-sm text-ink sm:min-h-8"
+                >
+                  <input
+                    type="checkbox"
+                    checked={impactAreas.includes(opt.value)}
+                    onChange={() => toggleImpactArea(opt.value)}
+                    className="focus-ring h-4 w-4 shrink-0 cursor-pointer accent-accent"
+                  />
                   {opt.label}
-                </option>
+                </label>
               ))}
-            </SelectInput>
-          </Field>
+            </div>
+            <FieldError id="impact-areas-error" message={fieldErrors.impact_areas} />
+          </fieldset>
         </FormGrid>
       </FormSection>
 

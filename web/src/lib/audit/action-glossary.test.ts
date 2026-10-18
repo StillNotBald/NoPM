@@ -6,7 +6,8 @@ import { AUDIT_ACTION_GLOSSARY } from "./action-glossary";
 /**
  * Drift guard: the glossary must equal the set of audit actions the codebase
  * can actually write. Sources scanned: writeAudit({ action: "..." }) call
- * sites, the saved-view action resolver, and SQL migrations that insert into
+ * sites, the atomic wrapper's auditedInsert / auditedUpdate / auditedDelete
+ * call sites, the saved-view action resolver, and SQL migrations that insert into
  * audit_log (RPCs).
  */
 const SRC = join(process.cwd(), "src");
@@ -27,10 +28,12 @@ function codeActions(): Set<string> {
   for (const file of walk(SRC, /\.tsx?$/)) {
     if (/\.test\.tsx?$/.test(file)) continue;
     const s = readFileSync(file, "utf8");
-    let i = -1;
-    while ((i = s.indexOf("writeAudit(", i + 1)) >= 0) {
-      const m = s.slice(i, i + 700).match(/action:\s*"([^"]+)"/);
-      if (m) found.add(m[1]);
+    for (const call of ["writeAudit(", "auditedInsert(", "auditedUpdate(", "auditedDelete("]) {
+      let i = -1;
+      while ((i = s.indexOf(call, i + 1)) >= 0) {
+        const m = s.slice(i, i + 700).match(/action:\s*"([^"]+)"/);
+        if (m) found.add(m[1]);
+      }
     }
     // Actions written through a named constant (e.g. OVERSPEND_AUDIT_ACTION).
     for (const m of s.matchAll(/const\s+\w*AUDIT_ACTION\w*\s*=\s*"([^"]+)"/g)) found.add(m[1]);

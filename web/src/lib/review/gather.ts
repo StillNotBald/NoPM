@@ -23,6 +23,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { DecideState } from "@/components/governance/four-eyes-note";
+import { deletionKindFor } from "@/lib/integrations/types";
 import { describeChildCounts, describeDeletionTarget, type ChildCountLine } from "./deletion-target";
 import { judgeDecision, judgeRebaselineSignoff, type Viewer } from "./four-eyes";
 import { clip } from "./pending";
@@ -43,6 +44,10 @@ export interface ReviewItem {
   severity?: string;
   /** How old this item is in calendar days */
   ageDays: number;
+  /** UAT-005: approval tier, the decision deadline and whether it has passed (the queue shows all three). */
+  tier?: string;
+  deadline?: string | null;
+  overdue?: boolean;
   /** Deep-link href the row should navigate to */
   href: string;
   /** CTA label shown in the action column */
@@ -102,6 +107,18 @@ export interface ChangeSummary {
 // A `select("*")` row: the columns the verdict reads vary by migration level.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LooseRow = Record<string, any>;
+
+/** The tier, deadline and overdue flag of a governed request row (absent columns read as nothing). */
+function tierFields(row: { tier?: unknown; approval_deadline_at?: unknown; is_emergency?: unknown; retro_due_at?: unknown; retro_decided_at?: unknown }): Pick<ReviewItem, "tier" | "deadline" | "overdue"> {
+  const tier = row.is_emergency === true ? "emergency" : typeof row.tier === "string" && row.tier ? row.tier : undefined;
+  const deadline =
+    typeof row.approval_deadline_at === "string"
+      ? row.approval_deadline_at
+      : row.is_emergency === true && !row.retro_decided_at && typeof row.retro_due_at === "string"
+        ? row.retro_due_at
+        : null;
+  return { tier, deadline, overdue: deadline !== null && Date.parse(deadline) < Date.now() };
+}
 
 function ageDays(createdAt: string): number {
   const ms = Date.now() - new Date(createdAt).getTime();
@@ -169,7 +186,7 @@ export async function gatherReviewItems(
     // 2. Rebaselines pending sign-off
     db
       .from("rebaselines")
-      .select("id, project_id, reason, created_at, requested_by, requested_principal_id")
+      .select("id, project_id, reason, created_at, requested_by, requested_principal_id, tier, approval_deadline_at")
       .eq("status", "pending_approval")
       .order("created_at", { ascending: true }),
 
@@ -210,7 +227,7 @@ export async function gatherReviewItems(
         return await db
           .from("change_requests")
           .select("*")
-          .in("status", ["raised", "under_review"])
+          .in("status", ["raised", "under_review", "emergency"])
           .order("created_at", { ascending: true });
       } catch {
         return { data: null, error: null };
@@ -235,6 +252,7 @@ export async function gatherReviewItems(
         ageDays: ageDays(row.created_at),
         href: "/approvals",
         actionLabel: "Approve / reject",
+        ...tierFields(row),
         // inline-action fields
         targetType: row.target_type,
         targetId: row.target_id,
@@ -245,12 +263,15 @@ export async function gatherReviewItems(
         decide: viewer
           ? judgeDecision({
               viewer,
-              kind: row.target_type === "project" ? "project_deletion" : "task_deletion",
+              kind: deletionKindFor(row.target_type),
               row,
               projectLocked: !!target.projectId && lockedProjectIds.has(target.projectId),
             })
           : undefined,
-        childCounts: row.target_type === "project" ? describeChildCounts(row.before) : undefined,
+        childCounts:
+          row.target_type === "project" || row.target_type === "milestone"
+            ? describeChildCounts(row.before, row.target_type)
+            : undefined,
       });
     }
   }
@@ -268,6 +289,7 @@ export async function gatherReviewItems(
         // D1: the governed sign-off / apply controls live on /baselines.
         href: `/baselines?focus=${row.id}`,
         actionLabel: "Sign off",
+        ...tierFields(row),
         decide: viewer ? judgeRebaselineSignoff(viewer, row) : undefined,
       });
     }
@@ -335,6 +357,7 @@ export async function gatherReviewItems(
         ageDays: ageDays(row.created_at),
         href: `/change-control?cr=${row.id}`,
         actionLabel: "Decide",
+        ...tierFields(row),
         // inline-action fields
         crStatus: row.status,
         change: {

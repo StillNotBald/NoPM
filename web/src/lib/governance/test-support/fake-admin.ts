@@ -20,12 +20,14 @@ export type RpcHandler = (args: Record<string, unknown>, db: FakeDb) => RpcResul
 import {
   applyRebaselineRpc,
   decideChangeRequestRpc,
+  implementChangeRequestRpc,
   lockProjectRpc,
   signoffRebaselineRpc,
   transitionChangeRequestRpc,
   unlockProjectAuditedRpc,
   withdrawRebaselineRpc,
 } from "./fake-rpcs";
+import { mutateAuditedRpc } from "./fake-mutate-audited";
 
 type Filter = (row: Row) => boolean;
 
@@ -35,16 +37,23 @@ export class FakeDb {
   tables: Record<string, Row[]> = {};
   rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
   rpcHandlers: Record<string, RpcHandler> = {
+    nopm_mutate_audited: mutateAuditedRpc,
     nopm_rate_check: () => ({
       data: { allowed: true, remaining: 999, retry_after_seconds: 0 },
       error: null,
     }),
     nopm_commit_task_deletion: commitDeletionRpc,
+    nopm_commit_risk_deletion: commitDeletionRpc,
+    nopm_commit_issue_deletion: commitDeletionRpc,
+    nopm_commit_expense_deletion: commitDeletionRpc,
+    nopm_commit_document_deletion: commitDeletionRpc,
+    nopm_commit_milestone_deletion: commitDeletionRpc,
     nopm_commit_project_deletion: commitDeletionRpc,
     nopm_apply_rebaseline: applyRebaselineRpc,
     nopm_unlock_project_audited: unlockProjectAuditedRpc,
     nopm_signoff_rebaseline: signoffRebaselineRpc,
     nopm_decide_change_request: decideChangeRequestRpc,
+    nopm_implement_change_request: implementChangeRequestRpc,
     nopm_lock_project: lockProjectRpc,
     nopm_transition_change_request: transitionChangeRequestRpc,
     nopm_withdraw_rebaseline: withdrawRebaselineRpc,
@@ -67,6 +76,8 @@ export class FakeDb {
       return { data: `${prefix}-${String(next).padStart(3, "0")}`, error: null };
     },
   };
+  /** Make the next nopm_mutate_audited calls fail (the whole transaction rolls back). */
+  mutateFailure: { code: string; message: string } | null = null;
   private seq = 0;
   private hooks: Hook[] = [];
 
@@ -282,11 +293,15 @@ const CHILD_TABLES = [
   "project_budget",
   "calendar_feeds",
   "clashes",
+  // added by 0099: they cascade from projects too
+  "project_dependencies",
 ] as const;
 
 /** Child tables that name the project in a column other than `project_id`: a clash cascades from EITHER project it names. */
 const CHILD_PROJECT_COLUMNS: Record<string, readonly string[]> = {
   clashes: ["project_a_id", "project_b_id"],
+  /** A dependency cascades from BOTH projects it names (0099). */
+  project_dependencies: ["project_id", "depends_on_project_id"],
 };
 
 /** Mirrors nopm_project_child_counts (0049, extended by 0054): one count per child table that hangs off a project. */
@@ -300,6 +315,16 @@ export function projectChildCounts(db: FakeDb, projectId: string): Record<string
 }
 
 // ── the deletion-commit RPCs, as migration 0045 defines them ──────────────
+
+/** Mirrors the commit RPCs: which table each deletion target_type removes a row from. */
+const DELETION_TABLES: Record<string, string> = {
+  task: "tasks",
+  risk: "risks",
+  issue: "issues",
+  expense: "expenses",
+  document: "documents",
+  milestone: "milestones",
+};
 
 const CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant", "lark"]);
 
@@ -321,8 +346,19 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
   if (r.status !== "pending") return rpcError("P0001", "ALREADY_DECIDED");
   if (r.requested_by_id === args.p_approver_id) return rpcError("P0003", "SELF_APPROVAL");
   if (r.requested_principal_id && r.requested_principal_id === principal) return rpcError("P0003", "SELF_APPROVAL");
+  // 0102 (tier role, same rule as nopm_principal_meets_tier): an admin-tier request needs an admin approver,
+  // unless the workspace has fewer than two admins (D7 fallback).
+  if (r.target_type !== "task" && (r.tier === "high_risk" || r.tier === "strategic" || r.tier === "emergency")) {
+    const profiles = db.rows("profiles");
+    const approver = profiles.find((p) => p.id === principal);
+    const admins = profiles.filter((p) => p.role === "admin").length;
+    if (approver && approver.role !== "admin" && admins >= 2) {
+      return rpcError("P0018", `ROLE_NOT_PERMITTED: only admins can approve a ${String(r.tier)} request`);
+    }
+  }
 
   const isProject = r.target_type === "project";
+  let documentPath: string | null = null;
   if (isProject) {
     const proj = db.rows("projects").find((p) => p.id === r.target_id && p.workspace_id === args.p_workspace_id);
     if (proj?.is_locked) return rpcError("P0010", "PROJECT_LOCKED");
@@ -335,8 +371,28 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
     if (!db.rows("projects").some((p) => p.id === r.target_id)) return rpcError("P0017", "TARGET_GONE");
     db.tables.projects = db.rows("projects").filter((p) => p.id !== r.target_id);
   } else {
-    if (!db.rows("tasks").some((t) => t.id === r.target_id)) return rpcError("P0017", "TARGET_GONE");
-    db.tables.tasks = db.rows("tasks").filter((t) => t.id !== r.target_id);
+    const table = DELETION_TABLES[String(r.target_type)] ?? "tasks";
+    const target = db.rows(table).find((t) => t.id === r.target_id);
+    if (r.target_type === "milestone" && target) {
+      // 0102: parent project locked = P0010; the task count shown at request time must still hold = P0016.
+      const proj = db.rows("projects").find((p) => p.id === target.project_id);
+      if (proj?.is_locked) return rpcError("P0010", "PROJECT_LOCKED");
+      const expected = (r.before as { child_counts?: { tasks?: number } } | null)?.child_counts?.tasks;
+      const live = db.rows("tasks").filter((t) => t.milestone_id === r.target_id).length;
+      if (typeof expected === "number" && expected !== live) return rpcError("P0016", "CHILDREN_CHANGED");
+    }
+    if (r.target_type === "document" && target?.status === "approved") {
+      const requester = db.rows("profiles").find((p) => p.id === r.requested_principal_id);
+      if (requester?.role !== "admin") return rpcError("P0041", "APPROVED_DOCUMENT_NEEDS_ADMIN");
+      const approver = db.rows("profiles").find((p) => p.id === principal);
+      if (approver?.role !== "admin") return rpcError("P0042", "APPROVED_DOCUMENT_APPROVER_NOT_ADMIN");
+    }
+    if (!target) return rpcError("P0017", "TARGET_GONE");
+    db.tables[table] = db.rows(table).filter((t) => t.id !== r.target_id);
+    if (r.target_type === "milestone") {
+      for (const t of db.rows("tasks")) if (t.milestone_id === r.target_id) t.milestone_id = null;
+    }
+    documentPath = r.target_type === "document" ? ((target.storage_path as string | null | undefined) ?? null) : null;
   }
 
   Object.assign(r, {
@@ -363,7 +419,7 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
   audit.push({
     ...base,
     id: db.nextId("audit_log"),
-    action: isProject ? "project.delete" : "task.delete",
+    action: isProject ? "project.delete" : `${String(r.target_type)}.delete`,
     target_type: r.target_type,
     target_id: r.target_id,
     before: r.before,
@@ -387,6 +443,7 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
       requested_principal_id: r.requested_principal_id ?? null,
       target_type: r.target_type,
       target_id: r.target_id,
+      ...(r.target_type === "document" ? { document_path: documentPath } : {}),
     },
     error: null,
   };

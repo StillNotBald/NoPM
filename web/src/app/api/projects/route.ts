@@ -1,17 +1,20 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers } from "@/lib/handover/backup";
 import { createProjectSchema } from "./_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
+import { parseListSelection } from "@/lib/api/views";
 import { PROGRAM_ATTACH_MESSAGE, requireManagerOrAdmin } from "@/lib/work/roles";
 
 export const runtime = "nodejs";
 
 // GET /api/projects — list projects in the actor's workspace (project:read)
 // Filters: source, external_ref (complement seam, R-81 — both exact-match).
+// Payload: view=summary (default) | full, fields=a,b,c (R-129).
 export const GET = route(async ({ actor, request }) => {
   requireScope(actor, "project:read");
 
@@ -21,6 +24,7 @@ export const GET = route(async ({ actor, request }) => {
   const offset = (page - 1) * limit;
   const source = searchParams.get("source");
   const externalRef = searchParams.get("external_ref");
+  const selection = parseListSelection(searchParams, "projects");
 
   const db = createAdminClient();
 
@@ -37,7 +41,7 @@ export const GET = route(async ({ actor, request }) => {
 
   let query = db
     .from("projects")
-    .select("*")
+    .select(selection.select)
     .eq("workspace_id", actor.workspaceId);
   if (source) query = query.eq("source", source);
   if (externalRef) query = query.eq("external_ref", externalRef);
@@ -78,8 +82,11 @@ export const POST = route(async ({ actor, request }) => {
   // project's notifications (change requests, approvals) into another tenant.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: parsed.data.owner_id, field: "owner_id" },
+    { table: "profiles", id: parsed.data.backup_owner_id, field: "backup_owner_id" },
     { table: "programs", id: parsed.data.program_id, field: "program_id" },
   ]);
+
+  assertBackupDiffers(parsed.data.owner_id, parsed.data.backup_owner_id, "backup_owner_id", "owner_id");
 
   // A project is never BORN locked: locking snapshots the baselines and is
   // audited, and only POST /projects/:id/lock does that. The schema does not
@@ -87,26 +94,12 @@ export const POST = route(async ({ actor, request }) => {
   const fields = { ...parsed.data };
 
   const now = new Date().toISOString();
-  const { data: row, error } = await db
-    .from("projects")
-    .insert({
-      ...fields,
-      workspace_id: actor.workspaceId,
-      updated_at: now,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const row = await auditedInsert({
+    table: "projects",
     actor,
     action: "project.create",
-    targetType: "project",
-    targetId: row.id,
-    before: null,
-    after: row,
+    patch: { ...fields, updated_at: now },
   });
 
   return created(row);

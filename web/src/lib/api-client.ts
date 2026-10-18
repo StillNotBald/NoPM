@@ -23,7 +23,7 @@ async function callFull<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-): Promise<{ data: T; warnings: string[] }> {
+): Promise<{ data: T; warnings: string[]; total?: number }> {
   const res = await fetch(path, {
     method,
     headers: body !== undefined ? { "content-type": "application/json" } : undefined,
@@ -32,6 +32,7 @@ async function callFull<T = unknown>(
   const json = (await res.json().catch(() => ({}))) as {
     data?: T;
     warnings?: unknown;
+    total?: unknown;
     error?: string;
     code?: string;
     fields?: { field: string; message: string }[];
@@ -48,7 +49,7 @@ async function callFull<T = unknown>(
     throw err;
   }
   const warnings = Array.isArray(json.warnings) ? json.warnings.filter((w): w is string => typeof w === "string") : [];
-  return { data: json.data as T, warnings };
+  return { data: json.data as T, warnings, total: typeof json.total === "number" ? json.total : undefined };
 }
 
 async function call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
@@ -60,6 +61,13 @@ export const apiPostWithWarnings = <T = unknown>(path: string, body?: unknown) =
 export const apiPatchWithWarnings = <T = unknown>(path: string, body?: unknown) => callFull<T>("PATCH", path, body);
 
 export const apiGet = <T = unknown>(path: string) => call<T>("GET", path);
+
+/** GET a list route: the rows AND the envelope's `total` (apiGet drops it). `total` falls back to the row count. */
+export async function apiGetList<T = unknown>(path: string): Promise<{ data: T[]; total: number }> {
+  const r = await callFull<T[] | null>("GET", path);
+  const rows = Array.isArray(r.data) ? r.data : [];
+  return { data: rows, total: r.total ?? rows.length };
+}
 export const apiPost = <T = unknown>(path: string, body?: unknown) => call<T>("POST", path, body);
 export const apiPut = <T = unknown>(path: string, body?: unknown) => call<T>("PUT", path, body);
 export const apiPatch = <T = unknown>(path: string, body?: unknown) => call<T>("PATCH", path, body);

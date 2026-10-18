@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { sprintTaskAttachSchema } from "../../_schema";
@@ -72,16 +72,6 @@ export const POST = route(async ({ actor, params, request }) => {
     }
   }
 
-  const { data: updatedTask, error: attachError } = await db
-    .from("tasks")
-    .update({ sprint_id: sprint.id })
-    .eq("id", task.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (attachError) throw attachError;
-
   // Q-WRK-20: a task added after the sprint started was not part of the
   // commitment — mark it scope-added in the trail (the console derives the same
   // mark from committed_snapshot).
@@ -89,14 +79,18 @@ export const POST = route(async ({ actor, params, request }) => {
     sprint.state === "active" &&
     !Object.prototype.hasOwnProperty.call((sprint.committed_snapshot ?? {}) as Record<string, number>, task.id);
 
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The task row and the sprint-level audit row are one transaction (nopm_mutate_audited).
+  const { after: updatedTask } = await auditedUpdate({
+    table: "tasks",
     actor,
     action: "sprint.task_added",
     targetType: "sprint",
-    targetId: sprint.id,
-    before: null,
-    after: scopeAdded ? { task_id: task.id, scope_added: true } : { task_id: task.id },
+    auditTargetId: sprint.id,
+    id: task.id,
+    patch: { sprint_id: sprint.id },
+    notFoundMessage: "Task not found",
+    auditBefore: null,
+    auditAfter: scopeAdded ? { task_id: task.id, scope_added: true } : { task_id: task.id },
   });
 
   return ok(updatedTask);
@@ -146,24 +140,18 @@ export const DELETE = route(async ({ actor, params, request }) => {
     throw new RuleError("Task is not attached to this sprint");
   }
 
-  const { data: updatedTask, error: detachError } = await db
-    .from("tasks")
-    .update({ sprint_id: null })
-    .eq("id", task.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (detachError) throw detachError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The task row and the sprint-level audit row are one transaction (nopm_mutate_audited).
+  const { after: updatedTask } = await auditedUpdate({
+    table: "tasks",
     actor,
     action: "sprint.task_removed",
     targetType: "sprint",
-    targetId: sprint.id,
-    before: null,
-    after: { task_id: task.id },
+    auditTargetId: sprint.id,
+    id: task.id,
+    patch: { sprint_id: null },
+    notFoundMessage: "Task not found",
+    auditBefore: null,
+    auditAfter: { task_id: task.id },
   });
 
   return ok(updatedTask);

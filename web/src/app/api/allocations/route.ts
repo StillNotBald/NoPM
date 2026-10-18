@@ -2,7 +2,7 @@ import { z } from "zod";
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { okList, safeJson, validationError } from "@/lib/api/response";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocationSafe } from "@/lib/clash/detect";
@@ -88,25 +88,12 @@ export const POST = route(async ({ actor, request }) => {
       bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
-      const { data: row, error } = await db
-        .from("allocations")
-        .insert({
-          ...parsed.data,
-          workspace_id: actor.workspaceId,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      await writeAudit({
-        workspaceId: actor.workspaceId,
+      // Row and audit row are one transaction (nopm_mutate_audited, migration 0103).
+      const row = await auditedInsert({
+        table: "allocations",
         actor,
         action: "allocation.create",
-        targetType: "allocation",
-        targetId: row.id,
-        before: null,
-        after: row,
+        patch: { ...parsed.data },
       });
 
       // Detect over-allocation after writing the new allocation. Fail-soft: the

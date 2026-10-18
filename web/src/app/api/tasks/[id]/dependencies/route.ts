@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { ok, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert, auditedDelete } from "@/lib/audit/audited-write";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { wouldCreateCycle, type DependencyEdge } from "@/lib/schedule/would-create-cycle";
 import { z } from "zod";
@@ -191,29 +192,21 @@ export const POST = route(async ({ actor, params, request }) => {
   }
 
   // ── Insert ────────────────────────────────────────────────────────────────
-  const { data: dep, error: insertErr } = await db
-    .from("task_dependencies")
-    .insert({
-      workspace_id: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103); the audit
+  // row targets the successor task, as before.
+  const dep = await auditedInsert({
+    table: "task_dependencies",
+    actor,
+    action: "task_dependency.create",
+    targetType: "task",
+    auditTargetId: params.id,
+    patch: {
       project_id: successorTask.project_id,
       predecessor_id: input.predecessor_id,
       successor_id: params.id,
       type: input.type,
       lag_days: input.lag_days,
-    })
-    .select()
-    .single();
-
-  if (insertErr || !dep) throw new Error(insertErr?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "task_dependency.create",
-    targetType: "task",
-    targetId: params.id,
-    before: null,
-    after: dep,
+    },
   });
 
   return created(dep);
@@ -274,22 +267,16 @@ export const DELETE = route(async ({ actor, params, request }) => {
   if (findErr) throw new Error(findErr.message);
   if (!dep) throw new NotFoundError("Dependency not found");
 
-  const { error: delErr } = await db
-    .from("task_dependencies")
-    .delete()
-    .eq("id", dep.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (delErr) throw new Error(delErr.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited); the audit row targets the
+  // successor task, as before.
+  await auditedDelete({
+    table: "task_dependencies",
     actor,
     action: "task_dependency.delete",
     targetType: "task",
-    targetId: params.id,
-    before: dep,
-    after: null,
+    auditTargetId: params.id,
+    id: dep.id,
+    notFoundMessage: "Dependency not found",
   });
 
   return new NextResponse(null, { status: 204 });

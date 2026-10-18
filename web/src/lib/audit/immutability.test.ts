@@ -25,11 +25,27 @@ import { join } from "node:path";
 
 const MIGRATIONS_DIR = join(process.cwd(), "supabase", "migrations");
 
+/**
+ * The ONE sanctioned disable/enable pair (migration 0104, audit hash chain): the backfill that
+ * writes prev_hash/row_hash/chain_seq onto pre-existing rows needs the update guard off for
+ * the length of one transaction. The pair is recognised ONLY in the *_audit_hash_chain.sql
+ * file, ONLY for trg_audit_no_update, and only as disable ... enable in that order; the
+ * wrapped statements stay visible to every other pattern below. Anywhere else the plain
+ * disable pattern still fails the build.
+ */
+const SANCTIONED_FILE = /_audit_hash_chain\.sql$/;
+const SANCTIONED_PAIR =
+  /alter table audit_log disable trigger trg_audit_no_update;([\s\S]*?)alter table audit_log enable trigger trg_audit_no_update;/i;
+
+function stripSanctionedPair(name: string, sql: string): string {
+  return SANCTIONED_FILE.test(name) ? sql.replace(SANCTIONED_PAIR, "$1") : sql;
+}
+
 function readMigrationsInOrder(): { name: string; sql: string }[] {
   return readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith(".sql"))
     .sort() // filenames are timestamp-prefixed, so lexical sort == chronological order
-    .map((name) => ({ name, sql: readFileSync(join(MIGRATIONS_DIR, name), "utf8") }));
+    .map((name) => ({ name, sql: stripSanctionedPair(name, readFileSync(join(MIGRATIONS_DIR, name), "utf8")) }));
 }
 
 const WEAKENING_PATTERNS: { label: string; pattern: RegExp }[] = [
@@ -141,5 +157,44 @@ describe("audit_log TRUNCATE guard (migration 0050)", () => {
     expect(hit("bulk-grants all/truncate on all tables to anon/authenticated/public", "grant select on all tables in schema public to authenticated;")).toBe(false);
     expect(hit("default-grants all/truncate on tables to anon/authenticated/public", "alter default privileges in schema public grant all on tables to anon;")).toBe(true);
     expect(hit("default-grants all/truncate on tables to anon/authenticated/public", "alter default privileges in schema public revoke truncate on tables from anon;")).toBe(false);
+  });
+});
+
+describe("sanctioned backfill pair (migration 0104)", () => {
+  const raw = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql")).sort();
+  const hashChain = raw.filter((f) => SANCTIONED_FILE.test(f));
+  const text = (f: string) => readFileSync(join(MIGRATIONS_DIR, f), "utf8");
+
+  it("exactly one hash-chain migration exists", () => {
+    expect(hashChain).toHaveLength(1);
+  });
+
+  it("disables trg_audit_no_update once and re-enables it once, in that order, with the backfill between", () => {
+    const sql = text(hashChain[0]);
+    const disables = sql.match(/alter table audit_log disable trigger/gi) ?? [];
+    const enables = sql.match(/alter table audit_log enable trigger/gi) ?? [];
+    expect(disables).toHaveLength(1);
+    expect(enables).toHaveLength(1);
+    expect(SANCTIONED_PAIR.test(sql)).toBe(true);
+    const between = sql.match(SANCTIONED_PAIR)![1];
+    expect(between).toMatch(/update audit_log\s+set chain_seq = /i);
+    // The backfill writes only the three chain columns.
+    expect(between).not.toMatch(/set\s+(?:[^;]*,\s*)?(action|before|after|actor_|target_|workspace_id|created_at)/i);
+  });
+
+  it("no other migration disables or enables any trigger on audit_log", () => {
+    const offenders = raw
+      .filter((f) => !SANCTIONED_FILE.test(f))
+      .filter((f) => /alter table audit_log\s+(disable|enable)\s+trigger/i.test(text(f)));
+    expect(offenders).toEqual([]);
+  });
+
+  it("canary: the pair is stripped only in the hash-chain file", () => {
+    const pair = "alter table audit_log disable trigger trg_audit_no_update; update audit_log set chain_seq = 1; alter table audit_log enable trigger trg_audit_no_update;";
+    expect(/alter table audit_log\s+disable trigger/i.test(stripSanctionedPair("20261018000104_audit_hash_chain.sql", pair))).toBe(false);
+    expect(/alter table audit_log\s+disable trigger/i.test(stripSanctionedPair("20261018000200_other.sql", pair))).toBe(true);
+    // A disable of any other audit trigger, or one with no matching enable, is not sanctioned.
+    expect(/alter table audit_log\s+disable trigger/i.test(stripSanctionedPair("20261018000104_audit_hash_chain.sql", "alter table audit_log disable trigger trg_audit_no_delete; alter table audit_log enable trigger trg_audit_no_delete;"))).toBe(true);
+    expect(/alter table audit_log\s+disable trigger/i.test(stripSanctionedPair("20261018000104_audit_hash_chain.sql", "alter table audit_log disable trigger trg_audit_no_update;"))).toBe(true);
   });
 });

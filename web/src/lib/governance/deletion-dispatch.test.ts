@@ -28,8 +28,19 @@ describe("resolveDeletionCommitRpc — approve-route dispatch (devops-wave1b, U2
     expect(resolveDeletionCommitRpc("project")).toBe("nopm_commit_project_deletion");
   });
 
-  it.each(["milestone", "risk", "issue", "clash", "bogus", ""])(
-    "throws RuleError (422) for an unsupported target_type %j — milestones/risks/issues stay audit-only hard-delete (Decision 3), never a deletion_requests row",
+  // G8 (migration 0102): every governed record is deleted by request, one sibling RPC each.
+  it.each([
+    ["risk", "nopm_commit_risk_deletion"],
+    ["issue", "nopm_commit_issue_deletion"],
+    ["expense", "nopm_commit_expense_deletion"],
+    ["document", "nopm_commit_document_deletion"],
+    ["milestone", "nopm_commit_milestone_deletion"],
+  ])("resolves %j to its own commit RPC %j", (targetType, rpc) => {
+    expect(resolveDeletionCommitRpc(targetType)).toBe(rpc);
+  });
+
+  it.each(["clash", "program", "bogus", ""])(
+    "throws RuleError (422) for an unsupported target_type %j (clashes and programs are not governed records)",
     (targetType) => {
       expect(() => resolveDeletionCommitRpc(targetType)).toThrowError(RuleError);
       try {
@@ -53,13 +64,18 @@ describe("per-type decision-verb scope gates (adversarial-verify fix: task:delet
     expect(resolveDeletionRequestScope("project")).toBe("project:delete:request");
   });
 
-  it.each(["milestone", "risk", "issue", "bogus", ""])(
+  it.each(["clash", "program", "bogus", ""])(
     "both resolvers throw RuleError (422) for unsupported target_type %j",
     (targetType) => {
       expect(() => resolveDeletionApproveScope(targetType)).toThrowError(RuleError);
       expect(() => resolveDeletionRequestScope(targetType)).toThrowError(RuleError);
     },
   );
+
+  it.each(["risk", "issue", "expense", "document", "milestone"])("%s: approve and request scopes are its own", (t) => {
+    expect(resolveDeletionApproveScope(t)).toBe(`${t}:delete:approve`);
+    expect(resolveDeletionRequestScope(t)).toBe(`${t}:delete:request`);
+  });
 
   it("cross-type is never a subset: neither task scope grants the project verb, in either direction", () => {
     expect(resolveDeletionApproveScope("project")).not.toBe(resolveDeletionApproveScope("task"));

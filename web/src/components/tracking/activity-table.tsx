@@ -20,6 +20,11 @@ import { cn } from "@/lib/cn";
 import { useInspector } from "@/components/layout/app-shell";
 import { useModal } from "@/components/ui/modal";
 import { apiDelete, apiPost } from "@/lib/api-client";
+import {
+  DeletionRequestedBadge,
+  usePendingDeletionIds,
+  useRequestDeletion,
+} from "@/components/governance/request-deletion";
 import { MilestoneForm } from "@/components/forms/milestone-form";
 import { TaskForm } from "@/components/forms/task-form";
 import {
@@ -293,6 +298,7 @@ function MilestoneRow({
   milestones,
   tasks,
   onDelete,
+  deletionRequested = false,
   density,
   onRowClick,
 }: {
@@ -305,6 +311,8 @@ function MilestoneRow({
   /** Full project tasks list — forwarded to TaskForm for the Blocked-by picker. */
   tasks: Task[];
   onDelete: (id: string, name: string) => void;
+  /** A deletion request for this milestone is waiting for a second person (G8). */
+  deletionRequested?: boolean;
   density: Density;
   onRowClick: (milestone: Milestone) => void;
 }) {
@@ -415,14 +423,19 @@ function MilestoneRow({
           >
             <Pencil size={13} />
           </button>
-          <button
-            type="button"
-            onClick={() => onDelete(milestone.id, milestone.name)}
-            className={cn(ICON_BTN, "hover:text-danger-ink")}
-            aria-label={`Delete milestone ${milestone.name}`}
-          >
-            <Trash2 size={13} />
-          </button>
+          {deletionRequested ? (
+            <DeletionRequestedBadge />
+          ) : (
+            <button
+              type="button"
+              onClick={() => onDelete(milestone.id, milestone.name)}
+              className={cn(ICON_BTN, "hover:text-danger-ink")}
+              aria-label={`Request deletion of milestone ${milestone.name}`}
+              title="Request deletion (a different person approves it)"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       </td>
     </tr>
@@ -639,41 +652,16 @@ export function ActivityTable({
   }
 
   // Styled confirm-delete handlers (no window.confirm)
+  // G8: deleting a milestone raises a request a different person approves; nothing is removed here.
+  const { pending: pendingMilestoneDeletions, markRequested } = usePendingDeletionIds("milestone");
+  const requestMilestoneDeletion = useRequestDeletion("milestone", {
+    consequence: "Its tasks stay, but are unlinked from the milestone.",
+    onRequested: markRequested,
+    onError: setDeleteError,
+  });
   const confirmDeleteMilestone = (id: string, name: string) => {
     setDeleteError(null);
-    modal.open(
-      <div className="flex flex-col gap-5">
-        <p className="text-sm text-ink leading-relaxed">
-          Delete milestone <span className="font-semibold">&ldquo;{name}&rdquo;</span>?
-          All tasks within it will be unlinked. This cannot be undone.
-        </p>
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="ghost" size="sm" className="h-10" onClick={modal.close}>
-            Cancel
-          </Button>
-          <Button
-            variant="danger"
-            size="sm"
-            className="h-10"
-            onClick={async () => {
-              modal.close();
-              try {
-                await apiDelete(`/api/milestones/${id}`);
-                router.refresh();
-              } catch (err) {
-                setDeleteError(
-                  err instanceof Error ? err.message : "Delete failed. Please try again."
-                );
-              }
-            }}
-          >
-            <Trash2 size={13} className="mr-1.5" />
-            Delete milestone
-          </Button>
-        </div>
-      </div>,
-      { title: "Delete milestone?" }
-    );
+    requestMilestoneDeletion(id, name);
   };
 
   const confirmDeleteTask = (id: string, name: string) => {
@@ -761,6 +749,7 @@ export function ActivityTable({
         milestones={sortedMilestones}
         tasks={tasks}
         onDelete={confirmDeleteMilestone}
+        deletionRequested={pendingMilestoneDeletions.has(milestone.id)}
         density={density}
         onRowClick={openMilestoneInspector}
       />

@@ -11,6 +11,7 @@ import { cn } from "@/lib/cn";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { validateFields } from "@/lib/forms/validate";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
+import { BackupOwnerField, useBackupOwner } from "@/components/forms/backup-owner-field";
 
 // ── Data shape ────────────────────────────────────────────────────────────────
 export type ProjectPhase =
@@ -41,6 +42,8 @@ export interface Project {
   scope_summary?: string | null;
   sponsor?: string | null;
   project_manager?: string | null;
+  /** M6: a login who can run the project if its owner is away. */
+  backup_owner_id?: string | null;
   phase?: ProjectPhase | null;
   health_commentary?: string | null;
   baseline_start_date?: string | null;
@@ -281,6 +284,7 @@ export function ProjectForm({
     project?.baseline_target_date ?? "",
   );
 
+  const backup = useBackupOwner("projects", project?.id, project?.backup_owner_id);
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -326,6 +330,7 @@ export function ProjectForm({
       health_commentary: healthCommentary || null,
       baseline_start_date: baselineStartDate || null,
       baseline_target_date: baselineTargetDate || null,
+      ...backup.payload(mode === "edit"),
       // Optimistic concurrency (R-90) — only meaningful (and only sent) on
       // an edit of an existing record; a create has nothing to be stale.
       ...(mode === "edit" && project?.updated_at
@@ -525,6 +530,9 @@ export function ProjectForm({
               className="h-11 sm:h-10 text-base sm:text-sm"
             />
           </Field>
+
+          {/* Backup owner (M6) */}
+          <BackupOwnerField state={backup} error={fieldErrors.backup_owner_id} />
         </FormGrid>
       </FormSection>
 

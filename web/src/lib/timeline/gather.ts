@@ -25,7 +25,7 @@ export interface TLNode {
   onCriticalPath: boolean;
 }
 
-export type TLEdgeKind = "sequence" | "clash" | "feeder";
+export type TLEdgeKind = "sequence" | "clash" | "feeder" | "dependency";
 export interface TLEdge {
   from: string;
   to: string;
@@ -42,8 +42,19 @@ export interface TLProject {
   ragStatus: string;
 }
 
+/** One declared project-to-project dependency (R-147): `projectId` depends on `dependsOnProjectId`. */
+export interface TLProjectDependency {
+  id: string;
+  projectId: string;
+  dependsOnProjectId: string;
+  kind: "delivery" | "resource" | "decision" | "risk";
+  note: string | null;
+}
+
 export interface TLGraph {
   projects: TLProject[];
+  /** Cross-project dependency edges (project_dependencies). Same-project task edges stay in task_dependencies. */
+  projectDependencies: TLProjectDependency[];
   nodes: TLNode[];
   edges: TLEdge[];
   axis: { start: string; end: string; today: string; steercoDates: string[] };
@@ -85,7 +96,7 @@ export async function gatherTimeline(
     return (data ?? []) as unknown as Record<string, unknown>[];
   };
 
-  const [projects, milestones, tasks, risks, issues, decisions, documents, clashes] = await Promise.all([
+  const [projects, milestones, tasks, risks, issues, decisions, documents, clashes, projectDeps] = await Promise.all([
     pick("projects", "id, code, name, rag_status"),
     pick("milestones", "id, project_id, name, target_date, baseline_target_date, status, completion_pct"),
     pick("tasks", "id, project_id, name, start_date, due_date, status_type, completion_pct"),
@@ -94,6 +105,7 @@ export async function gatherTimeline(
     pick("decisions", "id, project_id, title, status, decided_at, created_at, reference_id"),
     pick("documents", "id, project_id, title, doc_type, status, created_at, reference_id"),
     pick("clashes", "id, title, type, project_a_id, project_b_id, window_start, reference_id"),
+    pick("project_dependencies", "id, project_id, depends_on_project_id, kind, note"),
   ]);
 
   // ── projects + stable colors (sorted by code) ────────────────────────────────
@@ -232,10 +244,27 @@ export async function gatherTimeline(
     if (ma && mb) edges.push({ from: ma.id as string, to: mb.id as string, kind: "clash", critical: false, label: String(c.reference_id ?? "clash") });
   }
 
+  // ── cross-project dependencies (R-147): the dependency's last milestone feeds the dependent's first ──
+  const projectDependencies: TLProjectDependency[] = [];
+  const knownProjects = new Set(projects.map((p) => p.id as string));
+  for (const d of projectDeps) {
+    const a = d.project_id as string, b = d.depends_on_project_id as string;
+    if (!knownProjects.has(a) || !knownProjects.has(b)) continue;
+    projectDependencies.push({
+      id: d.id as string, projectId: a, dependsOnProjectId: b,
+      kind: d.kind as TLProjectDependency["kind"], note: (d.note as string) ?? null,
+    });
+    const feeder = msByProject.get(b)?.at(-1), dependent = msByProject.get(a)?.[0];
+    if (feeder && dependent) {
+      edges.push({ from: feeder.id as string, to: dependent.id as string, kind: "dependency", critical: false, label: String(d.kind ?? "dependency") });
+    }
+  }
+
   const counts = nodes.reduce((acc, n) => { acc[n.kind] = (acc[n.kind] ?? 0) + 1; return acc; }, {} as Record<TLKind, number>);
 
   return {
     projects: tlProjects,
+    projectDependencies,
     nodes,
     edges,
     axis: { start: minD.toISOString().slice(0, 10), end: maxD.toISOString().slice(0, 10), today: TODAY, steercoDates },

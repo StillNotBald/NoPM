@@ -28,7 +28,7 @@ export function describeDeletionTarget(req: {
   before?: unknown;
 }): DeletionTarget {
   const before = isRow(req.before) ? req.before : {};
-  const name = clip(before.name ?? before.title, 120);
+  const name = clip(before.name ?? before.title ?? before.description, 120);
   const projectId =
     req.target_type === "project"
       ? req.target_id
@@ -41,6 +41,11 @@ export function describeDeletionTarget(req: {
 /** "Task “Cutover plan”" for accessible names and one-line titles; the type alone when unnamed. */
 export function targetPhrase(target: Pick<DeletionTarget, "type" | "name">): string {
   return target.name ? `${target.type} “${target.name}”` : target.type;
+}
+
+/** The heading above the counts: a milestone detaches its tasks, a project deletes its records. */
+export function childCountsHeading(targetType: string): string {
+  return targetType === "milestone" ? "Approving also detaches:" : "Approving also deletes:";
 }
 
 // ── What a project deletion also takes with it (D2 / Q-GOV-12) ────────────────
@@ -81,14 +86,17 @@ const GOVERNED = new Set(["change_requests", "decisions", "documents", "rebaseli
  * exist (generic), skips the reserved `_scope` fingerprint and nested objects,
  * and puts governed records last so the approver sees them called out.
  */
-export function describeChildCounts(before: unknown): ChildCountLine[] {
+export function describeChildCounts(before: unknown, targetType?: string): ChildCountLine[] {
   const counts = isRow(before) && isRow(before.child_counts) ? before.child_counts : {};
   const lines: ChildCountLine[] = [];
   for (const [key, value] of Object.entries(counts)) {
     if (key.startsWith("_") || typeof value !== "number" || !(value > 0)) continue;
     lines.push({
       key,
-      label: CHILD_LABELS[key] ?? key.replace(/_/g, " "),
+      label:
+        targetType === "milestone" && key === "tasks"
+          ? "tasks (kept, no longer under this milestone)"
+          : (CHILD_LABELS[key] ?? key.replace(/_/g, " ")),
       count: value,
       governed: GOVERNED.has(key),
     });

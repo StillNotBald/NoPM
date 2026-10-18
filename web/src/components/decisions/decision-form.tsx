@@ -1,16 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
-import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
-import { createDecisionSchema } from "@/app/api/decisions/_schema";
+import { createDecisionSchema, type DecisionOption } from "@/app/api/decisions/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
@@ -31,11 +31,23 @@ export interface Decision {
   decided_by_label: string | null;
   decided_at: string | null;
   supersedes: string | null;
+  /** B1: the change request this decision was taken for. */
+  change_request_id?: string | null;
+  /** B1: options considered, with the chosen one marked. The free-text options stays. */
+  options_structured?: DecisionOption[] | null;
   created_at: string;
   updated_at: string;
 }
 
 type Project = { id: string; name: string };
+type LinkableChange = { id: string; reference_id: string | null; title: string };
+
+/** Rows with a label become options; blank rows are dropped. */
+export function cleanOptions(rows: Array<{ label: string; chosen: boolean; note: string }>): DecisionOption[] {
+  return rows
+    .filter((r) => r.label.trim() !== "")
+    .map((r) => ({ label: r.label.trim(), chosen: r.chosen, note: r.note.trim() || null }));
+}
 
 // ── DecisionForm ──────────────────────────────────────────────────────────────
 
@@ -67,6 +79,11 @@ export function DecisionForm({
   const [showRationale, setShowRationale] = useState(
     !!(decision?.rationale && decision.rationale.trim().length > 0),
   );
+  const [changeRequestId, setChangeRequestId] = useState(decision?.change_request_id ?? "");
+  const [linkable, setLinkable] = useState<LinkableChange[]>([]);
+  const [optionRows, setOptionRows] = useState<Array<{ label: string; chosen: boolean; note: string }>>(
+    (decision?.options_structured ?? []).map((o) => ({ label: o.label, chosen: !!o.chosen, note: o.note ?? "" })),
+  );
   const [status, setStatus] = useState<DecisionStatus | "default">(decision?.status ?? "default");
   const [decidedAt, setDecidedAt] = useState(
     decision?.decided_at?.slice(0, 10) ?? "",
@@ -75,6 +92,22 @@ export function DecisionForm({
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // B1: the change requests of the chosen project, to link this decision to one.
+  useEffect(() => {
+    if (!projectId) return;
+    let live = true;
+    apiGet<LinkableChange[]>("/api/projects/" + projectId + "/change-requests?fields=reference_id,title&limit=100")
+      .then((rows) => {
+        if (live) setLinkable(Array.isArray(rows) ? rows : []);
+      })
+      .catch(() => {
+        if (live) setLinkable([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [projectId]);
 
   function applyApiError(err: ApiError) {
     setTopError(err.message ?? "An error occurred.");
@@ -98,6 +131,8 @@ export function DecisionForm({
       rationale: rationale.trim() || null,
       status: status === "default" ? undefined : status,
       decided_at: decidedAt || null,
+      change_request_id: changeRequestId || null,
+      options_structured: cleanOptions(optionRows),
     });
     if (!clientResult.success) {
       const map: Record<string, string> = {};
@@ -120,6 +155,8 @@ export function DecisionForm({
       // "default": the server picks accepted for managers/admins, proposed for everyone else.
       ...(status === "default" ? {} : { status }),
       decided_at: decidedAt || null,
+      change_request_id: changeRequestId || null,
+      options_structured: cleanOptions(optionRows).length > 0 ? cleanOptions(optionRows) : null,
     };
 
     try {
@@ -170,7 +207,10 @@ export function DecisionForm({
                   <FieldLabel>Project</FieldLabel>
                   <SelectInput
                     value={projectId}
-                    onChange={(e) => setProjectId(e.target.value)}
+                    onChange={(e) => {
+                      setProjectId(e.target.value);
+                      setChangeRequestId("");
+                    }}
                   >
                     {projects.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -198,6 +238,25 @@ export function DecisionForm({
                   <option value="rejected">Rejected</option>
                 </SelectInput>
                 <FieldError message={fieldErrors.status} />
+              </div>
+
+              {/* B1: link to the change request this decision was taken for */}
+              <div className="col-span-2">
+                <FieldLabel>Change request</FieldLabel>
+                <SelectInput
+                  aria-label="Change request"
+                  value={changeRequestId}
+                  onChange={(e) => setChangeRequestId(e.target.value)}
+                >
+                  <option value="">None</option>
+                  {linkable.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.reference_id ? c.reference_id + " " : ""}
+                      {c.title}
+                    </option>
+                  ))}
+                </SelectInput>
+                <FieldError message={fieldErrors.change_request_id} />
               </div>
 
               {/* Decided Date */}
@@ -244,7 +303,7 @@ export function DecisionForm({
               <button
                 type="button"
                 onClick={() => setShowContext(true)}
-                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+                className="mr-4 text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
               >
                 + Add context
               </button>
@@ -266,11 +325,66 @@ export function DecisionForm({
               <button
                 type="button"
                 onClick={() => setShowOptions(true)}
-                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+                className="mr-4 text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
               >
                 + Add options considered
               </button>
             )}
+
+            {/* B1: options as a list, with the chosen one marked (the text box above stays) */}
+            <fieldset className="space-y-2">
+              <legend className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                Options as a list
+              </legend>
+              {optionRows.map((row, i) => (
+                <div key={i} className="space-y-1.5 rounded-md border border-border-subtle p-2">
+                  <Input
+                    aria-label={"Option " + (i + 1) + " label"}
+                    value={row.label}
+                    onChange={(e) =>
+                      setOptionRows((rows) => rows.map((r, j) => (j === i ? { ...r, label: e.target.value } : r)))
+                    }
+                    placeholder="Option"
+                    className="h-11 sm:h-10 text-base sm:text-sm"
+                  />
+                  <Input
+                    aria-label={"Option " + (i + 1) + " note"}
+                    value={row.note}
+                    onChange={(e) =>
+                      setOptionRows((rows) => rows.map((r, j) => (j === i ? { ...r, note: e.target.value } : r)))
+                    }
+                    placeholder="Note (optional)"
+                    className="h-11 sm:h-10 text-base sm:text-sm"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="flex min-h-[44px] items-center gap-2 text-sm text-ink sm:min-h-9">
+                      <input
+                        type="radio"
+                        name="chosen-option"
+                        checked={row.chosen}
+                        onChange={() => setOptionRows((rows) => rows.map((r, j) => ({ ...r, chosen: j === i })))}
+                      />
+                      Chosen
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setOptionRows((rows) => rows.filter((_, j) => j !== i))}
+                      className="min-h-[44px] px-2 text-xs text-ink-muted hover:text-ink sm:min-h-9"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setOptionRows((rows) => [...rows, { label: "", chosen: false, note: "" }])}
+                className="min-h-[44px] text-[12px] text-ink-muted hover:text-ink transition-colors duration-200 sm:min-h-9"
+              >
+                + Add an option
+              </button>
+              <FieldError message={fieldErrors.options_structured} />
+            </fieldset>
 
             {/* Rationale — progressive disclosure */}
             {showRationale ? (
@@ -288,7 +402,7 @@ export function DecisionForm({
               <button
                 type="button"
                 onClick={() => setShowRationale(true)}
-                className="text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
+                className="mr-4 text-[12px] text-ink-muted hover:text-ink transition-colors duration-200"
               >
                 + Add rationale
               </button>

@@ -171,8 +171,11 @@ async function raiseChange(caller) {
   expectEqual(r.status, 201, `raising a change request failed: ${r.text.slice(0, 200)}`);
   return r.json.data.id;
 }
-const decide = (id, caller, decision = "approve") =>
-  call("POST", `/api/change-requests/${id}/decision`, { ...caller, body: { decision, rationale: "probe decision" } });
+// approve/reject must name the version read (expected_updated_at, Q-GOV-13); read it from the row with microseconds kept.
+const decide = async (id, caller, decision = "approve") => {
+  const v = (await pgc.query(`select to_char(updated_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as v from change_requests where id = $1`, [id])).rows[0]?.v;
+  return call("POST", `/api/change-requests/${id}/decision`, { ...caller, body: { decision, rationale: "probe decision", expected_updated_at: v } });
+};
 
 await report.check("API11", "change request: A's PAT cannot decide A's session-raised request; wildcard cannot; B's PAT can; replay 422", async () => {
   const id = await raiseChange({ cookie: cookies.a });

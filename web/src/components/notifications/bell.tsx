@@ -9,7 +9,7 @@ import { Portal } from "@/components/ui/portal";
 import { QUERY_LG_UP, useMediaQuery } from "@/lib/hooks/use-media-query";
 import { useDialog, useEscapeClose, useReturnFocus } from "@/lib/hooks/use-sheet";
 import { safeNotificationHref } from "./href";
-import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
+import { apiGetList, apiPatch, apiPost } from "@/lib/api-client";
 // @supabase/ssr + supabase-js are loaded lazily inside the realtime effect
 // below (not at module scope) so they leave the shared shell's initial chunk —
 // this component mounts on every page via app-shell.tsx, but only the bell's
@@ -41,14 +41,6 @@ interface Notification {
   read: boolean;
   created_at: string;
   payload?: { href?: string };
-}
-
-/** Shape of the list API response (after apiGet unwraps { data }). */
-interface NotificationsListResponse {
-  data: DbNotification[];
-  total: number;
-  page: number;
-  limit: number;
 }
 
 function dbToUi(n: DbNotification): Notification {
@@ -120,8 +112,8 @@ export function NotificationBell() {
   const fetchCount = useCallback(async () => {
     try {
       // unread=1 returns only unread rows; we use total as the unread count
-      const data = await apiGet<NotificationsListResponse>("/api/notifications?unread=1&limit=1");
-      setUnreadCount(data.total ?? 0);
+      const { total } = await apiGetList<DbNotification>("/api/notifications?unread=1&limit=1");
+      setUnreadCount(total);
     } catch {
       // silently ignore — bell is non-critical UI
     }
@@ -131,8 +123,8 @@ export function NotificationBell() {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiGet<NotificationsListResponse>("/api/notifications?limit=30");
-      const items = (data.data ?? []).map(dbToUi);
+      const { data } = await apiGetList<DbNotification>("/api/notifications?limit=30");
+      const items = data.map(dbToUi);
       setNotifications(items);
       setUnreadCount(items.filter((n) => !n.read).length);
     } catch {

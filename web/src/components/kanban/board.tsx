@@ -20,7 +20,8 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { Severity } from "@/components/ui/severity";
 import { cn } from "@/lib/cn";
-import { STALE_STATUS_AGE_DAYS } from "@/lib/insight/status-age";
+import { isStaleAge } from "@/lib/insight/status-age";
+import { useStaleDays } from "@/lib/nudges/use-stale-days";
 import { useInspector } from "@/components/layout/app-shell";
 import { TaskDetailPanel } from "@/components/tracking/detail-panel";
 import type { Milestone, Task as RichTask } from "@/components/tracking/activity-table";
@@ -113,7 +114,9 @@ function TaskCard({ task, moveState, dragEnabled, onOpen }: TaskCardProps) {
   // next full page load/refresh, same as the rest of this board's local state.
   const statusAgeDays = typeof task.status_age_days === "number" ? task.status_age_days : null;
   const statusAgeSince = task.status_age_since === "created" ? "created" : "status_change";
-  const isStale = statusAgeDays !== null && statusAgeDays > STALE_STATUS_AGE_DAYS;
+  // R-141: the threshold is the workspace's "stale after N days" setting.
+  const staleDays = useStaleDays();
+  const isStale = isStaleAge(statusAgeDays, staleDays);
 
   return (
     <div

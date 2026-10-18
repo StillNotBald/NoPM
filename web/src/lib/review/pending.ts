@@ -5,7 +5,9 @@
  * Review Queue (gather.ts). One read-only listing of every GOVERNED decision
  * that is waiting on a human, across the maker-checker families:
  *
- *   task_deletion / project_deletion   deletion_requests   status 'pending'
+ *   task_deletion / project_deletion / risk_deletion / issue_deletion / expense_deletion /
+ *   document_deletion / milestone_deletion
+ *                                      deletion_requests   status 'pending' (one kind per target_type, G8)
  *   change_request                     change_requests     status raised | under_review
  *   rebaseline                         rebaselines         status 'pending_approval'
  *
@@ -34,6 +36,13 @@
  * read are reported in `hidden_kinds` (an empty list must not be mistaken for
  * "nothing is waiting"); a caller who can read none of them gets a 403.
  *
+ * Assignment (G5): a request may name the approver it waits for
+ * (assigned_approver_id, set on raise, always an admin or manager). Each item
+ * says whether it is assigned to THIS caller (`assigned_to_me`, compared by
+ * person like four-eyes) and `mine: true` narrows the queue to those. Assignment
+ * is routing only: it never changes `can_decide`. A caller with no resolvable
+ * person has nothing assigned to them, so `mine` is an empty queue for them.
+ *
  * Workspace isolation: token callers run on the admin client (RLS bypassed),
  * so EVERY query here filters `workspace_id`. A failing query throws (-> 500)
  * rather than counting as empty: an absent check must never look like a pass.
@@ -41,10 +50,26 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Actor } from "@/lib/auth/guard";
 import { ScopeError } from "@/lib/api/errors";
+import { DELETION_KIND_BY_TARGET, deletionKindFor, isDeletionKind, targetTypeOfDeletionKind } from "@/lib/integrations/types";
+import { describeChildCounts, type ChildCountLine } from "./deletion-target";
+import {
+  isRetroOverdue,
+  loadApprovalPolicy,
+  policyOf,
+  roleMeetsTier,
+  tierOf,
+  tierRoleMessage,
+  approverRoleFor,
+} from "@/lib/governance/tiers";
 
 export const PENDING_KINDS = [
   "task_deletion",
   "project_deletion",
+  "risk_deletion",
+  "issue_deletion",
+  "expense_deletion",
+  "document_deletion",
+  "milestone_deletion",
   "change_request",
   "rebaseline",
 ] as const;
@@ -63,6 +88,25 @@ export interface PendingItem {
   can_decide: boolean;
   /** Why the caller cannot decide; null when `can_decide` is true. */
   reason_if_not: string | null;
+  /** The approver this request was assigned to on raise (profile id); null = nobody in particular. */
+  assigned_approver_id: string | null;
+  /** True when it is assigned to the person behind the caller. */
+  assigned_to_me: boolean;
+  /**
+   * Deletions only: what approving also removes or detaches, as the request recorded it (project: its
+   * records; milestone: its tasks). Empty for a record with nothing under it, and for other kinds.
+   */
+  removes: Pick<ChildCountLine, "label" | "count" | "governed">[];
+  /**
+   * Approval-tier fields (wave 4). Null when the database has not got the column yet or the
+   * request carries none: absent, never guessed.
+   */
+  tier: string | null;
+  approval_deadline_at: string | null;
+  retro_due_at: string | null;
+  /** True for an emergency change still owed its retro approval. Computed, not stored. */
+  retro_overdue: boolean | null;
+  is_emergency: boolean;
 }
 
 export interface PendingResult {
@@ -80,6 +124,8 @@ export interface PendingOptions {
   limit?: number;
   /** Restrict to these kinds (default: all). */
   kinds?: readonly PendingKind[];
+  /** Only requests assigned to the person behind the caller (G5). */
+  mine?: boolean;
 }
 
 /**
@@ -99,6 +145,11 @@ export const MAX_WINDOW = 1000;
 export const READ_SCOPES: Readonly<Record<PendingKind, readonly string[]>> = {
   task_deletion: ["task:read", "audit:read"],
   project_deletion: ["task:read", "audit:read"],
+  risk_deletion: ["risk:read", "audit:read"],
+  issue_deletion: ["issue:read", "audit:read"],
+  expense_deletion: ["budget:read", "audit:read"],
+  document_deletion: ["document:read", "audit:read"],
+  milestone_deletion: ["milestone:read", "audit:read"],
   change_request: ["change:read"],
   rebaseline: ["project:read"],
 };
@@ -107,6 +158,11 @@ export const READ_SCOPES: Readonly<Record<PendingKind, readonly string[]>> = {
 export const DECIDE_SCOPES: Readonly<Record<PendingKind, string>> = {
   task_deletion: "task:delete:approve",
   project_deletion: "project:delete:approve",
+  risk_deletion: "risk:delete:approve",
+  issue_deletion: "issue:delete:approve",
+  expense_deletion: "expense:delete:approve",
+  document_deletion: "document:delete:approve",
+  milestone_deletion: "milestone:delete:approve",
   change_request: "change:decide",
   rebaseline: "rebaseline:approve",
 };
@@ -197,9 +253,9 @@ type Candidate = {
 };
 
 function kindOfDeletion(row: Row): PendingKind | null {
-  if (row.target_type === "task") return "task_deletion";
-  if (row.target_type === "project") return "project_deletion";
-  return null;
+  return Object.prototype.hasOwnProperty.call(DELETION_KIND_BY_TARGET, String(row.target_type))
+    ? deletionKindFor(String(row.target_type))
+    : null;
 }
 
 /** Who raised the request, as the row records it (no lookups). */
@@ -211,10 +267,10 @@ export function requesterOf(c: Pick<Candidate, "kind" | "row">): Requester {
   const explicit: string | null =
     (typeof r.requested_principal_id === "string" && r.requested_principal_id) ||
     null;
+  if (isDeletionKind(c.kind)) {
+    return { type: r.requested_by_type ?? null, id: r.requested_by_id ?? null, principal: explicit };
+  }
   switch (c.kind) {
-    case "task_deletion":
-    case "project_deletion":
-      return { type: r.requested_by_type ?? null, id: r.requested_by_id ?? null, principal: explicit };
     case "change_request": {
       // Pre-0043 rows carry only the profile-id `requested_by`.
       const type = r.requested_by_type ?? (r.requested_by ? "user" : null);
@@ -228,11 +284,9 @@ export function requesterOf(c: Pick<Candidate, "kind" | "row">): Requester {
 
 function projectIdOf(c: Candidate): string | null {
   const r = c.row;
+  if (c.kind === "project_deletion") return typeof r.target_id === "string" ? r.target_id : null;
+  if (isDeletionKind(c.kind)) return typeof r.before?.project_id === "string" ? r.before.project_id : null;
   switch (c.kind) {
-    case "task_deletion":
-      return typeof r.before?.project_id === "string" ? r.before.project_id : null;
-    case "project_deletion":
-      return typeof r.target_id === "string" ? r.target_id : null;
     case "change_request":
     case "rebaseline":
       return typeof r.project_id === "string" ? r.project_id : null;
@@ -277,7 +331,7 @@ async function lookup(
 
 export async function listPendingApprovals(
   db: SupabaseClient,
-  actor: Pick<Actor, "type" | "id" | "workspaceId" | "principalId">,
+  actor: Pick<Actor, "type" | "id" | "workspaceId" | "principalId"> & { role?: string | null; principalRole?: string | null },
   checkScope: ScopeProbe,
   opts: PendingOptions = {},
 ): Promise<PendingResult> {
@@ -291,9 +345,8 @@ export async function listPendingApprovals(
   const visible = PENDING_KINDS.filter((k) => READ_SCOPES[k].some((s) => checkScope(s) === null));
   const hidden_kinds = PENDING_KINDS.filter((k) => !visible.includes(k));
   if (visible.length === 0) {
-    throw new ScopeError(
-      "API token is missing a read scope for approvals: needs one of task:read, audit:read, change:read, project:read",
-    );
+    const needed = [...new Set(Object.values(READ_SCOPES).flat())].join(", ");
+    throw new ScopeError(`API token is missing a read scope for approvals: needs one of ${needed}`);
   }
   const wanted = opts.kinds ? visible.filter((k) => opts.kinds!.includes(k)) : [...visible];
   if (opts.kinds && opts.kinds.length > 0 && wanted.length === 0) {
@@ -303,23 +356,29 @@ export async function listPendingApprovals(
     throw new ScopeError(`API token is missing a read scope for the requested approvals: needs one of ${needed}`);
   }
 
-  const wantsDeletion = wanted.some((k) => k === "task_deletion" || k === "project_deletion");
-  const deletionTypes = [
-    ...(wanted.includes("task_deletion") ? ["task"] : []),
-    ...(wanted.includes("project_deletion") ? ["project"] : []),
-  ];
+  const wantedDeletions = wanted.filter(isDeletionKind);
+  const wantsDeletion = wantedDeletions.length > 0;
+  const deletionTypes: string[] = wantedDeletions.map((k) => targetTypeOfDeletionKind(k));
+
+  const actorPrincipal = resolveActorPrincipal(actor);
+  // G5: "mine" = assigned to the person behind the caller. No person, nothing assigned.
+  if (opts.mine && !actorPrincipal) return { items: [], total: 0, page, limit, hidden_kinds };
+  const onlyMine = (q: any) => (opts.mine ? q.eq("assigned_approver_id", actorPrincipal) : q); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   const [deletions, changes, rebaselines] = await Promise.all([
     wantsDeletion
       ? fetchSource(db, "deletion_requests", ws, "created_at", window, (q) =>
-          q.eq("status", "pending").in("target_type", deletionTypes),
+          onlyMine(q.eq("status", "pending").in("target_type", deletionTypes)),
         )
       : { rows: [], count: 0 },
     wanted.includes("change_request")
-      ? fetchSource(db, "change_requests", ws, "raised_at", window, (q) => q.in("status", ["raised", "under_review"]))
+      ? fetchSource(db, "change_requests", ws, "raised_at", window, (q) =>
+          // Waiting = raised, under review or emergency; or an implemented emergency change whose retro decision is owed.
+          onlyMine(q.or("status.in.(raised,under_review,emergency),and(status.eq.implemented,is_emergency.eq.true,retro_decided_at.is.null)")),
+        )
       : { rows: [], count: 0 },
     wanted.includes("rebaseline")
-      ? fetchSource(db, "rebaselines", ws, "created_at", window, (q) => q.eq("status", "pending_approval"))
+      ? fetchSource(db, "rebaselines", ws, "created_at", window, (q) => onlyMine(q.eq("status", "pending_approval")))
       : { rows: [], count: 0 },
   ]);
 
@@ -365,7 +424,12 @@ export async function listPendingApprovals(
     profiles.map((p) => [p.id as string, (p.display_name || p.email || null) as string | null]),
   );
 
-  const actorPrincipal = resolveActorPrincipal(actor);
+  // Who may decide which tier (W4-A): the workspace policy, and the role of the human behind the caller.
+  // A caller whose role is not known here is left to the decision route, which re-checks.
+  const now = new Date();
+  const actorRole = actor.type === "user" ? actor.role : actor.principalRole;
+  const policy = actorRole === undefined ? policyOf({}) : await loadApprovalPolicy(db as never, ws);
+
   // Probe each decide scope once, not once per row.
   const scopeProblems = new Map<PendingKind, string | null>();
   const scopeProblem = (kind: PendingKind) => {
@@ -385,27 +449,40 @@ export async function listPendingApprovals(
             : null;
     }
     const projectId = projectIdOf(c);
-    const verdict = evaluateDecision({
+    let verdict = evaluateDecision({
       actor,
       actorPrincipal,
       requester,
       scopeProblem: scopeProblem(c.kind),
     });
+    if (verdict.can_decide && actorRole !== undefined) {
+      const rowTier = r.is_emergency === true ? "emergency" : tierOf(r);
+      if (!roleMeetsTier(actorRole, rowTier, policy)) {
+        verdict = { can_decide: false, reason_if_not: tierRoleMessage(approverRoleFor(rowTier, policy)) };
+      }
+    }
 
     let title: string;
     let summary: string | null = null;
     let label: string | null = null;
     switch (c.kind) {
       case "task_deletion":
-        title = `Delete task: ${clip(r.before?.name ?? r.before?.title, 120) ?? r.target_id}`;
-        summary = clip(r.reason, 240);
-        label = r.requested_by_label ?? null;
-        break;
       case "project_deletion":
-        title = `Delete project: ${clip(r.before?.name, 120) ?? projectName.get(r.target_id) ?? r.target_id}`;
+      case "risk_deletion":
+      case "issue_deletion":
+      case "expense_deletion":
+      case "document_deletion":
+      case "milestone_deletion": {
+        const type = targetTypeOfDeletionKind(c.kind);
+        const name =
+          clip(r.before?.name ?? r.before?.title ?? r.before?.description, 120) ??
+          (type === "project" ? projectName.get(r.target_id) : undefined) ??
+          r.target_id;
+        title = `Delete ${type}: ${name}`;
         summary = clip(r.reason, 240);
         label = r.requested_by_label ?? null;
         break;
+      }
       case "change_request":
         title = `Change request${r.reference_id ? ` ${r.reference_id}` : ""}: ${clip(r.title, 120) ?? "(untitled)"}`;
         summary = [r.status, r.category, r.priority ? `${r.priority} priority` : null].filter(Boolean).join(" · ") || null;
@@ -431,6 +508,20 @@ export async function listPendingApprovals(
       requested_at: c.requested_at,
       can_decide: verdict.can_decide,
       reason_if_not: verdict.reason_if_not,
+      assigned_approver_id: typeof r.assigned_approver_id === "string" ? r.assigned_approver_id : null,
+      assigned_to_me: !!actorPrincipal && r.assigned_approver_id === actorPrincipal,
+      removes: isDeletionKind(c.kind)
+        ? describeChildCounts(r.before, targetTypeOfDeletionKind(c.kind)).map(({ label: what, count, governed }) => ({
+            label: what,
+            count,
+            governed,
+          }))
+        : [],
+      tier: r.is_emergency === true ? "emergency" : typeof r.tier === "string" && r.tier ? r.tier : null,
+      approval_deadline_at: typeof r.approval_deadline_at === "string" ? r.approval_deadline_at : null,
+      retro_due_at: typeof r.retro_due_at === "string" ? r.retro_due_at : null,
+      retro_overdue: c.kind === "change_request" ? isRetroOverdue(r, now) : null,
+      is_emergency: r.is_emergency === true,
     };
   });
 

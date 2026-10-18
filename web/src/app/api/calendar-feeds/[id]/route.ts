@@ -1,8 +1,8 @@
 import { route } from "@/lib/api/handler";
-import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { ok } from "@/lib/api/response";
 import { feedOwner, isFeedAdmin } from "@/lib/calendar/feeds";
 
@@ -44,29 +44,26 @@ export const DELETE = route(async ({ actor, params }) => {
   // Revoking twice is a refused request, not a second audit row.
   if (feed.revoked_at) throw new RuleError("Calendar feed is already revoked", "already_revoked");
 
-  // Compare-and-set on revoked_at, so two concurrent revokes cannot both
-  // write an audit row for the same change.
-  const { data: updated, error: updateError } = await db
-    .from("calendar_feeds")
-    .update({ revoked_at: new Date().toISOString() })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .is("revoked_at", null)
-    .select(SAFE_COLUMNS)
-    .maybeSingle();
-
-  if (updateError) throw updateError;
-  if (!updated) throw new RuleError("Calendar feed is already revoked", "already_revoked");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "calendar_feed.revoke",
-    targetType: "calendar_feed",
-    targetId: params.id,
-    before: feed,
-    after: updated,
-  });
+  // Compare-and-set on revoked_at (requireNull), so two concurrent revokes cannot both
+  // write an audit row for the same change. Row and audit row are one transaction
+  // (nopm_mutate_audited); the token hash is never read back.
+  let written;
+  try {
+    ({ after: written } = await auditedUpdate({
+      table: "calendar_feeds",
+      actor,
+      action: "calendar_feed.revoke",
+      id: params.id,
+      patch: { revoked_at: new Date().toISOString() },
+      requireNull: "revoked_at",
+      omitColumns: ["token_hash", "workspace_id"],
+      notFoundMessage: "Calendar feed not found",
+    }));
+  } catch (error) {
+    if (error instanceof PreconditionFailedError) throw new RuleError("Calendar feed is already revoked", "already_revoked");
+    throw error;
+  }
+  const updated = Object.fromEntries(SAFE_COLUMNS.split(", ").map((c) => [c, written[c]]));
 
   return ok(updated);
 });

@@ -3,7 +3,7 @@ import { changeRequestEvent, projectNameOf } from "@/lib/governance/decide";
 import { runApprovalRequested } from "@/lib/integrations/emit";
 import { rebaselineEvent, type RebaselineRow } from "@/lib/integrations/rebaseline-approval";
 import { sanitizeError } from "@/lib/integrations/secrets";
-import type { ApprovalEvent } from "@/lib/integrations/types";
+import { DELETION_KIND_BY_TARGET, deletionKindFor, type ApprovalEvent } from "@/lib/integrations/types";
 
 /**
  * D-ACC-7: approval requests raised while the connector was paused (or before
@@ -51,15 +51,16 @@ export async function catchUpPendingApprovals(workspaceId: string): Promise<{ co
     const out: ApprovalEvent[] = [];
     for (const r of (data ?? []) as Row[]) {
       const isProject = r.target_type === "project";
-      if (!isProject && r.target_type !== "task") continue;
+      if (!Object.prototype.hasOwnProperty.call(DELETION_KIND_BY_TARGET, String(r.target_type))) continue;
       const before = (r.before ?? {}) as Row;
-      const name = typeof before.name === "string" ? before.name : String(r.target_id);
+      const label = before.name ?? before.title ?? before.description;
+      const name = typeof label === "string" ? label : String(r.target_id);
       const projectId = isProject ? String(r.target_id) : ((before.project_id as string | undefined) ?? null);
       out.push({
         workspaceId,
-        kind: isProject ? "project_deletion" : "task_deletion",
+        kind: deletionKindFor(String(r.target_type)),
         id: String(r.id),
-        title: isProject ? `Delete project "${name}"` : `Delete task "${name}"`,
+        title: `Delete ${String(r.target_type)} "${name}"`,
         summary: (r.reason as string | null) ?? null,
         projectId,
         projectName: isProject ? name : await projectNameOf(db, workspaceId, projectId),
@@ -75,12 +76,25 @@ export async function catchUpPendingApprovals(workspaceId: string): Promise<{ co
       .from("change_requests")
       .select("*")
       .eq("workspace_id", workspaceId)
-      .in("status", ["raised", "under_review"])
+      .in("status", ["raised", "under_review", "emergency"])
       .order("created_at", { ascending: true })
       .limit(CATCH_UP_LIMIT_PER_KIND);
     if (error) throw error;
+    // W4-09: a live emergency change still owing its retro decision is pending too.
+    const live = await db
+      .from("change_requests")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .eq("status", "implemented")
+      .eq("is_emergency", true)
+      .is("retro_decided_at", null)
+      .order("created_at", { ascending: true })
+      .limit(CATCH_UP_LIMIT_PER_KIND);
+    if (live.error) throw live.error;
     const out: ApprovalEvent[] = [];
-    for (const r of (data ?? []) as Row[]) out.push(await changeRequestEvent(db, workspaceId, r as never));
+    for (const r of [...((data ?? []) as Row[]), ...((live.data ?? []) as Row[])]) {
+      out.push(await changeRequestEvent(db, workspaceId, r as never));
+    }
     return out;
   });
 

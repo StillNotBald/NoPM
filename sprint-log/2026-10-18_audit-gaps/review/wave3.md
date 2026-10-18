@@ -1,0 +1,99 @@
+# Wave 3 review (W3-A handover, W3-B nudges and reports, W3-C forecast and trends, W3-D cross-project)
+
+Reviewer: wave-3 reviewer. One pass, read-only. Branch `feat/audit-gaps-2026-10-18`, wave 3 uncommitted.
+Checked: `tsc --noEmit` is clean. Full `vitest run`: 5963 pass, 15 fail. Thirteen of the failures are OpenAPI/llms coverage (docs agent, ignored). The other two are listed as F4 and F13.
+
+## Findings
+
+| ID | Severity | Area | File:line | What is wrong | Fix (one line) | Owner |
+|---|---|---|---|---|---|---|
+| F1 | P1 | Nudges / identity | `web/src/lib/nudges/stale.ts:91,138,192` | `tasks.assignee_id` is a `resource_members.id` (since 0019), but the recipient is looked up as a `profiles.id`. Every assigned stale task is counted "unassigned" and never nudged. Only risks and issues work. | Map task assignee through `resource_members.profile_id` (as `handover/report.ts` does) before the membership check; fall back to the project owner when the member has no login. | W3-B |
+| F2 | P1 | Test masking | `web/src/lib/nudges/stale.test.ts:31,90,109` | The tests seed `assignee_id: ids.member` with a profile id, so F1 passes. The recipient assertion is vacuous for tasks. | Seed a `resource_members` row with `profile_id` and assert the notification goes to that profile. | W3-B |
+| F3 | P1 | Migration 0099 x deletion guard | `supabase/migrations/20261018000099_project_dependencies.sql:139,165` | `project_snapshots` is counted and id-hashed in the project-deletion fingerprint. The trigger compares the whole jsonb (`20261017000056_review_fixes.sql:419-424`). The nightly cron adds a row per project, so every pending project deletion request is refused as `CHILDREN_CHANGED` after the next snapshot run. | Leave `project_snapshots` out of `nopm_project_child_counts` (derived data, not a record anyone approves) and teach the guard test an allowlist; or have the trigger ignore that key. | W3-D (with W3-C) |
+| F4 | P1 | Tests | `web/src/lib/review/tool.test.ts:41` | `list_pending_approvals` gained `mine`; the test still expects only `kind, limit, page`. Suite is red outside the OpenAPI group. | Update the expected keys to include `mine`. | lead (tools.mjs owner W3-A) |
+| F5 | P1 | Correctness / EAC | `web/src/lib/evm.ts:27-33`, `web/src/lib/evm.ts:197` | "Committed is never double counted" is an assumption in a comment. `committed_amount` is a manual figure and nothing reduces it when an expense is entered, so bottom-up EAC = actual + committed + ETC double counts an invoiced commitment until someone edits committed. | Show a visible hint beside the committed figure ("reduce committed when you enter the invoice") and put the rule in the panel and the UC doc; optionally warn when actual + committed > BAC x 1.5. | W3-C |
+| F6 | P1 | Change feed | `web/src/lib/changes/feed.ts:62-65` | The project filter matches `after->>project_id` or `before->>project_id`. Rows whose audit payload omits `project_id` (partial `after`, blocked events, settings-style rows) are silently missed. A filtered feed looks complete and is not. | Say so on the page when a project filter is on ("covers changes whose record names the project"), or resolve by joining the targets' project ids for the page. | W3-B |
+| F7 | P1 | Snapshot job at scale | `web/src/lib/insight/snapshots.ts:185,200` | Expenses are read in one unpaged query with `.in(project ids)`. PostgREST caps at 1000 rows (config `max_rows = 1000`), so a workspace with more than 1000 expenses gets a silently low actual and a wrong CPI and EAC stored. The history query `limit(ids.length*28)` also hits the cap above 35 projects and drops the oldest days. | Aggregate in the database (`sum(amount) group by project_id` via RPC or view) or page with `.range`; page the history per project. | W3-C |
+| F8 | P2 | Budget page trend read | `web/src/app/(console)/budget/page.tsx:255` | Same cap: ascending order plus `limit(projects x 36)`. Above about 27 projects the newest snapshots are cut and the suggested RAG is computed from old data. | Order descending or page; or read `rag_suggested` from the latest row per project. | W3-C |
+| F9 | P1 | Migration 0096 | `supabase/migrations/20261018000096_workspace_nudge_settings.sql:60-61` | `nudge_log` and `weekly_reports` have RLS on and a select policy, but no `revoke insert, update, delete ... from anon, authenticated` (0048 and 0098/0099 do both layers). RLS still denies writes today; the second layer is missing. | Add the revoke line for both tables. Lead's local-stack probe after 0095-0099 confirmed anon and authenticated hold INSERT, UPDATE, DELETE on nudge_log (weekly_reports was truncated in the probe, so re-check it); project_dependencies and project_snapshots are SELECT only. The repo convention is 0048 and the R-102 test rls-write-lockdown.test.ts, which does not list the new tables. | W3-B |
+| F10 | P2 | Migration 0097 | `supabase/migrations/20261018000097_budget_etc.sql:26,31` | The two CHECKs are added `NOT VALID` and never validated, so `convalidated` stays false forever. No existing row can violate them (nulls and a default), so a plain `ADD CONSTRAINT` or a VALIDATE block is cleaner. | Add a skip-on-failure VALIDATE block as in 0095. | W3-C |
+| F11 | P2 | Semantics | `web/src/lib/insight/status-age.ts:115`, `web/src/components/kanban/board.tsx:117` | One "stale after N days" setting has two meanings. The kanban flag uses days in the current status; the nudges and digest use days since `updated_at`. The comment says they "never disagree"; they can. | Rename the kanban flag ("in this status for N days") or align on `updated_at`; fix the comment. | W3-B |
+| F12 | P2 | Open definition | `web/src/lib/nudges/stale.ts:91-93` vs `web/src/lib/handover/report.ts:101-103` | Handover counts backlog tasks and `accepted` risks as open; stale excludes them (`unstarted/started`, `open/mitigating`). A backlog task nobody owns appears in handover and never goes stale. | Pick one definition and share it (a small `open-status` helper); or document that backlog and accepted are deliberately out of "stale". | W3-A / W3-B |
+| F13 | P2 | Test (not wave 3) | `web/src/components/marketing/marketing.test.ts:273` | `transcript soft-wraps...` fails. `transcript.tsx` is unchanged since HEAD and the file has no CR characters, so this is not caused by wave 3. Not diagnosed. | Check against a clean HEAD checkout before the commit; do not fix in this wave. | lead |
+| F14 | P2 | Audit truthfulness | `web/src/lib/nudges/stale.ts:247-274` | The `nudge.sent` row (count and ids) is written before `notifyEach`. If the insert fails, notifyEach returns 0 and the audit still says N were sent; the claim stays, so nothing retries for 7 days. | Write the audit after the send with the real count, or release the claim when `sent` is 0. | W3-B |
+| F15 | P2 | Weekly report schedule | `web/src/lib/nudges/weekly-report.ts:143` | The scheduled run only fires when today's weekday equals the setting. If the 01:07 UTC cron is skipped, hits the deadline, or fails that day, the week's report is never sent. The Lark digest has catch-up (`digestDue`); this does not. | Fire when the report for this week is missing and today is on or after the chosen day (owner decision D2). | W3-B |
+| F16 | P2 | Policy | `web/src/app/api/projects/[id]/budget/route.ts:109` | ETC and forecast method are exempt from the change-request gate on a locked project. Defensible (forecast, not baseline money) but it lets anyone with `budget:write` move the reported EAC on a locked project with no approval; only the audit row records it. | Owner decision D4; if kept, state it in the UAT plan and OWNER-VISIBLE. | owner / W3-C |
+| F17 | P2 | Dependency routes | `web/src/app/api/projects/[id]/dependencies/route.ts:73-76` | Add and remove are allowed on a locked project by design. A locked project's contingency can then be changed without any approval. | Owner decision (low risk: declared RAG is never touched); record it in the UAT plan. | owner / W3-D |
+| F18 | P2 | Tests | `web/src/app/api/projects/[id]/trend/route.test.ts` | No 403 (missing `project:read`) or 422 case; the route test only covers 404 and happy paths. | Add one scope-denied case and one `n` clamp case. | W3-C |
+| F19 | P2 | Guard test weakened | `web/src/lib/governance/lifecycle-guards-migration.test.ts` (diff, `upTo`/`FILE_56`) | The "latest definition counts every cascading table" checks were pinned to 0056 so they stop at 0099. The only check of the 0099 function is a text scan in `project-dependencies-migration.test.ts`. A future cascading table added after 0099 is not caught. | Keep the generic test and run it against the latest definition, with an explicit allowlist (F3). | W3-D |
+| F20 | P2 | Deploy-order silence | `web/src/app/api/projects/[id]/evm/route.ts:30-36` | The budget read ignores the error. On a database without 0097 the explicit new columns make it fail, `budget` is undefined, and EVM returns zeros as if the project had no budget. | Throw on a read error (as the budget GET does for other queries) or apply 0097 first (see release order). | W3-C |
+| F21 | P2 | Scope consistency | `web/src/app/api/reports/handover/route.ts:27-30` | New scope `report:read` is only used by the weekly report; handover needs four entity read scopes instead. Not a hole (read-only, scoped), but a token with `report:read` cannot read the handover report. | Document it in the OpenAPI notes, or accept `report:read` as an alternative. | W3-A |
+| F22 | P2 | Stray files | `web/supabase/config.toml`, `web/supabase/.gitignore` (untracked) | A `supabase init` output from the database rehearsal. It is not part of the programme and sets `project_id = "web"`. | Do not commit; delete or add to the local ignore. | lead |
+| F23 | P2 | Owner-visible | `sprint-log/2026-10-18_audit-gaps/rtm/w3a.md`, `w3b.md`, `w3c.md` | Only `w3d.md` carries an owner-visible block. Rows for A, B and C are missing (list below). | Lead builds the wave-3 block from the builders' chat reports plus the list below. | lead |
+| F24 | P2 | Cadence note | `web/src/lib/nudges/stale.ts:21-30` | Builder chose one reminder per item per 7 days, not the brief's daily ceiling. See decision D1. Acceptable. | Owner confirms D1. | owner |
+| F25 | P2 | Backup identity | `web/src/lib/handover/backup.ts:13` | Task backup is compared by `resource_members.id`. Two resource members linked to the same login pass the check, so a person can be their own backup. | Compare through `profile_id` when both members are linked. | W3-A |
+
+## Release order
+
+Apply migrations to the database before the build serves traffic, in this order, in one run, without a pause:
+
+1. `0095` backup owner. Hard. Project, risk, issue and task list routes select the new columns (`views.ts`), so lists break without it.
+2. `0096` nudge settings. Soft. Settings fall back to defaults and the nudge step logs a failure; the settings PATCH of new fields fails until applied.
+3. `0097` ETC and assigned approver. Hard. The budget page and EVM route select the new columns.
+4. `0098` project snapshots. Soft for pages (the budget panel shows "trend unavailable"). Hard for the trend route and the snapshot cron.
+5. `0099` project dependencies. Hard. The portfolio page raises a query error without the table. It must run after 0098 because it redefines the child-count function over `project_snapshots` and re-snapshots pending deletions by calling it.
+
+Do not stop between 0095 and 0099. Adding `backup_owner_id` changes the project row fingerprint, and only the 0099 re-snapshot refreshes the pending project deletion requests. Then deploy the build (cron entry for `/api/cron/snapshots` ships in `vercel.json`; `CRON_SECRET` is already required). After deploy, call the snapshot cron once so the trend starts that day. Do not release until F1 and F3 are fixed.
+
+## Verified OK
+
+- **Idempotent and additive.** 0095-0099 use `if not exists`, `drop ... if exists` and `create or replace`. No column drop, no backfill. 0095 and 0099 add no `updated_at` writer; the only UPDATE in the wave is the 0099 pending-deletion re-snapshot, same statement as 0056 (`20261017000056_review_fixes.sql:447-451`).
+- **0095 CHECKs.** backup differs from owner or assignee, null-safe, `NOT VALID` then four separate skip-on-failure VALIDATE blocks (`..095_backup_owner.sql:41-62`). Task backup targets `resource_members`, matching `assignee_id`.
+- **0096 CHECKs.** stale_days 1-365, weekday 1-7, plain ADD (new columns have defaults, so no row can violate). Unique index on `nudge_log` gives once per item per recipient per day.
+- **0097.** enum check on `forecast_method`, ETC >= 0; assigned approver FK `on delete set null` on all three request tables with partial indexes.
+- **0098.** `unique (project_id, taken_at)`, RAG enum check, select-only policy and write grants revoked.
+- **0099 child counts.** Redefined once. A diff of the function against 0056 shows only the two added keys (counts and ids). 0097 and 0098 do not redefine it. The re-snapshot copies 0056 exactly (same `before` key `child_counts`, `pending` project rows only).
+- **Cycle guard.** Recursive CTE with `UNION` walks all edges of the workspace, so A->B, B->C, C->A is refused (transitive). The advisory lock (`pg_advisory_xact_lock` on the workspace) is taken as its own statement before the walk. In READ COMMITTED the walk then sees the other transaction's committed edge, so concurrent inserts cannot both land. The API also pre-checks (`wouldCreateProjectCycle`, `..dependencies/route.ts:120-123`) and maps `DEPENDENCY_CYCLE` to 422.
+- **Cross-workspace.** Trigger backstop covers both projects and the linked risk; API returns the same 422 for missing and foreign ids; DELETE and GET filter by workspace.
+- **Scopes.** `report:read` is registered (`scopes.ts:37`), is a read scope so it sits in the derived agent preset, is not in `PRIVILEGED_SCOPES`, and `report:*` follows the normal wildcard rule. Weekly GET is workspace-filtered; POST is user session admin or manager only and refuses tokens.
+- **Cron.** `/api/cron/snapshots` uses `verifyCronAuth` with `auth: false`; an unset secret authorises nobody. The nudge step runs inside the existing authenticated integrations cron. The first `vercel.json` cron is unchanged; only W3-C touched the file.
+- **Console gate.** `/changes` and `/handover` are in `mfa-policy.ts` and `crawl-rules.ts`. Nav tests count 25 (23 + 2) and pass.
+- **Assigned approver.** `resolveAssignedApprover` (`lib/review/assignee.ts`) requires the same workspace, role admin or manager, and not the requester; the same 422 for foreign and missing. It is routing only and never changes `can_decide`. The raise audit rows store the whole row, so the assignment is recorded.
+- **Read-only tools.** `get_handover_report` and `get_project_trend` are GET only, id-guarded, read scopes only, tested.
+- **XSS.** `weekly-html.ts` runs every user-supplied string through `esc()` (workspace name, project code and name, milestone and item titles, week). Response is `private, no-store`.
+- **No forged nudges.** Notifications are written only by system code; no route lets a token create `item.stale` or `report.weekly`.
+- **Audit coverage.** Dependency add and remove: one row each with before/after. Settings PATCH: one `workspace.settings_update` with only changed fields. Weekly "send now": one `report.weekly.generated`. Snapshot and nudge batches: one row per workspace per run, not per item. Budget PATCH of ETC and method goes through the existing `budget.update` row. Glossary has all new actions; the `api/reports/weekly` allowlist reason is accurate.
+- **EVM.** `etc = eac - ac` for both methods; bottom-up etc = committed + ETC; vac = BAC - eac; a method that cannot be computed gives null and never falls back to the other.
+- **Trend.** Suggested RAG is only stored in `project_snapshots.rag_suggested` and returned by reads; nothing writes `projects.rag_status`. Thresholds are constants in one file with a header table. Snapshot idempotency by unique key plus ignore-duplicates; the second run on a day inserts nothing.
+- **Contingency.** BFS, depth cap 5, visited set makes it cycle-safe, first (shortest) chain kept, declared RAG never touched; red and complete projects are not marked.
+- **Seams.** `projects/[id]/page.tsx` has one import and one mount each for `HandoverBadge` and `ProjectDependenciesPanel`. `views.ts` diff is only the backup columns. Fakes (`fake-admin.ts`, `test-support.ts`) are coherent: the full suite passes apart from F4, F13 and the OpenAPI group.
+- **Handover.** Reads are paged (1000 per page, 20 000 cap); a resource member with a login counts as that login; a malformed project id is 422 and a foreign one 404; CSV export is audited.
+
+## Decisions for the owner
+
+- **D1 Nudge cadence.** Built: one reminder per stale item every 7 days, one batch audit row per run, 200 per run. The brief said "per day ceiling". The schema keeps the daily ceiling; the 7-day cooldown stops the bell becoming noise. Recommendation: accept. Say if you want daily.
+- **D2 Weekly report catch-up.** Today the report goes out only on the chosen weekday. A missed cron or a busy day loses that week unless an admin presses "Send now". Recommendation: send late (any day after the chosen day) when the week has no report.
+- **D3 Self-assignment of approvals.** Built: a request cannot be assigned to its own requester (four-eyes would block them deciding anyway), and the person must be an admin or manager. Recommendation: keep.
+- **D4 ETC on locked projects.** Built: the to-finish estimate and forecast method can change on a locked project without a change request, because they move the forecast, not the approved plan. Audited. Recommendation: keep, but write it in the UAT plan. If you want it gated, remove the two fields from the exempt list.
+- **D5 Dependencies on locked projects.** Built: allowed and audited. Recommendation: keep.
+- **D6 Committed money.** The system does not reduce committed when an invoice is entered. Recommendation: accept with the visible hint (F5) rather than building an automatic link in this programme.
+
+## Owner-visible changes the diff shows (for the wave-3 block)
+
+Missing from the builders' RTM files and to be added:
+
+- New menu items "What changed" (/changes) and "Handover" (/handover); /changes sits after Mainline, /handover after Projects.
+- Project page header: handover badge. Project, risk, issue and task forms: backup owner field.
+- Budget page: new "Forecast and trend" card, a to-finish estimate input, forecast method choice, CSV gains three columns, the portfolio line is now labelled "Forecast (EAC, by CPI)", EVM table shows the method per row.
+- Approvals page: new "Whose approvals: All / Mine" filter, and "assigned to me" cue.
+- Integrations page: new nudge and weekly report settings card (stale days, nudges on/off, weekly report on/off and weekday, Send weekly report now).
+- Kanban: the stale flag threshold now follows the workspace setting instead of 14.
+- Bell and email previews: two new notification types ("Needs an update", "Weekly report").
+- Lark digest: new "Stale items" line when anything is stale.
+- Portfolio roadmap: amber "Contingent" tag (already in W3-D's block). Mainline Network lens caption changed (already listed).
+- Project API: `backup_owner_id` / `backup_assignee_id` accepted and returned; `assigned_approver_id` accepted on change request, rebaseline and deletion requests; `/api/review?mine=1`.
+
+## Graph leads used
+
+- `graphify query` was not run; the repository graph was not needed because every seam was traceable by reading the diff and `rg`-style searches.
+- Traced by hand instead: `nopm_project_child_counts` -> `nopm_assert_project_children_unchanged` (0056) -> new `project_snapshots` rows from `takeSnapshots` (F3); `tasks.assignee_id` -> `resource_members.profile_id` (0019) -> `findStaleItems` recipient (F1).

@@ -5,7 +5,7 @@ import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workspaceToday } from "@/lib/integrations/time-zone";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { recordOverspendCrossing } from "@/lib/insight/overspend";
 import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
@@ -89,32 +89,18 @@ export const POST = route(async ({ actor, params, request }) => {
       bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
-  const { data: row, error } = await db
-    .from("expenses")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const row = await auditedInsert({
+    table: "expenses",
+    actor,
+    action: "expense.create",
+    patch: {
       project_id: projectId,
       description: parsed.data.description,
       amount: parsed.data.amount,
       category: parsed.data.category ?? null,
       // incurred_on is NOT NULL (the DB default is UTC today): default to the workspace-zone date instead.
       incurred_on: parsed.data.incurred_on ?? (await workspaceToday(actor.workspaceId)),
-    })
-    .select()
-    .single();
-
-  if (error || !row) {
-    throw new Error(`Expense insert failed: ${error?.message ?? "no row returned"}`);
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "expense.create",
-    targetType: "expense",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return row;

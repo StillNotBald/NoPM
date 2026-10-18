@@ -2,7 +2,7 @@ import { route } from "@/lib/api/handler";
 import { ScopeError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { feedOwner, feedUrl, generateFeedToken, isFeedAdmin, publicBaseUrl } from "@/lib/calendar/feeds";
 import { createCalendarFeedSchema } from "./_schema";
@@ -13,6 +13,10 @@ export const runtime = "nodejs";
 // only ever appears once, inside the `url` returned by POST.
 const SAFE_COLUMNS =
   "id, name, project_id, created_by, created_at, last_fetched_at, revoked_at" as const;
+
+/** The caller-visible shape of a feed (SAFE_COLUMNS) from a full row. */
+const pickSafe = (row: Record<string, unknown>) =>
+  Object.fromEntries(SAFE_COLUMNS.split(", ").map((c) => [c, row[c]]));
 
 // GET /api/calendar-feeds — the caller's own active feeds (milestone:read).
 // ?scope=workspace (workspace admins only) lists EVERY member's active feeds,
@@ -136,29 +140,21 @@ export const POST = route(async ({ actor, request }) => {
 
   const { raw, hash } = generateFeedToken();
 
-  const { data: row, error } = await db
-    .from("calendar_feeds")
-    .insert({
-      workspace_id: actor.workspaceId, // always from the actor, never the body
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103). The workspace
+  // comes from the actor inside the function; the token hash is written but never read back.
+  const written = await auditedInsert({
+    table: "calendar_feeds",
+    actor,
+    action: "calendar_feed.create",
+    patch: {
       name: parsed.data.name,
       project_id: projectId,
       token_hash: hash,
       created_by: owner,
-    })
-    .select(SAFE_COLUMNS)
-    .single();
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "calendar_feed.create",
-    targetType: "calendar_feed",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
+    omitColumns: ["token_hash", "workspace_id"],
   });
+  const row = pickSafe(written);
 
   // The raw token exists only in this response, never in the row or the audit trail.
   return created({ ...row, url: feedUrl(publicBaseUrl(request), raw) });

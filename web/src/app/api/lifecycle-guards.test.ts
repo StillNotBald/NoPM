@@ -57,6 +57,7 @@ const ALICE = "11111111-1111-4111-8111-111111111111";
 const BOB = "22222222-2222-4222-8222-222222222222";
 const STRANGER = "99999999-9999-4999-8999-999999999999"; // a profile in ANOTHER workspace
 const MEMBER = "33333333-3333-4333-8333-333333333333";
+const ERIN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"; // an admin: a project deletion is high_risk, which an admin decides (G1)
 const PROJECT = "44444444-4444-4444-8444-444444444444";
 
 const SCOPES = [
@@ -100,6 +101,7 @@ function pat(id: string, owner: string | null, scopes: string[] = SCOPES): Actor
 
 const alicePat = () => pat("tok-alice", ALICE);
 const bobPat = () => pat("tok-bob", BOB);
+const erinPat = () => pat("tok-erin", ERIN);
 /** A legacy token with no recorded owner. */
 const orphanPat = () => pat("tok-orphan", null);
 
@@ -126,6 +128,7 @@ function seed(): FakeDb {
     profiles: [
       { id: ALICE, workspace_id: WS, role: "admin" },
       { id: BOB, workspace_id: WS, role: "manager" },
+      { id: ERIN, workspace_id: WS, role: "admin" },
       { id: STRANGER, workspace_id: OTHER_WS, role: "admin" },
     ],
     change_requests: [
@@ -453,7 +456,7 @@ describe("M4 — project deletion cannot cascade over records added after the re
     db.rows("tasks").push({ id: "task-2", workspace_id: WS, name: "Added later", project_id: PROJECT });
     db.rows("tasks").push({ id: "task-3", workspace_id: WS, name: "Added later too", project_id: PROJECT });
 
-    const res = await call(approveDeletion, bobPat(), id, {});
+    const res = await call(approveDeletion, erinPat(), id, {});
     const json = await expectRule(res, "children_changed");
     expect(json.error).toContain("raise a new request");
     expect(db.rows("projects")).toHaveLength(1);
@@ -466,14 +469,14 @@ describe("M4 — project deletion cannot cascade over records added after the re
       holder.db = db;
       const id = await requestDeletion();
       db.rows(table).push({ id: `${table}-x`, workspace_id: WS, project_id: PROJECT });
-      await expectRule(await call(approveDeletion, bobPat(), id, {}), "children_changed");
+      await expectRule(await call(approveDeletion, erinPat(), id, {}), "children_changed");
       expect(db.rows("projects"), table).toHaveLength(1);
     }
   });
 
   it("nothing changed since the request -> the approval commits as before", async () => {
     const id = await requestDeletion();
-    const res = await call(approveDeletion, bobPat(), id, {});
+    const res = await call(approveDeletion, erinPat(), id, {});
     expect(res.status).toBe(200);
     expect(db.rows("projects")).toHaveLength(0);
   });

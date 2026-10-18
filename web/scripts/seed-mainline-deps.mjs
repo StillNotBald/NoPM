@@ -252,9 +252,25 @@ for (let i = 0; i < depsToInsert.length; i += BATCH_SIZE) {
 // last step of `npm run seed:all`, so locking here is the correct "seed
 // children, then lock last" point. Values mirror what seed.mjs used to set
 // at creation time.
+// Migration 0088 (projects_lock_integrity): a lock must carry locked_at and a locker.
+const { data: lockerRows } = await db
+  .from("profiles")
+  .select("id, display_name, email, role")
+  .eq("workspace_id", W)
+  .order("role", { ascending: true }); // 'admin' sorts first
+const locker = (lockerRows ?? []).find((p) => p.role === "admin") ?? (lockerRows ?? [])[0];
+if (!locker) throw new Error("lock ERP-EMEA: no profile in the demo workspace to record as the locker");
 const { error: lockErr } = await db
   .from("projects")
-  .update({ is_locked: true, lock_reason: "Baseline frozen for steerco" })
+  .update({
+    is_locked: true,
+    lock_reason: "Baseline frozen for steerco",
+    locked_at: new Date().toISOString(),
+    locked_by: locker.id,
+    locked_by_actor_type: "user",
+    locked_by_actor_id: locker.id,
+    locked_by_label: locker.display_name ?? locker.email ?? "seed admin",
+  })
   .eq("workspace_id", W)
   .eq("code", "ERP-EMEA");
 assertOk("lock ERP-EMEA", lockErr);

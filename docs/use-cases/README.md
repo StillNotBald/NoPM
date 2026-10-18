@@ -49,6 +49,14 @@ Each use case is one file, `UC-NN-<slug>.md`, with a fixed structure: Goal, Acto
 | [UC-24](UC-24-link-lark-account.md) | Link a Lark account | Team member / Approver | governance | Integrations, Identity | see file | — |
 | [UC-25](UC-25-lark-weekly-digest.md) | Lark weekly digest | Admin / Project Manager | easier reporting | Integrations, Notifications | see file | — |
 | [UC-26](UC-26-calendar-feed-subscription.md) | Subscribe to the milestone calendar feed | Team member / Project Manager | presentable multi-project | Calendar, Milestones | see file | — |
+| [UC-27](UC-27-audit-pack.md) | Export an audit pack for a date range | PMO lead / Admin | easier reporting | Change control, Documents, Trust Center | R-138, R-134, R-137 | — |
+| [UC-28](UC-28-handover-report.md) | Handover and key-person report | Project Manager / Admin | easier reporting | Handover, Projects, Tasks, Risks, Issues | R-140 | — |
+| [UC-29](UC-29-forecast-and-trend.md) | Forecast at completion and project trend | Finance / PMO / Project Manager | easier reporting | Budget, Snapshots | R-144, R-145 | — |
+| [UC-30](UC-30-cross-project-dependencies.md) | Cross-project dependencies and contingency | Project Manager / Admin | presentable multi-project | Projects, Portfolio, Mainline | R-147 | — |
+| [UC-31](UC-31-approval-tiers-and-emergency-change.md) | Approval tiers, turnaround timers and the emergency change | Admin / Manager / Project Manager | governance | Change control, Settings, Approvals | R-148, R-149, R-150 | — |
+| [UC-32](UC-32-deletion-by-request.md) | Deletion by request for risks, issues, expenses, documents and milestones | Requester / Approver / Admin | governance | Risks, Issues, Budget, Documents, Milestones, Approvals | R-151 | — |
+| [UC-33](UC-33-audit-chain-verification.md) | Verify the audit hash chain | Admin / Manager / Auditor | governance | Trust Center, Audit | R-154, R-152 | — |
+| [UC-34](UC-34-github-work-events.md) | Task status from GitHub work events | Admin / Project Manager / Team member | easier reporting | Integrations, Tasks | R-153 | — |
 
 \* Diagram exists on disk today under this exact filename.
 

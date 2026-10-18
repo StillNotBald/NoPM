@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveStatusAges, STALE_STATUS_AGE_DAYS, type AuditRowForStatusAge, type TaskForStatusAge } from "./status-age";
+import { deriveStatusAges, fetchWorkspaceStaleDays, isStaleAge, STALE_STATUS_AGE_DAYS, type AuditRowForStatusAge, type TaskForStatusAge } from "./status-age";
 
 const NOW = new Date("2026-08-15T12:00:00.000Z");
 
@@ -126,5 +126,26 @@ describe("deriveStatusAges — edge cases", () => {
 describe("STALE_STATUS_AGE_DAYS threshold", () => {
   it("is exported as the >14 day boundary consumers style distinctly", () => {
     expect(STALE_STATUS_AGE_DAYS).toBe(14);
+  });
+});
+
+describe("workspace stale threshold (R-141)", () => {
+  it("flags an age past the threshold it is given, defaulting to 14", () => {
+    expect(isStaleAge(15)).toBe(true);
+    expect(isStaleAge(14)).toBe(false);
+    expect(isStaleAge(8, 7)).toBe(true);
+    expect(isStaleAge(null, 7)).toBe(false);
+  });
+  const dbWith = (result: { data: unknown; error: unknown } | Error) =>
+    ({
+      from: () => ({
+        select: () => ({ eq: () => ({ maybeSingle: async () => { if (result instanceof Error) throw result; return result; } }) }),
+      }),
+    }) as never;
+  it("reads stale_days and falls back to the default when unreadable or invalid", async () => {
+    expect(await fetchWorkspaceStaleDays(dbWith({ data: { stale_days: 30 }, error: null }), "w")).toBe(30);
+    expect(await fetchWorkspaceStaleDays(dbWith({ data: { stale_days: 0 }, error: null }), "w")).toBe(14);
+    expect(await fetchWorkspaceStaleDays(dbWith({ data: null, error: { message: "no column" } }), "w")).toBe(14);
+    expect(await fetchWorkspaceStaleDays(dbWith(new Error("down")), "w")).toBe(14);
   });
 });

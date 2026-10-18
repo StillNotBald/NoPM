@@ -2,11 +2,14 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { NextResponse } from "next/server";
 import { ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
+import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
+import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import {
   assertProjectUnlocked,
@@ -20,7 +23,9 @@ import {
   projectChildCounts,
 } from "@/lib/governance/project-children";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers, effective } from "@/lib/handover/backup";
 import { updateProjectSchema, ProjectDeleteRequestSchema } from "../_schema";
+import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { PROGRAM_ATTACH_MESSAGE, REOPEN_PROJECT_MESSAGE, requireManagerOrAdmin } from "@/lib/work/roles";
 
@@ -124,8 +129,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: fields.owner_id, field: "owner_id" },
+    { table: "profiles", id: fields.backup_owner_id, field: "backup_owner_id" },
     { table: "programs", id: fields.program_id, field: "program_id" },
   ]);
+
+  // M6: a backup is somebody else than the owner (checked on the values the row will have).
+  assertBackupDiffers(
+    effective(fields.owner_id, before.owner_id),
+    effective(fields.backup_owner_id, before.backup_owner_id),
+    "backup_owner_id",
+    "owner_id",
+  );
 
   // D-WRK-17: completion is calculated from the tasks (roll-up trigger), so a
   // manual value would be overwritten on the next task change. An echo of the
@@ -140,40 +154,17 @@ export const PATCH = route(async ({ actor, params, request }) => {
   }
 
   const now = new Date().toISOString();
-  let query = db
-    .from("projects")
-    .update({
-      ...fields,
-      workspace_id: actor.workspaceId, // never let caller overwrite
-      updated_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-  // Defense-in-depth: also scope the write itself to the row's pre-check
-  // updated_at, closing the (narrow) race between the fetch above and this
-  // write. On a lost race the row exists but the filter matches zero rows —
-  // maybeSingle() returns null instead of PostgREST's "no rows" error.
-  if (expected_updated_at !== undefined) {
-    query = query.eq("updated_at", before.updated_at);
-  }
-  const { data: after, error: updateError } = await query.select().maybeSingle();
-
-  if (updateError) throw updateError;
-  if (!after) {
-    if (expected_updated_at !== undefined) {
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    throw new Error("Update failed");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited). Passing the
+  // pre-check updated_at closes the race between the fetch above and the write:
+  // on a lost race the RPC answers STALE_ROW, which is the same 412.
+  const { after } = await auditedUpdate({
+    table: "projects",
     actor,
     action: "project.update",
-    targetType: "project",
-    targetId: params.id,
-    before,
-    after,
+    id: params.id,
+    patch: { ...fields, updated_at: now },
+    expectedUpdatedAt: expected_updated_at !== undefined ? before.updated_at : null,
+    notFoundMessage: "Project not found",
   });
 
   return ok(after);
@@ -279,6 +270,21 @@ export const DELETE = route(async ({ actor, params, request }) => {
   }
 
   const { reason } = parsed.data;
+  // G1: the tier comes from the policy (a project deletion starts at high_risk), never from the caller.
+  const policy = await loadApprovalPolicy(db, actor.workspaceId);
+  const { tier } = classify({
+    kind: "project_deletion",
+    requester_role: humanRoleOf(actor as Parameters<typeof humanRoleOf>[0]),
+    policy,
+  });
+  const deadline = deadlineFor(tier, policy, new Date());
+  const assignedApproverId = await resolveAssignedApprover(
+    db,
+    actor.workspaceId,
+    parsed.data.assigned_approver_id,
+    requesterPrincipal,
+    approverRoleFor(tier, policy),
+  );
 
   // R1/M5: snapshot what hangs off the project, not only the project row. The
   // approval is refused (422 `children_changed`) if the project gained records
@@ -293,6 +299,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
       target_id: params.id,
       reason,
       status: "pending",
+      tier,
+      approval_deadline_at: deadline ? deadline.toISOString() : null,
       requested_by_type: actor.type,
       requested_by_id: actor.id,
       requested_by_label: actor.label,
@@ -300,6 +308,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
       // four-eyes compares this, not the actor id.
       requested_principal_id: requesterPrincipal,
       before: snapshot,
+      // G5: only sent when asked for (deploy-order safe).
+      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
     })
     .select()
     .single();
@@ -323,11 +333,20 @@ export const DELETE = route(async ({ actor, params, request }) => {
     targetType: "project",
     targetId: params.id,
     before: snapshot,
-    after: null,
+    after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
   });
 
-  // Notify approvers — fail-soft (never throws)
-  void resolveWorkspaceApprovers(actor.workspaceId).then((approverIds) => {
+  await recordApprovalEvent(db, {
+    workspaceId: actor.workspaceId,
+    targetType: "deletion_request",
+    targetId: deletionRequest.id,
+    kind: "deadline_set",
+    actorLabel: actor.label,
+    detail: { tier, deadline: deadline?.toISOString() ?? null },
+  });
+
+  // Notify approvers of THIS tier (G2) — fail-soft (never throws)
+  void resolveWorkspaceApprovers(actor.workspaceId, { tier, assignedApproverId }).then((approverIds) => {
     return notify({
       workspaceId: actor.workspaceId,
       recipientIds: approverIds,
@@ -350,6 +369,8 @@ export const DELETE = route(async ({ actor, params, request }) => {
     projectName: project.name ?? null,
     requestedByLabel: actorLabel(actor),
     requesterPrincipalId: requesterPrincipal,
+    tier,
+    ...(assignedApproverId ? { assignedApproverId } : {}),
   });
 
   // Return 202 Accepted with the deletion_request

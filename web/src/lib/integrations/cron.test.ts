@@ -763,7 +763,8 @@ describe("runCron — retention", () => {
 
     expect(summary.pruned.deliveries).toBe(0);
     expect(db.rows("audit_log")).toHaveLength(1);
-    expect(db.log.filter((l) => l.table === "audit_log")).toHaveLength(0);
+    // reads are fine (the stale-nudge and timer steps look at audit rows); the audit log must never be written or pruned by the tick
+    expect(db.log.filter((l) => l.table === "audit_log" && l.op !== "select")).toHaveLength(0);
   });
 });
 

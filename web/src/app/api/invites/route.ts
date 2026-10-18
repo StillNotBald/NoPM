@@ -1,6 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
+import { columnsOf, pickColumns } from "@/lib/audit/pick";
 import { created, okList, safeJson, validationError } from "@/lib/api/response";
 import { generateToken } from "@/lib/auth/tokens";
 import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
@@ -160,10 +161,13 @@ export const POST = route(async ({ actor, request }) => {
   const { raw, hash, prefix } = generateToken(INVITE_TOKEN_PREFIX);
   const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString();
 
-  const { data: row, error } = await db
-    .from("invites")
-    .insert({
-      workspace_id: actor.workspaceId,
+  // The invite and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  // The audit row carries the email and role only: NEVER the token or its hash (mirrors token.create).
+  const full = await auditedInsert({
+    table: "invites",
+    actor,
+    action: "invite.created",
+    patch: {
       email: parsed.data.email,
       role: parsed.data.role,
       name: parsed.data.name ?? null,
@@ -174,26 +178,16 @@ export const POST = route(async ({ actor, request }) => {
       prefix,
       created_by: actor.id,
       expires_at: expiresAt,
-    })
-    .select(SAFE_COLUMNS)
-    .single();
-
-  if (error) throw error;
-
-  // Audit the invite's creation — NEVER the token/hash (mirrors token.create).
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "invite.created",
-    targetType: "invite",
-    targetId: row.id,
-    before: null,
-    after: { email: row.email, role: row.role },
+    },
+    omitColumns: ["token_hash"],
+    auditBefore: null,
+    auditAfter: { email: parsed.data.email, role: parsed.data.role },
   });
+  const row = pickColumns(full, columnsOf(SAFE_COLUMNS));
 
   const origin = new URL(request.url).origin;
 
   // raw token is returned ONCE here (embedded in the invite_url) and never
   // stored/logged anywhere else — same show-once contract as api/tokens.
-  return created({ ...withStatus(row as InviteRow), invite_url: `${origin}/invite/${raw}` });
+  return created({ ...withStatus(row as unknown as InviteRow), invite_url: `${origin}/invite/${raw}` });
 });

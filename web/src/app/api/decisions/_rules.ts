@@ -1,7 +1,7 @@
-import { RuleError, ScopeError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { Actor } from "@/lib/auth/guard";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 
 type Db = ReturnType<typeof createAdminClient>;
 
@@ -82,23 +82,20 @@ export async function markReplacedSuperseded(
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
   if (!old || old.status !== "accepted") return;
-  const { data: updated, error } = await db
-    .from("decisions")
-    .update({ status: "superseded" })
-    .eq("id", replacedId)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("status", "accepted")
-    .select()
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!updated) return;
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "decision.supersede",
-    targetType: "decision",
-    targetId: updated.id,
-    before: old,
-    after: { ...updated, superseded_by: replacedBy },
-  });
+  // One transaction with its audit row. The row must still be the one just read: if it changed
+  // since (a concurrent edit), nothing is superseded and no audit row is written.
+  try {
+    await auditedUpdate({
+      table: "decisions",
+      actor,
+      action: "decision.supersede",
+      id: replacedId,
+      patch: { status: "superseded" },
+      expectedUpdatedAt: (old.updated_at as string | undefined) ?? null,
+      afterExtra: { superseded_by: replacedBy },
+    });
+  } catch (e) {
+    if (e instanceof PreconditionFailedError || e instanceof NotFoundError) return;
+    throw e;
+  }
 }

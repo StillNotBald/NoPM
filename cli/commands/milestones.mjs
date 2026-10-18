@@ -15,7 +15,7 @@ export const usage = [
   "nopm milestones create --project <id> --name <n> [--status <s>] [--target <date>] [--pct <0-100>] [--description <d>]",
   "nopm milestones update <id> [--name <n>] [--status <s>] [--target <date>] [--pct <0-100>] [--description <d>] [--confirm-open-tasks] [--expected-updated-at <iso>]",
   "  completing a milestone with open tasks answers 422 open_tasks; resend with --confirm-open-tasks to complete it anyway",
-  "nopm milestones rm <id>                                       delete a milestone",
+  "nopm milestones rm <id> --reason <why>   (MAKER) request deletion; a different person approves",
   "  statuses: not_started | on_track | at_risk | delayed | completed",
   "  --expected-updated-at <iso>: optimistic concurrency (R-90) — sends expected_updated_at; a stale value gets 412, not silently overwritten",
   "  flags: --page <n>  --limit <n>  --json",
@@ -35,7 +35,7 @@ export async function run(rest, ctx) {
       if (!projectId) ctx.die("usage: nopm milestones ls --project <project-id>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      const { data } = await ctx.api("GET", `/api/projects/${projectId}/milestones?page=${page}&limit=${limit}`);
+      const { data } = await ctx.api("GET", `/api/projects/${projectId}/milestones?page=${page}&limit=${limit}&view=full`);
       ctx.out(data, ctx, LIST_COLS);
       break;
     }
@@ -92,9 +92,11 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm milestones rm <id>");
-      await ctx.api("DELETE", `/api/milestones/${id}`);
-      console.log("✓ deleted milestone", id);
+      if (!id || !f.reason) ctx.die("usage: nopm milestones rm <id> --reason <why>");
+      // Deletion is a request (audit gap G8): it stays until a different person approves it.
+      const result = await ctx.api("DELETE", `/api/milestones/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

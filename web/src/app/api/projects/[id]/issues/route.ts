@@ -4,12 +4,14 @@ import { NotFoundError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workspaceToday } from "@/lib/integrations/time-zone";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote } from "@/lib/work/resolution";
 import { createIssueSchema } from "@/app/api/issues/_schema";
 import { nextRefId } from "@/lib/ref-id";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers } from "@/lib/handover/backup";
+import { parseListSelection } from "@/lib/api/views";
 import { parseSort, orderOptions } from "@/lib/api/sort";
 import { ISSUE_SORT_FIELDS, parseIssueFilters } from "@/app/api/issues/_query";
 
@@ -48,10 +50,11 @@ export const GET = route(async ({ actor, params, request }) => {
   });
 
   const filters = parseIssueFilters(url.searchParams);
+  const selection = parseListSelection(url.searchParams, "issues"); // view=summary|full, fields= (R-129)
 
   let query = db
     .from("issues")
-    .select("*", { count: "exact" })
+    .select(selection.select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
     .eq("project_id", projectId);
 
@@ -113,14 +116,17 @@ export const POST = route(async ({ actor, params, request }) => {
   // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: input.owner_id, field: "owner_id" },
+    { table: "profiles", id: input.backup_owner_id, field: "backup_owner_id" },
   ]);
+  assertBackupDiffers(input.owner_id, input.backup_owner_id, "backup_owner_id", "owner_id");
 
   const refId = await nextRefId(db, actor.workspaceId, "issues", "ISS");
 
-  const { data: row, error } = await db
-    .from("issues")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const row = await auditedInsert({
+    table: "issues",
+    actor,
+    action: "issue.create",
+    patch: {
       project_id: projectId,
       reference_id: refId,
       title: input.title,
@@ -128,6 +134,7 @@ export const POST = route(async ({ actor, params, request }) => {
       priority: input.priority,
       resolution: input.resolution ?? null,
       owner_id: input.owner_id ?? null,
+      backup_owner_id: input.backup_owner_id ?? null,
       status: input.status,
       raised_at: input.raised_at ?? (await workspaceToday(actor.workspaceId)), // NOT NULL date — default to today (workspace zone)
       due_date: input.due_date ?? null,
@@ -142,20 +149,7 @@ export const POST = route(async ({ actor, params, request }) => {
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
-    })
-    .select()
-    .single();
-
-  if (error || !row) throw new Error(error?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "issue.create",
-    targetType: "issue",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return created(row);

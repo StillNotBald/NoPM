@@ -8,6 +8,8 @@ export const RISK_STATUSES = ["open", "mitigating", "closed", "accepted"] as con
 export const RISK_SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const RISK_SORT_FIELDS = ["due_date", "severity", "likelihood", "status", "title", "created_at"] as const;
 
+import { RISK_IMPACT_AREAS } from "@/lib/risk/impact-areas";
+
 export type RiskSortField = (typeof RISK_SORT_FIELDS)[number];
 
 export interface RiskPageParams {
@@ -15,6 +17,8 @@ export interface RiskPageParams {
   status?: string;
   severity?: string;
   project_id?: string;
+  /** Any-of: a risk matches when it touches ANY of these areas (?impact_area=cost,schedule). */
+  impact_area?: string[];
   sort?: { field: RiskSortField; ascending: boolean };
 }
 
@@ -37,6 +41,13 @@ export function parseRiskPageParams(raw: Raw): RiskPageParams {
   if (severity && (RISK_SEVERITIES as readonly string[]).includes(severity)) out.severity = severity;
   const projectId = first(raw.project_id);
   if (projectId && UUID.test(projectId)) out.project_id = projectId;
+  const areaRaw = first(raw.impact_area);
+  if (areaRaw) {
+    const areas = Array.from(
+      new Set(areaRaw.split(",").map((v) => v.trim()).filter((v) => (RISK_IMPACT_AREAS as readonly string[]).includes(v))),
+    );
+    if (areas.length > 0) out.impact_area = areas;
+  }
   const sort = first(raw.sort);
   if (sort) {
     const [field, dir] = sort.split(":");

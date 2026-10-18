@@ -1,9 +1,9 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { ok } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
 import { computeSprintSnapshot } from "@/lib/sprints/snapshot";
 
 export const runtime = "nodejs";
@@ -48,33 +48,31 @@ export const POST = route(async ({ actor, params }) => {
   );
 
   const now = new Date().toISOString();
-  const { data: after, error: updateError } = await db
-    .from("sprints")
-    .update({
-      state: "active",
-      started_at: now,
-      committed_points: committedPoints,
-      committed_snapshot: committedSnapshot,
-      updated_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("state", "planned") // race guard: only the winning start actually applies
-    .select()
-    .maybeSingle();
-
-  if (updateError) throw updateError;
-  if (!after) throw new RuleError("Sprint must be planned to start");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "sprint.started",
-    targetType: "sprint",
-    targetId: params.id,
-    before,
-    after: { committed_points: committedPoints, task_count: (attachedTasks ?? []).length },
-  });
+  // Row and audit row are one transaction (nopm_mutate_audited). Race guard: only
+  // the winning start applies. The row is locked and compared on the updated_at
+  // read above, so a start that lost the race gets the same 422 as before.
+  let after;
+  try {
+    ({ after } = await auditedUpdate({
+      table: "sprints",
+      actor,
+      action: "sprint.started",
+      id: params.id,
+      patch: {
+        state: "active",
+        started_at: now,
+        committed_points: committedPoints,
+        committed_snapshot: committedSnapshot,
+        updated_at: now,
+      },
+      expectedUpdatedAt: before.updated_at,
+      notFoundMessage: "Sprint not found",
+      auditAfter: { committed_points: committedPoints, task_count: (attachedTasks ?? []).length },
+    }));
+  } catch (error) {
+    if (error instanceof PreconditionFailedError) throw new RuleError("Sprint must be planned to start");
+    throw error;
+  }
 
   return ok(after);
 });

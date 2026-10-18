@@ -136,11 +136,11 @@ function escapeRegExp(text: string): string {
  * Every secret-bearing prefix in the repo: `npm_` PATs (the family prefix is
  * env-configurable, so it is read from the same constant the minting code
  * uses), `npa_` card action tokens, `npr_` relay secrets, `npi_` invites and
- * `npc_` calendar feed tokens (those travel in a URL, which is exactly what an
+ * `npc_` calendar feed tokens, `npg_` GitHub webhook secrets (those travel in a URL, which is exactly what an
  * HTTP client error likes to quote). A new token family must be added here.
  */
 const SECRET_TOKEN_PATTERN = new RegExp(
-  `\\b(?:${["npa_", "npr_", "npi_", "npc_", "npm_", TOKEN_PREFIX].map(escapeRegExp).join("|")})[A-Za-z0-9_-]{8,}`,
+  `\\b(?:${["npa_", "npr_", "npi_", "npc_", "npg_", "npm_", TOKEN_PREFIX].map(escapeRegExp).join("|")})[A-Za-z0-9_-]{8,}`,
   "g",
 );
 /** Identity link codes: `NPL-XXXX-XXXX` (dashes optional, as the parser accepts them). */

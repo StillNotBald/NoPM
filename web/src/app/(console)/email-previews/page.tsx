@@ -44,6 +44,8 @@ const TYPE_TONE: Record<string, "neutral" | "accent" | "success" | "warning" | "
   "approval.rejected": "danger",
   "risk.escalated": "warning",
   "clash.detected": "warning",
+  "item.stale": "warning",
+  "report.weekly": "accent",
 };
 
 function typeTone(type: string): "neutral" | "accent" | "success" | "warning" | "danger" {

@@ -16,14 +16,18 @@ Every request (except the public routes below) requires:
 
 Tokens are scoped Personal Access Tokens (PATs) with prefix npm_.
 Scopes follow the pattern resource:action (e.g. task:read, project:write).
-A token may hold multiple scopes. Admin/manager user sessions bypass scope checks for token management.
+A token may hold multiple scopes. The newest scope is report:read, which opens GET /reports/weekly and GET /reports/handover (not privileged; report:* covers it). Admin/manager user sessions bypass scope checks for token management.
 Tokens are SHA-256 hashed at rest and shown exactly once at creation time.
 A browser session (cookie) may not write cross-site: a POST/PUT/PATCH/DELETE carrying an Origin header that is
 not this site is refused 403 (code bad_origin). Bearer-token requests are never origin-checked.
 A malformed id (not a UUID) in a path is 404 not_found; a malformed value in a query filter or body is 422
 validation_failed.
-Wildcard scopes (* and resource:*) NEVER grant the four approve/decide scopes: task:delete:approve,
-project:delete:approve, change:decide, rebaseline:approve. Each must be granted by exact name,
+Wave 4 adds the request scopes risk:delete:request, issue:delete:request, expense:delete:request, document:delete:request
+and milestone:delete:request (the older risk:delete and issue:delete mean the same as their request scope), and the matching
+approve scopes risk:delete:approve, issue:delete:approve, expense:delete:approve, document:delete:approve and milestone:delete:approve.
+The agent preset holds none of the delete scopes.
+Wildcard scopes (* and resource:*) NEVER grant the approve/decide scopes: task:delete:approve, project:delete:approve,
+change:decide, rebaseline:approve and the wave-4 <entity>:delete:approve scopes. Each must be granted by exact name,
 and the token's creator must currently be an admin or manager for it to take effect (403 role_not_permitted).
 
 Retries and limits: POST /projects/{id}/expenses, POST /projects/{id}/tasks and
@@ -40,9 +44,10 @@ principal_id (the person behind the actor).
 
 Public routes (no Bearer token): /health, /api/openapi.json, /llms.txt, POST /auth/demo-login,
 POST /auth/signout, POST /invites/accept, and GET /calendar/{token} (the secret in the URL is the credential).
-Three more are authenticated by something other than a PAT: /integrations/lark/{connectorId}/events and
+Several more are authenticated by something other than a PAT: /integrations/lark/{connectorId}/events and
 /card (signed by Lark/Feishu), /integrations/lark/{connectorId}/relay (HMAC from the self-host worker),
-and GET /integrations/cron (Authorization: Bearer <CRON_SECRET>, the host scheduler only).
+GET /integrations/cron and GET /cron/snapshots (Authorization: Bearer <CRON_SECRET>, the host scheduler only),
+and POST /integrations/github/{connectorId}/events (called by GitHub, signed with X-Hub-Signature-256, not an agent route).
 
 ## Response shape
 Success:   { "data": <object|array>, ["total": N, "page": N, "limit": N] }
@@ -57,6 +62,7 @@ change_request_invalid, change_request_not_approved, decision_accepted_locked, s
 approve_after_edit, duplicate_clash, unfinished_tasks, invalid_destination, open_tasks, admin_created, not_expired,
 last_admin, member_removed, member_not_removed, no_change, self_reset, unknown_provider, invalid_key, key_unverified,
 agents_cannot_unlock, connector_not_active, delivery_not_dead, delivery_already_queued.
+Wave 4 codes: approved_document_needs_admin, connector_exists, encryption_unavailable, invalid_assigned_approver, verify_throttled.
 
 ## Common-pattern rules (owner decisions 19-25, 2026-10-18)
 - Unknown body fields are refused 422 ("Unknown field x. Nothing was saved.") on projects, tasks, milestones, risks,
@@ -69,6 +75,8 @@ agents_cannot_unlock, connector_not_active, delivery_not_dead, delivery_already_
   defer need a rationale. A deferred request is parked: POST /change-requests/{id}/reopen returns it to under_review.
 - Decisions and documents are tier B: only a manager or admin marks a decision accepted or approves a document, and a
   document's author cannot approve it. Accepted decisions cannot be edited or deleted; supersede them instead.
+- Implemented: POST /change-requests/{id}/implement moves an APPROVED request to implemented. The requester, an admin or a manager may do it, once only (422 already_implemented); the stamp is never rewritten.
+- Evidence: a document linked to a change request (change_request_id, same project) carries test results, UAT sign-offs or deploy records. Evidence fields without a change request are 422 evidence_needs_change_request.
 - Tokens: expires_at defaults to now + 90 days (max 365); GET /tokens adds days_left and expiring_soon. Two-step is
   required for admins and managers after a 14-day grace (GET /auth/mfa shows required, in_grace, grace_days_left, must_enrol);
   tokens keep working. Session length is a Supabase dashboard setting.
@@ -76,6 +84,27 @@ agents_cannot_unlock, connector_not_active, delivery_not_dead, delivery_already_
 
 Exception: the three /integrations/lark/{connectorId}/* routes answer in the PLATFORM's contract
 (a challenge, {}, or { toast, card }), not the { data } envelope.
+
+## Approval tiers and the emergency path (wave 4, audit gaps G1-G4)
+Every change request, deletion request and rebaseline carries a tier (routine, normal, high_risk, strategic or emergency)
+and approval_deadline_at. The tier decides the least role that may decide it:
+- Defaults: routine and normal are decided by a manager or admin; high_risk and strategic by an admin only. The workspace
+  approval policy (GET and PATCH /workspace-settings, field approval_policy, admin session) changes the role, the turnaround
+  hours, the cost threshold and currency, and the emergency window per tier.
+- A requester may ask for routine (only with no cost, no schedule impact and no impact scope), normal, high_risk or strategic
+  (admin only). The server can raise a tier, never lower it. A cost at or over the threshold (default 50,000, either sign) or a
+  schedule impact over schedule_threshold_days (default 10) makes a normal change request high_risk. The currency is a label
+  only: every cost is compared as a plain number, and nothing is converted.
+- Fallback approver (decision D7): while the workspace has fewer than two admins, a manager may decide an admin-level request.
+  The decision is recorded with fallback_approver true, and the raiser still cannot decide it.
+- Timers: the daily scheduler reminds approvers at half the turnaround and escalates to the admins past it. Routine
+  auto-approve is OFF by default. An admin can switch it on for the routine tier only, and it never applies to a request with
+  a cost or a schedule impact. Deletion requests and rebaselines are never auto-approved. A second human still decides money and dates.
+- Emergency: a manager or admin raises a change with is_emergency true. It gets status emergency and may be implemented at once
+  (POST /change-requests/{id}/implement). An admin then gives the retro decision (POST /change-requests/{id}/decision, approve or
+  reject) within the emergency window (default 48 hours). A live emergency past that window is flagged retro_overdue in GET /review,
+  the digest and the weekly report. Until it is implemented, the requester may still edit or delete the emergency (PATCH or
+  DELETE /change-requests/{id}); a live emergency that is implemented stays part of the record.
 
 ## References must stay inside your workspace
 Any id in a request body that points at another record (owner_id, assignee_id, blocked_by, supersedes,
@@ -102,6 +131,13 @@ HTTP status codes: 200 ok, 201 created, 202 accepted, 204 no content,
 Lists accept ?limit (1..100, default 20) and ?page (1-based).
 Response includes total, page, limit alongside data.
 
+## Lean list payloads (R-129)
+List endpoints for projects, tasks, milestones, risks and issues return a SUMMARY column set by default
+(enough to scan and link: ids, names/titles, status, owner, dates, completion; no long text, no lock detail,
+no source/external_ref columns). ?view=full returns every column. ?fields=a,b,c returns exactly those columns
+(id is always included; a column outside the entity's allow-list is a 422). GET /<entity>/{id} always returns
+the full record. Prefer the default, then fetch the one record you need in full.
+
 ## Field enums & formats (read this to avoid 422s)
 Projects:    code REQUIRED on create (1-32 chars, short unique identifier, e.g. APOLLO); name REQUIRED.
              rag_status = not_started | red | amber | green | complete
@@ -114,6 +150,7 @@ Milestones:  name REQUIRED. status = not_started | on_track | at_risk | delayed 
              target_date = ISO 8601 datetime WITH offset (e.g. 2026-09-30T00:00:00Z); start_date = YYYY-MM-DD.
 Risks:       title, severity, likelihood REQUIRED. severity / likelihood = low | medium | high | critical
              risk_category = technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational
+             impact_areas = array of schedule | cost | scope | quality | reputation | compliance (impact_area = one-element shorthand; the legacy free-text category is no longer accepted)
              status = open | mitigating | closed | accepted (default open)
              raised_at / due_date = ISO 8601 datetime with offset.
 Issues:      title, priority REQUIRED. priority = low | medium | high | urgent
@@ -153,7 +190,7 @@ Change requests: title REQUIRED on create. category = scope | schedule | cost | 
 Task dependencies: type = FS | SS | FF | SF (default FS), lag_days integer (default 0).
 
 ## Four-eyes compares PEOPLE, and only admins and managers approve
-Every maker-checker flow (task/project deletion, change requests, rebaselines) is decided by a
+Every maker-checker flow (deletion requests for tasks, projects, risks, issues, expenses, documents and milestones, change requests, rebaselines) is decided by a
 DIFFERENT PERSON from the one who raised it. "Person" means the principal behind the caller: a signed-in user is
 their own principal, an API token counts as the user who minted it, and a Lark card click counts as the NoPM
 user the Lark account is linked to. So a requester cannot approve their own request with a token they created,
@@ -162,7 +199,7 @@ owner can never decide — 403, code no_principal. Wildcard scopes never grant t
 Who may approve (owner decision D-16, "follow Lark rules"): approving or deciding — deletion approve/reject,
 change-request decide, rebaseline sign-off and apply — needs an admin or
 manager HUMAN principal, on every channel. A member or viewer gets 403, code role_not_permitted, "Only managers
-and admins can approve". A PAT that carries an approve scope inherits its CREATOR's CURRENT role: it can decide
+and admins can approve". Wave 4: the approval tier can narrow that to admins (see Approval tiers above), and the refusal then reads "Only admins can approve a high-risk request (the tier is named in words)." A PAT that carries an approve scope inherits its CREATOR's CURRENT role: it can decide
 while the person who minted it is an admin or manager, and stops the moment they are demoted (a member cannot
 approve by minting a token). So an approve scope on a token is a manager's delegated authority; the four-eyes
 rule still applies (a token never decides what its creator raised). Keep approve scopes off agent tokens unless
@@ -174,7 +211,7 @@ Hour logging and weekly timesheets were removed on 2026-10-17 (owner decision 18
 /timesheet-submissions routes exist and no time:* scope is granted; a token that still carries one authenticates
 normally and the retired scope is inert.
 
-## Maker-checker: task and project deletion
+## Maker-checker: deletion by request
 DELETE /tasks/{id} and DELETE /projects/{id} do NOT immediately delete the target.
 Task deletion requires scope task:delete:request; project deletion requires scope
 project:delete:request. Both create a deletion_request with status=pending (target_type=task
@@ -194,9 +231,12 @@ A checker cancels via POST /deletion-requests/{id}/reject; the ORIGINAL requeste
 the token or assistant that raised it — may cancel the pending request via
 POST /deletion-requests/{id}/withdraw (per-type maker scope: task:delete:request or
 project:delete:request).
-Owner-locked (Decision 3, requirements/devops-wave1/README.md): maker-checker extends to
-PROJECTS ONLY — milestones/risks/issues stay single-step hard deletes and never create a
-deletion_request row.
+Wave 4 (audit gap G8): the same maker-checker covers the other governed records. DELETE /risks/{id}, /issues/{id},
+/expenses/{id}, /documents/{id} and /milestones/{id} each need scope <entity>:delete:request (risk:delete and issue:delete
+still mean the same), take a required reason, and return 202 with a deletion_request. Approval needs the matching
+<entity>:delete:approve scope and a different person. An APPROVED document can be requested only by an admin. A milestone's
+request records how many tasks it holds; approving unlinks those tasks and keeps them. The database refuses a direct delete
+of these five tables unless an approved request commits it, so any script that deletes them directly will fail by design. An approved document's deletion is high_risk, so an admin must approve it. Approving a PROJECT deletion closes the pending requests on that project's children as withdrawn (closed_reason parent_deleted).
 
 ## Optimistic concurrency (R-90)
 PATCH /projects/{id}, /tasks/{id}, /milestones/{id}, /risks/{id}, and /issues/{id} accept an
@@ -213,6 +253,11 @@ expected_updated_at on the PATCH.
 ## Audit log
 Every mutation writes exactly one immutable row to the audit_log table.
 Read it at GET /audit (scope: audit:read).
+Wave 4: a mutation and its audit row now succeed or fail together. Every row is chained to the one before it in its
+workspace (prev_hash, row_hash, chain_seq). GET /audit/verify (admin or manager session; a token, member or viewer is 403)
+recomputes the chain and names the first row that does not match; each check writes one audit.verified row. Keep the
+latest head_hash outside the database if you need to prove the chain against a database owner. GitHub work events are
+recorded with channel github.
 
 Provenance (R-82): send X-NoPM-Client: cli|mcp|assistant|api|ui to declare which
 surface made the call — it is recorded on the audit row as channel but is NOT an
@@ -258,8 +303,8 @@ DELETE /members/{id}                       — admin session, or a person leavin
 POST   /members/{id}/restore               — admin session — restore a removed member, body { role? }; 422 member_not_removed, role_escalation; audited member.restore
 POST   /members/{id}/mfa-reset             — admin session — reset another person's two-step sign-in; returns fresh backup_codes ONCE; 422 self_reset; audited member.mfa_reset
 
-GET    /workspace-settings                 — any caller — { time_zone, default_time_zone } (IANA; default Asia/Kuala_Lumpur; server today-defaults follow it)
-PATCH  /workspace-settings                 — admin session — change { time_zone }; audited workspace.settings_update
+GET    /workspace-settings                 — any caller — { time_zone, default_time_zone } (IANA; default Asia/Kuala_Lumpur; server today-defaults follow it); wave 4 adds approval_policy, always complete (per tier: decider role, turnaround hours, routine-only auto_approve; plus currency_threshold, currency (a label, default MYR), schedule_threshold_days (default 10), emergency_retro_hours; PATCH is pinned: 412 precondition_failed if another admin changed the setting since you read it)
+PATCH  /workspace-settings                 — admin session — change any non-empty subset of { time_zone, stale_days (1-365), nudges_enabled, weekly_report_enabled, weekly_report_day (ISO weekday, 1 = Monday), approval_policy (wave 4; any subset, admin only; auto_approve true only on routine; unknown keys or tiers 422) }; a bad value is 422 and saves nothing; audited workspace.settings_update with only the changed fields (approval_policy before and after)
 
 GET    /invites                            — admin/manager session — list link invites (L-47/L-48). status is DERIVED (pending|accepted|revoked|expired), never a stored column. Optional ?status= filter.
 POST   /invites                            — admin/manager session — create a link invite. Role-escalation cap (D5): invite.role must be <= the creator's own rank (viewer<member<manager<admin) — 422 if exceeded. Token prefix npi_. expires_at = now + 7 days. invite_url returned ONCE.
@@ -267,12 +312,12 @@ POST   /invites/{id}/revoke                — admin/manager session — revoke 
 POST   /invites/{id}/renew                 — admin/manager session — renew an EXPIRED invite for another 7 days (422 not_expired otherwise; a manager cannot renew an admin-created invite: 403 admin_created; audited invite.renewed)
 POST   /invites/accept                     — scope:none — public, unauthenticated. Provisions a brand-new login (createUser THEN the atomic nopm_accept_invite RPC — writes profiles + resource_members + marks the invite + 2 audit rows in one transaction). Body: { token, password (>=12 chars), display_name } — NO email field, the invite's own email is always used. Rate-limited 10/min per client network (the address your own proxy appended to X-Forwarded-For — on Vercel read from the platform; self-hosted, set NOPM_TRUSTED_PROXY_HOPS to your proxy count, else every caller shares one conservative bucket; this endpoint has no actor to key the baseline limiter on). No session is returned — sign in via /login afterwards. Anti-enumeration (T3, F2c-mini): not-found/already-used/revoked/expired ALL return the same uniform 422 (never a distinct 404) — the /invite/[token] page keeps distinct friendly copy, an intentional asymmetry.
 
-GET    /projects                           — scope:project:read  — list projects in workspace. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match; NoPM is the governed record beside Jira/Slack/Teams, not a replacement for them).
+GET    /projects                           — scope:project:read  — list projects in workspace. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match; NoPM is the governed record beside Jira/Slack/Teams, not a replacement for them). Lean by default: ?view=summary|full, ?fields=a,b,c (see "Lean list payloads").
 POST   /projects                           — scope:project:write — create a project (never created locked: is_locked in the body is ignored; locking is POST /projects/{id}/lock)
 GET    /projects/{id}                      — scope:project:read  — get a project
 PATCH  /projects/{id}                      — scope:project:write — update a project. On a LOCKED project, changing start_date, target_date or either baseline_* date is 422 project_locked (name, owner, RAG, commentary stay editable); owner_id must be in this workspace
 DELETE /projects/{id}                      — scope:project:delete:request — request project deletion (maker step, returns 202, creates deletion_request); 422 project_locked if the project is locked
-POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only); baselines (milestones, tasks and the project's own baseline dates, null-only) are snapshotted first, then the project is locked; the project.lock audit row carries after.project_baseline { before, after }
+POST   /projects/{id}/lock                 — scope:project:write — lock the project timeline (Gantt becomes read-only); baselines (milestones, tasks and the project's own baseline dates, null-only) are snapshotted first, then the project is locked; the project row records locked_by_actor_type/locked_by_actor_id/locked_by_label (who really locked, incl. an agent token); the project.lock audit row carries after.project_baseline { before, after }
 POST   /projects/{id}/unlock               — scope:project:write — unlock the project timeline; body { "reason": "<why>" } is REQUIRED (R-83 — recorded in the audit trail's after.unlock_reason, not stored on the row); unlocking also CANCELS the project's pending_approval and approved rebaselines atomically (status cancelled, terminal; after.cancelled_rebaselines lists their ids, each gets a rebaseline.cancelled audit row), so a sign-off can never be applied to dates edited after it — propose a new rebaseline after relocking
 
 GET    /programs                           — scope:program:read  — list programs in workspace
@@ -298,14 +343,14 @@ PATCH  /saved-views/{id}                   — scope:saved_view:write — update
 DELETE /saved-views/{id}                   — scope:saved_view:write — delete a saved view (plain hard delete, single-step, audited — NOT maker-checker)
 POST   /saved-views/{id}/duplicate         — scope:saved_view:write — clone any visible view (incl. a protected one) into a fresh, unprotected personal copy owned by the caller — user sessions only
 
-GET    /projects/{id}/milestones           — scope:milestone:read  — list milestones for a project
+GET    /projects/{id}/milestones           — scope:milestone:read  — list milestones for a project. ?view=summary|full, ?fields=a,b,c
 POST   /projects/{id}/milestones           — scope:milestone:write — create a milestone under a project
 GET    /milestones/{id}                    — scope:milestone:read  — get a milestone
 PATCH  /milestones/{id}                    — scope:milestone:write — update a milestone
-DELETE /milestones/{id}                    — scope:milestone:write — delete a milestone
+DELETE /milestones/{id}                    — scope:milestone:delete:request — request milestone deletion (maker step, returns 202 with a deletion_request; body reason required; approval unlinks its tasks)
 
-GET    /tasks                              — scope:task:read  — cross-project task list (L-04), workspace-scoped not per-project. Filters: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/source/external_ref (source/external_ref: complement seam, R-81 — both exact-match). Sort (L-10): ?sort=field:asc|desc against due_date|priority|status_type|name|created_at|completion_pct — unknown field/direction 422s. Reused by GET /export?entity=tasks.
-GET    /projects/{id}/tasks                — scope:task:read  — list tasks for a project
+GET    /tasks                              — scope:task:read  — cross-project task list (L-04), workspace-scoped not per-project. Filters: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/source/external_ref (source/external_ref: complement seam, R-81 — both exact-match). Sort (L-10): ?sort=field:asc|desc against due_date|priority|status_type|name|created_at|completion_pct — unknown field/direction 422s. ?view=summary|full, ?fields=a,b,c. Reused by GET /export?entity=tasks.
+GET    /projects/{id}/tasks                — scope:task:read  — list tasks for a project. ?view=summary|full, ?fields=a,b,c
 POST   /projects/{id}/tasks                — scope:task:write — create a task in a project
 GET    /tasks/{id}                         — scope:task:read  — get a task
 PATCH  /tasks/{id}                         — scope:task:write — update a task (Kanban moves are audited)
@@ -314,17 +359,17 @@ GET    /tasks/{id}/dependencies            — scope:task:read  — list a task'
 POST   /tasks/{id}/dependencies            — scope:task:write — add a dependency (predecessor_id, type FS|SS|FF|SF, lag_days)
 DELETE /tasks/{id}/dependencies            — scope:task:write — remove a dependency (predecessor_id in body)
 
-GET    /projects/{id}/risks                — scope:risk:read  — list risks for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
+GET    /projects/{id}/risks                — scope:risk:read  — list risks for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match), ?impact_area=cost,schedule (any-of). ?view=summary|full, ?fields=a,b,c. Risks carry risk_category (enum) and impact_areas (array); the legacy free-text category is gone.
 POST   /projects/{id}/risks                — scope:risk:write — create a risk under a project
 GET    /risks/{id}                         — scope:risk:read  — get a risk
 PATCH  /risks/{id}                         — scope:risk:write — update a risk
-DELETE /risks/{id}                         — scope:risk:write — delete a risk
+DELETE /risks/{id}                         — scope:risk:delete:request — request risk deletion (maker step, returns 202 with a deletion_request; body reason required)
 
-GET    /projects/{id}/issues               — scope:issue:read  — list issues for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
+GET    /projects/{id}/issues               — scope:issue:read  — list issues for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match). ?view=summary|full, ?fields=a,b,c.
 POST   /projects/{id}/issues               — scope:issue:write — create an issue under a project
 GET    /issues/{id}                        — scope:issue:read  — get an issue
 PATCH  /issues/{id}                        — scope:issue:write — update an issue
-DELETE /issues/{id}                        — scope:issue:write — delete an issue
+DELETE /issues/{id}                        — scope:issue:delete:request — request issue deletion (maker step, returns 202 with a deletion_request; body reason required)
 
 GET    /clashes                            — scope:clash:read  — list clashes (schedule/resource/dependency conflicts, cross-project)
 POST   /clashes                            — scope:clash:write — create a clash record
@@ -347,34 +392,46 @@ DELETE /allocations/{id}                   — scope:resource:write — delete a
 GET    /projects/{id}/budget               — scope:budget:read  — get budget summary (planned, committed, actual = expenses only, variance, burn_pct)
 PUT    /projects/{id}/budget               — scope:budget:write — set the project budget: planned_amount required, committed_amount / currency default to 0 / USD when omitted; actual_amount, contingency_reserve, management_reserve are stored when sent
 PATCH  /projects/{id}/budget               — scope:budget:write — PARTIAL update: only the fields in the body are written (nothing is defaulted); 422 on an empty body
+  Budget forecast (R-144): PUT and PATCH budget accept estimate_to_complete (number or null), committed_open (number or null: commitments not yet invoiced; null means use committed_amount) and forecast_method (cpi or bottom_up). On a locked project these two need no change request. GET budget returns forecast { method, estimate_to_complete, committed, committed_open, eac, eac_cpi, eac_bottom_up, etc, vac }; committed is never double counted.
 GET    /projects/{id}/expenses             — scope:budget:read  — list expenses for a project
 POST   /projects/{id}/expenses             — scope:budget:write — create an expense for a project
-DELETE /expenses/{id}                      — scope:budget:write — delete an expense
+DELETE /expenses/{id}                      — scope:expense:delete:request — request expense deletion (maker step, returns 202 with a deletion_request; body reason required)
+GET     /projects/{id}/evm                  — scope:budget:read — earned-value numbers as the Budget page computes them: bac, pv, ev, ac, committed, cv, sv, cpi, spi, eac, etc, vac (cpi, spi, eac, etc, vac null when undefined) plus schedule_basis (baseline_dates | completion_only).
+  GET /projects/{id}/evm also returns eac_cpi, eac_bottom_up, forecast_method, estimate_to_complete and committed_open (commitments not yet invoiced; null means the read uses committed_amount); eac, etc and vac follow forecast_method.
+GET     /projects/{id}/trend                — scope:project:read — slip and index trend from the daily snapshots, with a SUGGESTED RAG (?n=1-120, default 28); advisory, never changes the declared RAG
+GET     /projects/{id}/contingency          — scope:project:read — is this project waiting on a red project? transitive (depth 5), with the chain of projects; advisory
+GET     /projects/{id}/dependencies         — scope:project:read — project dependencies in both directions (depends_on / depended_on_by), with the other project's code, name and declared RAG
+POST    /projects/{id}/dependencies         — scope:project:write — declare a dependency { depends_on_project_id, kind (delivery|resource|decision|risk), linked_risk_id?, note? }; 422 self_dependency, invalid_reference, risk_not_in_projects, circular_dependency; 409 duplicate_dependency; allowed on a locked project; audited project.dependency.add
+DELETE /projects/{id}/dependencies/{depId} — scope:project:write — remove a dependency (204; 404 when it is not under this project); allowed on a locked project; audited project.dependency.remove
 
-GET    /documents                          — scope:document:read  — list documents (?project_id, ?doc_type, ?status filters)
-POST   /documents                          — scope:document:write — create a document record
+GET    /documents                          — scope:document:read  — list documents (?project_id, ?doc_type, ?status, ?change_request_id filters)
+POST   /documents                          — scope:document:write — create a document record. Optional evidence fields: change_request_id (same project; evidence needs one), evidence_type (test_result|uat_signoff|deploy_record|screenshot|other), evidence_result (pass|fail|partial|n/a; needs evidence_type), tested_by_label, tested_at, evidence_note
 GET    /documents/{id}                     — scope:document:read  — get a document
-PATCH  /documents/{id}                     — scope:document:write — update a document
-DELETE /documents/{id}                     — scope:document:write — delete a document
+PATCH  /documents/{id}                     — scope:document:write — update a document (same evidence fields as create; change_request_id null clears them)
+DELETE /documents/{id}                     — scope:document:delete:request — request document deletion (maker step, returns 202; body reason required; an approved document needs an admin to request)
 GET    /documents/{id}/file                — scope:document:read  — download the attached file
 POST   /documents/{id}/file                — scope:document:write — attach an uploaded file (path, file_name, mime_type, file_size)
 DELETE /documents/{id}/file                — scope:document:write — detach the file
 POST   /documents/{id}/file/sign           — scope:document:write — get a signed upload URL (max 25 MiB)
 
+GET     /decisions                          — scope:decision:read  — workspace-wide decision list, newest first. Filters: project_id, status (proposed|accepted|superseded|rejected). ?view=summary|full, ?fields=a,b,c (unknown field 422). Paginated.
 GET    /projects/{id}/decisions            — scope:decision:read  — list decisions for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
-POST   /projects/{id}/decisions            — scope:decision:write — record a decision
+POST   /projects/{id}/decisions            — scope:decision:write — record a decision. Optional change_request_id (a change request in this workspace on the same project) and options_structured (up to 20 options, at most one chosen)
 GET    /decisions/{id}                     — scope:decision:read  — get a decision
-PATCH  /decisions/{id}                     — scope:decision:write — update a decision
+PATCH  /decisions/{id}                     — scope:decision:write — update a decision (refused once accepted or superseded)
 DELETE /decisions/{id}                     — scope:decision:write — delete a decision (422 decision_in_use if another decision supersedes it)
 
+GET     /change-requests                    — scope:change:read  — workspace-wide change request list, newest first. Filters: project_id, status (raised|under_review|approved|rejected|deferred|implemented|emergency). Each row carries tier and is_emergency (wave 4); view=full or fields add approval_deadline_at, retro_due_at, retro_decided_at, retro_outcome. ?view=summary|full, ?fields=a,b,c (unknown field 422). Paginated: page, limit (max 100).
 GET    /projects/{id}/change-requests      — scope:change:read  — list change requests for a project
-POST   /projects/{id}/change-requests      — scope:change:write — raise a change request. Only title is required; status may only be raised|under_review (default raised) — any other value is a 422, never a raw database error
+POST   /projects/{id}/change-requests      — scope:change:write — raise a change request. Only title is required; wave 4 adds optional tier (routine|normal|high_risk|strategic, default normal; the server only raises it) and is_emergency (manager or admin; status emergency); status may only be raised|under_review (default raised) — any other value is a 422, never a raw database error
 GET    /change-requests/{id}               — scope:change:read  — get a change request
 PATCH  /change-requests/{id}               — scope:change:write — update a change request (status is NOT updatable here); only while raised/under_review (422 change_request_decided once decided) and only by the requester's person - the user who raised it or a token that user minted (403 not_requester for anyone else, 403 no_principal for an ownerless token). Editing what an approver decides on retires any approval card already sent and issues a fresh one
 DELETE /change-requests/{id}               — scope:change:write — delete a change request; only while raised/under_review (422 change_request_decided once decided) and only by the requester's person (403 not_requester otherwise); the approval cards already sent for it are closed
-POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (admins and managers only — 403 role_not_permitted; approve | reject | defer + rationale, audited); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
+POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (admins and managers only — 403 role_not_permitted, narrowed to admins by the tier: 'Only admins can approve a high-risk request (the tier is named in words).'; approve | reject | defer + rationale, audited; an emergency's retro decision is approve | reject by the emergency role, and defer is refused); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
 POST   /change-requests/{id}/review        — scope:change:decide — start review: raised -> under_review (admins and managers only; audited change_request.start_review)
 POST   /change-requests/{id}/reopen        — scope:change:write — reopen a DEFERRED change request to under_review (the requester or an admin/manager; a deferral is parked, not final; audited change_request.reopen)
+POST    /change-requests/{id}/implement     — scope:change:write — mark an APPROVED change request (or an emergency change, status emergency) implemented (the requester, or any admin or manager; no recorded owner is 403 no_principal; 422 invalid_transition unless approved; 422 already_implemented on a repeat, never re-stamped; body { note? } max 2000; audited change_request.implement)
+GET     /change-requests/{id}/evidence      — scope:document:read — evidence documents for one change request, newest test first. Read-only; attach evidence with POST or PATCH /documents (change_request_id + evidence_type, evidence_result, tested_by_label, tested_at, evidence_note).
 
 GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
 POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required); 403 no_principal for a token with no recorded owner; 409 pending_rebaseline_exists ("This project already has a rebaseline waiting for sign-off") when one is already awaiting sign-off; 409 rebaseline_version_conflict ("Another rebaseline proposal was created at the same moment. Reload and try again.") when two proposals race (distinct from pending_rebaseline_exists). Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected, or pending_approval / approved -> cancelled when the project is unlocked (applied, rejected and cancelled are terminal)
@@ -382,23 +439,32 @@ POST   /rebaselines/{id}/signoff           — scope:rebaseline:approve — sign
 POST   /rebaselines/{id}/apply             — scope:rebaseline:approve — apply an approved rebaseline (admins and managers only — 403 role_not_permitted; 422 project_not_locked "Rebaseline cannot be applied: its project is no longer locked. Lock the project and propose a new rebaseline." when the project was unlocked meanwhile): milestone, task AND project baseline dates become the current plan, and the rebaseline.apply audit row carries after.project_baseline { before, after } so History and the Trust Center show the project baseline moving (the requester cannot apply their own — 403 self_approval; 422 already_applied if it was applied already, 422 rule_violation if it is not approved)
 POST   /rebaselines/{id}/withdraw          — scope:project:write — the proposer withdraws a rebaseline that is still pending_approval (403 not_requester for anyone else; 422 rebaseline_not_pending); becomes cancelled, audited rebaseline.withdrawn
 
-GET    /review                             — scope:task:read or audit:read or change:read or project:read — "what is waiting for a human?": every governed decision pending in the workspace, oldest first, across deletion requests (task + project), change requests (raised/under_review) and rebaselines awaiting sign-off. READ-ONLY. ?kind=task_deletion|project_deletion|change_request|rebaseline (comma list or repeated), ?page, ?limit (1..200, default 50). Response { data: [{ kind, id, title, summary, project_id, project_name, requested_by_label, requested_at, can_decide, reason_if_not }], total, page, limit, hidden_kinds }. can_decide = holds the decide scope AND is a different person from the requester; reason_if_not says why not. Kinds the token cannot read are named in hidden_kinds (an empty list is NOT proof nothing is pending); a token that can read none gets 403.
+GET    /review                             — scope:task:read or audit:read or change:read or project:read — "what is waiting for a human?": every governed decision pending in the workspace, oldest first, across deletion requests (task + project), change requests (raised/under_review) and rebaselines awaiting sign-off. READ-ONLY. ?kind=task_deletion|project_deletion|risk_deletion|issue_deletion|expense_deletion|document_deletion|milestone_deletion|change_request|rebaseline (comma list or repeated), ?page, ?limit (1..200, default 50). Response { data: [{ kind, id, title, summary, project_id, project_name, requested_by_label, requested_at, can_decide, reason_if_not, removes, tier, approval_deadline_at, retro_due_at, retro_overdue }], total, page, limit, hidden_kinds }. can_decide = holds the decide scope AND is a different person from the requester; reason_if_not says why not. Kinds the token cannot read are named in hidden_kinds (an empty list is NOT proof nothing is pending); a token that can read none gets 403.
+  GET /review?mine=1 (R-146): only the requests assigned to the person behind the token (a token counts as its creator). Each item carries assigned_approver_id and assigned_to_me. Assignment is routing only and never changes can_decide.
 
 GET    /deletion-requests                  — scope:task:read or audit:read — list deletion requests (?status=pending|approved|rejected|committed|withdrawn; target_type=task|project)
-POST   /deletion-requests/{id}/approve     — scope:<type>:delete:approve — approve and execute a pending deletion (admins and managers only — 403 role_not_permitted; per-type gate: task:delete:approve or project:delete:approve; four-eyes by PERSON: approver != requester — 403 self_approval, 403 no_principal; 422 already_decided). Optional body { "note": "<why>" } is recorded in the audit row.
+POST   /deletion-requests/{id}/approve     — scope:<type>:delete:approve — approve and execute a pending deletion (admins and managers only — 403 role_not_permitted; per-type gate: task, project, risk, issue, expense, document or milestone :delete:approve (an approved document whose requester is not an admin is 422 approved_document_needs_admin); four-eyes by PERSON: approver != requester — 403 self_approval, 403 no_principal; 422 already_decided). Optional body { "note": "<why>" } is recorded in the audit row.
 POST   /deletion-requests/{id}/reject      — scope:<type>:delete:approve — reject a pending deletion request (admins and managers only — 403 role_not_permitted; per-type gate; four-eyes: no self-rejection — 422 for the same actor, 403 for the same person via another identity; optional body { "reason" })
-POST   /deletion-requests/{id}/withdraw    — scope:task:delete:request or project:delete:request — withdraw your OWN pending deletion request (maker step; per-type scope matching the request's target)
+POST   /deletion-requests/{id}/withdraw    — scope:<entity>:delete:request for the request's target (task, project, risk, issue, expense, document or milestone) — withdraw your OWN pending deletion request (maker step; per-type scope matching the request's target)
 
 GET    /notifications                      — scope:notification:read — list in-app notifications for the actor
 PATCH  /notifications/{id}                 — scope:notification:read — mark a notification read/unread
 POST   /notifications/read-all             — scope:notification:read — mark all notifications read
 
-GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant|lark — R-82, unrecognized values ignored; ?since ISO 8601 timestamp — 422 if unparsable, ?after_id uuid of a row already seen — 404 if absent from this workspace, ?order asc|desc default desc — 422 otherwise; since/after_id combine — R-85). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql. A decision made from a Lark card is recorded with channel=lark plus via_connector_id / external_event_id / external_actor_ref (platform ids abbreviated; server-derived, never taken from X-NoPM-Client — a caller can only declare ui|api|cli|mcp|assistant); ?channel=lark filters to them. Connector audit rows carry the Lark app id, chat id and platform ids abbreviated (the stream is member-readable).
+GET    /audit/verify                       — admin or manager SESSION only (a token, member or viewer is 403) — recompute the audit hash chain (?from ISO 8601, optional; ?limit 1-200000, default 50000, above that 422) and report { ok, checked, first_seq, limit, first_bad_id, first_bad_at, from, head_hash, verified_at }; one run per workspace per 5 minutes, otherwise 429 verify_throttled with last_result and Retry-After; writes one audit.verified row (wave 4)
+GET    /audit                              — scope:audit:read — query immutable audit log (?target_type, ?target_id, ?action, ?actor_id, ?channel one of ui|api|cli|mcp|assistant|lark|github — R-82, unrecognized values ignored; each row also carries prev_hash, row_hash and chain_seq (wave 4); ?since ISO 8601 timestamp — 422 if unparsable, ?after_id uuid of a row already seen — 404 if absent from this workspace, ?order asc|desc default desc — 422 otherwise; since/after_id combine — R-85). Each row carries channel (declared/caller-asserted client, NOT an authorization input) and request_id (per-request correlation id, also echoed as the X-Request-Id response header) — both nullable for rows predating migration 20260906000042_audit_channel.sql. A decision made from a Lark card is recorded with channel=lark plus via_connector_id / external_event_id / external_actor_ref (platform ids abbreviated; server-derived, never taken from X-NoPM-Client — a caller can only declare ui|api|cli|mcp|assistant); ?channel=lark filters to them. Connector audit rows carry the Lark app id, chat id and platform ids abbreviated (the stream is member-readable).
+  GET /audit also takes project_id (the project and every record naming it), person_id (that person's own actions and actions through a token they own), kinds (comma list of task,risk,issue,change_request,decision,document,project) and until (exclusive upper bound that pairs with since). Malformed values are 422.
 GET    /search                            — scope:project:read — full-workspace search (?q=) across projects, tasks, programs, sprints, risks, issues, clashes, documents, change requests, decisions
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
+  GET /timeline also returns projectDependencies, and edges of kind dependency run milestone to milestone. Same-project task edges are unchanged.
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
-GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|programs|projects (required). Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id OPTIONAL (omitted = whole workspace) + status/severity(/priority for issues)/q/sort; projects: rag_status/phase/program_id/q/sort; clashes: none; audit: target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, lenient — bad value dropped, not 422; after_id NOT supported here); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel and request_id. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|programs|projects|members|tokens|identities|change_requests|audit_pack (required; members/tokens/identities = access review, admin or manager SESSION only, 403 for any token; tokens never export the hash). from/to (UTC days, inclusive) and on=created|updated apply to EVERY entity. risks also take impact_area=a,b (any-of) and export risk_category + impact_areas. Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id OPTIONAL (omitted = whole workspace) + status/severity(/priority for issues)/q/sort; projects: rag_status/phase/program_id/q/sort; clashes: none; audit: target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, lenient — bad value dropped, not 422; after_id NOT supported here); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel, request_id, principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+  audit_pack: GET /api/export?entity=audit_pack&from=&to=&format=csv|pdf (the PDF cover and the weekly report print "Audit chain head: <hash> at <time> UTC", wave 4) — admin or manager SESSION only (403 for any token, member, viewer). One CSV (first column section = change_requests | evidence | decisions | approvals_audit) or a PDF: every change request raised or decided in range with approver, evidence, implemented date, plus the change audit trail. Audited as export.audit_pack.
+
+GET    /reports/handover                   — scope:report:read — handover and key-person report: open items with a single owner and no backup, unowned items, per-person bus_factor_1 (?project_id, ?format=json|csv)
+GET    /reports/weekly                     — scope:report:read — the stored weekly status report as HTML (?week=<calendar day or ISO week>; 404 when none was generated; 422 when the week is unreadable)
+POST   /reports/weekly                     — admin or manager SESSION only (403 for members, viewers and every token) — send the weekly report now: refresh this week's stored report, notify every admin and manager, audit report.weekly.generated
 
 GET    /reports/deck                       — scope:audit:read AND budget:read (both required — the deck carries budget figures) — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read AND budget:read (both required) — portfolio deck (POST variant)
@@ -430,7 +496,14 @@ POST   /integrations/connectors/{id}/deliveries/{deliveryId}/retry — admin ses
 GET    /integrations/identities            — signed-in user session — linked platform accounts: your own, or every member's for an admin (?mine=1 for just yours); platform ids masked
 POST   /integrations/identities/link-code  — signed-in user session — mint a one-time NPL-XXXX-XXXX code (10 minutes, single use); DM "link <code>" to the bot to bind that Lark account to YOU (never by email)
 DELETE /integrations/identities/{id}       — signed-in user session — unlink a platform account (your own, or any for an admin)
-GET    /integrations/cron                  — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — daily tick (01:07 UTC): retry due deliveries, send each connector's weekly digest on its weekday (a missed weekday is made up by a later tick in the same ISO week, unless the connector was edited after that day began), prune old bookkeeping rows; idempotent. Only the FLOOR of the retry ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead) — due retries also drain whenever the workspace has approval traffic. Stops starting work at 40 s of its 60 s budget; the rest stays queued. Summary: { connectors, deliveries, digests, skippedForDeadline, timedOut, pruned, elapsedMs }
+GET    /integrations/cron                  — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — daily tick (01:07 UTC): retry due deliveries, send each connector's weekly digest on its weekday (a missed weekday is made up by a later tick in the same ISO week, unless the connector was edited after that day began), prune old bookkeeping rows; idempotent. Only the FLOOR of the retry ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead) — due retries also drain whenever the workspace has approval traffic. Stops starting work at 40 s of its 60 s budget; the rest stays queued. Summary: { connectors, deliveries, digests, skippedForDeadline, timedOut, pruned, elapsedMs }; wave 4 adds an approval timer step with summary approvals { workspaces, examined, reminders, escalated, autoApproved, retroOverdue, failed, skippedForDeadline }
+GET    /cron/snapshots                     — Bearer CRON_SECRET (NOT a PAT; host scheduler only) — nightly project snapshot tick (17:37 UTC): one project_snapshots row per project per workspace day, idempotent; one snapshot.taken audit row per workspace per run
+GET    /integrations/github/connector       — session only (token 403) — the GitHub connector view (members: name and status only), the event-to-status mapping (rules), can_manage, work_events (wave 4)
+POST   /integrations/github/connector       — admin session — connect the repository webhook; the secret is shown ONCE; 422 connector_exists; 503 encryption_unavailable (wave 4)
+PATCH  /integrations/github/connector       — admin session — pause or resume (status active|paused), change the rules, rotate_secret true (shown once); 422 on an unknown event or status (wave 4)
+DELETE /integrations/github/connector       — admin session — revoke the connector; its webhook stops answering (wave 4)
+GET    /integrations/github/work-events     — session only — the last events (default 20, max 50) with applied and the reason an event did not move a task (wave 4)
+POST   /integrations/github/{connectorId}/events — public, signed by GitHub (X-Hub-Signature-256 over the raw body) — pull_request and deployment_status move the task whose external_ref is github:<owner>/<repo>#<number>; other events 200 and change nothing; 401 generic; 200 on a replayed delivery (wave 4)
 POST   /integrations/lark/{connectorId}/events — public, signed by Lark/Feishu (verification token, plus Encrypt Key signature when set) — event subscription endpoint: url_verification handshake, bot DM commands (help, link <code>, approvals). Answers in the platform's contract, NOT { data }: { challenge }, {} or { toast, card }. One generic 401 { error: "Invalid request" } for any verification failure AND for an unknown, paused or revoked connector (404 only for a malformed id); 503 if the active connector cannot decrypt its own secrets; failed verifications are capped per connector and per client network (429).
 POST   /integrations/lark/{connectorId}/card — public, signed by Lark/Feishu — card.action.trigger callback: the Approve / Reject button click. Replies 200 { toast, card? } within 3 s; a refused click (unlinked, expired, not the recipient, self-approval, already decided, or "changed" — the request was edited after the card was sent, so nothing was decided and a fresh card follows) is a toast, not an HTTP error.
 POST   /integrations/lark/{connectorId}/relay — public, HMAC-signed by the self-host worker (headers X-NoPM-Relay-Timestamp, X-NoPM-Relay-Signature: v1=hex(HMAC-SHA256 over "<timestamp>.<raw body>", key = the 64-char hex text of SHA-256(relay secret)), within ±300 s) — body { type: ping | event | card, payload }. Same governed path as the webhooks. An unknown connector id is the same 401 invalid_relay_signature as a wrong signature; 404 only for a malformed id; 403 connector_inactive / wrong_mode only to an authenticated caller; 503 connector_unavailable if its secrets cannot be decrypted. The pre-auth per-network cap keys on the address your own proxy appended to X-Forwarded-For (self-host: set NOPM_TRUSTED_PROXY_HOPS).
@@ -478,6 +551,22 @@ a self-hosted NoPM with no public URL runs web/scripts/lark-worker.mjs, which ho
 to Lark and relays each event to /relay (mode long_connection). Credentials are encrypted at rest and never
 returned; paused or revoked connectors stop both directions.
 
+## GitHub work events (wave 4, audit gap A1)
+An admin connects one GitHub repository webhook per workspace (POST /integrations/github/connector, secret shown once).
+In the repository, add a webhook with the returned address and secret, content type application/json, and the events
+Pull requests and Deployment statuses. Then:
+- A task is linked to a pull request by its external_ref, set with PATCH /tasks/{id}: external_ref github:<owner>/<repo>#<number>
+  and source github. Matching is exact, so store the reference in lower case. A malformed reference is refused with 422.
+- A pull request opened, merged or closed, or a deployment that succeeds or fails, moves that task by the workspace mapping
+  (GET /integrations/github/connector returns rules). A task only moves forward, never out of completed or canceled.
+- Nothing moves a task on a locked project; the event is recorded with reason project_locked. Each move is one audited
+  task update with channel github and the GitHub delivery id.
+- A redelivered event is recorded with reason replay and changes nothing. A delivery naming more than five pull requests is
+  recorded with reason truncated.
+- GET /integrations/github/work-events shows the last events and why each one applied or did not.
+- PATCH /integrations/github/connector with status paused stops every delivery at once (the webhook answers 401).
+- An agent may link a pull request with the existing update_task tool (external_ref and source). No new tool is needed.
+
 ## Calendar feed
 
 POST /calendar-feeds returns a private subscription URL (…/api/calendar/npc_<secret>.ics) ONCE. Paste it into
@@ -504,6 +593,7 @@ workspace search, budget, clashes, resources, the audit log, and list_pending_ap
 MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agent. The same tools are served
 remotely at POST /mcp (Streamable HTTP) with your own PAT in the Authorization header.
 list_pending_approvals is read-only (it calls GET /review): it answers "what is waiting for a human?" and reports
+Also read-only: get_handover_report (GET /reports/handover) and get_project_trend (GET /projects/{id}/trend). list_pending_approvals takes mine=true (GET /review?mine=1).
 can_decide / reason_if_not per item, but there is deliberately no approve or decide tool.
 The stdio server (web/mcp/server.mjs) can also raise a change request (create_change_request), propose a rebaseline
 (propose_rebaseline), sign one off or apply it (sign_off_rebaseline, apply_rebaseline — these call the approve
@@ -511,7 +601,7 @@ routes with YOUR token, so they only work when the PAT holds rebaseline:approve 
 admin or manager; otherwise they return the API's 403 verbatim), and create a decision (create_decision) or a document record (create_document).
 Tool schemas are generated from the same registry the in-app assistant uses and are
 lock-tested against the API's Zod validators. Capabilities are bounded by the PAT
-scopes; all writes are audited; task and project deletion both go through maker-checker
+scopes; all writes are audited; every governed deletion (tasks, projects, risks, issues, expenses, documents and milestones) goes through maker-checker
 (the assistant can only request deletion and has no approve tool; an MCP token can approve only through the
 rebaseline tools above, and only when its creator is an admin or manager).
 See web/mcp/README.md for setup instructions.
@@ -520,10 +610,10 @@ See web/mcp/README.md for setup instructions.
 
 ## Maker-checker note (expanded)
 
-Task deletion AND project deletion are intentionally two-step to provide change-control
-traceability. Owner-locked (Decision 3, requirements/devops-wave1/README.md): this flow
-extends to PROJECTS ONLY — milestones/risks/issues stay single-step hard deletes and never
-create a deletion_request row.
+Task deletion, project deletion and (wave 4, audit gap G8) risk, issue, expense, document and milestone deletion
+are all intentionally two-step to provide change-control traceability. Each of the five newer kinds uses the same
+maker and checker steps below, with its own <entity>:delete:request and <entity>:delete:approve scopes. The database
+refuses a direct delete of those five tables unless an approved request commits it.
 
 1. Maker step   — task: token with scope task:delete:request calls DELETE /tasks/{id}
                   project: token with scope project:delete:request calls DELETE /projects/{id}

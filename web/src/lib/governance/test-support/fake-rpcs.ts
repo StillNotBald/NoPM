@@ -116,7 +116,7 @@ export function unlockProjectAuditedRpc(args: Record<string, unknown>, db: FakeD
       x.status = "cancelled";
       return { id: x.id, version: x.version, previous_status };
     });
-  Object.assign(proj, { is_locked: false, locked_by: null, locked_at: null, lock_reason: null });
+  Object.assign(proj, { is_locked: false, locked_by: null, locked_by_actor_type: null, locked_by_actor_id: null, locked_by_label: null, locked_at: null, lock_reason: null });
   pushAudit(db, args, {
     action: "project.unlock",
     target_type: "project",
@@ -209,14 +209,48 @@ export function signoffRebaselineRpc(args: Record<string, unknown>, db: FakeDb):
   return { data: { signoff: { ...sign }, rebaseline: withoutBaselineBefore({ ...r }) }, error: null };
 }
 
-/** Mirrors nopm_decide_change_request (0063). */
+/** Mirrors nopm_tier_required_role / nopm_principal_meets_tier (0100): the CR A3 defaults unless the workspace policy says otherwise. */
+export function principalMeetsTier(db: FakeDb, workspaceId: unknown, tier: unknown, principal: unknown): boolean {
+  const t = typeof tier === "string" ? tier : "normal";
+  const ws = db.rows("workspaces").find((w) => w.id === workspaceId);
+  const configured = (ws?.approval_policy as { tiers?: Record<string, { approver_role?: string }> } | undefined)?.tiers?.[t]?.approver_role;
+  const required = configured || (["high_risk", "emergency", "strategic"].includes(t) ? "admin" : "manager");
+  const profile = db.rows("profiles").find((p) => p.id === principal && p.workspace_id === workspaceId);
+  if (!profile) return false;
+  // D7: with fewer than two admins a manager may decide an admin-level request (fallback approver).
+  const admins = db.rows("profiles").filter((p) => p.workspace_id === workspaceId && p.role === "admin").length;
+  return profile.role === "admin" || (profile.role === "manager" && (required === "manager" || admins < 2));
+}
+
+function usesFallback(db: FakeDb, workspaceId: unknown, tier: unknown, principal: unknown): boolean {
+  const profile = db.rows("profiles").find((p) => p.id === principal && p.workspace_id === workspaceId);
+  return profile?.role === "manager" && !principalMeetsTierStrict(db, workspaceId, tier, principal);
+}
+
+function principalMeetsTierStrict(db: FakeDb, workspaceId: unknown, tier: unknown, principal: unknown): boolean {
+  const t = typeof tier === "string" ? tier : "normal";
+  const ws = db.rows("workspaces").find((w) => w.id === workspaceId);
+  const configured = (ws?.approval_policy as { tiers?: Record<string, { approver_role?: string }> } | undefined)?.tiers?.[t]?.approver_role;
+  const required = configured || (["high_risk", "emergency", "strategic"].includes(t) ? "admin" : "manager");
+  const profile = db.rows("profiles").find((p) => p.id === principal && p.workspace_id === workspaceId);
+  return !!profile && (profile.role === "admin" || (profile.role === "manager" && required === "manager"));
+}
+
+/** Mirrors nopm_decide_change_request (0063, widened by 0100: emergency, tier role, retro stamp). */
 export function decideChangeRequestRpc(args: Record<string, unknown>, db: FakeDb): RpcResult {
   const guard = approverGuards(db, args);
   if (guard) return guard;
   const principal = args.p_approver_principal_id as string;
   const cr = db.rows("change_requests").find((x) => x.id === args.p_id && x.workspace_id === args.p_workspace_id);
   if (!cr) return rpcError("P0002", "NOT_FOUND");
-  if (cr.status !== "raised" && cr.status !== "under_review") return rpcError("P0001", "ALREADY_DECIDED");
+  const awaitingRetro = cr.status === "implemented" && cr.is_emergency === true && !cr.retro_decided_at;
+  if (cr.status !== "raised" && cr.status !== "under_review" && cr.status !== "emergency" && !awaitingRetro) {
+    return rpcError("P0001", "ALREADY_DECIDED");
+  }
+  if (!principalMeetsTier(db, args.p_workspace_id, cr.tier, principal)) {
+    return rpcError("P0018", "ROLE_NOT_PERMITTED: this request needs a higher role");
+  }
+  if (cr.status === "implemented" && args.p_new_status === "deferred") return rpcError("P0001", "INVALID_STATUS");
   if (
     (cr.requested_by && cr.requested_by === args.p_actor_id) ||
     (cr.requested_by_id && cr.requested_by_id === args.p_actor_id && cr.requested_by_type === args.p_actor_type) ||
@@ -230,7 +264,8 @@ export function decideChangeRequestRpc(args: Record<string, unknown>, db: FakeDb
   }
   const beforeRow = { ...cr };
   Object.assign(cr, {
-    status: args.p_new_status,
+    status: cr.status === "implemented" ? "implemented" : args.p_new_status,
+    ...(cr.is_emergency ? { retro_decided_at: new Date().toISOString(), retro_outcome: args.p_new_status } : {}),
     decided_by: args.p_actor_type === "user" ? args.p_actor_id : null,
     decided_by_label: args.p_actor_label,
     decided_by_type: args.p_actor_type,
@@ -244,7 +279,8 @@ export function decideChangeRequestRpc(args: Record<string, unknown>, db: FakeDb
     target_type: "change_request",
     target_id: cr.id,
     before: beforeRow,
-    after: { ...cr },
+    // D7: the audit row says when a manager decided only because the workspace has fewer than two admins.
+    after: usesFallback(db, args.p_workspace_id, cr.tier, principal) ? { ...cr, fallback_approver: true } : { ...cr },
   });
   return { data: { ...cr }, error: null };
 }
@@ -280,7 +316,10 @@ export function lockProjectRpc(args: Record<string, unknown>, db: FakeDb): RpcRe
   }
   Object.assign(proj, {
     is_locked: true,
-    locked_by: args.p_actor_type === "user" ? args.p_actor_id : null,
+    locked_by: args.p_actor_type === "user" ? args.p_actor_id : (db.rows("api_tokens").find((t) => t.id === args.p_actor_id)?.created_by ?? null),
+    locked_by_actor_type: args.p_actor_type,
+    locked_by_actor_id: args.p_actor_id,
+    locked_by_label: args.p_actor_label ?? `${args.p_actor_type} ${args.p_actor_id}`,
     locked_at: new Date().toISOString(),
     lock_reason: args.p_reason ?? null,
   });
@@ -336,6 +375,48 @@ export function transitionChangeRequestRpc(args: Record<string, unknown>, db: Fa
     action: args.p_action === "start_review" ? "change_request.start_review" : "change_request.reopen",
     target_type: "change_request",
     target_id: cr.id,
+    before: beforeRow,
+    after: { ...cr },
+  });
+  return { data: { ...cr }, error: null };
+}
+
+/** Mirrors nopm_implement_change_request (0092). */
+export function implementChangeRequestRpc(args: Record<string, unknown>, db: FakeDb): RpcResult {
+  const bad = channelGuard(args);
+  if (bad) return bad;
+  const principal = (args.p_principal_id as string | null | undefined) ?? null;
+  if (!principal) return rpcError("P0006", "NO_PRINCIPAL");
+  const profile = db.rows("profiles").find((p) => p.id === principal && p.workspace_id === args.p_workspace_id);
+  const isApprover = !!profile && (profile.role === "admin" || profile.role === "manager");
+  const cr = db.rows("change_requests").find((x) => x.id === args.p_id && x.workspace_id === args.p_workspace_id);
+  if (!cr) return rpcError("P0002", "NOT_FOUND");
+  if (!(isApprover || (cr.requested_principal_id && cr.requested_principal_id === principal))) {
+    return rpcError("P0023", "NOT_ALLOWED");
+  }
+  if (cr.status === "implemented") return rpcError("P0028", "ALREADY_IMPLEMENTED");
+  // 0100: an emergency request is implementable before any decision.
+  if (!(cr.status === "approved" || (cr.status === "emergency" && cr.is_emergency === true))) {
+    return rpcError("P0024", "INVALID_TRANSITION");
+  }
+  const beforeRow = { ...cr };
+  const note = typeof args.p_note === "string" && args.p_note.trim() ? args.p_note.trim() : null;
+  Object.assign(cr, {
+    status: "implemented",
+    implemented_at: new Date().toISOString(),
+    implemented_by: args.p_actor_type === "user" ? args.p_actor_id : null,
+    implemented_by_type: args.p_actor_type,
+    implemented_by_id: args.p_actor_id,
+    implemented_by_label: args.p_actor_label,
+    implemented_principal_id: principal,
+    implemented_note: note,
+    updated_at: new Date().toISOString(),
+  });
+  pushAudit(db, { ...args, p_approver_principal_id: principal }, {
+    action: "change_request.implement",
+    target_type: "change_request",
+    target_id: cr.id,
+    principal_id: principal,
     before: beforeRow,
     after: { ...cr },
   });

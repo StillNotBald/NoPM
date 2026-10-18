@@ -95,6 +95,11 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `create_task` | POST /api/projects/:id/tasks | `task:write` |
 | `update_task` | PATCH /api/tasks/:id (the governed Kanban move) | `task:write` |
 | `request_task_deletion` | DELETE /api/tasks/:id | `task:delete:request` |
+| `request_risk_deletion` | DELETE /api/risks/:id | `risk:delete:request` |
+| `request_issue_deletion` | DELETE /api/issues/:id | `issue:delete:request` |
+| `request_expense_deletion` | DELETE /api/expenses/:id | `expense:delete:request` |
+| `request_document_deletion` | DELETE /api/documents/:id | `document:delete:request` |
+| `request_milestone_deletion` | DELETE /api/milestones/:id | `milestone:delete:request` |
 | `withdraw_deletion_request` | POST /api/deletion-requests/:id/withdraw (your own pending request only; never approves) | `task:delete:request` or `project:delete:request` |
 | `list_risks` | GET /api/projects/:id/risks | `risk:read` |
 | `create_risk` | POST /api/projects/:id/risks | `risk:write` |
@@ -103,11 +108,36 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `create_issue` | POST /api/projects/:id/issues | `issue:write` |
 | `update_issue` | PATCH /api/issues/:id | `issue:write` |
 | `get_budget` | GET /api/projects/:id/budget | `budget:read` |
+| `get_evm` | GET /api/projects/:id/evm (BAC, AC, EV, PV, CV, SV, CPI, SPI, EAC, ETC, VAC, committed; same numbers as the Budget page) | `budget:read` |
+| `get_project_trend` | GET /api/projects/:id/trend (daily snapshot trend and the RAG it suggests, with the reason; optional `n`) | `project:read` |
+| `get_handover_report` | GET /api/reports/handover (open items whose single owner has no backup, per project and owner, plus the key-person matrix with `bus_factor_1`; optional `project_id`) | `report:read` |
+| `list_change_requests` | GET /api/change-requests (filters `project_id`, `status`; `view` / `fields`) | `change:read` |
+| `get_change_request` | GET /api/change-requests/:id | `change:read` |
+| `list_decisions` | GET /api/decisions (filters `project_id`, `status`; `view` / `fields`) | `decision:read` |
+| `get_document` | GET /api/documents/:id (metadata, `external_url`, stored text body; never file bytes) | `document:read` |
 | `list_clashes` | GET /api/clashes | `clash:read` |
 | `list_resources` | GET /api/resources | `resource:read` |
 | `search_workspace` | GET /api/search | `project:read` |
 | `query_audit` | GET /api/audit | `audit:read` |
-| `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
+| `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `project:read` / `risk:read` / `issue:read` / `budget:read` / `document:read` / `milestone:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
+
+### Decision prep (read-only)
+
+An assistant can gather what a person needs before deciding a change request: `list_change_requests` and `get_change_request` for the request and its impact, `list_decisions` for earlier decisions on the same project, `get_document` for a charter or plan, and `get_evm` for the cost position. All five are GET-only and need read scopes only. There is deliberately no approve or decide tool: a person decides in the console.
+
+### Lean list payloads (`view` / `fields`)
+
+`list_projects`, `list_tasks`, `list_milestones`, `list_risks`, `list_issues`, `list_change_requests` and `list_decisions` return a **summary** column set by default (ids, names or titles, status, owner, dates, completion, `updated_at`; no charter text, lock detail or `source` / `external_ref`). This keeps a 20-row page small enough to leave room for the agent's own reasoning.
+
+| Argument | Effect |
+|---|---|
+| `view: "summary"` (default) | The lean column set. |
+| `view: "full"` | Every column, including long text. |
+| `fields: "id,name,rag_status"` | Exactly those columns (`id` is always added). Overrides `view`. A column outside the entity's allow-list is a 422. |
+
+Use the matching `get_*` tool to read one record in full. The column lists live in `web/src/lib/api/views.ts`.
+
+`create_risk` / `update_risk` take `risk_category` (enum) and `impact_areas` (array). The old free-text `category` is gone.
 
 ### Recommended minimum scopes for a read-only agent
 
@@ -137,7 +167,8 @@ risk:write  issue:write
 
 - **Every write is tagged with its declared client.** Both transports send `X-NoPM-Client: mcp`, so the resulting audit_log rows carry `channel: mcp` (R-82, filterable via `GET /audit?channel=mcp`) — provenance only, never an authorization input; token identity stays authoritative.
 
-- **Task deletion AND project deletion are maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`; `request_project_deletion` calls `DELETE /api/projects/:id`. Both create a `deletion_request` (`status=pending`, `target_type=task` or `target_type=project`) and return 202 Accepted — the target is NOT deleted. A different person (a token counts as the human who created it, so a second token minted by the requester does not count) with the scope matching the request's `target_type` (`task:delete:approve` for tasks, `project:delete:approve` for projects) must call `POST /api/deletion-requests/:id/approve`, which dispatches by `target_type` to the matching commit path. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side for both entity types; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly. Maker-checker is owner-locked to PROJECTS ONLY beyond tasks — milestones/risks/issues stay single-step hard deletes and are not part of this flow.
+- **Deletion is maker-checker for every governed record (G8).** Besides tasks and projects, `request_risk_deletion`, `request_issue_deletion`, `request_expense_deletion`, `request_document_deletion` and `request_milestone_deletion` call the matching `DELETE` route, create a pending request (target_type = risk, issue, expense, document or milestone) and return 202; nothing is deleted until a different person holding `<entity>:delete:approve` approves it. An approved document can be requested only by an admin. `create_change_request` also takes `tier` (routine, normal, high_risk, strategic) and `is_emergency`; `list_change_requests` accepts status `emergency`. The older text below describes the first two entity types.
+- **Task deletion AND project deletion are maker-checker.** `request_task_deletion` calls `DELETE /api/tasks/:id`; `request_project_deletion` calls `DELETE /api/projects/:id`. Both create a `deletion_request` (`status=pending`, `target_type=task` or `target_type=project`) and return 202 Accepted — the target is NOT deleted. A different person (a token counts as the human who created it, so a second token minted by the requester does not count) with the scope matching the request's `target_type` (`task:delete:approve` for tasks, `project:delete:approve` for projects) must call `POST /api/deletion-requests/:id/approve`, which dispatches by `target_type` to the matching commit path. Self-approval is rejected by the server (403). This server intentionally exposes only the maker (request) side for both entity types; the checker (approve) step must be performed by an authorized human or a separate token through the NoPM UI or API directly. Beyond tasks and projects, the five records above follow the same flow.
 
 ---
 

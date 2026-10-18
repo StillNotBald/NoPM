@@ -42,8 +42,13 @@ export const TOOLS: ToolSpec[] = TOOL_REGISTRY.map((t) => ({
  * own list endpoint: without them the assistant would never see a pending change
  * request. It is a READ scope. This ceiling never holds an
  * approve / decide / write-on-governance scope (task:delete:approve,
- * project:delete:approve, change:decide, rebaseline:approve) — the
- * assistant can SEE what is waiting, a person decides it. Locked by
+ * project:delete:approve, risk|issue|expense|document|milestone:delete:approve, change:decide, rebaseline:approve) — the
+ * assistant can SEE what is waiting, a person decides it.
+ *
+ * decision:read and document:read serve the decision-prep reads (list_decisions,
+ * get_document, B7 / R-139); like change:read they are READ scopes only. get_handover_report
+ * (M6 / R-140) needs report:read (the weekly-report scope, read only), added here in the wave-3 fix pass.
+ * get_project_trend (W3-C) needs project:read only; list_pending_approvals gained mine=true (same change:read etc. scopes). Locked by
  * tools-openapi.test.ts, scopes.test.ts and review/tool.test.ts.
  */
 export const TOOL_SCOPES = [
@@ -55,6 +60,11 @@ export const TOOL_SCOPES = [
   "task:write",
   "task:delete:request",
   "project:delete:request",
+  "risk:delete:request",
+  "issue:delete:request",
+  "expense:delete:request",
+  "document:delete:request",
+  "milestone:delete:request",
   "risk:read",
   "risk:write",
   "issue:read",
@@ -64,6 +74,9 @@ export const TOOL_SCOPES = [
   "resource:read",
   "audit:read",
   "change:read",
+  "decision:read",
+  "document:read",
+  "report:read",
 ] as const;
 
 export type ToolScope = (typeof TOOL_SCOPES)[number];

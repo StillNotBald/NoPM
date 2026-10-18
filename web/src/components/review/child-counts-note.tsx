@@ -6,13 +6,13 @@ import type { ChildCountLine } from "@/lib/review/deletion-target";
  * child counts recorded on the request, with governed records (change
  * requests, decisions, documents, rebaselines) called out. Server-renderable.
  */
-export function ChildCountsNote({ lines }: { lines: ChildCountLine[] }) {
+export function ChildCountsNote({ lines, heading = "Approving also deletes:" }: { lines: ChildCountLine[]; heading?: string }) {
   if (lines.length === 0) return null;
   const governed = lines.filter((l) => l.governed);
   return (
     <div role="note" className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs leading-snug text-danger-ink">
       <p className="flex items-center gap-1.5 font-semibold">
-        <Trash2 size={12} aria-hidden="true" /> Approving also deletes:
+        <Trash2 size={12} aria-hidden="true" /> {heading}
       </p>
       <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
         {lines.map((l) => (

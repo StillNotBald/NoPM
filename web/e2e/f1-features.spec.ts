@@ -37,8 +37,10 @@ test.describe("cross-project task list (L-04/L-08/L-10)", () => {
     async ({ page }) => {
       await page.goto("/tasks");
       await expect(page.locator(SHELL_MARKER)).toBeVisible({ timeout: 20_000 });
-      await page.getByRole("combobox").first().selectOption({ index: 1 });
-      await expect(page).toHaveURL(/[?&](project_id|status_type|priority)=/);
+      // Wait for hydration (dev server) before driving the select, else the change handler is not attached yet.
+      await page.waitForLoadState("networkidle");
+      await page.getByRole("combobox", { name: "Status" }).selectOption({ index: 1 });
+      await expect(page).toHaveURL(/[?&](project_id|status_type|priority)=/, { timeout: 15_000 });
     },
   );
 

@@ -67,6 +67,11 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   update_task:          { task_id: FAKE_UUID, status_type: "started" },
   request_task_deletion:{ task_id: FAKE_UUID, reason: "test cleanup" },
   withdraw_deletion_request: { request_id: FAKE_UUID },
+  request_risk_deletion: { risk_id: FAKE_UUID, reason: "test cleanup" },
+  request_issue_deletion: { issue_id: FAKE_UUID, reason: "test cleanup" },
+  request_expense_deletion: { expense_id: FAKE_UUID, reason: "test cleanup" },
+  request_document_deletion: { document_id: FAKE_UUID, reason: "test cleanup" },
+  request_milestone_deletion: { milestone_id: FAKE_UUID, reason: "test cleanup" },
   list_risks:           { project_id: FAKE_UUID },
   create_risk:          { project_id: FAKE_UUID, title: "R1", severity: "low", likelihood: "low" },
   update_risk:          { risk_id: FAKE_UUID, status: "mitigating" },
@@ -79,6 +84,13 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   search_workspace:     { query: "kanban" },
   query_audit:          {},
   list_pending_approvals: {},
+  get_evm:              { project_id: FAKE_UUID },
+  get_handover_report:  { project_id: FAKE_UUID },
+  get_project_trend:    { project_id: FAKE_UUID },
+  list_change_requests: { project_id: FAKE_UUID, status: "raised" },
+  get_change_request:   { change_request_id: FAKE_UUID },
+  list_decisions:       { project_id: FAKE_UUID, status: "accepted" },
+  get_document:         { document_id: FAKE_UUID },
 };
 
 // Typed view of the spec paths for easier narrowing

@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClashSchema } from "./_schema";
 import { nextRefId } from "@/lib/ref-id";
@@ -71,32 +71,23 @@ export const POST = route(async ({ actor, request }) => {
 
   const refId = await nextRefId(db, actor.workspaceId, "clashes", "CL");
 
-  const { data: row, error } = await db
-    .from("clashes")
-    .insert({
-      ...parsed.data,
-      workspace_id: actor.workspaceId,
-      reference_id: refId,
-    })
-    .select()
-    .single();
-
-  // A concurrent create can slip past the pre-check; the partial unique index
-  // (migration 0080) turns it into the same clean 422.
-  if (error?.code === "23505") {
-    throw new RuleError(duplicateClashMessage(parsed.data.type, null), "duplicate_clash");
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103).
+  let row;
+  try {
+    row = await auditedInsert({
+      table: "clashes",
+      actor,
+      action: "clash.create",
+      patch: { ...parsed.data, reference_id: refId },
+    });
+  } catch (error) {
+    // A concurrent create can slip past the pre-check; the partial unique index
+    // (migration 0080) turns it into the same clean 422.
+    if ((error as { code?: string })?.code === "23505") {
+      throw new RuleError(duplicateClashMessage(parsed.data.type, null), "duplicate_clash");
+    }
+    throw error;
   }
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "clash.create",
-    targetType: "clash",
-    targetId: row.id,
-    before: null,
-    after: row,
-  });
 
   return created(row);
 });

@@ -16,7 +16,12 @@ vi.mock("@/lib/auth/guard", async (orig) => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    rpc: async () => ({ data: { allowed: true }, error: null }),
+    // nopm_mutate_audited (migration 0103): the write and its audit row; the patch is what was written.
+    rpc: async (name: string, a: { p_patch?: Record<string, unknown> }) => {
+      if (name !== "nopm_mutate_audited") return { data: { allowed: true }, error: null };
+      h.updates.push(a.p_patch as Record<string, unknown>);
+      return { data: { before: EXISTING, after: { ...EXISTING, ...a.p_patch } }, error: null };
+    },
     from: (table: string) => {
       let isUpdate = false;
       const b: Record<string, unknown> = {};

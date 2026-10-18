@@ -13,6 +13,9 @@ import { workspaceToday } from "@/lib/integrations/time-zone";
 import { computeEvm, type EvmResult } from "@/lib/evm";
 import { DEFAULT_WARN_PCT, OVERSPEND_AUDIT_ACTION, overspendLevel, type OverspendLevel } from "@/lib/insight/overspend";
 import { EvmTable, BudgetTable, type EvmTableRow, type BudgetTableRow } from "@/components/budget/budget-tables";
+import { ForecastPanel, type ForecastRow } from "@/components/budget/forecast-panel";
+import { ExpenseLedger, type LedgerExpense } from "@/components/budget/expense-ledger";
+import { computeTrend, TREND_WINDOW, type SnapshotPoint } from "@/lib/insight/trend";
 
 interface ProjectBudget {
   project_id: string;
@@ -20,6 +23,9 @@ interface ProjectBudget {
   committed_amount: number;
   currency: string | null;
   overspend_warn_pct?: number | null;
+  estimate_to_complete?: number | null;
+  committed_open?: number | null;
+  forecast_method?: string | null;
 }
 
 interface Project {
@@ -29,6 +35,7 @@ interface Project {
   completion_pct: number | null;
   baseline_start_date: string | null;
   baseline_target_date: string | null;
+  rag_status: string | null;
 }
 
 interface ExpenseRow {
@@ -105,7 +112,7 @@ export default async function BudgetPage() {
   // Fetch all projects (include baseline dates for schedule-aware SPI)
   const { data: projects, error: projectsError } = await db
     .from("projects")
-    .select("id, name, currency, completion_pct, baseline_start_date, baseline_target_date")
+    .select("id, name, currency, completion_pct, baseline_start_date, baseline_target_date, rag_status")
     .order("name");
 
   if (projectsError) {
@@ -135,7 +142,7 @@ export default async function BudgetPage() {
   // Fetch project_budget rows
   const { data: budgetRows, error: budgetError } = await db
     .from("project_budget")
-    .select("project_id, planned_amount, committed_amount, currency, overspend_warn_pct")
+    .select("project_id, planned_amount, committed_amount, currency, overspend_warn_pct, estimate_to_complete, committed_open, forecast_method")
     .in("project_id", projectIds);
 
   if (budgetError) return <QueryError what="budgets" message={budgetError.message} />;
@@ -152,6 +159,16 @@ export default async function BudgetPage() {
     .in("project_id", projectIds);
 
   if (expenseError) return <QueryError what="expenses" message={expenseError.message} />;
+
+  // The latest expenses, one row each, so a wrong entry can be requested for deletion (UAT-006). Read-only list:
+  // a failure here leaves the rest of the page intact.
+  const { data: ledgerData } = await db
+    .from("expenses")
+    .select("id, project_id, description, amount, category, incurred_on")
+    .in("project_id", projectIds)
+    .order("incurred_on", { ascending: false })
+    .limit(50);
+  const ledgerExpenses = (ledgerData ?? []) as LedgerExpense[];
 
   const expensesByProject: Record<string, number> = {};
   for (const exp of (expenses ?? []) as ExpenseRow[]) {
@@ -181,6 +198,10 @@ export default async function BudgetPage() {
       baseline_start_date: project.baseline_start_date,
       baseline_target_date: project.baseline_target_date,
       as_of_date: asOfDate,
+      // B3: the bottom-up forecast and which one this project reports.
+      estimate_to_complete: budget?.estimate_to_complete == null ? null : Number(budget.estimate_to_complete),
+      committed_open: budget?.committed_open == null ? null : Number(budget.committed_open),
+      forecast_method: budget?.forecast_method === "bottom_up" ? "bottom_up" : "cpi",
     });
 
     const warnPct = budget?.overspend_warn_pct ?? DEFAULT_WARN_PCT;
@@ -234,6 +255,47 @@ export default async function BudgetPage() {
     .order("created_at", { ascending: false })
     .limit(10);
   const nameById = new Map(projectList.map((p) => [p.id, p.name]));
+
+  // B6: the daily snapshots of the last few weeks -> a trend and a SUGGESTED RAG per project.
+  // Advice only; it is shown beside the declared RAG and never written to it.
+  // One read PER PROJECT, newest first, limited to the window: a single global limit would cut the
+  // newest days of the busiest workspace once there are many projects.
+  const perProject = await Promise.all(
+    projectIds.map((id) =>
+      db
+        .from("project_snapshots")
+        .select("project_id, taken_at, spi, cpi, eac, slip_days, completion_pct, open_risks_high, rag_declared")
+        .eq("project_id", id)
+        .order("taken_at", { ascending: false })
+        .limit(TREND_WINDOW),
+    ),
+  );
+  const snapshotError = perProject.find((r) => r.error)?.error ?? null;
+  const snapshotsByProject = new Map<string, SnapshotPoint[]>();
+  perProject.forEach((r, i) => {
+    snapshotsByProject.set(projectIds[i], ((r.data ?? []) as SnapshotPoint[]).slice().reverse());
+  });
+  const ragById = new Map(projectList.map((p) => [p.id, p.rag_status]));
+  const forecastRows: ForecastRow[] = rows.map((row) => {
+    const trend = computeTrend(snapshotsByProject.get(row.projectId) ?? [], TREND_WINDOW);
+    const budget = budgetByProject[row.projectId];
+    return {
+      projectId: row.projectId,
+      projectName: row.projectName,
+      currency: row.currency,
+      committedDisplay: fmt(row.committed, row.currency),
+      actualDisplay: fmt(row.actual, row.currency),
+      eacCpiDisplay: row.evm.eac_cpi === null ? "—" : fmt(row.evm.eac_cpi, row.currency),
+      eacBottomUpDisplay: row.evm.eac_bottom_up === null ? "Needs a to-finish estimate" : fmt(row.evm.eac_bottom_up, row.currency),
+      estimateToComplete: budget?.estimate_to_complete == null ? null : Number(budget.estimate_to_complete),
+      committedOpen: budget?.committed_open == null ? null : Number(budget.committed_open),
+      method: row.evm.forecast_method,
+      declaredRag: ragById.get(row.projectId) ?? null,
+      suggestion: trend.suggested_rag
+        ? { rag: trend.suggested_rag, reason: trend.reason, snapshots: trend.snapshots, lowConfidence: trend.confidence === "low" }
+        : null,
+    };
+  });
   const crossings = (crossingRows ?? []) as {
     id: string;
     created_at: string;
@@ -261,6 +323,7 @@ export default async function BudgetPage() {
       spiDisplay: fmtIndex(spi),
       spiToneClass: indexTone(spi),
       eacDisplay: eac === null ? "—" : fmt(eac, row.currency),
+      eacMethod: row.evm.forecast_method === "bottom_up" ? "bottom-up" : "CPI",
       vacDisplay: vac === null ? "—" : fmt(Math.abs(vac), row.currency),
       vacToneClass: vacTone(vac),
     };
@@ -296,6 +359,7 @@ export default async function BudgetPage() {
 
   const csvHeader = [
     "Project", "Currency", "Planned", "Committed", "Actual (expenses)", "Variance", "Burn %", "Completion %", "CPI", "SPI", "EAC", "VAC",
+    "EAC (CPI)", "EAC (bottom-up)", "Forecast method",
   ];
   const csvRows = rows.map((r) => [
     r.projectName, r.currency, r.planned, r.committed, r.actual, r.variance,
@@ -303,6 +367,7 @@ export default async function BudgetPage() {
     r.evm.cpi === null ? null : Number(r.evm.cpi.toFixed(2)),
     r.evm.spi === null ? null : Number(r.evm.spi.toFixed(2)),
     r.evm.eac, r.evm.vac,
+    r.evm.eac_cpi, r.evm.eac_bottom_up, r.evm.forecast_method === "bottom_up" ? "bottom-up" : "cpi",
   ]);
 
   return (
@@ -394,7 +459,7 @@ export default async function BudgetPage() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-ink-muted uppercase tracking-wide">Forecast (EAC)</p>
+              <p className="text-xs text-ink-muted uppercase tracking-wide">Forecast (EAC, by CPI)</p>
               <p className="mt-1 text-lg font-semibold text-ink tabular-nums">
                 {portfolioEvm.eac === null ? "—" : fmt(portfolioEvm.eac, totalCurrency)}
               </p>
@@ -410,6 +475,17 @@ export default async function BudgetPage() {
 
         {/* Per-project EVM */}
         <EvmTable rows={evmTableRows} />
+      </Card>
+
+      {/* Forecast at completion + suggested RAG (B3, B6) */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Forecast and trend</CardTitle>
+          <span className="text-xs text-ink-muted">
+            Spent + committed + to finish. The RAG suggestion is advice from the nightly trend, never a decision.
+          </span>
+        </CardHeader>
+        <ForecastPanel rows={forecastRows} trendAvailable={!snapshotError} />
       </Card>
 
       {/* Budget table */}
@@ -436,6 +512,20 @@ export default async function BudgetPage() {
                 }
               : null
           }
+        />
+      </Card>
+
+      {/* Expenses behind the Actual figures; removing one is a request a different person approves */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent expenses</CardTitle>
+          <span className="text-xs text-ink-muted">Deleting an expense needs a second person to approve.</span>
+        </CardHeader>
+        <ExpenseLedger
+          expenses={ledgerExpenses}
+          projectNames={Object.fromEntries(projectList.map((p) => [p.id, p.name]))}
+          currencies={Object.fromEntries(projectList.map((p) => [p.id, p.currency ?? ""]))}
+          canRequest
         />
       </Card>
       </div>

@@ -2,7 +2,7 @@ import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { ok, noContent, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClashSchema, patchClashSchema } from "../_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -81,29 +81,23 @@ export const PATCH = route(async ({ actor, params, request }) => {
     await assertNoDuplicateLiveClash(db, actor.workspaceId, merged, params.id);
   }
 
-  // Strip any id/workspace_id from update payload
-  const { data: updated, error: updateError } = await db
-    .from("clashes")
-    .update({ ...parsed.data })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError?.code === "23505") {
-    throw new RuleError(duplicateClashMessage(String(merged.type), null), "duplicate_clash");
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  let updated;
+  try {
+    ({ after: updated } = await auditedUpdate({
+      table: "clashes",
+      actor,
+      action: "clash.update",
+      id: params.id,
+      patch: { ...parsed.data },
+      notFoundMessage: "Clash not found",
+    }));
+  } catch (error) {
+    if ((error as { code?: string })?.code === "23505") {
+      throw new RuleError(duplicateClashMessage(String(merged.type), null), "duplicate_clash");
+    }
+    throw error;
   }
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "clash.update",
-    targetType: "clash",
-    targetId: params.id,
-    before: existing,
-    after: updated,
-  });
 
   return ok(updated);
 });
@@ -122,22 +116,13 @@ export const DELETE = route(async ({ actor, params }) => {
   if (fetchError) throw fetchError;
   if (!existing) throw new NotFoundError("Clash not found");
 
-  const { error: deleteError } = await db
-    .from("clashes")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw deleteError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  await auditedDelete({
+    table: "clashes",
     actor,
     action: "clash.delete",
-    targetType: "clash",
-    targetId: params.id,
-    before: existing,
-    after: null,
+    id: params.id,
+    notFoundMessage: "Clash not found",
   });
 
   return noContent();

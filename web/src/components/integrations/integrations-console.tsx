@@ -2,10 +2,12 @@
 
 import { fetchConnector, fetchIdentities, fetchMe } from "./api";
 import { CalendarFeedsCard } from "./calendar-feeds-card";
+import { GithubCard } from "./github-card";
 import { GovernanceNote } from "./governance-note";
 import { useApiResource, type ResourceState } from "./hooks";
 import { LarkAccountCard } from "./lark-account-card";
 import { LarkConnectorCard } from "./lark-connector-card";
+import { NudgeSettingsCard } from "./nudge-settings-card";
 import { TimeZoneCard } from "./time-zone-card";
 import type { IdentityView } from "./model";
 
@@ -70,11 +72,14 @@ export function IntegrationsConsole() {
           onRetry={identities.retry}
           onReload={refreshLinks}
         />
+
+        <GithubCard />
       </div>
 
       <div className="min-w-0 space-y-6">
         <CalendarFeedsCard role={role} />
         <TimeZoneCard isAdmin={isAdmin} />
+        <NudgeSettingsCard role={role} />
       </div>
 
       <div className="min-w-0 @4xl:col-span-2">

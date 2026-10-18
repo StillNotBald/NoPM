@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assignedApproverIdField } from "@/lib/review/assignee";
 
 // PMBOK process groups — backs the `phase` column (content-enrichment 0008).
 const projectPhase = z.enum([
@@ -13,10 +14,11 @@ export const createProjectSchema = z.object({
   code: z.string().min(1).max(32),
   name: z.string().min(1).max(255),
   description: z.string().optional(),
-  program: z.string().optional(),
+  program: z.string().nullable().optional(),
   // D-WRK-4: program membership write path (must belong to the caller's workspace).
   program_id: z.string().uuid().nullable().optional(),
   owner_id: z.string().uuid().optional(),
+  backup_owner_id: z.string().uuid("backup_owner_id must be a valid UUID").nullable().optional(),
   rag_status: z
     .enum(["not_started", "red", "amber", "green", "complete"])
     .optional(),
@@ -52,9 +54,10 @@ export const updateProjectSchema = z.object({
   code: z.string().min(1).max(32).optional(),
   name: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
-  program: z.string().optional(),
+  program: z.string().nullable().optional(),
   program_id: z.string().uuid().nullable().optional(),
   owner_id: z.string().uuid().optional(),
+  backup_owner_id: z.string().uuid("backup_owner_id must be a valid UUID").nullable().optional(),
   rag_status: z
     .enum(["not_started", "red", "amber", "green", "complete"])
     .optional(),
@@ -97,6 +100,8 @@ export const updateProjectSchema = z.object({
 // so the audit trail always records *why* a deletion was requested.
 export const ProjectDeleteRequestSchema = z.object({
   reason: z.string().min(1, "reason is required").max(1000),
+  // G5: optional named approver (an admin or manager of the workspace, not the requester).
+  assigned_approver_id: assignedApproverIdField,
 });
 
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;

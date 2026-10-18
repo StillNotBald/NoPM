@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { updateSprintSchema } from "../_schema";
@@ -75,28 +75,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
   }
 
   const now = new Date().toISOString();
-  const { data: after, error: updateError } = await db
-    .from("sprints")
-    .update({
-      ...parsed.data,
-      workspace_id: actor.workspaceId, // never let caller overwrite
-      updated_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  const { after } = await auditedUpdate({
+    table: "sprints",
     actor,
     action: "sprint.update",
-    targetType: "sprint",
-    targetId: params.id,
-    before,
-    after,
+    id: params.id,
+    patch: { ...parsed.data, updated_at: now },
+    notFoundMessage: "Sprint not found",
   });
 
   return ok(after);
@@ -137,22 +123,13 @@ export const DELETE = route(async ({ actor, params }) => {
     throw new RuleError("Sprint has attached tasks — detach them before deleting");
   }
 
-  const { error: deleteError } = await db
-    .from("sprints")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw deleteError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  await auditedDelete({
+    table: "sprints",
     actor,
     action: "sprint.delete",
-    targetType: "sprint",
-    targetId: existing.id,
-    before: existing,
-    after: null,
+    id: params.id,
+    notFoundMessage: "Sprint not found",
   });
 
   return noContent();

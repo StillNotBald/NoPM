@@ -10,6 +10,7 @@ import { useToast } from "@/components/ui/toast";
 import { apiGet, apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { Field, FieldLabel, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
+import { BackupOwnerField, useBackupOwner } from "@/components/forms/backup-owner-field";
 import type { ChecklistItem } from "@/app/api/tasks/_schema";
 import { validateFields } from "@/lib/forms/validate";
 
@@ -40,6 +41,8 @@ export interface Task {
   completion_pct: number;
   sort_order: number;
   assignee_id: string | null;
+  /** M6: a resource member who picks this task up if the assignee is away. */
+  backup_assignee_id?: string | null;
   // ── content-enrichment (0008) — additive, all optional/nullable ──────────────
   acceptance_criteria?: string | null;
   estimate_hours?: number | null;
@@ -150,6 +153,7 @@ export function TaskForm({
     setChecklist((prev) => prev.filter((item) => item.id !== id));
   }
 
+  const backup = useBackupOwner("tasks", task?.id, task?.backup_assignee_id);
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -198,6 +202,7 @@ export function TaskForm({
       labels: parsedLabels,
       blocked_by: blockedBy || null,
       checklist: checklist.length > 0 ? checklist : null,
+      ...backup.payload(Boolean(task)),
       // Optimistic concurrency (R-90) — only meaningful (and only sent) on
       // an edit of an existing record; a create has nothing to be stale.
       ...(task?.updated_at ? { expected_updated_at: task.updated_at } : {}),
@@ -392,6 +397,9 @@ export function TaskForm({
               ))}
             </SelectInput>
           </Field>
+
+          {/* Backup assignee (M6) */}
+          <BackupOwnerField state={backup} label="Backup assignee" error={fieldErrors.backup_assignee_id} />
 
           {/* Blocked by */}
           <Field label="Blocked by" error={fieldErrors.blocked_by}>

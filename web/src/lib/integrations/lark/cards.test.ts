@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { APPROVAL_KINDS } from "@/lib/integrations/types";
 import type { ApprovalDecidedEvent, ApprovalEvent, DigestData } from "@/lib/integrations/types";
 import {
   MAX_REJECT_REASON,
@@ -18,6 +19,7 @@ import {
   deepLinkFor,
   escapeLarkMd,
   isUpdatableCard,
+  KIND_LABEL,
   normalizeAppUrl,
   oneLine,
   resolveAppUrl,
@@ -211,6 +213,30 @@ describe("approval request card contract", () => {
   });
 });
 
+// G8 (migration 0102): a card can be raised for every deletion kind and reads as a deletion.
+describe("deletion cards for risks, issues, expenses, documents and milestones", () => {
+  const KINDS = [
+    ["risk_deletion", "Risk deletion"],
+    ["issue_deletion", "Issue deletion"],
+    ["expense_deletion", "Expense deletion"],
+    ["document_deletion", "Document deletion"],
+    ["milestone_deletion", "Milestone deletion"],
+  ] as const;
+
+  it.each(KINDS)("%s has the label %j and the deletion notice above Approve", (kind, label) => {
+    expect(KIND_LABEL[kind]).toBe(label);
+    const card = buildApprovalRequestCard({ ...deletionEvent, kind, title: `Delete ${kind.split("_")[0]} "X"` }, { actionToken: TOKEN, appUrl: APP });
+    const text = JSON.stringify(elements(card).filter((e) => e.tag === "markdown"));
+    expect(text).toContain("Approving carries out the deletion in NoPM.");
+    expect(JSON.stringify(card)).toContain(label);
+    expect(buttons(card)).toHaveLength(2);
+  });
+
+  it("every ApprovalKind has a label (the table cannot lag the kind list)", () => {
+    for (const kind of APPROVAL_KINDS) expect(KIND_LABEL[kind]).toBeTruthy();
+  });
+});
+
 describe("user text cannot become markup", () => {
   const hostile = '<at id=all></at> [click](https://evil.example.test) **bold** `code` ~~x~~ # h - li > q &#60;at id=all&#62;';
 
@@ -334,6 +360,13 @@ describe("links", () => {
     expect(deepLinkFor(APP, { kind: "project_deletion", id: ID })).toBe(`${APP}/approvals`);
     expect(deepLinkFor("", { kind: "change_request", id: ID })).toBe("");
   });
+
+  it.each(["risk_deletion", "issue_deletion", "expense_deletion", "document_deletion", "milestone_deletion"] as const)(
+    "%s links to the approvals page",
+    (kind) => {
+      expect(deepLinkFor(APP, { kind, id: ID })).toBe(`${APP}/approvals`);
+    },
+  );
 
   it("normalises the base url and refuses non-http(s) schemes", () => {
     expect(normalizeAppUrl("https://nopm.example.test/")).toBe("https://nopm.example.test");

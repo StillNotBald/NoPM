@@ -66,7 +66,14 @@ function table(name: string) {
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: (name: string) => table(name),
-    rpc: async () => ({ data: { allowed: true, remaining: 99, retry_after_seconds: 0 }, error: null }),
+    rpc: async (fn: string, args: Record<string, unknown>) => {
+      // Atomic write + audit (migration 0103): the minted row arrives as the patch.
+      if (fn === "nopm_mutate_audited") {
+        holder.inserted.push(args.p_patch as Row);
+        return { data: { before: null, after: { id: "t-new", workspace_id: "ws-1", ...(args.p_patch as Row) } }, error: null };
+      }
+      return { data: { allowed: true, remaining: 99, retry_after_seconds: 0 }, error: null };
+    },
   }),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));
@@ -153,6 +160,22 @@ describe("POST /api/tokens cannot mint a hidden token", () => {
     expect(res.status).toBe(201);
     expect(holder.inserted).toHaveLength(1);
     expect("kind" in holder.inserted[0]).toBe(false);
+  });
+
+  it("writes the token and its audit row in one atomic call, keeping the hash out of the audit row and the response", async () => {
+    const res = await POST(
+      new NextRequest("http://localhost/api/tokens", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "ci", scopes: ["task:read"] }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.data.token).toMatch(/^npm_/);
+    expect(JSON.stringify(body)).not.toContain(String(holder.inserted[0].token_hash));
+    expect(body.data).not.toHaveProperty("token_hash");
   });
 });
 

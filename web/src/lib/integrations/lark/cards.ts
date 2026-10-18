@@ -25,6 +25,7 @@
  * everything from the token server-side.
  */
 
+import { isDeletionKind } from "@/lib/integrations/types";
 import type {
   ApprovalDecidedEvent,
   ApprovalEvent,
@@ -47,6 +48,11 @@ export type CardCallbackResponse = {
 export const KIND_LABEL: Record<ApprovalKind, string> = {
   task_deletion: "Task deletion",
   project_deletion: "Project deletion",
+  risk_deletion: "Risk deletion",
+  issue_deletion: "Issue deletion",
+  expense_deletion: "Expense deletion",
+  document_deletion: "Document deletion",
+  milestone_deletion: "Milestone deletion",
   change_request: "Change request",
   rebaseline_signoff: "Rebaseline sign-off",
 };
@@ -144,6 +150,11 @@ export function deepLinkFor(appUrl: string, ref: ApprovalRef): string {
       return `${base}/baselines`;
     case "task_deletion":
     case "project_deletion":
+    case "risk_deletion":
+    case "issue_deletion":
+    case "expense_deletion":
+    case "document_deletion":
+    case "milestone_deletion":
       return `${base}/approvals`;
   }
 }
@@ -241,7 +252,7 @@ function detailLines(input: { projectName?: string | null; requestedByLabel?: st
 export function buildApprovalRequestCard(ev: ApprovalEvent, ctx: { actionToken: string; appUrl: string }): LarkCard {
   const ids = new ElementIds();
   const kind = KIND_LABEL[ev.kind];
-  const isDeletion = ev.kind === "task_deletion" || ev.kind === "project_deletion";
+  const isDeletion = isDeletionKind(ev.kind);
   const elements: Record<string, unknown>[] = [md(ids, `**${escapeLarkMd(ev.title, 200)}**`)];
 
   const details = detailLines(ev);
@@ -432,6 +443,19 @@ export function buildDigestCard(data: DigestData): LarkCard {
     `**${data.pendingApprovals}** pending approval${data.pendingApprovals === 1 ? "" : "s"}`,
   ];
   elements.push(md(ids, stats.join(" · ")));
+
+  // G4: only when an emergency change is overdue for its retro approval, so a quiet week keeps the card as it was.
+  if (data.retroOverdue && data.retroOverdue > 0) {
+    elements.push(md(ids, `**Emergency changes overdue for approval**
+**${data.retroOverdue}** live change${data.retroOverdue === 1 ? "" : "s"} still waiting for the after-the-fact decision`));
+  }
+
+  // R-141: only when something is stale, so a quiet week keeps the card as it was.
+  if (data.staleItems && data.staleItems > 0) {
+    const days = data.staleDays ? ` with no update for ${data.staleDays}+ days` : "";
+    elements.push(md(ids, `**Stale items**
+**${data.staleItems}** open task${data.staleItems === 1 ? "" : "s"}, risks or issues${days}`));
+  }
 
   if (data.projects.length === 0) {
     elements.push(md(ids, "**Projects**\nNo projects yet."));

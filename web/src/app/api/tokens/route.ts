@@ -1,7 +1,8 @@
 import { route } from "@/lib/api/handler";
 import { ScopeError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
+import { columnsOf, pickColumns } from "@/lib/audit/pick";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { generateToken } from "@/lib/auth/tokens";
 import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
@@ -97,34 +98,24 @@ export const POST = route(async ({ actor, request }) => {
   }
   const { raw, hash, prefix } = generateToken();
 
-  const db = createAdminClient();
-
-  const { data: row, error } = await db
-    .from("api_tokens")
-    .insert({
-      workspace_id: actor.workspaceId, // always from actor — never trust body
+  // The token and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  // token_hash is written but never read back: it is kept out of the audit row and out of the
+  // returned row (omitColumns), so it can never reach the log.
+  const full = await auditedInsert({
+    table: "api_tokens",
+    actor,
+    action: "token.create",
+    omitColumns: ["token_hash"],
+    patch: {
       name,
       token_hash: hash,
       prefix,
       scopes,
       created_by: actor.id,
       expires_at: expiry.expiresAt,
-    })
-    .select(SAFE_COLUMNS)
-    .single();
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "token.create",
-    targetType: "api_token",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
+  const row = pickColumns(full, columnsOf(SAFE_COLUMNS));
 
-  // raw token is returned ONCE here and never stored/logged anywhere
   return created({ ...row, token: raw });
 });

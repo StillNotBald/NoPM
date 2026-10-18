@@ -18,6 +18,21 @@ import { DEFAULT_TIME_ZONE, todayInZone } from "@/lib/integrations/time-zone";
  *   Fallback (backward-compatible): when any baseline date is absent, plannedSchedulePct
  *   is approximated by completion_pct (PV == EV, SPI == 1.00, schedule-neutral).
  *
+ * Forecast at completion (B3) — two methods, both always computed:
+ *   eac_cpi       = BAC / CPI                           (the classic; null until money is spent)
+ *   eac_bottom_up = AC + committed + estimate_to_complete (null while nobody has estimated the to-finish)
+ *   eac           = whichever `forecast_method` selects ('cpi' by default). A method that
+ *                   cannot be computed yields null: it never silently falls back to the other.
+ *
+ * Committed money and double counting. AC is expenses only. Nothing reduces a commitment
+ * automatically when its invoice is entered as an expense, so the bottom-up forecast does
+ * NOT use the raw `committed_amount`. It uses `committed_open` (commitments not yet
+ * invoiced), which the owner lowers as invoices arrive; while `committed_open` is null it
+ * falls back to `committed_amount`, and that fallback can double count an invoiced
+ * commitment until someone lowers it. `estimate_to_complete` is the to-finish spend BEYOND
+ * the open commitments. etc = eac − ac, so for the bottom-up method
+ * etc = open commitments + estimate_to_complete.
+ *
  * No I/O, no side effects, no audit — derived numbers only (constitution-safe).
  * Every ratio guards divide-by-zero and returns `null` when undefined.
  */
@@ -47,7 +62,16 @@ export interface EvmInput {
    * pass a deterministic date in tests and the function remains pure.
    */
   as_of_date?: string | null;
+  /** OPTIONAL — manual to-finish estimate beyond committed (project_budget.estimate_to_complete). */
+  estimate_to_complete?: number | null;
+  /** OPTIONAL — commitments not yet invoiced (project_budget.committed_open); null = use committed_amount. */
+  committed_open?: number | null;
+  /** OPTIONAL — which forecast is reported as `eac`. Default "cpi". */
+  forecast_method?: ForecastMethod | null;
 }
+
+export type ForecastMethod = "cpi" | "bottom_up";
+export const FORECAST_METHODS: readonly ForecastMethod[] = ["cpi", "bottom_up"];
 
 export interface EvmResult {
   /** BAC — Budget At Completion. */
@@ -68,8 +92,18 @@ export interface EvmResult {
   cpi: number | null;
   /** SPI — Schedule Performance Index (EV / PV). `null` when PV = 0. */
   spi: number | null;
-  /** EAC — Estimate At Completion (BAC / CPI). `null` when CPI is undefined. */
+  /** EAC — Estimate At Completion, per `forecast_method`. `null` when that method cannot be computed. */
   eac: number | null;
+  /** EAC by cost performance (BAC / CPI). `null` when CPI is undefined. */
+  eac_cpi: number | null;
+  /** EAC bottom-up (AC + committed + estimate_to_complete). `null` when no to-finish estimate exists. */
+  eac_bottom_up: number | null;
+  /** The method `eac` follows. */
+  forecast_method: ForecastMethod;
+  /** The commitments used by the bottom-up forecast: committed_open when set, else committed. */
+  committed_open: number;
+  /** The manual to-finish estimate (beyond committed), passed through; null when not set. */
+  estimate_to_complete: number | null;
   /** ETC — Estimate To Complete (EAC − AC). `null` when EAC is undefined. */
   etc: number | null;
   /** VAC — Variance At Completion (BAC − EAC). `null` when EAC is undefined. */
@@ -158,10 +192,29 @@ export function computeEvm(input: EvmInput): EvmResult {
   const cpi = ac > 0 ? ev / ac : null;
   const spi = pv > 0 ? ev / pv : null;
 
-  // EAC = BAC / CPI. Undefined when CPI is null (AC = 0).
-  const eac = cpi !== null && cpi > 0 ? bac / cpi : null;
+  const method: ForecastMethod = input.forecast_method === "bottom_up" ? "bottom_up" : "cpi";
+  const rawEtc = input.estimate_to_complete;
+  const estimateToComplete =
+    rawEtc !== null && rawEtc !== undefined && Number.isFinite(Number(rawEtc)) && Number(rawEtc) >= 0
+      ? Number(rawEtc)
+      : null;
+
+  // EAC (CPI) = BAC / CPI. Undefined when CPI is null (AC = 0).
+  const eacCpi = cpi !== null && cpi > 0 ? bac / cpi : null;
+  // EAC (bottom-up) = incurred + committed + to-finish. Undefined without a to-finish estimate.
+  const rawOpen = input.committed_open;
+  const openCommitted =
+    rawOpen !== null && rawOpen !== undefined && Number.isFinite(Number(rawOpen)) && Number(rawOpen) >= 0
+      ? Number(rawOpen)
+      : committed;
+  const eacBottomUp = estimateToComplete !== null ? ac + openCommitted + estimateToComplete : null;
+  const eac = method === "bottom_up" ? eacBottomUp : eacCpi;
   const etc = eac !== null ? eac - ac : null;
   const vac = eac !== null ? bac - eac : null;
 
-  return { bac, pv, ev, ac, committed, cv, sv, cpi, spi, eac, etc, vac };
+  return {
+    bac, pv, ev, ac, committed, cv, sv, cpi, spi,
+    eac, eac_cpi: eacCpi, eac_bottom_up: eacBottomUp, forecast_method: method,
+    estimate_to_complete: estimateToComplete, committed_open: openCommitted, etc, vac,
+  };
 }

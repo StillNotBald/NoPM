@@ -133,6 +133,9 @@ export async function createFixtures({ db }) {
   const workspaceId = ws.id;
 
   const admin = await makeUser(db, { workspaceId, tag, label: "admin", role: "admin" });
+  // A second admin: with fewer than two, a manager may decide an admin-level request (D7 fallback), which
+  // would hide the tier rule these probes check. Project deletions are high_risk, an admin decision.
+  const admin2 = await makeUser(db, { workspaceId, tag, label: "admin2", role: "admin" });
   const a = await makeUser(db, { workspaceId, tag, label: "managerA", role: "manager" });
   const b = await makeUser(db, { workspaceId, tag, label: "managerB", role: "manager" });
 
@@ -160,6 +163,7 @@ export async function createFixtures({ db }) {
     bWild: await mintToken(db, { workspaceId, name: "probe B wildcard", createdBy: b.id, scopes: ["task:*", "project:*", "change:*"] }),
     bStar: await mintToken(db, { workspaceId, name: "probe B global wildcard", createdBy: b.id, scopes: ["*"] }),
     orphan: await mintToken(db, { workspaceId, name: "probe orphan", createdBy: null, scopes: APPROVE_SCOPES }),
+    admin2: await mintToken(db, { workspaceId, name: "probe admin 2", createdBy: admin2.id, scopes: APPROVE_SCOPES }),
   };
 
   // Ready-made acting identities used by the DB-layer probes.
@@ -170,9 +174,10 @@ export async function createFixtures({ db }) {
     bUser: { type: "user", id: b.id, label: b.label, principalId: b.id },
     bToken: { type: "token", id: tokens.b.id, label: "probe B", principalId: b.id },
     orphanToken: { type: "token", id: tokens.orphan.id, label: "probe orphan", principalId: null },
+    admin2Token: { type: "token", id: tokens.admin2.id, label: "probe admin 2", principalId: admin2.id },
   };
 
-  return { tag, workspaceId, project, milestone, admin, a, b, tokens, actors };
+  return { tag, workspaceId, project, milestone, admin, admin2, a, b, tokens, actors };
 }
 
 // ── tasks + deletion requests ──────────────────────────────────────────────

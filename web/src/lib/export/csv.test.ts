@@ -103,3 +103,18 @@ describe("formula-injection neutralization (CWE-1236)", () => {
     expect(csvField(true)).toBe("true");
   });
 });
+
+describe("access-review columns (M5)", () => {
+  it("keeps a space-joined scope list on one unquoted field", () => {
+    expect(csvRow(["tok-1", "agent", "task:read risk:read"])).toBe("tok-1,agent,task:read risk:read");
+  });
+
+  it("neutralises a formula in a member display name", () => {
+    expect(csvField("=HYPERLINK(\"x\")")).toBe("\"'=HYPERLINK(\"\"x\"\")\"");
+  });
+
+  it("writes empty cells for never-removed members and keeps the header", () => {
+    const out = toCsv(["id", "removed_at", "last_role_change_at"], [["u1", null, ""]]);
+    expect(out.split("\r\n")[1]).toBe("u1,,");
+  });
+});

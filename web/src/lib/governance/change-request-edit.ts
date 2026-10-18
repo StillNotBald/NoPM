@@ -23,11 +23,13 @@ export const MATERIAL_CHANGE_FIELDS = [
   "impact_summary",
   "impact_schedule_days",
   "impact_cost",
+  "impact_scope",
   "target_date",
 ] as const;
 
 const NUMERIC_FIELDS: ReadonlySet<string> = new Set(["impact_schedule_days", "impact_cost"]);
 const DATE_FIELDS: ReadonlySet<string> = new Set(["target_date"]);
+const JSON_FIELDS: ReadonlySet<string> = new Set(["impact_scope"]);
 
 function comparable(field: string, value: unknown): string | number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -36,6 +38,7 @@ function comparable(field: string, value: unknown): string | number | null {
     return Number.isFinite(n) ? n : String(value);
   }
   if (DATE_FIELDS.has(field)) return String(value).slice(0, 10);
+  if (JSON_FIELDS.has(field)) return Array.isArray(value) && value.length === 0 ? null : JSON.stringify(value);
   return String(value);
 }
 

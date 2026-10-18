@@ -436,6 +436,7 @@ describe("every request-creation insert records the requester's principal and em
         projectName: "Billing Migration",
         requestedByLabel: "tok-alice-agent (token)",
         requesterPrincipalId: ALICE,
+        tier: "normal",
       },
     ]);
     // ...and Alice's own PAT can then NOT approve it (the end-to-end bypass).

@@ -3,8 +3,10 @@ import { requireScope, type Actor } from "@/lib/auth/guard";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
 import { upsertBudgetSchema } from "@/app/api/budget/_schema";
+import { computeEvm } from "@/lib/evm";
+import { workspaceToday } from "@/lib/integrations/time-zone";
 import { DEFAULT_WARN_PCT, OVERSPEND_AUDIT_ACTION, recordOverspendCrossing } from "@/lib/insight/overspend";
 
 export const runtime = "nodejs";
@@ -98,9 +100,15 @@ async function releaseChangeRequest(
     .eq("workspace_id", actor.workspaceId);
 }
 
-/** Changing only the warning threshold is advisory, not a money change: no change request needed. */
+/**
+ * Advisory settings are not a change to the baseline money, so a locked project
+ * needs no change request for them: the warning threshold, and (B3) the forecast
+ * inputs (the to-finish estimate and the forecast method), which only move what is
+ * FORECAST, never the approved plan, committed or reserves.
+ */
+const ADVISORY_FIELDS: ReadonlySet<string> = new Set(["overspend_warn_pct", "estimate_to_complete", "forecast_method", "committed_open"]);
 function needsChangeRequest(fields: BudgetPayload): boolean {
-  return Object.keys(fields).some((k) => k !== "overspend_warn_pct");
+  return Object.keys(fields).some((k) => !ADVISORY_FIELDS.has(k));
 }
 
 /** Gate (locked projects), save, and give the change request back if the save fails. */
@@ -152,6 +160,26 @@ export const GET = route(async ({ actor, params }) => {
   const variance = planned - actual;
   const burn_pct = planned > 0 ? (actual / planned) * 100 : 0;
 
+  // B3: both forecasts side by side. Committed is kept separate from actual (expenses only).
+  const { data: proj } = await db
+    .from("projects")
+    .select("completion_pct, baseline_start_date, baseline_target_date")
+    .eq("id", projectId)
+    .eq("workspace_id", actor.workspaceId)
+    .maybeSingle();
+  const evm = computeEvm({
+    planned_amount: Number(planned),
+    completion_pct: Number(proj?.completion_pct ?? 0),
+    committed_amount: Number(budget?.committed_amount ?? 0),
+    actual_amount: actual,
+    baseline_start_date: proj?.baseline_start_date ?? null,
+    baseline_target_date: proj?.baseline_target_date ?? null,
+    as_of_date: await workspaceToday(actor.workspaceId),
+    estimate_to_complete: budget?.estimate_to_complete == null ? null : Number(budget.estimate_to_complete),
+    committed_open: budget?.committed_open == null ? null : Number(budget.committed_open),
+    forecast_method: budget?.forecast_method === "bottom_up" ? "bottom_up" : "cpi",
+  });
+
   const warnPct: number = budget?.overspend_warn_pct ?? DEFAULT_WARN_PCT;
   const { data: events } = await db
     .from("audit_log")
@@ -173,6 +201,17 @@ export const GET = route(async ({ actor, params }) => {
     actual,
     variance,
     burn_pct,
+    forecast: {
+      method: evm.forecast_method,
+      estimate_to_complete: evm.estimate_to_complete,
+      committed: evm.committed,
+      committed_open: evm.committed_open,
+      eac: evm.eac,
+      eac_cpi: evm.eac_cpi,
+      eac_bottom_up: evm.eac_bottom_up,
+      etc: evm.etc,
+      vac: evm.vac,
+    },
     // Decision 19: advisory only, never blocks. One event per threshold crossing.
     overspend: {
       level: budget?.overspend_level ?? "ok",
@@ -192,9 +231,12 @@ const BUDGET_FIELDS = [
   "contingency_reserve",
   "management_reserve",
   "overspend_warn_pct",
+  "estimate_to_complete",
+  "forecast_method",
+  "committed_open",
 ] as const;
 
-type BudgetPayload = Partial<Record<(typeof BUDGET_FIELDS)[number], number | string>>;
+type BudgetPayload = Partial<Record<(typeof BUDGET_FIELDS)[number], number | string | null>>;
 
 /**
  * Upsert the given columns onto the project's budget row and audit it. Only the
@@ -216,28 +258,28 @@ async function saveBudget(
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
 
-  const { data: upserted, error } = await db
-    .from("project_budget")
-    .upsert(
-      { project_id: projectId, workspace_id: actor.workspaceId, ...fields },
-      { onConflict: "project_id" },
-    )
-    .select()
-    .single();
-
-  if (error || !upserted) {
-    throw new Error(`Budget upsert failed: ${error?.message ?? "no row returned"}`);
+  // The write and its audit row are one transaction (nopm_mutate_audited, migration 0103). The
+  // budget row is keyed by project_id, so the project id is the row id. Only the columns in
+  // `fields` are written; a first write gets the DB defaults for the rest.
+  const extra = changeRequestId ? { afterExtra: { change_request_id: changeRequestId } } : {};
+  let upserted: Record<string, unknown>;
+  if (existing) {
+    ({ after: upserted } = await auditedUpdate({
+      table: "project_budget", actor, action: "budget.update", id: projectId, patch: fields, ...extra,
+    }));
+  } else {
+    try {
+      upserted = await auditedInsert({
+        table: "project_budget", actor, action: "budget.update", id: projectId, patch: fields, ...extra,
+      });
+    } catch (e) {
+      // Two first writes racing: the loser updates the row the winner created.
+      if ((e as { code?: string } | null)?.code !== "23505") throw e;
+      ({ after: upserted } = await auditedUpdate({
+        table: "project_budget", actor, action: "budget.update", id: projectId, patch: fields, ...extra,
+      }));
+    }
   }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "budget.update",
-    targetType: "project_budget",
-    targetId: projectId,
-    before: existing ?? null,
-    after: changeRequestId ? { ...upserted, change_request_id: changeRequestId } : upserted,
-  });
 
   // Decision 19: a plan change can move the same spend across a threshold.
   await recordOverspendCrossing(db, actor, projectId);

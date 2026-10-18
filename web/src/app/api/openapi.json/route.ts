@@ -49,6 +49,24 @@ const larkSignatureHeaders = [
   { name: "X-Lark-Signature", in: "header", required: false, schema: { type: "string" }, description: "Lowercase-hex SHA-256 of timestamp + nonce + EncryptKey + raw body. Once an Encrypt Key is set it is required on every request except the one-off url_verification handshake." },
 ];
 
+// Lean list payloads (A7/K5, R-129) - allow-lists live in src/lib/api/views.ts.
+const listViewParams = [
+  {
+    name: "view",
+    in: "query",
+    schema: { type: "string", enum: ["summary", "full"], default: "summary" },
+    description:
+      "Payload size. summary (default) returns the columns needed to scan and link; full returns every column including long text. GET /<entity>/{id} always returns the full record.",
+  },
+  {
+    name: "fields",
+    in: "query",
+    schema: { type: "string" },
+    description:
+      "Comma-separated column list (e.g. id,name,rag_status). Overrides view; id is always included; a column outside the entity's allow-list is a 422.",
+  },
+];
+
 const spec = {
   openapi: "3.1.0",
   info: {
@@ -59,9 +77,12 @@ const spec = {
       "All mutations produce an immutable audit_log entry. " +
       "Task deletion is maker-checker: DELETE /tasks/{id} creates a deletion_request; " +
       "a different PERSON holding scope task:delete:approve must POST /deletion-requests/{id}/approve. " +
-      "Project deletion is maker-checker too (owner-locked, PROJECTS ONLY): DELETE /projects/{id} " +
-      "creates a deletion_request the same way — milestones/risks/issues remain single-step hard " +
-      "deletes and are never routed through deletion_requests. " +
+      "Project deletion is maker-checker too: DELETE /projects/{id} creates a deletion_request the same way. " +
+      "DELETION BY REQUEST (wave 4, audit gap G8): DELETE on milestones, risks, issues, expenses and documents " +
+      "is also a request, never a direct delete. Each needs its own scope (milestone:delete:request, risk:delete:request, " +
+      "issue:delete:request, expense:delete:request, document:delete:request), requires a reason, answers 202 with the " +
+      "deletion_request, and is decided by a different person holding the matching <entity>:delete:approve scope. " +
+      "The database also refuses a direct delete of these tables unless an approved request is committing it. " +
       "Every authenticated request is subject to a baseline workspace+actor-class rate limit " +
       "(fixed 60s window; defaults 600/min read, 120/min write) — see components.responses.RateLimited. " +
       "R-90: PATCH /projects/{id}, /tasks/{id}, /milestones/{id}, /risks/{id} and /issues/{id} accept " +
@@ -81,7 +102,10 @@ const spec = {
       "are NEVER granted by a wildcard (* or task:*, project:*, ...): each must be granted by its exact " +
       "name. Approving or deciding (deletion approve/reject, change-request decide, rebaseline sign-off and apply) is for ADMINS and MANAGERS only, on every channel (owner decision D-16, " +
       "'follow Lark rules'): a member or viewer gets 403, code role_not_permitted, 'Only managers and admins can " +
-      "approve'. A token is judged by the CURRENT role of the person who minted it (api_tokens.created_by), so a " +
+      "approve'. WAVE 4 (G1, G2): the APPROVAL TIER sets the least role that may decide a request. By default a manager " +
+      "decides routine and normal requests; an admin decides high_risk, strategic and an emergency's retro decision " +
+      "(403 role_not_permitted, 'Only admins can approve a high-risk request (the tier is named in words).'). Workspace Settings can change the role per tier. " +
+      "A token is judged by the CURRENT role of the person who minted it (api_tokens.created_by), so a " +
       "token carrying an approve scope can decide only while its creator is still an admin or manager, and stops " +
       "the moment they are demoted. Such a token acts with its creator's authority: keep approve scopes off " +
       "agent tokens unless that is intended; GET /review lists what is waiting for a decision. " +
@@ -112,7 +136,8 @@ const spec = {
       "project_has_approved_records, change_request_required, change_request_invalid, change_request_not_approved, decision_accepted_locked, " +
       "supersede_loop, author_cannot_approve, approve_after_edit, duplicate_clash, unfinished_tasks, invalid_destination, open_tasks, " +
       "admin_created, not_expired, last_admin, member_removed, member_not_removed, no_change, self_reset, unknown_provider, invalid_key, " +
-      "key_unverified, agents_cannot_unlock) — branch on it, not on the message. " +
+      "key_unverified, agents_cannot_unlock, approved_document_needs_admin, connector_exists, encryption_unavailable, " +
+      "invalid_assigned_approver, not_requester, verify_throttled) — branch on it, not on the message. " +
       "COMMON-PATTERN RULES (owner decisions 19-25, 2026-10-18): a PATCH/POST with a field the endpoint does not know is refused 422 " +
       "(Unknown field x. Nothing was saved.) on projects, tasks, milestones, risks, issues, sprints, clashes, allocations, resources " +
       "and programs. Budget GET returns overspend { level, warn_pct, over_pct, events[] } (warn at 90%, over at 100%, warn_pct settable " +
@@ -147,7 +172,38 @@ const spec = {
       "/integrations/lark/{connectorId}/* routes are called by the platform (or the self-host " +
       "relay worker), authenticate by signature rather than a NoPM token, and answer in the " +
       "PLATFORM's contract, not the { data } envelope. A read-only milestone calendar feed " +
-      "(/calendar-feeds, /calendar/{token}) lets any calendar app subscribe.",
+      "(/calendar-feeds, /calendar/{token}) lets any calendar app subscribe. " +
+      "WAVE 3 (2026-10-18). BACKUP OWNERS: projects, risks, issues accept backup_owner_id and tasks accept backup_assignee_id " +
+      "(uuid or null; a person in this workspace, different from the owner or assignee; 422 invalid_reference or a field-named " +
+      "validation error). GET /reports/handover lists open items whose single owner has no backup. APPROVER ASSIGNMENT: the raise " +
+      "routes (change requests, rebaselines, task and project deletion requests) accept an optional assigned_approver_id (an admin " +
+      "or manager other than the requester; 422 invalid_assigned_approver). Assignment is routing only and never changes can_decide. " +
+      "GET /review?mine=1 narrows the queue to requests assigned to the caller's person. SCOPE report:read opens GET /reports/weekly " +
+      "and GET /reports/handover (not privileged; report:* covers it). STALE NUDGES and the weekly report run in the scheduler tick; the nightly snapshot " +
+      "runs at GET /cron/snapshots under CRON_SECRET (internal). TREND and CONTINGENCY are advisory: GET /projects/{id}/trend and " +
+      "GET /projects/{id}/contingency suggest a RAG and never change a declared RAG. DEPENDENCIES: POST /projects/{id}/dependencies " +
+      "declares that a project depends on another; refused with 422 self_dependency, circular_dependency or risk_not_in_projects, " +
+      "and 409 duplicate_dependency for the same pair and kind. " +
+      "WAVE 4 (2026-10-18). APPROVAL TIERS (audit gaps G1, G2, G7): a change request, a deletion request and a rebaseline each carry " +
+      "`tier` (routine | normal | high_risk | strategic | emergency) and `approval_deadline_at`. POST /projects/{id}/change-requests " +
+      "accepts `tier` (routine only with no cost and no schedule impact; strategic needs an admin) and the server can only RAISE it: " +
+      "a cost at or over the workspace currency threshold (default 50,000) or a schedule impact over schedule_threshold_days (default 10) makes a normal request high_risk; the currency is a label only, so no cost is converted. A fallback approver (decision D7) lets a manager decide an admin-level request while the workspace has fewer than two admins. The policy is " +
+      "`approval_policy` on GET and PATCH /workspace-settings (admin session): the decider role and turnaround hours per tier, the " +
+      "threshold and currency, and the emergency window. TIMERS AND AUTO-APPROVE (G3): the daily scheduler reminds approvers at half " +
+      "the turnaround, escalates to admins past it, and never writes the request row. Routine auto-approve is OFF by default; an " +
+      "admin may switch it on for the routine tier only, and it never applies to a request with a cost or a schedule impact. " +
+      "EMERGENCY (G4): POST /projects/{id}/change-requests with `is_emergency: true` (a manager or admin) gives status emergency, " +
+      "which can be implemented at once; a live emergency owes an admin's retro decision within the workspace window (default 48 h), " +
+      "and is flagged overdue once that passes (retro_due_at, retro_decided_at, retro_outcome). " +
+      "DELETION BY REQUEST (G8): risk, issue, expense, document and milestone deletions are requests, see the intro above; an APPROVED " +
+      "document can be requested only by an admin. " +
+      "ATOMIC AUDIT AND TAMPER EVIDENCE (M1): a mutation and its audit row succeed or fail together, and every audit row carries " +
+      "prev_hash, row_hash and chain_seq. GET /audit/verify (admin or manager session) recomputes the per-workspace chain and " +
+      "reports the first bad row. The hash chain proves rows were not edited or removed from the middle; keep head_hash outside the database to cover a database owner who recomputes the chain. " +
+      "GITHUB WORK EVENTS (A1): an admin connects one GitHub repository webhook per workspace (POST /integrations/github/connector). " +
+      "GitHub calls POST /integrations/github/{connectorId}/events, signed with X-Hub-Signature-256. A pull request opened, merged " +
+      "or closed, or a deployment, moves ONLY the task whose external_ref equals github:<owner>/<repo>#<number>, never on a " +
+      "locked project, and never backwards; each move is audited with channel github. The webhook is called by GitHub, not by an agent.",
   },
   servers: [{ url: "https://stillnotbald.com/api", description: "Production" }],
   components: {
@@ -254,6 +310,15 @@ const spec = {
           requested_at: { type: "string", format: "date-time" },
           can_decide: { type: "boolean", description: "Whether THIS caller could decide it (decide scope + four-eyes by person). Advisory — the decision routes re-check everything." },
           reason_if_not: { type: ["string", "null"], description: "Why the caller cannot decide it; null when can_decide is true" },
+          tier: { type: ["string", "null"], enum: [null, "routine", "normal", "high_risk", "strategic", "emergency"], description: "The approval tier; null when unknown" },
+          approval_deadline_at: { type: ["string", "null"], format: "date-time", description: "When the turnaround timer expires; null for an emergency or a tier with no turnaround" },
+          retro_due_at: { type: ["string", "null"], format: "date-time", description: "Change requests only: when an emergency's retro decision is due" },
+          retro_overdue: { type: ["boolean", "null"], description: "Change requests only: true for a live emergency past its retro_due_at with no retro decision (computed, never stored); null for other requests" },
+          removes: {
+            type: "array",
+            description: "What approving also detaches or removes (a milestone's tasks, a project's records); empty otherwise",
+            items: { type: "object", properties: { label: { type: "string" }, count: { type: "integer" }, governed: { type: "boolean" } } },
+          },
         },
       },
       CalendarFeed: {
@@ -269,6 +334,38 @@ const spec = {
           last_fetched_at: { type: ["string", "null"], format: "date-time" },
           revoked_at: { type: ["string", "null"], format: "date-time" },
           owner_name: { type: ["string", "null"], description: "Only on GET ?scope=workspace: the owner's display name" },
+        },
+      },
+      GithubConnector: {
+        type: "object",
+        description:
+          "Admin view of the workspace's GitHub connector. The webhook secret is WRITE-ONLY: it appears once, in the create " +
+          "response and in the rotate response, and is never stored in readable form. Members see only { name, status }.",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          name: { type: "string" },
+          status: { type: "string", enum: ["active", "paused", "revoked"], description: "paused is the kill switch: every delivery answers 401" },
+          webhook_url: { type: "string", format: "uri", description: "The address to paste into the GitHub repository webhook (content type application/json)" },
+          created_at: { type: "string", format: "date-time" },
+          updated_at: { type: "string", format: "date-time" },
+        },
+      },
+      GithubWorkEvent: {
+        type: "object",
+        description: "One GitHub delivery recorded against a pull request. Newest first in GET /integrations/github/work-events.",
+        properties: {
+          id: { type: "string", format: "uuid" },
+          kind: { type: "string", enum: ["pr_opened", "pr_merged", "pr_closed", "deploy_success", "deploy_failure"] },
+          ref: { type: "string", description: "github:<owner>/<repo>#<number>" },
+          actor_login: { type: ["string", "null"] },
+          task_id: { type: ["string", "null"], format: "uuid" },
+          received_at: { type: "string", format: "date-time" },
+          applied: { type: "boolean" },
+          applied_status: { type: ["string", "null"], description: "The task status the event moved the task to, when it did" },
+          reason: {
+            type: "string",
+            enum: ["received", "applied", "project_locked", "unknown_ref", "no_rule", "already_at_or_beyond", "task_canceled", "conflict", "no_linked_pr", "error", "replay", "truncated"],
+          },
         },
       },
       LarkCallbackUrls: {
@@ -726,7 +823,7 @@ const spec = {
       get: {
         tags: ["workspace"],
         summary: "Read workspace settings (time zone)",
-        description: "scope: any authenticated caller. Returns { time_zone, default_time_zone }. The default is Asia/Kuala_Lumpur. Server-side today defaults (due dates, sprint timing, reminders) follow this zone.",
+        description: "scope: any authenticated caller. Returns { time_zone, default_time_zone, stale_days, nudges_enabled, weekly_report_enabled, weekly_report_day, approval_policy }. approval_policy (wave 4) is always complete with every default filled in: { tiers: { routine | normal | high_risk | emergency | strategic: { approver_role: manager | admin, turnaround_hours (0-8760; 0 = no timer), auto_approve (boolean; true only on routine) } }, currency_threshold (default 50000), currency (a LABEL, default MYR or null: every cost is compared as a plain number in that currency and nothing is converted), schedule_threshold_days (0-3650, default 10: a schedule impact above it lifts a normal request to high_risk), emergency_retro_hours (1-720, default 48) }. Defaults: routine and normal decided by a manager; high_risk, emergency retro and strategic by an admin; turnaround 24, 48, 72, 0 and 120 hours; auto_approve off everywhere. The time zone default is Asia/Kuala_Lumpur. stale_days (1-365, default 14) is the age after which an open item is nudged as stale; weekly_report_day is an ISO weekday (1 = Monday) read in time_zone. Server-side defaults (due dates, sprint timing, reminders) follow the time zone.",
         operationId: "getWorkspaceSettings",
         parameters: [],
         responses: {
@@ -736,14 +833,15 @@ const spec = {
       patch: {
         tags: ["workspace"],
         summary: "Change the workspace time zone (admin)",
-        description: "scope: admin USER SESSION only. Body { time_zone } as an IANA name such as Asia/Kuala_Lumpur; anything else is 422 validation_failed. Audited as workspace.settings_update.",
+        description: "scope: admin USER SESSION only. Body is any non-empty subset of time_zone (an IANA name such as Asia/Kuala_Lumpur), stale_days (integer 1-365), nudges_enabled, weekly_report_enabled (booleans) and weekly_report_day (integer 1-7, ISO weekday). A bad value is 422 Validation failed with fields, and nothing is saved. One workspace.settings_update audit row holds only the fields that changed; no row is written when nothing changed. approval_policy (wave 4) takes any subset of the GET shape: only the rules sent change, the rest keep their stored value. Unknown keys and unknown tiers are 422. auto_approve true is allowed only on routine. The whole change is one workspace.settings_update audit row with before and after holding approval_policy, written in the same transaction as the change. The save is pinned to the values the admin read: if another admin changed the same setting since, the save is refused with 412 precondition_failed.",
         operationId: "updateWorkspaceSettings",
         parameters: [],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["time_zone"], properties: { time_zone: { type: "string", example: "Asia/Kuala_Lumpur" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { time_zone: { type: "string", example: "Asia/Kuala_Lumpur" }, stale_days: { type: "integer", minimum: 1, maximum: 365 }, nudges_enabled: { type: "boolean" }, weekly_report_enabled: { type: "boolean" }, weekly_report_day: { type: "integer", minimum: 1, maximum: 7, description: "ISO weekday, 1 = Monday" }, approval_policy: { type: "object", description: "Any subset of { tiers, currency_threshold, currency, schedule_threshold_days, emergency_retro_hours } as described on GET" } } } } } },
         responses: {
           "200": { description: "{ time_zone, default_time_zone }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Not a valid IANA time zone", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "412": { description: "precondition_failed — approval_policy was pinned to the values this admin read, and another admin changed the same setting since. Reload the settings and save again.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Not a valid IANA time zone, or an unknown field, tier or value in approval_policy (auto_approve true on a tier other than routine included)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -819,6 +917,7 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this project mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated project list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -829,7 +928,8 @@ const spec = {
         summary: "Create a project",
         description:
           "scope: project:write. A project is never created locked: is_locked (and locked_at / locked_by) in the body are " +
-          "ignored. Locking happens only through POST /projects/{id}/lock, which also snapshots the baselines.",
+          "ignored. Locking happens only through POST /projects/{id}/lock, which also snapshots the baselines. " +
+          "backup_owner_id (uuid or null) names a backup owner: a profile in this workspace, different from owner_id (422 invalid_reference, or a field-named 422 when equal).",
         operationId: "createProject",
         requestBody: zodBody(createProjectSchema),
         responses: {
@@ -859,7 +959,7 @@ const spec = {
           "as for tasks and milestones — the way to move a frozen baseline is a governed unlock or an approved rebaseline, " +
           "never one holder of project:write. A field sent with its stored value is not a change. Name, owner, RAG, " +
           "commentary and the rest stay editable under lock. owner_id must be a member of THIS workspace (422 " +
-          "invalid_reference otherwise). program_id (uuid or null) is accepted on create and PATCH; a program outside the workspace is 422. completion_pct is calculated from the tasks: a PATCH that sends a value different from the stored one is 422 (\"Project completion is calculated from its tasks\").",
+          "invalid_reference otherwise). backup_owner_id (uuid or null; null clears, omitting keeps) must be a member of THIS workspace and differ from owner_id (422). program_id (uuid or null) is accepted on create and PATCH; a program outside the workspace is 422. completion_pct is calculated from the tasks: a PATCH that sends a value different from the stored one is 422 (\"Project completion is calculated from its tasks\").",
         operationId: "updateProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateProjectSchema),
@@ -887,9 +987,8 @@ const spec = {
           "how many rows of each child kind hang off it (before.child_counts, plus a _scope fingerprint of the project row and " +
           "the child ids); if the project or its records change afterwards, " +
           "the approval is refused (422 children_changed) so an approver never destroys children they were not shown. " +
-          "Owner-locked (Decision 3, " +
-          "requirements/devops-wave1/README.md): maker-checker extends to PROJECTS ONLY — milestones/" +
-          "risks/issues stay single-step hard deletes and are never routed through deletion_requests.",
+          "WAVE 4: the request carries tier (high_risk by default, so an admin decides it unless the workspace " +
+          "approval policy says otherwise) and approval_deadline_at.",
         operationId: "requestProjectDeletion",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(ProjectDeleteRequestSchema),
@@ -1220,6 +1319,7 @@ const spec = {
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated milestone list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1266,14 +1366,22 @@ const spec = {
       },
       delete: {
         tags: ["milestones"],
-        summary: "Delete a milestone",
-        description: "scope: milestone:write. 422 project_locked when the project is locked.",
+        summary: "Request milestone deletion (maker step)",
+        description:
+          "scope: milestone:delete:request (milestone:write no longer deletes). Does NOT delete the milestone (deletion by request, audit gap G8). " +
+          "Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=milestone) and returns 202 with it. " +
+          "A different PERSON holding milestone:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve; approving " +
+          "unlinks the milestone's tasks and keeps them. The request records how many tasks the milestone holds, and approval is refused " +
+          "422 children_changed if that number has moved. 422 project_locked while the project is locked (recorded as milestone.delete_request.blocked). " +
+          "422 duplicate_deletion_request if one is already pending. A token with no recorded owner is 403 no_principal.",
         operationId: "deleteMilestone",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
         responses: {
-          "204": { description: "Deleted" },
+          "202": { description: "Deletion request created (pending) — { data: deletion_request }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing milestone:delete:request (forbidden_scope), or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "project_locked — the project is locked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "project_locked — the project is locked; duplicate_deletion_request — a request is already pending; or validation error (reason required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1287,6 +1395,7 @@ const spec = {
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated task list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1325,6 +1434,7 @@ const spec = {
           { name: "q", in: "query", schema: { type: "string" }, description: "Case-insensitive substring match against task name" },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this task mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated cross-project task list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1347,7 +1457,7 @@ const spec = {
       patch: {
         tags: ["tasks"],
         summary: "Update a task",
-        description: "scope: task:write. Kanban status moves are audited. 422 project_locked when the patch touches a schedule-shape field (dates/estimate_hours/milestone_id) and the project is locked; status/checklist/assignee/etc. edits stay live under lock.",
+        description: "scope: task:write. Kanban status moves are audited. 422 project_locked when the patch touches a schedule-shape field (dates/estimate_hours/milestone_id) and the project is locked; status/checklist/assignee/etc. edits stay live under lock. WAVE 4: external_ref with source github links a pull request: external_ref is github:<owner>/<repo>#<number> and source is github; the match is exact, so store the reference in lower case as the Link PR field does. A malformed GitHub reference (not github:<owner>/<repo>#<number>) is refused with 422. A linked task moves on GitHub work events (see POST /integrations/github/{connectorId}/events); a task on a locked project never moves.",
         operationId: "updateTask",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(TaskUpdateSchema),
@@ -1361,7 +1471,7 @@ const spec = {
       delete: {
         tags: ["tasks"],
         summary: "Request task deletion (maker step)",
-        description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending. Returns 202. A different PERSON holding scope task:delete:approve must approve it (a token you minted counts as you). A token with no recorded owner cannot raise the request (403, code no_principal). 422 project_locked when the project is locked (deletion always reshapes the schedule).",
+        description: "scope: task:delete:request. Does NOT delete the task. Creates a deletion_request with status=pending, tier normal and approval_deadline_at. Returns 202. A different PERSON holding scope task:delete:approve must approve it (a token you minted counts as you). A token with no recorded owner cannot raise the request (403, code no_principal). 422 project_locked when the project is locked (deletion always reshapes the schedule).",
         operationId: "requestTaskDeletion",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(TaskDeleteRequestSchema),
@@ -1384,6 +1494,8 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this risk mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
+          { name: "impact_area", in: "query", schema: { type: "string" }, description: "Any-of filter on impact areas, comma-separated (e.g. cost,schedule): a risk matches when it touches ANY listed area. Values: schedule | cost | scope | quality | reputation | compliance" },
         ],
         responses: {
           "200": { description: "Paginated risk list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1392,7 +1504,7 @@ const spec = {
       post: {
         tags: ["risks"],
         summary: "Create a risk under a project",
-        description: "scope: risk:write. Saves every schema field: probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_area, trigger, residual_risk.",
+        description: "scope: risk:write. Saves every schema field: probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_areas (array of schedule | cost | scope | quality | reputation | compliance; impact_area is accepted as a one-element shorthand), trigger, residual_risk. The legacy free-text category is no longer accepted (use risk_category).",
         operationId: "createRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(createRiskSchema),
@@ -1417,7 +1529,7 @@ const spec = {
       patch: {
         tags: ["risks"],
         summary: "Update a risk",
-        description: "scope: risk:write. Saves every schema field (probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_area, trigger, residual_risk). Raising severity to high or critical sends the same risk.escalated notification as create. Setting status to closed needs a resolution note (up to 4000 chars, sent in the same PATCH or already stored): otherwise 422 with the field error on resolution.",
+        description: "scope: risk:write. Saves every schema field (probability_pct, impact_score, response_strategy, risk_category (technical | schedule | cost | resourcing | scope_requirements | supplier_external | regulatory_legal | organisational), impact_areas (array; impact_area is accepted as a one-element shorthand), trigger, residual_risk). The legacy free-text category is no longer accepted. Raising severity to high or critical sends the same risk.escalated notification as create. Setting status to closed needs a resolution note (up to 4000 chars, sent in the same PATCH or already stored): otherwise 422 with the field error on resolution.",
         operationId: "updateRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateRiskSchema),
@@ -1429,12 +1541,18 @@ const spec = {
       },
       delete: {
         tags: ["risks"],
-        summary: "Delete a risk",
-        description: "scope: risk:write",
+        summary: "Request risk deletion (maker step)",
+        description:
+          "scope: risk:delete:request (the older risk:delete is accepted and means the same; plain risk:write cannot delete, and risk:* does not grant the approve scope). " +
+          "Does NOT delete the risk. Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=risk) and returns 202. " +
+          "A different PERSON holding risk:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve. Audit: risk.delete_requested now, risk.delete on approval.",
         operationId: "deleteRisk",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
         responses: {
-          "204": { description: "Deleted" },
+          "202": { description: "Deletion request created (pending) — { data: deletion_request }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing risk:delete:request (forbidden_scope), or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "duplicate_deletion_request — a request is already pending; or validation error (reason required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -1451,6 +1569,7 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "source", in: "query", schema: { type: "string" }, description: "Exact-match on the system-of-work slug this issue mirrors (e.g. jira)" },
           { name: "external_ref", in: "query", schema: { type: "string" }, description: "Exact-match on the id/key in that external system" },
+          ...listViewParams,
         ],
         responses: {
           "200": { description: "Paginated issue list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -1496,12 +1615,18 @@ const spec = {
       },
       delete: {
         tags: ["issues"],
-        summary: "Delete an issue",
-        description: "scope: issue:write",
+        summary: "Request issue deletion (maker step)",
+        description:
+          "scope: issue:delete:request (the older issue:delete is accepted and means the same; plain issue:write cannot delete, and issue:* does not grant the approve scope). " +
+          "Does NOT delete the issue. Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=issue) and returns 202. " +
+          "A different PERSON holding issue:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve. Audit: issue.delete_requested now, issue.delete on approval.",
         operationId: "deleteIssue",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
         responses: {
-          "204": { description: "Deleted" },
+          "202": { description: "Deletion request created (pending) — { data: deletion_request }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing issue:delete:request (forbidden_scope), or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "duplicate_deletion_request — a request is already pending; or validation error (reason required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -1701,7 +1826,7 @@ const spec = {
       get: {
         tags: ["budget"],
         summary: "Get budget summary for a project",
-        description: "scope: budget:read. Returns planned, committed, actual (expenses only; hour logging was removed, decision 18), variance, burn_pct.",
+        description: "scope: budget:read. Returns planned, committed, actual (expenses only; hour logging was removed, decision 18), variance, burn_pct, estimate_to_complete, committed_open and forecast_method. The forecast object is { method, estimate_to_complete, committed, committed_open, eac, eac_cpi, eac_bottom_up, etc, vac }. committed_open is commitments not yet invoiced; null means the read uses committed_amount: eac_cpi = budget / CPI (null until money is spent); eac_bottom_up = spent (expenses only) + committed + estimate_to_complete (null while no estimate exists); eac follows the method and is null when that method cannot be computed (no silent fallback); etc = eac minus spent; vac = budget minus eac. Committed is never double counted.",
         operationId: "getProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -1715,10 +1840,10 @@ const spec = {
         description:
           "scope: budget:write. States the whole budget: planned_amount is required, committed_amount and currency fall " +
           "back to 0 / USD when omitted. actual_amount, contingency_reserve and management_reserve are stored when sent " +
-          "and left as they were when not. For a partial change use PATCH.",
+          "and left as they were when not. estimate_to_complete (number or null), committed_open (number or null) and forecast_method (cpi | bottom_up) may also be sent; on a locked project they need no change request, because they move the forecast and not the approved plan. For a partial change use PATCH.",
         operationId: "upsertProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["planned_amount"], properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0, default: 0 }, currency: { type: "string", default: "USD" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["planned_amount"], properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0, default: 0 }, currency: { type: "string", default: "USD" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 }, estimate_to_complete: { type: ["number", "null"], minimum: 0 }, committed_open: { type: ["number", "null"], minimum: 0 }, forecast_method: { type: "string", enum: ["cpi", "bottom_up"] } } } } } },
         responses: {
           "200": { description: "Budget upserted", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1730,11 +1855,11 @@ const spec = {
         description:
           "scope: budget:write. Truly partial: ONLY the columns named in the body are written; nothing is defaulted, so " +
           "omitting committed_amount or currency leaves the stored values alone. Send at least one of planned_amount, " +
-          "committed_amount, currency, actual_amount, contingency_reserve, management_reserve (an empty body is a 422). " +
+          "committed_amount, currency, actual_amount, contingency_reserve, management_reserve, estimate_to_complete, forecast_method (an empty body is a 422). Sending only estimate_to_complete, committed_open or forecast_method on a locked project needs no change request; any other field does. " +
           "On a project with no budget row yet it creates one holding what was sent, with the column defaults for the rest.",
         operationId: "patchProjectBudget",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", minProperties: 1, properties: { planned_amount: { type: "number", minimum: 0 }, committed_amount: { type: "number", minimum: 0 }, currency: { type: "string" }, actual_amount: { type: "number", minimum: 0 }, contingency_reserve: { type: "number", minimum: 0 }, management_reserve: { type: "number", minimum: 0 }, estimate_to_complete: { type: ["number", "null"], minimum: 0 }, committed_open: { type: ["number", "null"], minimum: 0 }, forecast_method: { type: "string", enum: ["cpi", "bottom_up"] } } } } } },
         responses: {
           "200": { description: "Budget updated", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error, or nothing to change", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -1772,12 +1897,18 @@ const spec = {
     "/expenses/{id}": {
       delete: {
         tags: ["budget"],
-        summary: "Delete an expense",
-        description: "scope: budget:write",
+        summary: "Request expense deletion (maker step)",
+        description:
+          "scope: expense:delete:request (new in wave 4; it used to need budget:write). Does NOT delete the expense: an expense is a money record. " +
+          "Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=expense) and returns 202. " +
+          "A different PERSON holding expense:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve. Audit: expense.delete_requested now, expense.delete on approval.",
         operationId: "deleteExpense",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
         responses: {
-          "204": { description: "Deleted" },
+          "202": { description: "Deletion request created (pending) — { data: deletion_request }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing expense:delete:request (forbidden_scope), or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "duplicate_deletion_request — a request is already pending; or validation error (reason required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -1786,7 +1917,7 @@ const spec = {
       get: {
         tags: ["deletion-requests"],
         summary: "List deletion requests",
-        description: "scope: task:read or audit:read. Optional ?status filter (pending|approved|rejected|committed|withdrawn).",
+        description: "scope: task:read or audit:read. Optional ?status filter (pending|approved|rejected|committed|withdrawn). Covers every target_type: task, project, risk, issue, expense, document and milestone (wave 4). Each row carries tier and approval_deadline_at.",
         operationId: "listDeletionRequests",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -1803,8 +1934,10 @@ const spec = {
         tags: ["deletion-requests"],
         summary: "Approve (checker step) — executes the deletion",
         description:
-          "scope: task:delete:approve for target_type=task, project:delete:approve for target_type=project " +
-          "(per-type gate, resolved from the loaded request; a wildcard scope never grants it). Four-eyes " +
+          "scope: task:delete:approve for target_type=task, project:delete:approve for project, risk:delete:approve, " +
+          "issue:delete:approve, expense:delete:approve, document:delete:approve or milestone:delete:approve for the others " +
+          "(per-type gate, resolved from the loaded request; a wildcard scope never grants it). Reject uses the same approve scope. " +
+          "Withdraw uses the matching <entity>:delete:request scope. Four-eyes " +
           "compares PEOPLE: the approver must be a different person from the requester — a token counts as " +
           "the user who minted it, so you cannot approve with your own token what you (or any of your tokens) " +
           "requested (403, code self_approval); a token with no recorded owner can never approve (403, code " +
@@ -1812,9 +1945,10 @@ const spec = {
           "code role_not_permitted, 'Only managers and admins can approve'). Optional body { note }: the approver's note, recorded in the audit row of the " +
           "decision (an empty body is fine). " +
           "Dispatches by target_type to the matching atomic commit RPC " +
-          "(nopm_commit_task_deletion / nopm_commit_project_deletion) — deletes the target and commits " +
+          "(nopm_commit_task_deletion / nopm_commit_project_deletion, and the wave-4 risk, issue, expense, document and milestone commits) — deletes the target and commits " +
           "the request in one transaction. " +
-          "For target_type=project, also 422s project_locked if the project's schedule was frozen " +
+          "Wave 4: an approved document's deletion is high_risk, so an admin must approve it. Approving a PROJECT deletion closes every pending request on that project's children as withdrawn, with closed_reason parent_deleted. " +
+          "For target_type=project, also 422s project_locked if the project's schedule was frozen" +
           "after the deletion was requested, and 422s children_changed if the project gained records (tasks, " +
           "milestones, risks, ...) after the request was raised — the request no longer describes what would be " +
           "deleted, so reject or withdraw it and raise a new one. For target_type=task, 422s target_changed if the task " +
@@ -1838,7 +1972,7 @@ const spec = {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Missing the per-type approve scope (forbidden_scope); the caller (or the person behind the token) is not an admin or manager (role_not_permitted, 'Only managers and admins can approve'); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed; for a milestone, the task count moved); an approved document whose requester is not an admin (approved_document_needs_admin); a project-locked milestone (project_locked, which closes the request); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1862,7 +1996,7 @@ const spec = {
       post: {
         tags: ["deletion-requests"],
         summary: "Withdraw your own pending deletion request (maker step)",
-        description: "scope: task:delete:request for a task request, project:delete:request for a project request (per-type maker gate). Only the ORIGINAL requester may withdraw: the same actor, or the same PERSON through another identity (the human behind a token or assistant that raised it can cancel it from their session). Only while the request is pending. Cancels the request without a checker decision — the one self-act four-eyes permits; audited as deletion_request.withdrawn.",
+        description: "scope: task:delete:request for a task request, project:delete:request for a project request, and <entity>:delete:request for risk, issue, expense, document and milestone requests (per-type maker gate). Only the ORIGINAL requester may withdraw: the same actor, or the same PERSON through another identity (the human behind a token or assistant that raised it can cancel it from their session). Only while the request is pending. Cancels the request without a checker decision — the one self-act four-eyes permits; audited as deletion_request.withdrawn.",
         operationId: "withdrawDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -1879,7 +2013,10 @@ const spec = {
         summary: "Query the immutable audit log",
         description:
           "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id, " +
-          "?channel (R-82: one of ui|api|cli|mcp|assistant|lark, unrecognized values ignored). " +
+          "?project_id (uuid; the project itself and every record whose audited row names it), ?person_id (uuid; that person's own actions and actions made through a token they own), " +
+          "?kinds (comma list of task,risk,issue,change_request,decision,document,project), ?until (ISO 8601 timestamp, exclusive upper bound that pairs with since; 422 when malformed), " +
+          "?channel (R-82: one of ui|api|cli|mcp|assistant|lark|github, unrecognized values ignored). " +
+          "WAVE 4: each row also carries prev_hash, row_hash and chain_seq (the hash chain; check it with GET /audit/verify). A GitHub work event is recorded with channel github, via_connector_id and the delivery id. " +
           "R-85 cursor params for tailing the log: ?since (ISO 8601 timestamp, rows with " +
           "created_at >= since; 422 if unparsable), ?after_id (uuid of a row already seen; " +
           "looked up within the caller's workspace and its created_at used as a strict lower " +
@@ -1904,7 +2041,7 @@ const spec = {
           { name: "target_id", in: "query", schema: { type: "string", format: "uuid" } },
           { name: "action", in: "query", schema: { type: "string" } },
           { name: "actor_id", in: "query", schema: { type: "string" } },
-          { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant", "lark"] } },
+          { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant", "lark", "github"] } },
           { name: "since", in: "query", schema: { type: "string", format: "date-time" }, description: "R-85: rows with created_at >= since; 422 if unparsable" },
           { name: "after_id", in: "query", schema: { type: "string", format: "uuid" }, description: "R-85: rows with created_at strictly greater than this row's created_at; 404 if the row doesn't exist in this workspace" },
           { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "R-85: 422 if not asc|desc" },
@@ -1916,14 +2053,75 @@ const spec = {
         },
       },
     },
+    "/audit/verify": {
+      get: {
+        tags: ["audit"],
+        summary: "Verify the audit hash chain (wave 4, tamper evidence)",
+        description:
+          "scope: admin or manager SESSION only. A token of any scope, a member or a viewer is 403. Recomputes the per-workspace " +
+          "audit hash chain (prev_hash, row_hash, chain_seq; migration 0104) and reports whether every row still matches. A row that was " +
+          "edited, a row removed from the middle, or a re-ordering is detected: first_bad_id names the first row that does not match. " +
+          "Optional query from (ISO 8601 timestamp; 422 when unparsable) checks only rows created at or after it. " +
+          "Throttled: one run per workspace per 5 minutes (429 verify_throttled with last_result). Each run checks at most limit rows, the newest window when the chain is longer. " +
+          "The check writes exactly one audit row, action audit.verified, whose after holds the result. The chain does not stop a database " +
+          "owner who rewrites a row and recomputes every later hash; keep head_hash outside the database to cover that. " +
+          "The Trust Center shows the same result as \"Chain verified: n rows, last check <time>\" with a Verify now button.",
+        operationId: "verifyAuditChain",
+        parameters: [
+          { name: "from", in: "query", required: false, schema: { type: "string", format: "date-time" }, description: "Check only rows created at or after this time" },
+          { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 200000, default: 50000 }, description: "Most rows checked in one run. Above 200000 is 422. first_seq and limit in the result show the window that was checked." },
+        ],
+        responses: {
+          "200": {
+            description: "The chain check result",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["data"],
+                  properties: {
+                    data: {
+                      type: "object",
+                      required: ["ok", "checked", "first_bad_id", "first_bad_at", "from", "head_hash", "verified_at"],
+                      properties: {
+                        ok: { type: "boolean", description: "true when every checked row matches" },
+                        checked: { type: "integer", description: "Rows verified" },
+                        first_bad_id: { type: ["string", "null"], format: "uuid" },
+                        first_bad_at: { type: ["string", "null"], format: "date-time" },
+                        from: { type: ["string", "null"], format: "date-time" },
+                        head_hash: { type: ["string", "null"], description: "row_hash of the newest row in the workspace; null when the workspace has no audit rows" },
+                        verified_at: { type: "string", format: "date-time" },
+                        first_seq: { type: ["integer", "null"], description: "chain_seq of the first row checked in this run" },
+                        limit: { type: "integer", description: "The row limit this run used" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "403": { description: "A token, a member or a viewer (not an admin or manager session)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "from is not a parsable timestamp, or limit is outside 1 to 200000", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "verify_throttled — one run per workspace per 5 minutes. The body carries last_result, the most recent run's result. Retry-After gives the seconds to wait.", headers: { "Retry-After": { schema: { type: "integer" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "500": { description: "The database check failed. No audit row is written.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/export": {
       get: {
         tags: ["export"],
         summary: "Governed CSV export (L-27 / L-36)",
         description:
           "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
-          "audit:read, program:read, or project:read). Streams text/csv with Content-Disposition " +
+          "audit:read, program:read, project:read, or change:read). entity=members|tokens|identities (access review, R-132) have no scope: " +
+          "an admin or manager SESSION only, 403 for any token, member or viewer. members = role/status/mfa_enabled/removed_at/last role change; " +
+          "tokens = label/prefix/scopes/creator/expiry/revoked/last_used_at, never the hash; identities = chat-connector links (profile, provider, linked_at, revoked_at). " +
+          "from/to (UTC days, inclusive) apply to EVERY entity on created_at, or updated_at with on=updated where the entity has one (R-133). " +
+          "entity=audit also carries principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref, and (wave 4) row_hash as its LAST column. " +
+          "entity=risks takes impact_area=a,b (any-of) and exports risk_category and impact_areas. Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
+          "entity=change_requests (scope change:read) exports every change request in range, with decision, impact_scope, implemented and evidence columns; on=updated is supported. Wave 4 adds trailing columns tier, is_emergency, retro_due_at, retro_decided_at, retro_outcome and retro_overdue. " +
+          "entity=audit_pack is the audit pack, admin or manager SESSION only (403 for any token, member or viewer). Its PDF cover, and the weekly report HTML, print \"Audit chain head: <hash> at <time> UTC\" (wave 4), the newest row_hash at export time; keep a copy of it outside the database. format=csv (default; one file whose first column section is change_requests, evidence, decisions or approvals_audit) or format=pdf; any other format is 422. A change request is in range when raised or decided in range. Each section is capped at 10,000 rows with a TRUNCATED note row. Filename nopm-audit-pack-<date>.csv or .pdf; audited as export.audit_pack. " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
           "export): tasks accept project_id/assignee_id/status_type/priority/" +
@@ -1943,7 +2141,12 @@ const spec = {
           "audited (L-36).",
         operationId: "exportCsv",
         parameters: [
-          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects"] } },
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects", "members", "tokens", "identities", "change_requests", "audit_pack"] } },
+          { name: "from", in: "query", schema: { type: "string", format: "date" }, description: "Inclusive UTC start day, every entity (malformed ignored)" },
+          { name: "to", in: "query", schema: { type: "string", format: "date" }, description: "Inclusive UTC end day, every entity (malformed ignored)" },
+          { name: "on", in: "query", schema: { type: "string", enum: ["created", "updated"], default: "created" }, description: "Which date the range filters; updated applies to tasks|risks|issues|clashes|projects|change_requests only" },
+          { name: "format", in: "query", schema: { type: "string", enum: ["csv", "pdf"], default: "csv" }, description: "entity=audit_pack only: csv (default) or pdf" },
+          { name: "impact_area", in: "query", schema: { type: "string" }, description: "entity=risks: comma list, any-of (schedule|cost|scope|quality|reputation|compliance)" },
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Optional filter for entity=tasks|risks|issues (risks/issues: omitted = whole workspace; a project outside the workspace 404s)" },
           { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues|projects (whitelisted per entity, same as the list API)" },
           { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" }, description: "entity=tasks" },
@@ -1969,9 +2172,9 @@ const spec = {
           { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"] }, description: "entity=audit (R-85, lenient — an unrecognized value is dropped, not 422)" },
         ],
         responses: {
-          "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present)", content: { "text/csv": { schema: { type: "string" } } } },
+          "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present), or a PDF for entity=audit_pack&format=pdf", content: { "text/csv": { schema: { type: "string" } }, "application/pdf": { schema: { type: "string", format: "binary" } } } },
           "403": { description: "Forbidden — missing the entity's read scope", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Invalid/missing entity, or an invalid sort field", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invalid/missing entity, an invalid sort field, or a format other than csv or pdf", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "project_id not found in this workspace (entity=risks|issues)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2077,7 +2280,7 @@ const spec = {
       get: {
         tags: ["system"],
         summary: "Portfolio timeline graph",
-        description: "scope: project:read. Returns the full governed timeline graph for the workspace (projects, milestones, tasks, risks, issues).",
+        description: "scope: project:read. Returns the full governed timeline graph for the workspace (projects, milestones, tasks, risks, issues). projectDependencies lists project-to-project dependencies, and edges with kind dependency are milestone-to-milestone (label = dependency kind). Same-project task edges are unchanged.",
         operationId: "getTimeline",
         responses: {
           "200": { description: "Timeline graph", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -2242,7 +2445,7 @@ const spec = {
       get: {
         tags: ["documents"],
         summary: "List documents",
-        description: "scope: document:read. Optional filters: ?project_id, ?folder, ?status, ?doc_type.",
+        description: "scope: document:read. Optional filters: ?project_id, ?folder, ?status, ?doc_type, ?change_request_id.",
         operationId: "listDocuments",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -2251,6 +2454,7 @@ const spec = {
           { name: "folder", in: "query", schema: { type: "string" } },
           { name: "status", in: "query", schema: { type: "string" } },
           { name: "doc_type", in: "query", schema: { type: "string" } },
+          { name: "change_request_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Only documents linked to this change request (evidence)" },
         ],
         responses: {
           "200": { description: "Paginated document list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -2259,9 +2463,9 @@ const spec = {
       post: {
         tags: ["documents"],
         summary: "Create a document",
-        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id (numbers are never reused). Text limits: long text 10,000 chars, body 100,000, external_url 2,000 (422).",
+        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id (numbers are never reused). Text limits: long text 10,000 chars, body 100,000, external_url 2,000 (422). Evidence fields are optional: change_request_id (a change request in the SAME project), evidence_type, evidence_result (needs evidence_type), tested_by_label, tested_at and evidence_note. Evidence without a change request is 422 evidence_needs_change_request; a change request in another project is 422 evidence_link_invalid; one outside the workspace is 422 invalid_reference.",
         operationId: "createDocument",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "doc_type"], properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "doc_type"], properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, change_request_id: { type: ["string", "null"], format: "uuid", description: "Change request in the SAME project (422 invalid_reference if not in the workspace, 422 evidence_link_invalid if the project differs). null clears all evidence fields." }, evidence_type: { type: ["string", "null"], enum: ["test_result", "uat_signoff", "deploy_record", "screenshot", "other", null] }, evidence_result: { type: ["string", "null"], enum: ["pass", "fail", "partial", "n/a", null], description: "Needs evidence_type (422)." }, tested_by_label: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "Defaults to the caller label when evidence is first recorded." }, tested_at: { type: ["string", "null"], format: "date-time", description: "Defaults to now when evidence is first recorded." }, evidence_note: { type: ["string", "null"], maxLength: 5000 }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
         responses: {
           "201": { description: "Document created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2286,7 +2490,7 @@ const spec = {
         description: "scope: document:write. Bumps version when body changes.",
         operationId: "updateDocument",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, change_request_id: { type: ["string", "null"], format: "uuid", description: "Change request in the SAME project (422 invalid_reference if not in the workspace, 422 evidence_link_invalid if the project differs). null clears all evidence fields." }, evidence_type: { type: ["string", "null"], enum: ["test_result", "uat_signoff", "deploy_record", "screenshot", "other", null] }, evidence_result: { type: ["string", "null"], enum: ["pass", "fail", "partial", "n/a", null], description: "Needs evidence_type (422)." }, tested_by_label: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "Defaults to the caller label when evidence is first recorded." }, tested_at: { type: ["string", "null"], format: "date-time", description: "Defaults to now when evidence is first recorded." }, evidence_note: { type: ["string", "null"], maxLength: 5000 }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
         responses: {
           "200": { description: "Updated document", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2294,12 +2498,19 @@ const spec = {
       },
       delete: {
         tags: ["documents"],
-        summary: "Delete a document",
-        description: "scope: document:write",
+        summary: "Request document deletion (maker step)",
+        description:
+          "scope: document:delete:request (new in wave 4; it used to need document:write). Does NOT delete the document. " +
+          "Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=document) and returns 202. " +
+          "An APPROVED document can be requested only by an admin: any other caller gets 403 role_not_permitted, recorded as document.delete_request.blocked. " +
+          "On approval the stored file is removed too. A different PERSON holding document:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve.",
         operationId: "deleteDocument",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
         responses: {
-          "204": { description: "Deleted" },
+          "202": { description: "Deletion request created (pending) — { data: deletion_request }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Missing document:delete:request (forbidden_scope); an approved document and the caller is not an admin (role_not_permitted); or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "duplicate_deletion_request — a request is already pending; or validation error (reason required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2354,6 +2565,145 @@ const spec = {
         },
       },
     },
+    "/change-requests": {
+      get: {
+        tags: ["change-requests"],
+        summary: "List change requests across the workspace",
+        description:
+          "scope: change:read. Workspace-wide list of change requests, newest first. Query: project_id (uuid), status (raised | under_review | approved | rejected | deferred | implemented | emergency), page, limit (max 100), view (summary default | full), fields (comma list, allow-list in src/lib/api/views.ts; an unknown field is 422). Wave 4: each row carries tier and is_emergency (summary view too), and full or fields= adds approval_deadline_at, retro_due_at, retro_decided_at and retro_outcome (approved | rejected | deferred). emergency is an emergency change request that may be implemented at once; once implemented it stays flagged until an admin's retro decision (retro_outcome) is recorded.",
+        operationId: "listChangeRequests",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["raised", "under_review", "approved", "rejected", "deferred", "implemented", "emergency"] } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "view", in: "query", schema: { type: "string", enum: ["summary", "full"], default: "summary" } },
+          { name: "fields", in: "query", schema: { type: "string" }, description: "Comma list of columns; an unknown field is 422" },
+        ],
+        responses: {
+          "200": { description: "Paginated change request list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "422": { description: "Bad status, project_id, view or fields", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/decisions": {
+      get: {
+        tags: ["decisions"],
+        summary: "List decisions across the workspace",
+        description:
+          "scope: decision:read. Workspace-wide list of logged decisions, newest first. Query: project_id (uuid), status (proposed | accepted | superseded | rejected), page, limit (max 100), view (summary default | full), fields (comma list, allow-list in src/lib/api/views.ts; an unknown field is 422).",
+        operationId: "listDecisions",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["proposed", "accepted", "superseded", "rejected"] } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "view", in: "query", schema: { type: "string", enum: ["summary", "full"], default: "summary" } },
+          { name: "fields", in: "query", schema: { type: "string" }, description: "Comma list of columns; an unknown field is 422" },
+        ],
+        responses: {
+          "200": { description: "Paginated decision list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "422": { description: "Bad status, project_id, view or fields", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/evm": {
+      get: {
+        tags: ["budget"],
+        summary: "Earned-value numbers for a project",
+        description:
+          "scope: budget:read. Earned-value numbers for one project, computed as the Budget page does. schedule_basis says which basis the schedule figures used: baseline_dates or completion_only. cpi, spi, eac, etc and vac are null when they are undefined. eac_cpi, eac_bottom_up, committed_open and forecast_method (cpi | bottom_up) sit beside eac; committed_open is the commitments figure the bottom-up forecast used; eac, etc and vac follow forecast_method and are null when that method cannot be computed.",
+        operationId: "getProjectEvm",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Earned-value summary",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "object",
+                      properties: {
+                        project_id: { type: "string", format: "uuid" },
+                        currency: { type: "string" },
+                        as_of_date: { type: "string", format: "date" },
+                        schedule_basis: { type: "string", enum: ["baseline_dates", "completion_only"] },
+                        bac: { type: "number" },
+                        pv: { type: "number" },
+                        ev: { type: "number" },
+                        ac: { type: "number" },
+                        committed: { type: "number" },
+                        cv: { type: "number" },
+                        sv: { type: "number" },
+                        cpi: { type: ["number", "null"] },
+                        spi: { type: ["number", "null"] },
+                        eac: { type: ["number", "null"] },
+                        eac_cpi: { type: ["number", "null"] },
+                        eac_bottom_up: { type: ["number", "null"] },
+                        forecast_method: { type: "string", enum: ["cpi", "bottom_up"] },
+                        estimate_to_complete: { type: ["number", "null"] },
+                        committed_open: { type: ["number", "null"] },
+                        etc: { type: ["number", "null"] },
+                        vac: { type: ["number", "null"] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/change-requests/{id}/implement": {
+      post: {
+        tags: ["change-requests"],
+        summary: "Mark an approved change request implemented",
+        description:
+          "scope: change:write. Allowed for the requester's person, or any admin or manager. Needs a principal: a token with no recorded owner is 403 no_principal; anyone else is 403 not_requester. Moves an APPROVED request to implemented (wave 4: or an emergency change in status emergency, which may ship at once and then owes its retro decision) and stamps implemented_at, implemented_by, implemented_by_type/id/label, implemented_principal_id and implemented_note in one transaction with its audit row change_request.implement (nopm_implement_change_request). implemented_at is never earlier than decided_at. Once only: a repeat is 422 already_implemented and the stamp is never rewritten. Any other status is 422 invalid_transition.",
+        operationId: "implementChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { note: { type: ["string", "null"], maxLength: 2000 } } } } } },
+        responses: {
+          "200": { description: "The implemented change request (status implemented)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not the requester, or an admin or manager (not_requester), or a token with no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "invalid_transition (not approved), already_implemented, or a validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/change-requests/{id}/evidence": {
+      get: {
+        tags: ["change-requests"],
+        summary: "List evidence attached to a change request",
+        description:
+          "scope: document:read. Evidence documents attached to one change request, ordered by tested_at descending (nulls last). Read-only: attach evidence with POST /documents or PATCH /documents/{id} (set change_request_id and the evidence fields; audited as document.create or document.update). Workspace-filtered; 404 when the change request is not in the caller's workspace. Each item carries id, reference_id, title, doc_type, status, version, project_id, change_request_id, evidence_type, evidence_result, tested_by_label, tested_at, evidence_note, external_url, file_name, mime_type, created_at and updated_at.",
+        operationId: "listChangeRequestEvidence",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Evidence documents for the change request (not paginated: limit 200)",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: { type: "array", items: { type: "object" } },
+                    total: { type: "integer" },
+                    page: { type: "integer", enum: [1] },
+                    limit: { type: "integer", enum: [200] },
+                  },
+                },
+              },
+            },
+          },
+          "404": { description: "Change request not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/projects/{id}/change-requests": {
       get: {
         tags: ["change-requests"],
@@ -2373,10 +2723,14 @@ const spec = {
         tags: ["change-requests"],
         summary: "Raise a change request under a project",
         description:
-          "scope: change:write. Auto-assigns a CR-NNN reference_id. Only `title` is required (category defaults to " +
+          "scope: change:write. Auto-assigns a CR-NNN reference_id. WAVE 4 (G1, G2, G4): `tier` (routine | normal | high_risk | strategic; default normal) " +
+          "asks for an approval tier. routine needs no cost, no schedule impact and no impact_scope (else 422 on tier); the database also lifts a routine request that later gains one to normal. strategic needs an admin (else 403 role_not_permitted). " +
+          "The server raises the tier, never lowers it: a cost at or over the workspace threshold makes it high_risk. " +
+          "`is_emergency: true` (manager or admin only, else 403 role_not_permitted) stores tier emergency and status emergency, sets retro_due_at to now plus the workspace emergency window, and sends no ordinary deadline. " +
+          "The response carries tier, approval_deadline_at, is_emergency, retro_due_at, retro_decided_at and retro_outcome. Only `title` is required (category defaults to " +
           "scope, priority to medium, status to raised). `status` may only be raised or under_review: every terminal " +
-          "status needs a decider, so approved / rejected / deferred / implemented are reached through " +
-          "POST /change-requests/{id}/decision — sending one at creation is a 422 validation error, never a raw " +
+          "status needs a decider, so approved / rejected / deferred are reached through " +
+          "POST /change-requests/{id}/decision, and implemented through POST /change-requests/{id}/implement — sending one at creation is a 422 validation error, never a raw " +
           "database error. A token with no recorded owner cannot raise a change request (403, code no_principal): " +
           "a requester with no person behind it is comparable to nobody, so the same person could then decide their " +
           "own request from a session.",
@@ -2385,9 +2739,9 @@ const spec = {
         requestBody: zodBody(createChangeRequestSchema),
         responses: {
           "201": { description: "Change request created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Missing change:write (forbidden_scope), or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing change:write (forbidden_scope), or the token has no recorded owner (no_principal); strategic tier or is_emergency by a role that may not (role_not_permitted)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Validation error — including a status other than raised | under_review", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error — including a status other than raised | under_review, a routine tier with cost or schedule impact (fields tier), or an assigned approver below the tier's role (invalid_assigned_approver)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2412,14 +2766,14 @@ const spec = {
           "request, so nobody can rewrite a pending request and then approve what they wrote; a token with no recorded " +
           "owner is 403 no_principal; a legacy request with no recorded requester can be edited by anyone with the scope. " +
           "`status` is NOT updatable here — every status transition goes through the four-eyes " +
-          "POST /change-requests/{id}/decision. Editable ONLY while the request is still open (raised / under_review): once " +
+          "POST /change-requests/{id}/decision. Editable ONLY while the request is still open (raised / under_review), or while it is an emergency not yet implemented (status emergency; a live emergency that is implemented stays part of the record, 422): once" +
           "decided it is part of the decision record, and editing its impact_cost after approval would rewrite what the " +
           "decider looked at — 422 change_request_decided (raise a new change request instead); the write is a " +
           "compare-and-set on the open statuses, so a decision landing mid-edit wins. Editing a field an approver decides " +
-          "on (title, description, category, priority, impact_summary, impact_schedule_days, impact_cost, target_date) " +
+          "on (title, description, category, priority, impact_summary, impact_schedule_days, impact_cost, impact_scope, target_date) " +
           "bumps the request's updated_at — its content version — and retires any approval card already sent, issuing a " +
           "fresh one with the current content, so a tap on the old card can never approve content it did not show. " +
-          "Editing raised_at alone re-issues nothing.",
+          "Editing raised_at alone re-issues nothing. impact_scope is an optional array (one entry per area, max 6: area, direction, note); editing it on an open request re-issues the approval card the same way.",
         operationId: "updateChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateChangeRequestSchema),
@@ -2433,7 +2787,7 @@ const spec = {
       delete: {
         tags: ["change-requests"],
         summary: "Delete a change request",
-        description: "scope: change:write. Only while the request is still open (raised / under_review), and only by the requester's person (the user who raised it, or a token that user minted; anyone else is 403 code not_requester, an ownerless token 403 no_principal): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
+        description: "scope: change:write. Only while the request is still open (raised / under_review, or an emergency not yet implemented), and only by the requester's person (the user who raised it, or a token that user minted; anyone else is 403 code not_requester, an ownerless token 403 no_principal): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
         operationId: "deleteChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -2458,7 +2812,7 @@ const spec = {
           "looking at — and if it was edited since, the decision is refused with 412 (code precondition_failed) instead " +
           "of approving content the decider never saw; omit it and today's behaviour is unchanged. The decision write is " +
           "itself pinned to that version, so an edit landing between the check and the write also fails with 412. A " +
-          "decision made from a chat card is always pinned to the version the card was issued for. Admins and managers only " +
+          "decision made from a chat card is always pinned to the version the card was issued for. WAVE 4 (G1, G2, G4): the request's tier sets the least role. Fallback approver (decision D7): in a workspace with fewer than two admins, a manager may decide an admin-level request; the change_request.decide audit row then records fallback_approver true, and the raiser is still barred. An admin decides high_risk and strategic requests, and a manager decides routine and normal ones unless the workspace policy says otherwise (403 role_not_permitted, 'Only admins can approve a high-risk request (the tier is named in words).'). An emergency change takes its RETRO decision here too: send approve or reject while the change is implemented and not yet decided (status implemented, is_emergency, retro_decided_at null). The retro decision needs the emergency tier's role (an admin by default), a different person from the raiser, and does not move the change back: it stays implemented, and retro_decided_at and retro_outcome are stamped. defer is refused on a live emergency (422 invalid_transition). Admins and managers only, and the tier above can narrow that to admins " +
           "(403, code role_not_permitted, 'Only managers and admins can approve'); the decision, its audit row and the " +
           "status change are one database transaction (nopm_decide_change_request).",
         operationId: "decideChangeRequest",
@@ -2493,10 +2847,10 @@ const spec = {
       post: {
         tags: ["decisions"],
         summary: "Log a decision under a project",
-        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id (numbers are never reused). Long text is limited to 10,000 chars (422).",
+        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id (numbers are never reused). Long text is limited to 10,000 chars (422). Optional change_request_id must name a change request in this workspace on the same project (422 invalid_reference); options_structured is an optional list of options with at most one chosen.",
         operationId: "createDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, change_request_id: { type: ["string", "null"], format: "uuid", description: "A change request in this workspace on the SAME project (422 invalid_reference otherwise). Link it while the decision is proposed, or when recording it." }, options_structured: { type: "array", maxItems: 20, description: "At most one chosen; labels unique (case-insensitive). The free-text options field stays and both are returned.", items: { type: "object", required: ["label"], properties: { label: { type: "string", minLength: 1, maxLength: 200 }, chosen: { type: "boolean", default: false }, note: { type: ["string", "null"], maxLength: 2000 } } } }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
         responses: {
           "201": { description: "Decision created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2518,10 +2872,10 @@ const spec = {
       patch: {
         tags: ["decisions"],
         summary: "Update a decision",
-        description: "scope: decision:write. `supersedes` must name another decision in this workspace; a decision cannot supersede itself (422 validation error on fields[supersedes]).",
+        description: "scope: decision:write. `supersedes` must name another decision in this workspace; a decision cannot supersede itself (422 validation error on fields[supersedes]). Refused on an accepted or superseded decision, so link change_request_id or structured options while it is proposed.",
         operationId: "updateDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, change_request_id: { type: ["string", "null"], format: "uuid", description: "A change request in this workspace on the SAME project (422 invalid_reference otherwise). Link it while the decision is proposed, or when recording it." }, options_structured: { type: "array", maxItems: 20, description: "At most one chosen; labels unique (case-insensitive). The free-text options field stays and both are returned.", items: { type: "object", required: ["label"], properties: { label: { type: "string", minLength: 1, maxLength: 200 }, chosen: { type: "boolean", default: false }, note: { type: ["string", "null"], maxLength: 2000 } } } }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
         responses: {
           "200": { description: "Updated decision", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2544,7 +2898,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Lock a project timeline",
-        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason. Snapshots baseline dates for milestones and tasks if not yet baselined, and captures the project's own baseline_start_date / baseline_target_date from its start_date / target_date where those are still null (an existing project baseline is never overwritten) — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. The project.lock audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }). Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
+        description: "scope: project:write. Sets is_locked=true, records locked_by/locked_at/lock_reason plus locked_by_actor_type, locked_by_actor_id and locked_by_label (who really locked, including an agent token). Snapshots baseline dates for milestones and tasks if not yet baselined, and captures the project's own baseline_start_date / baseline_target_date from its start_date / target_date where those are still null (an existing project baseline is never overwritten) — the snapshot is taken first, while the project is still open, and the lock and its audit row come last. The project.lock audit row records the project baseline before and after in after.project_baseline ({ before: { start, target }, after: { start, target } }). Locking an already-locked project captures no new baselines (unlock and lock again to do that).",
         operationId: "lockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string" } } } } } },
@@ -2558,7 +2912,7 @@ const spec = {
       post: {
         tags: ["projects"],
         summary: "Unlock a project timeline",
-        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row. Unlock stays a single-person act (no four-eyes), but it CANCELS the project's pending_approval and approved rebaselines in the same transaction (status cancelled, terminal; owner decision 2026-10-17, migration 0058) — a sign-off can never be applied to dates edited after it, so a fresh proposal and fresh sign-off are needed. Applied, rejected and draft rebaselines are left alone. The project.unlock audit row's after lists cancelled_rebaselines (ids) and each one also gets a rebaseline.cancelled audit row (reason project_unlocked, plus unlock_reason). Atomic: if the cancellation cannot happen, the project stays locked.",
+        description: "scope: project:write. Clears is_locked, locked_by, locked_at, lock_reason and locked_by_actor_type/locked_by_actor_id/locked_by_label. reason is REQUIRED (R-83 governed unlock) and is recorded in the audit trail's after payload (unlock_reason), not stored on the row. Unlock stays a single-person act (no four-eyes), but it CANCELS the project's pending_approval and approved rebaselines in the same transaction (status cancelled, terminal; owner decision 2026-10-17, migration 0058) — a sign-off can never be applied to dates edited after it, so a fresh proposal and fresh sign-off are needed. Applied, rejected and draft rebaselines are left alone. The project.unlock audit row's after lists cancelled_rebaselines (ids) and each one also gets a rebaseline.cancelled audit row (reason project_unlocked, plus unlock_reason). Atomic: if the cancellation cannot happen, the project stays locked.",
         operationId: "unlockProject",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", minLength: 1, maxLength: 1000 } } } } } },
@@ -2587,7 +2941,7 @@ const spec = {
         tags: ["rebaselines"],
         summary: "Create a rebaseline request",
         description:
-          "scope: project:write. If the project is locked, status is pending_approval; otherwise draft (a draft on an " +
+          "scope: project:write. Wave 4: the rebaseline carries tier normal and approval_deadline_at (decided by a manager or admin under the approval policy). If the project is locked, status is pending_approval; otherwise draft (a draft on an " +
           "unlocked project is not awaiting sign-off, and sign-off on it is refused). Proposing is the maker step of the " +
           "rebaseline four-eyes flow, so a token with no recorded owner cannot propose (403, code no_principal): its " +
           "requester principal would be null, comparable to nobody, and the same person could then sign off their own " +
@@ -2617,7 +2971,7 @@ const spec = {
           "self_approval; the legacy same-user case returns 422 with the same code. The vote is cast by a person: a " +
           "session votes as themselves and a token votes as the user who minted it (one vote per person per " +
           "rebaseline); a token with no recorded owner cannot vote (403, code no_principal). Admins and managers only (403, code " +
-          "role_not_permitted, 'Only managers and admins can approve'). The vote, the status change and the audit row are one " +
+          "role_not_permitted, 'Only managers and admins can approve'); when the workspace policy asks for an admin to decide the rebaseline's tier, a manager is refused with 403 role_not_permitted, 'Only admins can approve a high-risk request (the tier is named in words).'. The vote, the status change and the audit row are one " +
           "transaction (nopm_signoff_rebaseline).",
         operationId: "signoffRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -2683,6 +3037,79 @@ const spec = {
         },
       },
     },
+    "/projects/{id}/dependencies": {
+      get: {
+        tags: ["projects"],
+        summary: "List a project's dependencies (both directions)",
+        description: "scope: project:read. Each row carries direction (depends_on or depended_on_by), kind (delivery | resource | decision | risk), linked_risk_id, note and other_project { id, code, name, rag_status }. Workspace-filtered; 404 when the project is not in the caller's workspace.",
+        operationId: "listProjectDependencies",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Array of dependency rows", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["projects"],
+        summary: "Declare that this project depends on another project",
+        description: "scope: project:write. Body: depends_on_project_id (uuid, required), kind (delivery | resource | decision | risk, required), linked_risk_id (uuid or null; a risk in one of the two projects), note (max 500 characters, or null). Refused: 422 self_dependency; 422 invalid_reference (the other project or the risk is not in this workspace); 422 risk_not_in_projects; 422 circular_dependency (the link would close a loop, of any length and kind); 409 duplicate_dependency (the same pair and kind already exists). Allowed on a locked project, because the locked schedule is not changed. Audited as project.dependency.add. Returns 201 with the row.",
+        operationId: "addProjectDependency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["depends_on_project_id", "kind"], properties: { depends_on_project_id: { type: "string", format: "uuid" }, kind: { type: "string", enum: ["delivery", "resource", "decision", "risk"] }, linked_risk_id: { type: ["string", "null"], format: "uuid" }, note: { type: ["string", "null"], maxLength: 500 } } } } } },
+        responses: {
+          "201": { description: "The dependency row", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "409": { description: "duplicate_dependency (same pair and kind already declared)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Validation error; self_dependency; invalid_reference; risk_not_in_projects; circular_dependency; or cross_workspace (database backstop)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/dependencies/{depId}": {
+      delete: {
+        tags: ["projects"],
+        summary: "Remove a project dependency",
+        description: "scope: project:write. Returns 204. 404 when the dependency is not under this project in this workspace. Allowed on a locked project. Audited as project.dependency.remove (before = the row, after = null).",
+        operationId: "removeProjectDependency",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "depId", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "204": { description: "Removed" },
+          "404": { description: "Dependency not found under this project in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/contingency": {
+      get: {
+        tags: ["projects"],
+        summary: "Is this project waiting on a red project?",
+        description: "scope: project:read. Transitive over project dependencies (depth at most 5, cycle-safe). Returns declared_rag, worst_dependency_rag, contingent_on_red and the chain of projects from this project to the red one (empty when not contingent), plus depth_capped. Advisory only: it never changes a declared RAG.",
+        operationId: "getProjectContingency",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": { description: "Contingency summary", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/trend": {
+      get: {
+        tags: ["budget"],
+        summary: "Slip and index trend with a suggested RAG",
+        description: "scope: project:read. Read-only and derived from the daily project snapshots; nothing is written or audited. n (1 to 120, default 28) is how many of the latest snapshots to use. Returns declared_rag, suggested_rag (green | amber | red, or null with no snapshots or when the project is complete), reason, confidence (low under 3 snapshots, otherwise ok), trend, thresholds and the series (oldest first). The suggestion never changes the declared RAG.",
+        operationId: "getProjectTrend",
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+          { name: "n", in: "query", schema: { type: "integer", default: 28, minimum: 1, maximum: 120 } },
+        ],
+        responses: {
+          "200": { description: "Trend and suggested RAG", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "n is not an integer from 1 to 120", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/reports/deck": {
       get: {
         tags: ["reports"],
@@ -2742,6 +3169,50 @@ const spec = {
           "403": { description: "Missing audit:read or budget:read (code forbidden_scope) — both are required", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Project not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "Invalid format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/reports/handover": {
+      get: {
+        tags: ["reports"],
+        summary: "Handover and key-person report",
+        description: "scope: report:read (not privileged; report:* covers it). Read-only and derived; workspace-filtered. Per project: the open items whose single owner has no backup, grouped by owner with counts, plus the open items with no owner at all. Workspace key-person matrix: per person, items solely owned, projects touched, items backed up for others and bus_factor_1 (true when the person solely owns at least one open item). Open means: project not complete, risk not closed, issue not resolved or closed, task not completed or canceled. A resource member linked to a login is reported as that login. format=csv returns the same data as one CSV with a section column (item, unowned or person) and writes one export.csv audit row (entity handover); the JSON read writes no audit row.",
+        operationId: "getHandoverReport",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Limit the report to one project in the caller's workspace (404 when it is not there, 422 when malformed)" },
+          { name: "format", in: "query", schema: { type: "string", enum: ["json", "csv"], default: "json" }, description: "Any other value is 422" },
+        ],
+        responses: {
+          "200": { description: "{ data: { generated_for, summary, projects, key_people } } as JSON, or text/csv when format=csv", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } }, "text/csv": { schema: { type: "string" } } } },
+          "403": { description: "Missing report:read (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "project_id is not in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Malformed project_id or format", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/reports/weekly": {
+      get: {
+        tags: ["reports"],
+        summary: "Stored weekly status report (HTML)",
+        description: "scope: report:read. Renders the report as it was generated (a stored snapshot, not live figures) as text/html with cache-control private, no-store. week = a calendar day (2026-10-22) or an ISO week (2026-W43), resolved to that week's Monday; omitted = the current week in the workspace time zone. Contents: workspace name, week, counts (projects, open high risks, pending approvals, stale items), a project table with project codes, milestones due in 14 days and the stalest items. Workspace-filtered.",
+        operationId: "getWeeklyReport",
+        parameters: [{ name: "week", in: "query", schema: { type: "string" }, description: "A calendar day or an ISO week" }],
+        responses: {
+          "200": { description: "The stored weekly report as HTML", content: { "text/html": { schema: { type: "string" } } } },
+          "403": { description: "Missing report:read (forbidden_scope)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No report was generated for that week", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "week is unreadable", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["reports"],
+        summary: "Send the weekly report now",
+        description: "scope: admin or manager SESSION only (403 for members, viewers and every token). No body. Refreshes the current week's stored report, creates a report.weekly notification for every admin and manager, and writes one report.weekly.generated audit row. It does not use the scheduled run's once-a-day slot, and it works while the scheduled report is disabled. Returns { week_start, recipients, report_url }.",
+        operationId: "sendWeeklyReportNow",
+        responses: {
+          "200": { description: "{ week_start, recipients, report_url }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin or manager session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "The workspace has no admin or manager to notify", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -2824,9 +3295,15 @@ const spec = {
           "person in the console, on a Lark card, or with the existing decision routes. Items the caller raised are still " +
           "listed, flagged as ones it cannot decide. `can_decide` is advisory — the decision routes re-check everything. " +
           "`total` is the exact count across the kinds the caller can read; paging reaches at most the oldest 1000 items " +
-          "per kind. Also available as the MCP / assistant tool list_pending_approvals and as `nopm review` in the CLI.",
+          "per kind. " +
+          "Each item also carries assigned_approver_id (uuid or null) and assigned_to_me (boolean). Assignment is routing only and never changes can_decide. " +
+          "Wave 4: the kinds gain risk_deletion, issue_deletion, expense_deletion, document_deletion and milestone_deletion. Each item carries " +
+          "removes (what approving also detaches, such as a milestone's tasks; an empty list otherwise), tier and approval_deadline_at (both null when unknown), " +
+          "and for a change request retro_due_at and retro_overdue (true for a live emergency change past its retro window; computed, never stored). " +
+          "Also available as the MCP / assistant tool list_pending_approvals and as `nopm review` in the CLI.",
         operationId: "listPendingApprovals",
         parameters: [
+          { name: "mine", in: "query", schema: { type: "boolean" }, description: "1 or true: only requests assigned to the person behind the caller (a token counts as its creator). A caller with no resolvable person gets an empty list. total and paging reflect the filter." },
           {
             name: "kind",
             in: "query",
@@ -3319,6 +3796,19 @@ const spec = {
         },
       },
     },
+    "/cron/snapshots": {
+      get: {
+        tags: ["integrations"],
+        summary: "Nightly project snapshot tick (host cron only)",
+        description: "NOT a user or PAT route. The only credential is Authorization: Bearer <CRON_SECRET>, the same check as GET /integrations/cron. 401 otherwise, including when CRON_SECRET is unset. Takes one project_snapshots row per project per workspace for the workspace's current day. Idempotent: a second call the same day inserts nothing. Writes one snapshot.taken audit row per workspace per run, with taken_at, projects, taken and already_taken. Vercel Cron runs it at 37 17 * * * (17:37 UTC, 01:37 in the default Asia/Kuala_Lumpur zone), with maxDuration 60 seconds.",
+        security: [{ cronSecret: [] }],
+        operationId: "runSnapshotsCron",
+        responses: {
+          "200": { description: "{ data: { workspaces, projects, taken, skipped } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "401": { description: "Missing or wrong CRON_SECRET (also when it is unset)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/integrations/cron": {
       get: {
         tags: ["integrations"],
@@ -3337,7 +3827,11 @@ const spec = {
           "ladder (1 m, 5 m, 30 m, 2 h, 12 h, then dead): due retries are also drained whenever the workspace has " +
           "approval traffic. It is built to finish inside the 60 s function limit: every connector's digest is queued " +
           "first (database work only, so being cut off cannot lose a week's digest), connectors are drained 3 at a time, " +
-          "and no new work STARTS after 40 s — what is left stays queued for the next tick.",
+          "and no new work STARTS after 40 s — what is left stays queued for the next tick. " +
+          "A nudge step runs for every workspace, with or without a connector: open items older than stale_days get one in-app notification each (at most once per item per day), and the weekly report is stored and notified on its configured weekday. The summary gains nudges { workspaces, staleNudged, weeklyReports, failed, skippedForDeadline }. " +
+          "WAVE 4: an approval timer step runs for every workspace after the nudges. It reminds the approvers of a waiting request at half its turnaround, " +
+          "escalates to the admins past the deadline, flags an emergency change whose retro decision is overdue (once), and approves a routine request nobody decided " +
+          "only where the workspace admin switched auto-approve on (never with a cost or a schedule impact). The summary gains approvals { workspaces, examined, reminders, escalated, autoApproved, retroOverdue, failed, skippedForDeadline }.",
         security: [{ cronSecret: [] }],
         operationId: "runIntegrationsCron",
         responses: {
@@ -3597,6 +4091,120 @@ const spec = {
           "422": { description: "Not valid JSON, wrong shape (fields lists the problems), or type does not match the event type (code invalid_relay_request)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "429": { description: "Rate limit exceeded (code rate_limited)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "503": { description: "The connector's stored credentials cannot be decrypted (code connector_unavailable) — a generic body; the operator sees the cause in the server log", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/integrations/github/connector": {
+      get: {
+        tags: ["integrations"],
+        summary: "Read the GitHub connector and its event mapping (wave 4)",
+        description:
+          "Session only: a token gets 403. Any signed-in member may read it; the webhook secret is never returned here. data = { connector: null | GithubConnector (members see only { name, status }), can_manage, rules, rule_targets, work_events }. " +
+          "rules maps each event to the task status it moves to: pr_opened, pr_merged, pr_closed, deploy_success, deploy_failure, each unstarted | started | in_review | completed | canceled, or null for no move. Defaults: pr_opened started, pr_merged in_review, pr_closed none, deploy_success completed, deploy_failure none.",
+        operationId: "getGithubConnector",
+        responses: {
+          "200": { description: "Connector view and mapping", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "A token (session only)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["integrations"],
+        summary: "Connect the GitHub repository webhook (admin session)",
+        description:
+          "Admin session only. Creates the workspace's one live GitHub connector. The webhook secret is shown ONCE in the response (webhook_secret) and stored encrypted (AES-256-GCM). " +
+          "Paste webhook_url and the secret into the repository webhook: content type application/json, events Pull requests and Deployment statuses. Audited integration.connector.create.",
+        operationId: "createGithubConnector",
+        requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { name: { type: "string", minLength: 1, maxLength: 100 } } } } } },
+        responses: {
+          "201": { description: "Connector created — the view plus webhook_secret (shown once)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session (a member, a viewer or any token)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "connector_exists — a live connector already exists in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "encryption_unavailable — the server cannot encrypt the webhook secret", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["integrations"],
+        summary: "Pause or resume, change the event mapping, or rotate the secret (admin session)",
+        description:
+          "Admin session only. Body: any subset of status (active | paused; paused is the kill switch: every delivery answers 401), rules (an object of event to status or null; unknown events or statuses are 422), and rotate_secret (true). At least one field. " +
+          "Rotating returns a new webhook_secret once and the old one stops working at once. Audited integration.connector.update, and work_event_rules.update when rules change.",
+        operationId: "updateGithubConnector",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                minProperties: 1,
+                properties: {
+                  status: { type: "string", enum: ["active", "paused"] },
+                  rules: { type: "object", additionalProperties: { type: ["string", "null"], enum: ["unstarted", "started", "in_review", "completed", "canceled", null] } },
+                  rotate_secret: { type: "boolean", enum: [true] },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "{ connector, rules, webhook_secret? } — webhook_secret only on rotate", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No connector exists to change", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Unknown field, event or status, or no field sent", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["integrations"],
+        summary: "Revoke the GitHub connector (admin session)",
+        description: "Admin session only. Revokes the live connector: its webhook address stops answering with a change. Returns the revoked connector view. Audited integration.connector.revoke.",
+        operationId: "revokeGithubConnector",
+        responses: {
+          "200": { description: "The revoked connector view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No connector exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/integrations/github/work-events": {
+      get: {
+        tags: ["integrations"],
+        summary: "Recent GitHub work events and what happened to each (wave 4)",
+        description:
+          "Session only (a token gets 403); any signed-in member may read it. Newest first, workspace-filtered. Each row says whether it applied the task move and, when it did not, why (reason): project_locked, unknown_ref, no_rule, already_at_or_beyond, task_canceled, conflict, no_linked_pr, error, replay (the same delivery again, changes nothing), truncated (more than five pull requests in one delivery), or applied / received.",
+        operationId: "listGithubWorkEvents",
+        parameters: [{ name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 50, default: 20 } }],
+        responses: {
+          "200": { description: "List of GithubWorkEvent rows", content: { "application/json": { schema: { type: "object", required: ["data"], properties: { data: { type: "array", items: { $ref: "#/components/schemas/GithubWorkEvent" } } } } } } },
+          "403": { description: "A token (session only)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/integrations/github/{connectorId}/events": {
+      post: {
+        tags: ["integrations"],
+        summary: "GitHub webhook endpoint (called by GitHub, not an agent)",
+        description:
+          "Public: no NoPM token. The caller is GitHub, authenticated by the HMAC-SHA256 signature of the raw body in X-Hub-Signature-256 under the connector's secret (compared in constant time). " +
+          "Acts on exactly two events: pull_request (opened or reopened, closed, merged) and deployment_status (success, failure, error). A deployment names its pull request through its payload, or a refs/pull/N or pr-N ref; at most five pull requests per delivery (a delivery naming more is recorded with reason truncated)." +
+          "A move applies only to the task whose external_ref equals github:<owner>/<repo>#<number> inside the connector's workspace, never on a locked project, and never moves a task backwards or out of completed or canceled. " +
+          "Every move is one audited task update as a connector actor (channel github). A replay of the same X-GitHub-Delivery answers 200 and changes nothing. A ping and any other event answer 200 and change nothing. " +
+          "One generic 401 covers a bad or missing signature and an unknown, paused or revoked connector. The body is capped at 1 MiB and the endpoint is rate-limited per connector.",
+        security: [],
+        operationId: "githubWebhook",
+        parameters: [
+          connectorIdParam,
+          { name: "X-Hub-Signature-256", in: "header", required: true, schema: { type: "string" }, description: "sha256= followed by the hex HMAC-SHA256 of the raw body" },
+          { name: "X-GitHub-Event", in: "header", required: true, schema: { type: "string" }, description: "pull_request, deployment_status or any other event name (ignored)" },
+          { name: "X-GitHub-Delivery", in: "header", required: true, schema: { type: "string" }, description: "GitHub's unique delivery id; a recorded delivery is never applied twice" },
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", description: "The GitHub pull_request or deployment_status payload, as GitHub sends it. Max 1 MiB.", additionalProperties: true } } } },
+        responses: {
+          "200": { description: "{ ok: true }. Also returned for a replay, for ping and for any event that changes nothing.", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" } } } } } },
+          "400": { description: "{ error: \"bad_request\" } — signed but no delivery id, or unreadable JSON", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "401": { description: "{ error: \"unauthorized\" } — bad or missing signature, or an unknown, paused or revoked connector", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Malformed connector id", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "413": { description: "Body larger than 1 MiB", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Too many deliveries, or too many failed signatures, for this connector. Retry-After gives the seconds.", headers: { "Retry-After": { schema: { type: "integer" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "Nothing was recorded; GitHub may redeliver safely", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },

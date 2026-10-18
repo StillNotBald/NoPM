@@ -59,6 +59,7 @@ const BOB = "22222222-2222-4222-8222-222222222222";
 const CASEY = "77777777-7777-4777-8777-777777777777"; // the person the MEMBER resource row belongs to
 const DANA = "88888888-8888-4888-8888-888888888888"; // another plain member
 const STRANGER = "99999999-9999-4999-8999-999999999999"; // an admin of ANOTHER workspace
+const ERIN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"; // an admin: a project deletion is high_risk, which an admin decides (G1)
 const MEMBER_2 = "33333333-3333-4333-8333-333333333334"; // a resource row with no linked profile
 const MEMBER = "33333333-3333-4333-8333-333333333333";
 const PROJECT = "44444444-4444-4444-8444-444444444444";
@@ -97,6 +98,7 @@ function pat(id: string, owner: string | null): Actor {
 }
 const alicePat = () => pat("tok-alice", ALICE);
 const bobPat = () => pat("tok-bob", BOB);
+const erinPat = () => ({ ...pat("tok-erin", ERIN), principalRole: "admin" }) as Actor;
 
 let db: FakeDb;
 
@@ -221,6 +223,7 @@ function seed(): FakeDb {
       { id: CASEY, workspace_id: WS, role: "member" },
       { id: DANA, workspace_id: WS, role: "member" },
       { id: STRANGER, workspace_id: "ws-2", role: "admin" },
+      { id: ERIN, workspace_id: WS, role: "admin" },
     ],
     rebaselines: [
       { id: "rb-approved", workspace_id: WS, project_id: PROJECT, version: 1, status: "approved", requested_by: ALICE, requested_principal_id: ALICE },
@@ -315,11 +318,11 @@ describe("P1-3 — a project deletion is refused when budget / clash / calendar-
     return String(db.rows("deletion_requests")[0].id);
   }
 
-  it("the request snapshot carries a count for all fifteen child tables", async () => {
+  it("the request snapshot carries a count for all sixteen child tables", async () => {
     await requestDeletion();
     const counts = (db.rows("deletion_requests")[0].before as { child_counts: Record<string, number> }).child_counts;
     expect(Object.keys(counts)).toEqual(expect.arrayContaining(["project_budget", "clashes", "calendar_feeds"]));
-    expect(Object.keys(counts)).toHaveLength(15);
+    expect(Object.keys(counts)).toHaveLength(16); // 15 + project_dependencies (0099); project_snapshots is derived and exempt
   });
 
   it.each([
@@ -331,7 +334,7 @@ describe("P1-3 — a project deletion is refused when budget / clash / calendar-
     const id = await requestDeletion();
     db.rows(name.split(" ")[0]).push(added);
 
-    await expectRule(await call(approveDeletion, bobPat(), id, {}), "children_changed");
+    await expectRule(await call(approveDeletion, erinPat(), id, {}), "children_changed");
     expect(db.rows("projects")).toHaveLength(2);
     expect(db.rows("deletion_requests")[0].status).toBe("pending");
   });
@@ -341,14 +344,14 @@ describe("P1-3 — a project deletion is refused when budget / clash / calendar-
     const put = await call(putBudget, bobPat(), PROJECT, { planned_amount: 5000 }, "PUT");
     expect(put.status).toBe(200);
 
-    await expectRule(await call(approveDeletion, bobPat(), id, {}), "children_changed");
+    await expectRule(await call(approveDeletion, erinPat(), id, {}), "children_changed");
     expect(db.rows("project_budget")).toHaveLength(1);
   });
 
   it("a clash that names only OTHER projects does not count", async () => {
     const id = await requestDeletion();
     db.rows("clashes").push({ id: "cl-x", workspace_id: WS, project_a_id: OTHER_PROJECT, project_b_id: OTHER_PROJECT });
-    expect((await call(approveDeletion, bobPat(), id, {})).status).toBe(200);
+    expect((await call(approveDeletion, erinPat(), id, {})).status).toBe(200);
     expect(db.rows("projects")).toHaveLength(1);
   });
 });
@@ -547,7 +550,8 @@ describe("P2-12 — DELETE /resources/:id keeps the approval history", () => {
   });
 
   it("any other delete error is still a 500", async () => {
-    failNext(db, "resource_members", "delete", { code: "XX000", message: "connection reset" });
+    // the delete and its audit row are one database function (nopm_mutate_audited)
+    db.mutateFailure = { code: "XX000", message: "connection reset" };
     expect((await call(deleteResource, alicePat(), MEMBER, undefined, "DELETE")).status).toBe(500);
   });
 

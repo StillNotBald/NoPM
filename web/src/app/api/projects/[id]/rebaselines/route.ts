@@ -7,6 +7,10 @@ import { ConflictError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { LOCK_FIRST_MESSAGE, PENDING_REBASELINE_EXISTS_MESSAGE } from "@/lib/governance/rebaseline-rpc";
 import { announceRequested, requireMakerPrincipal } from "@/lib/governance/decide";
 import { rebaselineEvent } from "@/lib/integrations/rebaseline-approval";
+import { resolveAssignedApprover } from "@/lib/review/assignee";
+import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
+import { recordApprovalEvent } from "@/lib/governance/approval-events";
+import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { createRebaselineSchema } from "@/app/api/rebaselines/_schema";
 
 export const runtime = "nodejs";
@@ -93,6 +97,22 @@ export const POST = route(async ({ actor, params, request }) => {
     );
   }
 
+  // G1: the tier comes from the policy, never from the caller.
+  const policy = await loadApprovalPolicy(db, actor.workspaceId);
+  const { tier } = classify({
+    kind: "rebaseline",
+    requester_role: humanRoleOf(actor as Parameters<typeof humanRoleOf>[0]),
+    policy,
+  });
+  const deadline = deadlineFor(tier, policy, new Date());
+  const assignedApproverId = await resolveAssignedApprover(
+    db,
+    actor.workspaceId,
+    parsed.data.assigned_approver_id,
+    requesterPrincipal,
+    approverRoleFor(tier, policy),
+  );
+
   // Compute next version: max existing version for this project + 1
   const { data: maxRow, error: maxError } = await db
     .from("rebaselines")
@@ -132,6 +152,8 @@ export const POST = route(async ({ actor, params, request }) => {
       project_id: params.id,
       version: nextVersion,
       status,
+      tier,
+      approval_deadline_at: deadline ? deadline.toISOString() : null,
       reason: parsed.data.reason,
       requested_by: actor.type === "user" ? actor.id : null,
       // The HUMAN behind the requester (the user, or the token's creator). The
@@ -142,6 +164,8 @@ export const POST = route(async ({ actor, params, request }) => {
       before: datesBefore,
       after: datesAfter,
       created_at: now,
+      // G5: only sent when asked for (deploy-order safe).
+      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
     })
     .select()
     .single();
@@ -170,6 +194,27 @@ export const POST = route(async ({ actor, params, request }) => {
     targetId: row.id,
     before: null,
     after: row,
+  });
+
+  await recordApprovalEvent(db, {
+    workspaceId: actor.workspaceId,
+    targetType: "rebaseline",
+    targetId: row.id,
+    kind: "deadline_set",
+    actorLabel: actor.label,
+    detail: { tier, deadline: deadline?.toISOString() ?? null },
+  });
+
+  // G2: tell the people who may sign off THIS tier. Fail-soft.
+  void resolveWorkspaceApprovers(actor.workspaceId, { tier, assignedApproverId }).then((approverIds) => {
+    return notify({
+      workspaceId: actor.workspaceId,
+      recipientIds: approverIds.filter((id) => id !== requesterPrincipal),
+      type: "approval.requested",
+      title: `Rebaseline needs sign-off: ${project.name ?? params.id}`,
+      body: parsed.data.reason ?? undefined,
+      payload: { href: "/approvals", rebaselineId: row.id, tier },
+    });
   });
 
   // Open the Lark sign-off card for the approvers. Fire-and-forget: it runs after the

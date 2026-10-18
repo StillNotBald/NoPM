@@ -37,6 +37,10 @@ test.describe("f2b admin-authenticated journeys", () => {
     test("sidebar exposes the /sprints link (sidebar-links-f2b)", async ({ page }) => {
       await page.goto("/dashboard");
       await expect(page.locator(SHELL_MARKER)).toBeVisible({ timeout: 20_000 });
+      // The sidebar defaults to Essentials (R-78); /sprints lives behind "Show all modules".
+      // (The nav-mode choice persists per account, so another spec may already have expanded it.)
+      const showAll = page.getByRole("button", { name: /show all modules/i });
+      if (await showAll.count()) await showAll.click();
       await expect(page.locator('nav a[href="/sprints"]').first()).toBeVisible();
       await expect(page.locator('nav a[href="/timesheets"]')).toHaveCount(0);
     });

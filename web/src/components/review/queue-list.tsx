@@ -107,6 +107,14 @@ function AgeChip({ days }: { days: number }) {
 
 // ── Row content (shared between link and button rows) ─────────────────────────
 
+const TIER_TEXT: Record<string, string> = {
+  routine: "Routine",
+  normal: "Normal",
+  high_risk: "High risk",
+  emergency: "Emergency",
+  strategic: "Strategic",
+};
+
 function RowContent({ item }: { item: ReviewItem }) {
   // The server says whether THIS viewer may decide the item; when they can't,
   // the row reads "View" (never an Approve / Reject that would be refused).
@@ -143,6 +151,18 @@ function RowContent({ item }: { item: ReviewItem }) {
       )}
 
       {raisedByMe && <span className="shrink-0 text-2xs text-ink-muted">raised by you</span>}
+
+      {/* UAT-005: tier and decision deadline */}
+      {item.tier && (
+        <span className="shrink-0 rounded border border-border-subtle bg-well px-1.5 py-0.5 text-2xs text-ink-secondary">
+          {TIER_TEXT[item.tier] ?? item.tier}
+        </span>
+      )}
+      {item.deadline && (
+        <span className={cn("shrink-0 text-2xs", item.overdue ? "font-medium text-danger-ink" : "text-ink-muted")}>
+          {item.overdue ? "overdue since" : "decide by"} {item.deadline.slice(0, 10)}
+        </span>
+      )}
 
       {/* Age */}
       <AgeChip days={item.ageDays} />

@@ -27,7 +27,7 @@ function fakeDb(results: Record<string, Result>) {
       const call: Call = { table, ops: [] };
       calls.push(call);
       const chain: Record<string, unknown> = {};
-      for (const op of ["select", "eq", "in", "order", "limit"]) {
+      for (const op of ["select", "eq", "in", "or", "order", "limit"]) {
         chain[op] = (...args: unknown[]) => {
           call.ops.push([op, args]);
           return chain;
@@ -52,7 +52,16 @@ const probe =
   (scope) =>
     allowed.includes(scope) ? null : `API token is missing required scope: ${scope}`;
 
-const ALL_READ = ["task:read", "change:read", "project:read"];
+const ALL_READ = [
+  "task:read",
+  "change:read",
+  "project:read",
+  "risk:read",
+  "issue:read",
+  "budget:read",
+  "document:read",
+  "milestone:read",
+];
 const ALL_DECIDE = Object.values(DECIDE_SCOPES);
 
 const WS = "ws-1";
@@ -186,14 +195,20 @@ describe("listPendingApprovals — shape and ordering", () => {
     await listPendingApprovals(db, me, probe(ALL_READ));
     const ops = (t: string) => calls.find((c) => c.table === t)!.ops;
     expect(ops("deletion_requests")).toContainEqual(["eq", ["status", "pending"]]);
-    expect(ops("deletion_requests")).toContainEqual(["in", ["target_type", ["task", "project"]]]);
-    expect(ops("change_requests")).toContainEqual(["in", ["status", ["raised", "under_review"]]]);
+    expect(ops("deletion_requests")).toContainEqual([
+      "in",
+      ["target_type", ["task", "project", "risk", "issue", "expense", "document", "milestone"]],
+    ]);
+    expect(ops("change_requests")).toContainEqual([
+      "or",
+      ["status.in.(raised,under_review,emergency),and(status.eq.implemented,is_emergency.eq.true,retro_decided_at.is.null)"],
+    ]);
     expect(ops("rebaselines")).toContainEqual(["eq", ["status", "pending_approval"]]);
   });
 
   it("drops deletion rows of an unsupported target type instead of mis-labelling them", async () => {
     const { db } = fullDb({
-      deletion_requests: { data: [{ ...deletionTask, id: "odd", target_type: "milestone" }] },
+      deletion_requests: { data: [{ ...deletionTask, id: "odd", target_type: "clash" }] },
       change_requests: { data: [] },
       rebaselines: { data: [] },
     });
@@ -296,7 +311,16 @@ describe("listPendingApprovals — read gating by kind", () => {
     const { db, calls } = fullDb();
     const r = await listPendingApprovals(db, { ...me, type: "token" }, probe(["change:read"]));
     expect(r.items.map((i) => i.kind)).toEqual(["change_request"]);
-    expect(r.hidden_kinds).toEqual(["task_deletion", "project_deletion", "rebaseline"]);
+    expect(r.hidden_kinds).toEqual([
+      "task_deletion",
+      "project_deletion",
+      "risk_deletion",
+      "issue_deletion",
+      "expense_deletion",
+      "document_deletion",
+      "milestone_deletion",
+      "rebaseline",
+    ]);
     // Hidden families are never even queried.
     const tables = calls.map((c) => c.table);
     for (const t of ["deletion_requests", "rebaselines"]) {
@@ -313,7 +337,7 @@ describe("listPendingApprovals — read gating by kind", () => {
 
   it("403s a token that can read none of the families", async () => {
     const { db } = fullDb();
-    await expect(listPendingApprovals(db, { ...me, type: "token" }, probe(["risk:read"]))).rejects.toBeInstanceOf(
+    await expect(listPendingApprovals(db, { ...me, type: "token" }, probe(["decision:read"]))).rejects.toBeInstanceOf(
       ScopeError,
     );
   });
@@ -441,5 +465,133 @@ describe("pure helpers", () => {
       evaluateDecision({ actor, actorPrincipal: "u1", requester: { type: null, id: null, principal: null }, scopeProblem: null })
         .can_decide,
     ).toBe(true);
+  });
+});
+
+// ── G8: deletion requests for risks, issues, expenses, documents and milestones ──────────────
+
+const deletionRow = (id: string, targetType: string, before: Row, extra: Row = {}): Row => ({
+  id,
+  workspace_id: WS,
+  target_type: targetType,
+  target_id: `${targetType}-1`,
+  reason: `remove the ${targetType}`,
+  status: "pending",
+  requested_by_type: "user",
+  requested_by_id: OTHER,
+  requested_by_label: "Requester A",
+  before,
+  created_at: "2026-10-12T08:00:00+00:00",
+  ...extra,
+});
+
+describe("listPendingApprovals — deletion of risks, issues, expenses, documents, milestones (G8)", () => {
+  const rows = [
+    deletionRow("del-risk", "risk", { title: "Vendor slips", project_id: "proj-1" }),
+    deletionRow("del-issue", "issue", { title: "Login fails", project_id: "proj-1" }),
+    deletionRow("del-expense", "expense", { description: "Hotel", project_id: "proj-1" }),
+    deletionRow("del-doc", "document", { title: "Charter", project_id: "proj-1" }),
+    deletionRow(
+      "del-ms",
+      "milestone",
+      { name: "Go-live", project_id: "proj-1", child_counts: { tasks: 4 } },
+      { tier: "high_risk", approval_deadline_at: "2026-10-14T08:00:00+00:00" },
+    ),
+  ];
+
+  it("lists each as its own kind with its type, record name, project and the checker scope", async () => {
+    const { db } = fullDb({ deletion_requests: { data: rows } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["del-risk"]).toMatchObject({ kind: "risk_deletion", title: "Delete risk: Vendor slips", project_name: "Apollo", can_decide: true });
+    expect(byId["del-issue"]).toMatchObject({ kind: "issue_deletion", title: "Delete issue: Login fails" });
+    expect(byId["del-expense"]).toMatchObject({ kind: "expense_deletion", title: "Delete expense: Hotel" });
+    expect(byId["del-doc"]).toMatchObject({ kind: "document_deletion", title: "Delete document: Charter" });
+    expect(byId["del-ms"]).toMatchObject({ kind: "milestone_deletion", title: "Delete milestone: Go-live", summary: "remove the milestone" });
+  });
+
+  it("a milestone shows how many tasks it detaches; records with nothing under them show none", async () => {
+    const { db } = fullDb({ deletion_requests: { data: rows } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["del-ms"].removes).toEqual([{ label: "tasks (kept, no longer under this milestone)", count: 4, governed: false }]);
+    expect(byId["del-risk"].removes).toEqual([]);
+  });
+
+  it("passes the wave-4 tier columns through, and reads them as null when the row has none", async () => {
+    const { db } = fullDb({ deletion_requests: { data: rows } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["del-ms"]).toMatchObject({
+      tier: "high_risk",
+      approval_deadline_at: "2026-10-14T08:00:00+00:00",
+      retro_due_at: null,
+      retro_overdue: null,
+    });
+    expect(byId["del-risk"]).toMatchObject({ tier: null, approval_deadline_at: null, retro_due_at: null, retro_overdue: null });
+  });
+
+  it("asks the database for exactly the target types of the kinds wanted", async () => {
+    const { db, calls } = fullDb({ deletion_requests: { data: rows } });
+    await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["risk_deletion", "milestone_deletion"] });
+    const del = calls.find((c) => c.table === "deletion_requests")!;
+    expect(del.ops).toContainEqual(["in", ["target_type", ["risk", "milestone"]]]);
+  });
+
+  it("is hidden without the entity read scope (or audit:read), and cannot be decided without the approve scope", async () => {
+    const { db } = fullDb({ deletion_requests: { data: [rows[0]] } });
+    const readOnly = await listPendingApprovals(db, me, probe(["risk:read"]));
+    expect(readOnly.items.map((i) => i.kind)).toEqual(["risk_deletion"]);
+    expect(readOnly.items[0].can_decide).toBe(false);
+    expect(readOnly.items[0].reason_if_not).toMatch(/risk:delete:approve/);
+    expect(readOnly.hidden_kinds).toContain("issue_deletion");
+  });
+
+  it("the four-eyes rule holds: the requester cannot decide their own", async () => {
+    const mine = rows.map((x) => ({ ...x, requested_by_id: ME }));
+    const { db } = fullDb({ deletion_requests: { data: mine } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    expect(r.items.filter((i) => i.kind.endsWith("_deletion")).every((i) => !i.can_decide)).toBe(true);
+  });
+});
+
+// ── W4-A rules: emergency change requests, computed retro_overdue, tier-aware can_decide ──────
+
+describe("listPendingApprovals: tiers and emergency change requests", () => {
+  const past = "2020-01-01T00:00:00+00:00";
+  const emergencyCr: Row = { ...change, id: "cr-em", status: "implemented", is_emergency: true, retro_due_at: past, retro_decided_at: null, tier: "normal" };
+  const asRole = (role: string) => ({ ...me, role });
+
+  it("asks for raised, under review, emergency, and implemented emergencies owed a retro decision", async () => {
+    const { db, calls } = fullDb();
+    await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const ops = calls.find((c) => c.table === "change_requests")!.ops;
+    expect(JSON.stringify(ops)).toContain("is_emergency.eq.true,retro_decided_at.is.null");
+  });
+
+  it("marks an emergency change whose retro window passed as overdue (computed from the row, not a column)", async () => {
+    const { db } = fullDb({ change_requests: { data: [emergencyCr, { ...emergencyCr, id: "cr-ok", retro_due_at: "2999-01-01T00:00:00+00:00" }] } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["cr-em"]).toMatchObject({ is_emergency: true, tier: "emergency", retro_overdue: true });
+    expect(byId["cr-ok"]).toMatchObject({ retro_overdue: false });
+  });
+
+  it("an emergency change needs an admin; a manager sees it but cannot decide", async () => {
+    const { db } = fullDb({ change_requests: { data: [emergencyCr] } });
+    const mgr = await listPendingApprovals(db, asRole("manager"), probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["change_request"] });
+    expect(mgr.items[0]).toMatchObject({ can_decide: false });
+    expect(mgr.items[0].reason_if_not).toMatch(/admin/i);
+    const adm = await listPendingApprovals(db, asRole("admin"), probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["change_request"] });
+    expect(adm.items[0].can_decide).toBe(true);
+  });
+
+  it("a high_risk deletion needs an admin too; a normal one a manager is enough for", async () => {
+    const hi = { ...deletionTask, id: "d-hi", tier: "high_risk" };
+    const { db } = fullDb({ deletion_requests: { data: [hi, deletionProject] } });
+    const r = await listPendingApprovals(db, asRole("manager"), probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["task_deletion", "project_deletion"] });
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["d-hi"].can_decide).toBe(false);
+    expect(byId["del-proj"].can_decide).toBe(true);
   });
 });

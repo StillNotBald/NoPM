@@ -7,7 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
-import { ChangeForm, type ChangeRequest } from "@/components/change-control/change-form";
+import { AREA_LABELS, DIRECTION_LABELS, ChangeForm, type ChangeRequest } from "@/components/change-control/change-form";
+import { EvidencePanel } from "@/components/change-control/evidence-panel";
 import { TextareaInput } from "@/components/forms/project-form";
 import { DecisionRefusal } from "@/components/governance/decision-refusal";
 import { FourEyesNote, type DecideState } from "@/components/governance/four-eyes-note";
@@ -24,8 +25,8 @@ type CRCategory = ChangeRequest["category"];
 type CRPriority = ChangeRequest["priority"];
 
 export function statusTone(s: CRStatus): Tone {
-  if (s === "approved") return "success";
-  if (s === "rejected") return "danger";
+  if (s === "approved" || s === "implemented") return "success";
+  if (s === "rejected" || s === "emergency") return "danger";
   if (s === "deferred") return "warning";
   if (s === "under_review") return "info";
   return "neutral"; // raised
@@ -38,6 +39,8 @@ export function statusLabel(s: CRStatus): string {
     approved: "Approved",
     rejected: "Rejected",
     deferred: "Deferred",
+    implemented: "Implemented",
+    emergency: "Emergency",
   };
   return labels[s] ?? s;
 }
@@ -110,7 +113,29 @@ export type ChangeFactsData = Pick<
   | "impact_cost"
   | "description"
 > &
-  Partial<Pick<ChangeRequest, "decided_by_label" | "decided_at" | "decision_rationale">>;
+  Partial<
+    Pick<
+      ChangeRequest,
+      | "decided_by_label"
+      | "decided_at"
+      | "decision_rationale"
+      | "impact_scope"
+      | "implemented_at"
+      | "implemented_by_label"
+      | "implemented_note"
+      | "decisions"
+      | "tier"
+      | "approval_deadline_at"
+      | "is_emergency"
+      | "retro_due_at"
+      | "retro_decided_at"
+      | "retro_outcome"
+      | "retro_overdue"
+      | "deadline_overdue"
+    >
+  >;
+
+const DIRECTION_TONE: Record<string, Tone> = { increase: "warning", decrease: "info", neutral: "neutral" };
 
 /**
  * The change request as the person deciding it needs to read it: status and
@@ -118,6 +143,36 @@ export type ChangeFactsData = Pick<
  * the change-control inspector and the review-queue inspector, so both put the
  * same record beside the decision.
  */
+const TIER_LABEL: Record<string, string> = {
+  routine: "Routine",
+  normal: "Normal",
+  high_risk: "High risk",
+  emergency: "Emergency",
+  strategic: "Strategic",
+};
+
+/**
+ * G4: an emergency change is live (or can go live at once) and owes an after-the-fact approval.
+ * It stays flagged until that decision is taken; past the due date it is called out as overdue.
+ */
+function EmergencyNote({ cr }: { cr: ChangeFactsData }) {
+  const decided = !!cr.retro_decided_at;
+  // Worked out on the server (the page knows "now"); a render must stay pure.
+  const overdue = !decided && cr.retro_overdue === true;
+  return (
+    <p
+      role="status"
+      className={`my-2 rounded-md px-3 py-2 text-sm ${overdue ? "bg-danger/15 text-danger-ink" : "bg-well text-ink-secondary"}`}
+    >
+      {decided
+        ? `Emergency change. The after-the-fact decision was taken (${cr.retro_outcome ?? "recorded"}).`
+        : overdue
+          ? `Emergency change, overdue: the approval was due ${formatDate(cr.retro_due_at ?? null)} and is still missing.`
+          : `Emergency change. It can go live now; an admin gives the approval by ${formatDate(cr.retro_due_at ?? null)}.`}
+    </p>
+  );
+}
+
 export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectName?: string }) {
   return (
     <>
@@ -126,7 +181,13 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
         <Badge tone={statusTone(cr.status)}>{statusLabel(cr.status)}</Badge>
         <Badge tone={priorityTone(cr.priority)}>{cr.priority}</Badge>
         <Badge tone="neutral">{CATEGORY_LABELS[cr.category] ?? cr.category}</Badge>
+        {/* UAT-005: the tier is always shown (a Normal request included) */}
+        {cr.tier && cr.tier !== "emergency" && (
+          <Badge tone={cr.tier === "routine" || cr.tier === "normal" ? "neutral" : "warning"}>{TIER_LABEL[cr.tier] ?? cr.tier}</Badge>
+        )}
       </div>
+
+      {cr.is_emergency && <EmergencyNote cr={cr} />}
 
       {/* Fields */}
       <div>
@@ -142,6 +203,15 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
           <span className="tabular-nums">{formatDate(cr.raised_at)}</span>
         </DetailRow>
 
+        {cr.approval_deadline_at && ["raised", "under_review", "emergency"].includes(cr.status) && (
+          <DetailRow label="Decision due">
+            <span className={cr.deadline_overdue ? "font-medium text-danger-ink tabular-nums" : "tabular-nums"}>
+              {formatDate(cr.approval_deadline_at)}
+              {cr.deadline_overdue ? " (overdue)" : ""}
+            </span>
+          </DetailRow>
+        )}
+
         <DetailRow label="Target Date">
           <span className="tabular-nums">{formatDate(cr.target_date)}</span>
         </DetailRow>
@@ -149,6 +219,21 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
         {cr.impact_summary && cr.impact_summary.trim() !== "" && (
           <DetailRow label="Impact Summary">
             <TextValue value={cr.impact_summary} />
+          </DetailRow>
+        )}
+
+        {cr.impact_scope && cr.impact_scope.length > 0 && (
+          <DetailRow label="Impact by Area">
+            <ul className="flex flex-wrap gap-2" aria-label="Impact by area">
+              {cr.impact_scope.map((item) => (
+                <li key={item.area} className="max-w-full">
+                  <Badge tone={DIRECTION_TONE[item.direction] ?? "neutral"}>
+                    {AREA_LABELS[item.area] ?? item.area}: {(DIRECTION_LABELS[item.direction] ?? item.direction).toLowerCase()}
+                  </Badge>
+                  {item.note && <span className="mt-0.5 block text-xs text-ink-secondary">{item.note}</span>}
+                </li>
+              ))}
+            </ul>
           </DetailRow>
         )}
 
@@ -195,6 +280,35 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
         {cr.decision_rationale && cr.decision_rationale.trim() !== "" && (
           <DetailRow label="Decision Rationale">
             <TextValue value={cr.decision_rationale} />
+          </DetailRow>
+        )}
+
+        {/* M2: the "approved, then live" proof. */}
+        {cr.implemented_at && (
+          <DetailRow label="Implemented">
+            <span className="tabular-nums">
+              Implemented on {formatDate(cr.implemented_at)}
+              {cr.implemented_by_label ? ` by ${cr.implemented_by_label}` : ""}
+            </span>
+            {cr.implemented_note && cr.implemented_note.trim() !== "" && (
+              <span className="mt-0.5 block whitespace-pre-wrap text-xs text-ink-secondary">{cr.implemented_note}</span>
+            )}
+          </DetailRow>
+        )}
+
+        {/* B1: decisions taken for this change request. */}
+        {cr.decisions && cr.decisions.length > 0 && (
+          <DetailRow label={`Decisions: ${cr.decisions.length}`}>
+            <ul className="space-y-1">
+              {cr.decisions.map((d) => (
+                <li key={d.id}>
+                  <a href={`/decisions?dec=${d.id}`} className="text-accent hover:underline">
+                    {d.reference_id ? `${d.reference_id} ` : ""}
+                    {d.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
           </DetailRow>
         )}
       </div>
@@ -449,6 +563,65 @@ function TransitionActions({ cr, onDone }: { cr: ChangeRequest; onDone: () => vo
   );
 }
 
+// ── ImplementPanel — mark an approved request live (M2) ──────────────────────
+
+/**
+ * An approved request is marked implemented by its requester or a manager or
+ * admin. The server decides who sees the button (`canImplement`) and re-checks on
+ * the call; the stamp (date, person) and the audit row are one transaction.
+ */
+function ImplementPanel({ crId, onDone }: { crId: string; onDone: () => void }) {
+  const uid = useId();
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(`/api/change-requests/${crId}/implement`, note.trim() ? { note: note.trim() } : {});
+      onDone();
+    } catch (err) {
+      setError((err as { message?: string })?.message || "Could not mark the change request implemented.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-border-subtle bg-well p-4">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">Go live</h3>
+      <p className="mb-3 text-sm text-ink-secondary">
+        Once the approved change is in place, mark it implemented. The date and your name are recorded.
+      </p>
+      {error && <InlineAlert>{error}</InlineAlert>}
+      <Field id={`${uid}-note`} label="Note" optional>
+        {(a11y) => (
+          <TextareaInput
+            {...a11y}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Where or how it went live (optional)"
+            rows={2}
+          />
+        )}
+      </Field>
+      <div className="mt-3 flex justify-end">
+        <Button
+          variant="primary"
+          size="sm"
+          className="h-11 w-full sm:h-8 sm:w-auto"
+          disabled={busy}
+          onClick={run}
+        >
+          {busy ? <Spinner size="sm" className="mr-1.5" /> : null}
+          Mark implemented
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── ChangeDetail ──────────────────────────────────────────────────────────────
 
 export interface ChangeDetailProps {
@@ -483,7 +656,11 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
     router.refresh();
   }
 
-  const canDecide = !decided && (cr.status === "raised" || cr.status === "under_review");
+  // G4: an emergency change is decided too, even after it went live (the retro decision).
+  const awaitingRetro = cr.is_emergency === true && !cr.retro_decided_at;
+  const canDecide =
+    !decided &&
+    (cr.status === "raised" || cr.status === "under_review" || cr.status === "emergency" || (cr.status === "implemented" && awaitingRetro));
 
   return (
     <div className="flex flex-col gap-0 pb-4">
@@ -510,6 +687,10 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
 
       {!decided && <TransitionActions cr={cr} onDone={handleDecided} />}
 
+      {!decided && (cr.status === "approved" || cr.status === "emergency") && cr.canImplement && (
+        <ImplementPanel crId={cr.id} onDone={handleDecided} />
+      )}
+
       {/* Decision panel — only for actionable CRs */}
       {canDecide && (
         <DecisionPanel
@@ -520,6 +701,8 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
           onRefresh={handleRefreshRecord}
         />
       )}
+
+      <EvidencePanel changeRequestId={cr.id} projectId={cr.project_id} referenceId={cr.reference_id} />
     </div>
   );
 }

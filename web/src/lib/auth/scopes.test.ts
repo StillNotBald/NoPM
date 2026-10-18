@@ -54,6 +54,11 @@ describe("scope registry", () => {
     // approve must never appear, exactly like the task-deletion pair above.
     expect(tool.has("project:delete:request")).toBe(true);
     expect(tool.has("project:delete:approve")).toBe(false);
+    // G8: the same holds for the five records deleted by request.
+    for (const e of ["risk", "issue", "expense", "document", "milestone"]) {
+      expect(tool.has(`${e}:delete:request`)).toBe(true);
+      expect(tool.has(`${e}:delete:approve`)).toBe(false);
+    }
     // and no wildcard could smuggle an approve in
     expect(tool.has("*")).toBe(false);
     for (const s of TOOL_SCOPES) expect(s.endsWith(":*")).toBe(false);
@@ -93,12 +98,17 @@ describe("scope registry", () => {
       for (const s of AGENT_PRESET_SCOPES) expect(isValidScope(s)).toBe(true);
     });
 
-    it("is read-only plus exactly task:write — never approve/admin/token/delete", () => {
+    it("is read-only plus exactly task/risk/issue/project:write — never approve/admin/token/delete", () => {
       const preset = new Set<string>(AGENT_PRESET_SCOPES);
-      // the one write scope allowed
-      expect(preset.has("task:write")).toBe(true);
+      // the write scopes allowed (K4, CR-2026-10-18-01 A5)
+      const writes = ["task:write", "risk:write", "issue:write", "project:write"];
+      for (const w of writes) expect(preset.has(w), w).toBe(true);
       for (const s of AGENT_PRESET_SCOPES) {
-        expect(s === "task:write" || s.endsWith(":read")).toBe(true);
+        expect(writes.includes(s) || s.endsWith(":read")).toBe(true);
+      }
+      // every other write scope stays out
+      for (const s of AGENT_PRESET_SCOPES) {
+        if (s.endsWith(":write")) expect(writes).toContain(s);
       }
       // never a delete/approve step, never a bare/resource wildcard, never
       // an admin- or token-management scope (no such scope exists in the
@@ -196,5 +206,14 @@ describe("retired time:* scopes (hour logging removed)", () => {
     expect(scopeChoices().some((c) => c.startsWith("time:"))).toBe(false);
     expect(hasScope(["time:read", "time:approve", "task:read"], "task:read")).toBe(true);
     expect(hasScope(["time:read", "time:approve"], "task:read")).toBe(false);
+  });
+});
+
+describe("delete scopes and the agent preset (W1-06)", () => {
+  it("risk:delete and issue:delete are registered and not in the agent preset", () => {
+    expect(isValidScope("risk:delete")).toBe(true);
+    expect(isValidScope("issue:delete")).toBe(true);
+    expect(AGENT_PRESET_SCOPES).not.toContain("risk:delete");
+    expect(AGENT_PRESET_SCOPES).not.toContain("issue:delete");
   });
 });

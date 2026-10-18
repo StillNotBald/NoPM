@@ -1,12 +1,15 @@
 import { route } from "@/lib/api/handler";
-import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, PreconditionFailedError } from "@/lib/api/errors";
+import { requestDeletion } from "@/lib/governance/request-deletion";
+import { ok, safeJson, validationError } from "@/lib/api/response";
+import { NotFoundError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
-import { updateRiskSchema } from "@/app/api/risks/_schema";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { updateRiskSchema, resolveImpactAreas } from "@/app/api/risks/_schema";
+import { RISK_SELECT, pickRiskColumns } from "@/lib/api/views";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertBackupDiffers, effective } from "@/lib/handover/backup";
 import { notify, resolveProjectOwner } from "@/lib/notify/publish";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { RESOLUTION_NOTE_MESSAGE, needsResolutionNote, rankIncreased } from "@/lib/work/resolution";
@@ -21,7 +24,7 @@ export const GET = route(async ({ actor, params }) => {
 
   const { data: row, error } = await db
     .from("risks")
-    .select("*")
+    .select(RISK_SELECT)
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -40,7 +43,7 @@ export const PATCH = route(async ({ actor, params, request }) => {
 
   const { data: existing, error: fetchError } = await db
     .from("risks")
-    .select("*")
+    .select(RISK_SELECT)
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -73,7 +76,15 @@ export const PATCH = route(async ({ actor, params, request }) => {
   // Cross-tenant guard: owner_id is a profile and must belong to THIS workspace.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "profiles", id: input.owner_id, field: "owner_id" },
+    { table: "profiles", id: input.backup_owner_id, field: "backup_owner_id" },
   ]);
+  // M6: a backup is somebody else than the owner (checked on the values the row will have).
+  assertBackupDiffers(
+    effective(input.owner_id, existing.owner_id),
+    effective(input.backup_owner_id, existing.backup_owner_id),
+    "backup_owner_id",
+    "owner_id",
+  );
 
   // Optimistic concurrency (R-90) — opt-in via expected_updated_at. No-op when
   // the caller doesn't send it (today's last-write-wins, unchanged).
@@ -85,9 +96,9 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.description !== undefined) updates.description = input.description;
   if (input.severity !== undefined) updates.severity = input.severity;
   if (input.likelihood !== undefined) updates.likelihood = input.likelihood;
-  if (input.category !== undefined) updates.category = input.category;
   if (input.mitigation !== undefined) updates.mitigation = input.mitigation;
   if (input.owner_id !== undefined) updates.owner_id = input.owner_id;
+  if (input.backup_owner_id !== undefined) updates.backup_owner_id = input.backup_owner_id;
   if (input.status !== undefined) updates.status = input.status;
   if (input.raised_at !== undefined) updates.raised_at = input.raised_at;
   if (input.due_date !== undefined) updates.due_date = input.due_date;
@@ -96,7 +107,13 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.impact_score !== undefined) updates.impact_score = input.impact_score;
   if (input.response_strategy !== undefined) updates.response_strategy = input.response_strategy;
   if (input.risk_category !== undefined) updates.risk_category = input.risk_category;
-  if (input.impact_area !== undefined) updates.impact_area = input.impact_area;
+  // K2: impact_areas is the source of truth; impact_area mirrors its first element
+  // (the DB trigger from 0091 also enforces this).
+  const areas = resolveImpactAreas(input);
+  if (areas !== undefined) {
+    updates.impact_areas = areas;
+    updates.impact_area = areas[0] ?? null;
+  }
   if (input.trigger !== undefined) updates.trigger = input.trigger;
   if (input.residual_risk !== undefined) updates.residual_risk = input.residual_risk;
   if (input.resolution !== undefined) updates.resolution = input.resolution;
@@ -105,37 +122,18 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;
   if (input.external_url !== undefined) updates.external_url = input.external_url;
 
-  let query = db
-    .from("risks")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-  // Defense-in-depth: also scope the write itself to the row's pre-check
-  // updated_at, closing the (narrow) race between the fetch above and this
-  // write. On a lost race the row exists but the filter matches zero rows —
-  // maybeSingle() returns null instead of PostgREST's "no rows" error.
-  if (input.expected_updated_at !== undefined) {
-    query = query.eq("updated_at", existing.updated_at);
-  }
-  const { data: updated, error: updateError } = await query.select().maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    if (input.expected_updated_at !== undefined) {
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    throw new Error("Update failed");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited). The response
+  // keeps the RISK_SELECT shape (no legacy `category`).
+  const { after: written } = await auditedUpdate({
+    table: "risks",
     actor,
     action: "risk.update",
-    targetType: "risk",
-    targetId: updated.id,
-    before: existing,
-    after: updated,
+    id: params.id,
+    patch: updates,
+    expectedUpdatedAt: input.expected_updated_at !== undefined ? existing.updated_at : null,
+    notFoundMessage: "Risk not found",
   });
+  const updated = pickRiskColumns(written) as typeof existing;
 
   // Same alert as on create — and on EVERY later increase (Q-WRK-19): the owner
   // hears when severity or likelihood goes up, not only when it first reaches
@@ -166,39 +164,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return ok(updated);
 });
 
-/** DELETE /api/risks/:id — delete a risk */
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "risk:write");
-
-  const db = createAdminClient();
-
-  const { data: existing, error: fetchError } = await db
-    .from("risks")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw new Error(fetchError.message);
-  if (!existing) throw new NotFoundError("Risk not found");
-
-  const { error: deleteError } = await db
-    .from("risks")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw new Error(deleteError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "risk.delete",
-    targetType: "risk",
-    targetId: existing.id,
-    before: existing,
-    after: null,
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/risks/:id — does NOT delete the risk. It raises a deletion request (scope risk:delete:request,
+ * or the older risk:delete) with a required `reason` and returns 202. A second person approves it at
+ * POST /api/deletion-requests/:id/approve (audit gap G8; the database refuses any other DELETE).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "risk", id: params.id }),
+);

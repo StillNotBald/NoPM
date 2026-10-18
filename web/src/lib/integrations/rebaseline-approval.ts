@@ -1,11 +1,13 @@
 import { requireScope, type Actor } from "@/lib/auth/guard";
 import { requireApprover } from "@/lib/auth/approver";
+import { assertTierRole, tierOf } from "@/lib/governance/tiers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import {
   actorLabel,
   announceDecided,
   assertNotRequesterPrincipal,
+  noteFallbackApprover,
   projectNameOf,
   requirePrincipal,
   type DecisionResult,
@@ -42,6 +44,8 @@ export type RebaselineRow = {
   requested_by?: string | null;
   requested_principal_id?: string | null;
   after?: unknown;
+  tier?: string | null;
+  assigned_approver_id?: string | null;
 };
 
 function str(v: unknown): string {
@@ -91,6 +95,8 @@ export async function rebaselineEvent(db: Db, workspaceId: string, row: Rebaseli
     projectName,
     requestedByLabel: await requesterLabel(db, workspaceId, row),
     requesterPrincipalId: row.requested_principal_id ?? row.requested_by ?? null,
+    ...(row.tier ? { tier: row.tier } : {}),
+    ...(row.assigned_approver_id ? { assignedApproverId: row.assigned_approver_id } : {}),
   };
 }
 
@@ -125,6 +131,7 @@ export async function signoffRebaseline(
   if (fetchError) throw fetchError;
   if (!data) throw new NotFoundError("Rebaseline not found");
   const row = data as RebaselineRow;
+  const fallback = await assertTierRole(db, actor, tierOf(row)); // G2: the tier names the role (D7 fallback)
 
   if (actor.type === "user" && row.requested_by && actor.id === row.requested_by) {
     throw new RuleError("Four-eyes: you cannot sign off a rebaseline you requested.", "self_approval");
@@ -146,6 +153,7 @@ export async function signoffRebaseline(
   });
   if (error) throwRebaselineRpcError(error, "Failed to record the sign-off");
 
+  if (fallback) await noteFallbackApprover(actor, "rebaseline", id, tierOf(row));
   const after = (rpc as { rebaseline?: Record<string, unknown> } | null)?.rebaseline ?? {};
   const status = str(after.status) || (vote === "go" ? "approved" : "rejected");
   const ev = await rebaselineEvent(db, actor.workspaceId, { ...row, status });

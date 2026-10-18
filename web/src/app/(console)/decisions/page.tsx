@@ -35,7 +35,7 @@ export default async function DecisionsPage({
     db
       .from("decisions")
       .select(
-        "id, workspace_id, project_id, reference_id, title, context, options, decision, rationale, status, decided_by, decided_by_label, decided_at, supersedes, created_at, updated_at",
+        "id, workspace_id, project_id, reference_id, title, context, options, decision, rationale, status, decided_by, decided_by_label, decided_at, supersedes, change_request_id, options_structured, created_at, updated_at",
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
@@ -52,6 +52,16 @@ export default async function DecisionsPage({
   const refMap: Record<string, string> = {};
   for (const d of decisionList) {
     if (d.id && d.reference_id) refMap[d.id] = d.reference_id;
+  }
+
+  // B1: label the linked change requests ("CR-004 Slip the launch"). A failed lookup only drops the label.
+  const linkedIds = [...new Set(decisionList.map((d) => d.change_request_id).filter((v): v is string => !!v))];
+  const changeLabelMap: Record<string, string> = {};
+  if (linkedIds.length > 0) {
+    const { data: linked } = await db.from("change_requests").select("id, reference_id, title").in("id", linkedIds);
+    for (const c of (linked ?? []) as Array<{ id: string; reference_id: string | null; title: string }>) {
+      changeLabelMap[c.id] = (c.reference_id ? c.reference_id + " " : "") + c.title;
+    }
   }
 
   const proposed = decisionList.filter((d) => d.status === "proposed");
@@ -91,6 +101,7 @@ export default async function DecisionsPage({
             decisions={decisionList}
             projectMap={projectMap}
             refMap={refMap}
+            changeLabelMap={changeLabelMap}
             projects={projects ?? []}
           />
         </Suspense>
@@ -100,6 +111,7 @@ export default async function DecisionsPage({
             rows={visible}
             projectMap={projectMap}
             refMap={refMap}
+            changeLabelMap={changeLabelMap}
             projects={projects ?? []}
             canWrite={canWrite}
           />

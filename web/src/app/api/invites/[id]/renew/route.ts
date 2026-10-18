@@ -1,6 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { columnsOf, pickColumns } from "@/lib/audit/pick";
 import { ok } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { assertCanManageInvites, assertCanRevokeCreatedBy, deriveInviteStatus } from "@/lib/governance/invite-guard";
@@ -63,26 +64,18 @@ export const POST = route(async ({ actor, params }) => {
   }
 
   const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString();
-  const { data: updated, error } = await db
-    .from("invites")
-    .update({ expires_at: expiresAt })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .eq("revoked", false)
-    .is("accepted_at", null)
-    .select(SAFE_COLUMNS)
-    .single();
-  if (error || !updated) throw error ?? new Error("Failed to renew invite");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The update and its audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const { after } = await auditedUpdate({
+    table: "invites",
     actor,
     action: "invite.renewed",
-    targetType: "invite",
-    targetId: invite.id,
-    before: { email: invite.email, role: invite.role, expires_at: invite.expires_at },
-    after: { email: invite.email, role: invite.role, expires_at: expiresAt },
+    id: invite.id,
+    patch: { expires_at: expiresAt },
+    notFoundMessage: "Invite not found",
+    auditBefore: { email: invite.email, role: invite.role, expires_at: invite.expires_at },
+    auditAfter: { email: invite.email, role: invite.role, expires_at: expiresAt },
   });
+  const updated = pickColumns(after, columnsOf(SAFE_COLUMNS));
 
-  return ok({ ...updated, status: deriveInviteStatus(updated) });
+  return ok({ ...updated, status: deriveInviteStatus(updated as unknown as Parameters<typeof deriveInviteStatus>[0]) });
 });

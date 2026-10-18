@@ -24,7 +24,15 @@ console.log("workspace", W);
 
 // ── clear prior demo data (cascades handle children of projects) ───────────
 for (const t of ["deletion_requests", "notifications", "clashes", "resource_members", "projects"]) {
-  await db.from(t).delete().eq("workspace_id", W);
+  const { error } = await db.from(t).delete().eq("workspace_id", W);
+  if (error) {
+    // Deleting projects cascades into risks, issues, expenses, documents and milestones, which are deleted only
+    // by an approved deletion request (migration 0102). A populated database cannot be re-seeded in place.
+    const hint = error.code === "P0040" || /DELETE_NEEDS_REQUEST/.test(error.message)
+      ? " This database already holds governed records; seed:all only runs on a fresh or newly reset database."
+      : "";
+    throw new Error(`clear ${t} failed: ${error.message}.${hint}`);
+  }
 }
 console.log("cleared");
 

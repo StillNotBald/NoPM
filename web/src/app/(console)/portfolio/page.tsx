@@ -17,6 +17,7 @@ import type { Program as ProgramRow } from "@/components/forms/program-form";
 import {
   computeProgramRollup,
   computeChildRag,
+  computeContingentOn,
   type ProgramRollupChildInput,
 } from "@/lib/insight/program-rollup";
 import { isOpenRisk } from "@/lib/insight/open-status";
@@ -102,6 +103,7 @@ export default async function PortfolioPage({
     expenseRes,
     allocRes,
     memberRes,
+    depsRes,
   ] = await Promise.all([
     db
       .from("programs")
@@ -124,6 +126,7 @@ export default async function PortfolioPage({
     db.from("expenses").select("project_id,amount"),
     db.from("allocations").select("project_id,member_id,allocation_pct,hours"),
     db.from("resource_members").select("id,capacity_hours_per_week"),
+    db.from("project_dependencies").select("project_id,depends_on_project_id"),
   ]);
 
   const checks: Array<[string, { message: string } | null]> = [
@@ -135,12 +138,27 @@ export default async function PortfolioPage({
     ["expenses", expenseRes.error],
     ["allocations", allocRes.error],
     ["resource members", memberRes.error],
+    ["project dependencies", depsRes.error],
   ];
   const failed = checks.find(([, e]) => e);
   if (failed) return <QueryError what={failed[0]} message={failed[1]?.message} />;
 
   const programs: ProgramRow[] = (programsResult.data ?? []) as ProgramRow[];
-  const allProjects: ProjectRow[] = (projectsResult.data ?? []) as ProjectRow[];
+  const rawProjects: ProjectRow[] = (projectsResult.data ?? []) as ProjectRow[];
+
+  // R-147: a project that is not red/complete but (transitively) depends on a red one is
+  // marked "contingent". Computed over EVERY project so a filter cannot hide the red one;
+  // the declared rag_status is never changed.
+  const contingentOn = computeContingentOn(
+    rawProjects.map((p) => ({ id: p.id, ragStatus: p.rag_status })),
+    (depsRes.data ?? []) as { project_id: string; depends_on_project_id: string }[],
+  );
+  const projectById = new Map(rawProjects.map((p) => [p.id, p] as const));
+  const allProjects: ProjectRow[] = rawProjects.map((p) => {
+    const c = contingentOn.get(p.id);
+    const red = c ? projectById.get(c.projectId) : undefined;
+    return { ...p, contingent_on: red ? { code: red.code, name: red.name } : null };
+  });
 
   // Filters: program id (or "ungrouped") and health.
   const projects = allProjects.filter((p) => {

@@ -1,20 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
-import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
+import { apiGet, apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import type { DecideState } from "@/components/governance/four-eyes-note";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import {
+  IMPACT_AREAS,
+  IMPACT_DIRECTIONS,
   RAISE_TIME_STATUSES,
   createChangeRequestSchema,
   updateChangeRequestSchema,
+  type ImpactScopeItem,
 } from "@/app/api/change-requests/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -26,7 +29,10 @@ export type CRStatus =
   | "under_review"
   | "approved"
   | "rejected"
-  | "deferred";
+  | "deferred"
+  | "implemented"
+  /** G4: raised on the emergency path, may be implemented at once, owes a retro decision. */
+  | "emergency";
 
 export interface ChangeRequest {
   id: string;
@@ -41,6 +47,23 @@ export interface ChangeRequest {
   impact_summary: string | null;
   impact_schedule_days: number | null;
   impact_cost: number | null;
+  /** B2: structured impact by area (the free-text impact_summary stays). */
+  impact_scope?: ImpactScopeItem[] | null;
+  /** M2: stamped when an approved request is marked implemented. */
+  implemented_at?: string | null;
+  implemented_by_label?: string | null;
+  implemented_note?: string | null;
+  /** G1/G4: approval tier, and the emergency path (flagged until the retro decision is taken). */
+  tier?: string | null;
+  approval_deadline_at?: string | null;
+  is_emergency?: boolean | null;
+  retro_due_at?: string | null;
+  retro_decided_at?: string | null;
+  retro_outcome?: string | null;
+  /** Server-computed: an emergency change still owing its retro decision past its due date. */
+  retro_overdue?: boolean;
+  /** Server-computed: still waiting and past approval_deadline_at. */
+  deadline_overdue?: boolean;
   requested_by: string | null;
   requested_by_label: string | null;
   decided_by: string | null;
@@ -64,6 +87,10 @@ export interface ChangeRequest {
   canEdit?: boolean;
   /** Server-computed: a manager or admin may move a raised request to under review (Q-GOV-3). */
   canStartReview?: boolean;
+  /** Server-computed: may this viewer mark an approved request implemented? The requester, or a manager or admin. */
+  canImplement?: boolean;
+  /** B1: decisions taken for this request (server-computed from decisions.change_request_id). */
+  decisions?: Array<{ id: string; reference_id: string | null; title: string }>;
   /** Server-computed: may this viewer reopen it? Deferred only; the requester or a manager or admin (decision 24). */
   canReopen?: boolean;
 }
@@ -95,7 +122,50 @@ export const STATUS_LABEL: Record<CRStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   deferred: "Deferred",
+  implemented: "Implemented",
+  emergency: "Emergency",
 };
+
+export const AREA_LABELS: Record<(typeof IMPACT_AREAS)[number], string> = {
+  scope: "Scope",
+  schedule: "Schedule",
+  cost: "Cost",
+  quality: "Quality",
+  resources: "Resources",
+  compliance: "Compliance",
+};
+export const DIRECTION_LABELS: Record<(typeof IMPACT_DIRECTIONS)[number], string> = {
+  increase: "Increase",
+  decrease: "Decrease",
+  neutral: "No change",
+};
+
+/** Form state for one impact area: "" = not affected. */
+export type ImpactScopeDraft = Record<(typeof IMPACT_AREAS)[number], { direction: "" | (typeof IMPACT_DIRECTIONS)[number]; note: string }>;
+
+export function impactScopeToDraft(list: ImpactScopeItem[] | null | undefined): ImpactScopeDraft {
+  const draft = Object.fromEntries(IMPACT_AREAS.map((a) => [a, { direction: "", note: "" }])) as ImpactScopeDraft;
+  for (const item of list ?? []) draft[item.area] = { direction: item.direction, note: item.note ?? "" };
+  return draft;
+}
+
+export function draftToImpactScope(draft: ImpactScopeDraft): ImpactScopeItem[] {
+  return IMPACT_AREAS.flatMap((area) =>
+    draft[area].direction
+      ? [{ area, direction: draft[area].direction as ImpactScopeItem["direction"], note: draft[area].note.trim() || null }]
+      : [],
+  );
+}
+
+const DIRECTION_SHORT = { increase: "up", decrease: "down", neutral: "same" } as const;
+
+/** One line for the list's Impact column: the summary, else the affected areas ("Scope up, Cost down"), else a dash. */
+export function impactCellText(cr: Pick<ChangeRequest, "impact_summary" | "impact_scope">): string {
+  if (cr.impact_summary && cr.impact_summary.trim() !== "") return cr.impact_summary;
+  const list = cr.impact_scope ?? [];
+  if (list.length === 0) return "—";
+  return list.map((i) => AREA_LABELS[i.area] + " " + DIRECTION_SHORT[i.direction]).join(", ");
+}
 
 export interface ChangeFormValues {
   title: string;
@@ -108,7 +178,35 @@ export interface ChangeFormValues {
   impactScheduleDays: string;
   impactCost: string;
   targetDate: string;
+  /** B2: structured impact by area; omitted = leave as is (an edit that does not touch it). */
+  impactScope?: ImpactScopeItem[];
+  /** Create only. "" = let the server decide (normal, lifted to high risk by the workspace thresholds). */
+  tier?: "" | "routine" | "normal" | "high_risk" | "strategic";
+  /** Create only; a manager or admin ticks it to ship now and be approved afterwards. */
+  isEmergency?: boolean;
+  /** Create only; the one approver the request waits for. "" = nobody in particular. */
+  assignedApproverId?: string;
 }
+
+/** Tier choices the form offers (UAT-004). Routine needs no cost, schedule or scope impact; strategic is admin-only. */
+export function tierOptions(input: {
+  role: string | null;
+  hasCost: boolean;
+  hasDays: boolean;
+  hasScope: boolean;
+}): { value: NonNullable<ChangeFormValues["tier"]>; label: string; disabled?: boolean }[] {
+  const routineBlocked = input.hasCost || input.hasDays || input.hasScope;
+  return [
+    { value: "", label: "Automatic (recommended)" },
+    { value: "routine", label: routineBlocked ? "Routine (only with no cost, schedule or scope impact)" : "Routine", disabled: routineBlocked },
+    { value: "normal", label: "Normal" },
+    { value: "high_risk", label: "High risk" },
+    ...(input.role === "admin" ? [{ value: "strategic" as const, label: "Strategic" }] : []),
+  ];
+}
+
+/** Only a manager or admin may use the emergency path (the server refuses everyone else). */
+export const canRaiseEmergency = (role: string | null | undefined) => role === "admin" || role === "manager";
 
 /** The request body for the mode: `status` on create only. */
 export function buildChangePayload(mode: ChangeFormMode, v: ChangeFormValues): Record<string, unknown> {
@@ -122,7 +220,13 @@ export function buildChangePayload(mode: ChangeFormMode, v: ChangeFormValues): R
     impact_cost: v.impactCost !== "" ? Number(v.impactCost) : null,
     target_date: v.targetDate || null,
   };
-  if (mode === "create") body.status = v.status;
+  if (v.impactScope !== undefined) body.impact_scope = v.impactScope.length > 0 ? v.impactScope : null;
+  if (mode === "create") {
+    body.status = v.status;
+    if (v.isEmergency) body.is_emergency = true;
+    else if (v.tier) body.tier = v.tier;
+    if (v.assignedApproverId) body.assigned_approver_id = v.assignedApproverId;
+  }
   return body;
 }
 
@@ -186,6 +290,40 @@ export function ChangeForm({
   const [targetDate, setTargetDate] = useState(
     changeRequest?.target_date?.slice(0, 10) ?? "",
   );
+  const [scopeDraft, setScopeDraft] = useState<ImpactScopeDraft>(() => impactScopeToDraft(changeRequest?.impact_scope));
+  const setArea = (area: (typeof IMPACT_AREAS)[number], patch: Partial<ImpactScopeDraft[typeof area]>) =>
+    setScopeDraft((d) => ({ ...d, [area]: { ...d[area], ...patch } }));
+
+  // UAT-004: tier, emergency and approver, create only.
+  const [tier, setTier] = useState<NonNullable<ChangeFormValues["tier"]>>("");
+  const [isEmergency, setIsEmergency] = useState(false);
+  const [assignedApproverId, setAssignedApproverId] = useState("");
+  const [viewerRole, setViewerRole] = useState<string | null>(null);
+  const [approvers, setApprovers] = useState<{ id: string; label: string }[]>([]);
+  useEffect(() => {
+    if (changeRequest) return;
+    let live = true;
+    apiGet<{ id?: string; role?: string | null } | null>("/api/me")
+      .then(async (me) => {
+        if (!live) return;
+        setViewerRole(me?.role ?? null);
+        if (me?.role === "admin" || me?.role === "manager") {
+          const members = await apiGet<{ id: string; display_name: string | null; email: string | null; role: string; status: string }[]>(
+            "/api/members",
+          ).catch(() => []);
+          if (!live) return;
+          setApprovers(
+            members
+              .filter((m) => m.status === "active" && (m.role === "admin" || m.role === "manager") && m.id !== me?.id)
+              .map((m) => ({ id: m.id, label: `${m.display_name || m.email || "Unnamed"} (${m.role})` })),
+          );
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [changeRequest]);
 
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
@@ -217,6 +355,10 @@ export function ChangeForm({
       impactScheduleDays,
       impactCost,
       targetDate,
+      impactScope: draftToImpactScope(scopeDraft),
+      tier,
+      isEmergency,
+      assignedApproverId,
     });
     if (!result.ok) {
       setFieldErrors(result.errors);
@@ -361,6 +503,78 @@ export function ChangeForm({
             </FormGrid>
           </FormSection>
 
+          {/* UAT-004: approval tier, approver and the emergency path. Create only: the tier is the server's to raise, never lower. */}
+          {!changeRequest && (
+            <FormSection title="Approval">
+              <FormGrid>
+              {!changeRequest && (
+                <div>
+                  <FieldLabel>Approval tier</FieldLabel>
+                  <SelectInput
+                    aria-label="Approval tier"
+                    value={isEmergency ? "" : tier}
+                    disabled={isEmergency}
+                    onChange={(e) => setTier(e.target.value as NonNullable<ChangeFormValues["tier"]>)}
+                  >
+                    {tierOptions({
+                      role: viewerRole,
+                      hasCost: impactCost.trim() !== "" && Number(impactCost) !== 0,
+                      hasDays: impactScheduleDays.trim() !== "" && Number(impactScheduleDays) !== 0,
+                      hasScope: draftToImpactScope(scopeDraft).length > 0,
+                    }).map((o) => (
+                      <option key={o.value} value={o.value} disabled={o.disabled}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  <p className="text-2xs text-ink-muted">
+                    Automatic picks normal, and high risk for a large cost or a long slip.
+                  </p>
+                  <FieldError message={fieldErrors.tier} />
+                </div>
+              )}
+
+              {!changeRequest && approvers.length > 0 && (
+                <div>
+                  <FieldLabel>Approver (optional)</FieldLabel>
+                  <SelectInput
+                    aria-label="Approver"
+                    value={assignedApproverId}
+                    onChange={(e) => setAssignedApproverId(e.target.value)}
+                  >
+                    <option value="">Anyone who can approve it</option>
+                    {approvers.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.label}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  <FieldError message={fieldErrors.assigned_approver_id} />
+                </div>
+              )}
+
+              </FormGrid>
+          {!changeRequest && canRaiseEmergency(viewerRole) && (
+            <label className="flex min-h-[44px] cursor-pointer items-start gap-3 rounded-md py-1">
+              <input
+                type="checkbox"
+                checked={isEmergency}
+                onChange={(e) => setIsEmergency(e.target.checked)}
+                className="focus-ring mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-border-subtle accent-accent"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm text-ink">Emergency: ship now, approve afterwards</span>
+                <span className="mt-0.5 block text-xs text-ink-muted">
+                  The change can go live at once. An admin must approve it within the workspace window (48 hours by
+                  default); it stays flagged until then.
+                </span>
+              </span>
+            </label>
+          )}
+
+            </FormSection>
+          )}
+
           {/* Impact section */}
           <FormSection title="Impact">
             <FormGrid>
@@ -391,6 +605,40 @@ export function ChangeForm({
                 <FieldError message={fieldErrors.impact_cost} />
               </div>
             </FormGrid>
+
+            {/* B2: structured impact by area. Not affected = no entry. */}
+            <fieldset className="space-y-2">
+              <legend className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                Impact by area
+              </legend>
+              {IMPACT_AREAS.map((area) => (
+                <div key={area} className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_10rem_1fr] sm:items-center">
+                  <span className="text-sm text-ink">{AREA_LABELS[area]}</span>
+                  <SelectInput
+                    aria-label={`${AREA_LABELS[area]} impact`}
+                    value={scopeDraft[area].direction}
+                    onChange={(e) => setArea(area, { direction: e.target.value as ImpactScopeDraft[typeof area]["direction"] })}
+                  >
+                    <option value="">Not affected</option>
+                    {IMPACT_DIRECTIONS.map((d) => (
+                      <option key={d} value={d}>
+                        {DIRECTION_LABELS[d]}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  {scopeDraft[area].direction && (
+                    <Input
+                      aria-label={`${AREA_LABELS[area]} note`}
+                      value={scopeDraft[area].note}
+                      onChange={(e) => setArea(area, { note: e.target.value })}
+                      placeholder="Note"
+                      className="h-11 sm:h-10 text-base sm:text-sm"
+                    />
+                  )}
+                </div>
+              ))}
+              <FieldError message={fieldErrors.impact_scope} />
+            </fieldset>
 
             {/* Impact Summary — progressive disclosure */}
             {showImpact ? (

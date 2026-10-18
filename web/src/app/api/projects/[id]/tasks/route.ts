@@ -4,10 +4,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { okList, created, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
+import { parseListSelection } from "@/lib/api/views";
 import { TaskCreateSchema } from "@/app/api/tasks/_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertTaskBackupDiffers } from "@/lib/handover/backup";
 import { hashRequestBody, readIdempotencyKey, withIdempotency } from "@/lib/api/idempotency";
 
 export const runtime = "nodejs";
@@ -42,10 +45,11 @@ export const GET = route(async ({ actor, params, request }) => {
   // `nopm tasks ls --external-ref` targets this route.
   const source = url.searchParams.get("source");
   const externalRef = url.searchParams.get("external_ref");
+  const selection = parseListSelection(url.searchParams, "tasks"); // view=summary|full, fields= (R-129)
 
   let query = db
     .from("tasks")
-    .select("*", { count: "exact" })
+    .select(selection.select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
     .eq("project_id", projectId);
   if (source) query = query.eq("source", source);
@@ -100,8 +104,11 @@ export const POST = route(async ({ actor, params, request }) => {
   // task, both of which must live in THIS workspace (the FKs accept any row).
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "resource_members", id: input.assignee_id, field: "assignee_id" },
+    { table: "resource_members", id: input.backup_assignee_id, field: "backup_assignee_id" },
     { table: "tasks", id: input.blocked_by, field: "blocked_by" },
   ]);
+
+  await assertTaskBackupDiffers(db, actor.workspaceId, input.assignee_id, input.backup_assignee_id);
 
   // Validate milestone belongs to same workspace + project if provided
   if (input.milestone_id) {
@@ -125,10 +132,11 @@ export const POST = route(async ({ actor, params, request }) => {
       bodyHash: hashRequestBody(parsed.data),
     },
     async () => {
-  const { data: row, error } = await db
-    .from("tasks")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const row = await auditedInsert({
+    table: "tasks",
+    actor,
+    action: "task.create",
+    patch: {
       project_id: projectId,
       milestone_id: input.milestone_id ?? null,
       name: input.name,
@@ -138,6 +146,7 @@ export const POST = route(async ({ actor, params, request }) => {
         input.status_type.charAt(0).toUpperCase() + input.status_type.slice(1),
       status_type: input.status_type,
       assignee_id: input.assignee_id ?? null,
+      backup_assignee_id: input.backup_assignee_id ?? null,
       priority: input.priority,
       start_date: input.start_date ?? null,
       due_date: input.due_date ?? null,
@@ -153,20 +162,7 @@ export const POST = route(async ({ actor, params, request }) => {
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,
       external_url: input.external_url ?? null,
-    })
-    .select()
-    .single();
-
-  if (error || !row) throw new Error(error?.message ?? "Insert failed");
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "task.create",
-    targetType: "task",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return row;

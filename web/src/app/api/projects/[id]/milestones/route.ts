@@ -4,7 +4,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { okList, created, validationError, safeJson } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
+import { parseListSelection } from "@/lib/api/views";
 import { createMilestoneSchema } from "@/app/api/milestones/_schema";
 import { assertProjectUnlocked } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -35,6 +37,7 @@ export const GET = route(async ({ actor, params, request }) => {
   const limit = Math.min(Math.max(rawLimit, 1), 100);
   const page = Math.max(rawPage, 1);
   const offset = (page - 1) * limit;
+  const selection = parseListSelection(url.searchParams, "milestones"); // view=summary|full, fields= (R-129)
 
   // Count query
   const { count } = await db
@@ -46,7 +49,7 @@ export const GET = route(async ({ actor, params, request }) => {
   // Data query
   const { data: milestones, error } = await db
     .from("milestones")
-    .select("*")
+    .select(selection.select)
     .eq("project_id", projectId)
     .eq("workspace_id", actor.workspaceId)
     .order("sort_order", { ascending: true })
@@ -99,10 +102,11 @@ export const POST = route(async ({ actor, params, request }) => {
     { table: "profiles", id: input.owner_id, field: "owner_id" },
   ]);
 
-  const { data: row, error } = await db
-    .from("milestones")
-    .insert({
-      workspace_id: actor.workspaceId,
+  const row = await auditedInsert({
+    table: "milestones",
+    actor,
+    action: "milestone.create",
+    patch: {
       project_id: projectId,
       name: input.name,
       target_date: input.target_date ?? null,
@@ -115,20 +119,7 @@ export const POST = route(async ({ actor, params, request }) => {
       start_date: input.start_date ?? null,
       baseline_target_date: input.baseline_target_date ?? null,
       actual_date: input.actual_date ?? null,
-    })
-    .select()
-    .single();
-
-  if (error) throw new Error(error.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "milestone.create",
-    targetType: "milestone",
-    targetId: row.id,
-    before: null,
-    after: row,
+    },
   });
 
   return created(row);

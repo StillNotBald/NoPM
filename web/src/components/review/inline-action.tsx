@@ -344,7 +344,10 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
         </div>
       </div>
 
-      {item.childCounts && item.childCounts.length > 0 && <ChildCountsNote lines={item.childCounts} />}
+      {item.childCounts && item.childCounts.length > 0 && <ChildCountsNote
+          lines={item.childCounts}
+          heading={item.targetType === "milestone" ? "Approving also detaches:" : undefined}
+        />}
       <FourEyesNote block={decide.canDecide ? null : decide.block} className="mb-1 mt-2" />
       {!decide.canDecide && decide.canWithdraw && (
         <p className="mt-2 text-xs text-ink-secondary">

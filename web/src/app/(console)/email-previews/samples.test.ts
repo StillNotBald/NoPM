@@ -15,6 +15,8 @@ describe("email-previews empty-state samples", () => {
       "approval.rejected",
       "risk.escalated",
       "clash.detected",
+      "item.stale",
+      "report.weekly",
     ]);
     expect(new Set(types).size).toBe(types.length);
   });
@@ -26,6 +28,8 @@ describe("email-previews empty-state samples", () => {
       "approval.rejected": "Rejected: ",
       "risk.escalated": "Risk escalated: ",
       "clash.detected": "Clash detected: ",
+      "item.stale": "Needs an update: ",
+      "report.weekly": "Weekly report: ",
     };
     for (const s of SAMPLE_NOTIFICATIONS) {
       const { subject, html } = renderNotificationEmail(s);
@@ -43,7 +47,7 @@ describe("email-previews empty-state samples", () => {
 
   it("deep links point at real console routes", () => {
     for (const s of SAMPLE_NOTIFICATIONS) {
-      expect(String(s.payload?.href)).toMatch(/^\/(approvals|trust|risks|clashes)$/);
+      expect(String(s.payload?.href)).toMatch(/^\/(approvals|trust|risks|clashes|my-tasks|dashboard)$/);
     }
   });
 

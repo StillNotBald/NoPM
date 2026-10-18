@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert } from "@/lib/audit/audited-write";
 import { created, safeJson } from "@/lib/api/response";
 import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { isVisibleToActor } from "../../_visibility";
@@ -50,10 +50,13 @@ export const POST = route(async ({ actor, params, request }) => {
     typeof body?.name === "string" && body.name.trim() ? body.name.trim() : `${source.name} (copy)`;
 
   const now = new Date().toISOString();
-  const { data: row, error } = await db
-    .from("saved_views")
-    .insert({
-      workspace_id: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited, migration 0103).
+  const row = await auditedInsert({
+    table: "saved_views",
+    actor,
+    action: "saved_view.create",
+    afterExtra: { duplicated_from: source.id },
+    patch: {
       owner_id: actor.id,
       register: source.register,
       name,
@@ -61,20 +64,7 @@ export const POST = route(async ({ actor, params, request }) => {
       scope: "personal",
       protected: false,
       updated_at: now,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "saved_view.create",
-    targetType: "saved_view",
-    targetId: row.id,
-    before: null,
-    after: { ...row, duplicated_from: source.id },
+    },
   });
 
   return created(row);

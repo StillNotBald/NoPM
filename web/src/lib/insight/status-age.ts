@@ -97,10 +97,33 @@ export function deriveStatusAges(
 }
 
 /**
- * Threshold (days) past which a task's status age is styled as distinctly
- * stale in the UI (kanban card / tasks page).
+ * DEFAULT threshold (days) past which a task's status age is styled as
+ * distinctly stale in the UI (kanban card / tasks page). Since R-141 the real
+ * value is the workspace setting `workspaces.stale_days` (this is its default
+ * and the fallback when the setting cannot be read).
  */
 export const STALE_STATUS_AGE_DAYS = 14;
+
+/** True when a status age is past the threshold (the workspace's, else the default). */
+export function isStaleAge(days: number | null | undefined, threshold: number = STALE_STATUS_AGE_DAYS): boolean {
+  return typeof days === "number" && days > threshold;
+}
+
+/**
+ * The workspace's stale threshold (R-141). Fail-soft like the rest of this
+ * file: an unreadable setting, or a database without migration 0096, gives the
+ * default so the kanban flag and the nudge step never disagree about "stale".
+ */
+export async function fetchWorkspaceStaleDays(db: SupabaseClient, workspaceId: string): Promise<number> {
+  try {
+    const { data, error } = await db.from("workspaces").select("stale_days").eq("id", workspaceId).maybeSingle();
+    if (error) return STALE_STATUS_AGE_DAYS;
+    const v = (data as { stale_days?: unknown } | null)?.stale_days;
+    return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 365 ? v : STALE_STATUS_AGE_DAYS;
+  } catch {
+    return STALE_STATUS_AGE_DAYS;
+  }
+}
 
 /**
  * DB-touching half: fetch every `task.update` audit row for the given task

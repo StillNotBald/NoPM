@@ -10,6 +10,12 @@ import { useToast } from "@/components/ui/toast";
 import { apiPost, apiPatch, type ApiError } from "@/lib/api-client";
 import { Field, FormError, TitleField, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { createDocumentSchema } from "@/app/api/documents/_schema";
+import {
+  EVIDENCE_RESULTS,
+  EVIDENCE_RESULT_LABELS,
+  EVIDENCE_TYPES,
+  EVIDENCE_TYPE_LABELS,
+} from "@/lib/documents/evidence-labels";
 
 // ── Local Document type (decoupled from docs-data files) ──────────────────────
 
@@ -46,7 +52,17 @@ export interface Document {
   file_name?: string | null;
   mime_type?: string | null;
   file_size?: number | null;
+  // Evidence columns (migration 20261018000094). A document is evidence only when change_request_id is set.
+  change_request_id?: string | null;
+  evidence_type?: string | null;
+  evidence_result?: string | null;
+  tested_by_label?: string | null;
+  tested_at?: string | null;
+  evidence_note?: string | null;
 }
+
+/** The change request a new document is being attached to as evidence. */
+export type EvidenceTarget = { id: string; reference_id: string | null; title: string; project_id: string | null };
 
 const DOC_TYPE_OPTIONS: { value: DocType; label: string }[] = [
   { value: "charter", label: "Charter" },
@@ -85,24 +101,32 @@ export function DocumentForm({
   projects,
   defaultProjectId,
   defaultFolder,
+  evidenceFor,
+  changeRequests,
 }: {
   document?: Document;
   projects?: Project[];
   defaultProjectId?: string;
   defaultFolder?: string;
+  /** Pre-fills the form to attach this document as evidence for a change request. */
+  evidenceFor?: EvidenceTarget;
+  /** Change requests a new document can be attached to as evidence (optional picker). */
+  changeRequests?: EvidenceTarget[];
 }) {
   const inspector = useInspector();
   const router = useRouter();
   const toast = useToast();
 
-  const [title, setTitle] = useState(document?.title ?? "");
+  const [title, setTitle] = useState(
+    document?.title ?? (evidenceFor ? `Evidence for ${evidenceFor.reference_id ?? "change request"}` : ""),
+  );
   const [docType, setDocType] = useState<DocType>(document?.doc_type ?? "other");
   const [status, setStatus] = useState<DocStatus>(document?.status ?? "draft");
   const [folder, setFolder] = useState(
-    document?.folder ?? defaultFolder ?? "General",
+    document?.folder ?? defaultFolder ?? (evidenceFor ? "Change Control" : "General"),
   );
   const [projectId, setProjectId] = useState(
-    document?.project_id ?? defaultProjectId ?? "",
+    document?.project_id ?? defaultProjectId ?? evidenceFor?.project_id ?? "",
   );
   const [summary, setSummary] = useState(document?.summary ?? "");
   const [showSummary, setShowSummary] = useState(
@@ -113,6 +137,15 @@ export function DocumentForm({
     !!(document?.body && document.body.trim().length > 0),
   );
   const [externalUrl, setExternalUrl] = useState(document?.external_url ?? "");
+
+  // Evidence: shown when the document is (or is about to be) linked to a change request.
+  const [pickedCr, setPickedCr] = useState("");
+  const changeRequestId = document?.change_request_id ?? evidenceFor?.id ?? (pickedCr || null);
+  const [evidenceType, setEvidenceType] = useState(document?.evidence_type ?? (evidenceFor ? "test_result" : ""));
+  const [evidenceResult, setEvidenceResult] = useState(document?.evidence_result ?? "");
+  const [testedBy, setTestedBy] = useState(document?.tested_by_label ?? "");
+  const [testedAt, setTestedAt] = useState(document?.tested_at ? document.tested_at.slice(0, 10) : "");
+  const [evidenceNote, setEvidenceNote] = useState(document?.evidence_note ?? "");
 
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
@@ -132,6 +165,17 @@ export function DocumentForm({
 
     // Client-side validation — reuse the server schema's safeParse for
     // immediate inline errors before the network round-trip.
+    // Evidence fields go only with a linked change request; the server rejects them otherwise.
+    const evidence = changeRequestId
+      ? {
+          change_request_id: changeRequestId,
+          evidence_type: evidenceType || null,
+          evidence_result: evidenceType ? evidenceResult || null : null,
+          tested_by_label: testedBy.trim() || null,
+          tested_at: testedAt ? new Date(testedAt + "T12:00:00").toISOString() : null,
+          evidence_note: evidenceNote.trim() || null,
+        }
+      : {};
     const clientResult = createDocumentSchema.safeParse({
       title: title.trim(),
       doc_type: docType,
@@ -141,6 +185,7 @@ export function DocumentForm({
       summary: summary.trim() || null,
       body: body.trim() || null,
       external_url: externalUrl.trim() || null,
+      ...evidence,
     });
     if (!clientResult.success) {
       const map: Record<string, string> = {};
@@ -163,6 +208,7 @@ export function DocumentForm({
       summary: summary.trim() || null,
       body: body.trim() || null,
       external_url: externalUrl.trim() || null,
+      ...evidence,
     };
 
     try {
@@ -271,6 +317,93 @@ export function DocumentForm({
         />
       </Field>
 
+      {/* Optional link to a change request (new documents only; the Evidence section follows) */}
+      {!document && !evidenceFor && changeRequests && changeRequests.length > 0 && (
+        <Field label="Attach as evidence for a change request (optional)">
+          <SelectInput
+            value={pickedCr}
+            onChange={(e) => {
+              const id = e.target.value;
+              setPickedCr(id);
+              const cr = changeRequests.find((x) => x.id === id);
+              if (cr) {
+                if (cr.project_id) setProjectId(cr.project_id);
+                if (!evidenceType) setEvidenceType("test_result");
+              }
+            }}
+          >
+            <option value="">— Not evidence —</option>
+            {changeRequests
+              .filter((cr) => !projectId || cr.project_id === projectId || pickedCr === cr.id)
+              .map((cr) => (
+                <option key={cr.id} value={cr.id}>
+                  {cr.reference_id ? `${cr.reference_id} · ` : ""}
+                  {cr.title}
+                </option>
+              ))}
+          </SelectInput>
+        </Field>
+      )}
+
+      {/* Evidence — only when linked to a change request */}
+      {changeRequestId && (
+        <fieldset className="space-y-3 rounded-lg border border-border-subtle bg-well p-3">
+          <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
+            Evidence{evidenceFor ? ` for ${evidenceFor.reference_id ?? "change request"}` : ""}
+          </legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Evidence type" error={fieldErrors.evidence_type}>
+              <SelectInput value={evidenceType} onChange={(e) => setEvidenceType(e.target.value)}>
+                <option value="">— Not set —</option>
+                {EVIDENCE_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {EVIDENCE_TYPE_LABELS[t]}
+                  </option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field label="Result" error={fieldErrors.evidence_result}>
+              <SelectInput
+                value={evidenceResult}
+                onChange={(e) => setEvidenceResult(e.target.value)}
+                disabled={!evidenceType}
+              >
+                <option value="">— Not set —</option>
+                {EVIDENCE_RESULTS.map((r) => (
+                  <option key={r} value={r}>
+                    {EVIDENCE_RESULT_LABELS[r]}
+                  </option>
+                ))}
+              </SelectInput>
+            </Field>
+            <Field label="Tested by" error={fieldErrors.tested_by_label}>
+              <Input
+                value={testedBy}
+                onChange={(e) => setTestedBy(e.target.value)}
+                placeholder="Defaults to you"
+                className="h-11 sm:h-10 text-base sm:text-sm"
+              />
+            </Field>
+            <Field label="Tested on" error={fieldErrors.tested_at}>
+              <Input
+                type="date"
+                value={testedAt}
+                onChange={(e) => setTestedAt(e.target.value)}
+                className="h-11 sm:h-10 text-base sm:text-sm"
+              />
+            </Field>
+          </div>
+          <Field label="Evidence note" error={fieldErrors.evidence_note}>
+            <TextareaInput
+              value={evidenceNote}
+              onChange={(e) => setEvidenceNote(e.target.value)}
+              placeholder="What was tested, on which build, and what was seen"
+              rows={2}
+            />
+          </Field>
+        </fieldset>
+      )}
+
       {/* Summary — progressive disclosure */}
       {showSummary ? (
         <Field label="Summary" error={fieldErrors.summary}>
@@ -285,7 +418,7 @@ export function DocumentForm({
         <button
           type="button"
           onClick={() => setShowSummary(true)}
-          className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
+          className="focus-ring mr-4 inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
         >
           + Add summary
         </button>
@@ -306,7 +439,7 @@ export function DocumentForm({
         <button
           type="button"
           onClick={() => setShowBody(true)}
-          className="focus-ring inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
+          className="focus-ring mr-4 inline-flex min-h-[44px] items-center rounded text-xs text-ink-muted transition-colors duration-200 hover:text-ink sm:min-h-0"
         >
           + Add body content
         </button>

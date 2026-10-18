@@ -5,6 +5,7 @@ import {
   FolderKanban,
   Map,
   Route,
+  History,
   FileText,
   Layers,
   AlertTriangle,
@@ -24,6 +25,7 @@ import {
   Lock,
   Rocket,
   Settings,
+  UserCheck,
   type LucideIcon,
 } from "lucide-react";
 import type { PendingCounts } from "@/lib/governance/pending-counts";
@@ -48,7 +50,9 @@ export const ROUTE_LABELS: Record<string, string> = {
   dashboard: "Dashboard",
   projects: "Projects",
   portfolio: "Portfolio",
+  handover: "Handover",
   mainline: "Mainline",
+  changes: "What changed",
   tasks: "Tasks",
   sprints: "Sprints",
   documents: "Documents",
@@ -110,7 +114,9 @@ export const NAV_SECTIONS: NavSection[] = [
       item("/dashboard", LayoutDashboard),
       item("/portfolio", Map),
       item("/mainline", Route),
+      item("/changes", History),
       item("/projects", FolderKanban),
+      item("/handover", UserCheck),
     ],
   },
   {

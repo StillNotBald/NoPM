@@ -37,11 +37,13 @@ export default async function RisksPage({
   let riskQuery = db
     .from("risks")
     .select(
-      "id, reference_id, title, description, project_id, severity, likelihood, status, owner_id, due_date, probability_pct, impact_score, response_strategy, risk_category, impact_area, trigger, residual_risk, category, mitigation, raised_at",
+      "id, reference_id, title, description, project_id, severity, likelihood, status, owner_id, due_date, probability_pct, impact_score, response_strategy, risk_category, impact_area, impact_areas, trigger, residual_risk, mitigation, raised_at",
     );
   if (params.status) riskQuery = riskQuery.eq("status", params.status);
   if (params.severity) riskQuery = riskQuery.eq("severity", params.severity);
   if (params.project_id) riskQuery = riskQuery.eq("project_id", params.project_id);
+  // K2: any-of across the risk's impact areas.
+  if (params.impact_area) riskQuery = riskQuery.overlaps("impact_areas", params.impact_area);
   if (params.q) {
     // strip PostgREST filter metacharacters and LIKE wildcards from user input
     const term = params.q.replace(/[%_,()\*]/g, " ").trim();

@@ -28,6 +28,8 @@ export interface EvmTableRow {
   spiDisplay: string;
   spiToneClass: string;
   eacDisplay: string;
+  /** Which forecast the EAC follows: "CPI" or "bottom-up". */
+  eacMethod: string;
   vacDisplay: string;
   vacToneClass: string;
 }
@@ -62,7 +64,12 @@ export function EvmTable({ rows }: { rows: EvmTableRow[] }) {
       key: "eac",
       header: "EAC",
       align: "right",
-      cell: (r) => <span className="whitespace-nowrap font-mono tabular-nums text-ink-secondary">{r.eacDisplay}</span>,
+      cell: (r) => (
+        <span className="whitespace-nowrap font-mono tabular-nums text-ink-secondary">
+          {r.eacDisplay}
+          <span className="ml-1 font-sans text-2xs text-ink-muted">{r.eacMethod}</span>
+        </span>
+      ),
     },
     {
       key: "vac",
@@ -100,7 +107,9 @@ export function EvmTable({ rows }: { rows: EvmTableRow[] }) {
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="shrink-0 text-ink-muted">EAC</span>
-              <span className="min-w-0 truncate font-mono tabular-nums text-ink-secondary">{r.eacDisplay}</span>
+              <span className="min-w-0 truncate font-mono tabular-nums text-ink-secondary">
+                {r.eacDisplay} <span className="font-sans text-2xs text-ink-muted">{r.eacMethod}</span>
+              </span>
             </div>
             <div className="flex items-baseline gap-1.5">
               <span className="shrink-0 text-ink-muted">VAC</span>

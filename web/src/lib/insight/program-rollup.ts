@@ -13,6 +13,7 @@
  */
 
 import type { RagStatus } from "@/lib/status";
+import { computeContingency, type DependencyEdgeLike } from "@/lib/insight/project-contingency";
 
 function round1(n: number): number {
   return Math.round(n * 10) / 10;
@@ -194,4 +195,46 @@ export function computeChildRag(childStatuses: readonly RagStatus[]): RagStatus 
   // Every status was "complete" and/or "green" but not ALL complete — the
   // non-complete remainder is "green" (no red/amber/not_started present).
   return "green";
+}
+
+// ---------------------------------------------------------------------------
+// R-147 (B5) - cross-project contingency marker.
+// ---------------------------------------------------------------------------
+
+/** Why a project is marked "contingent": the red project it (transitively) depends on. */
+export interface ContingentOn {
+  /** The red project that causes the flag. */
+  projectId: string;
+  /** Project ids from the marked project down to the red one: [self, ..., red]. */
+  chain: string[];
+}
+
+/** Declared RAGs on which a "contingent" marker is meaningless: already red, or finished. */
+const NOT_MARKED: readonly RagStatus[] = ["red", "complete"];
+
+/**
+ * Per-project `contingent_on`: set when the project's declared RAG is not
+ * red/complete and something it depends on (transitively, depth <= 5) is
+ * declared red. The declared RAG itself is never changed here - this is a
+ * suggestion for the portfolio to show, not a decision.
+ * Returns a map with one entry per input project (null = no marker).
+ */
+export function computeContingentOn(
+  projects: readonly { id: string; ragStatus: RagStatus }[],
+  edges: readonly DependencyEdgeLike[],
+): Map<string, ContingentOn | null> {
+  const ragById = new Map(projects.map((p) => [p.id, p.ragStatus] as const));
+  const out = new Map<string, ContingentOn | null>();
+  for (const p of projects) {
+    if (NOT_MARKED.includes(p.ragStatus)) {
+      out.set(p.id, null);
+      continue;
+    }
+    const c = computeContingency(p.id, ragById, edges);
+    out.set(
+      p.id,
+      c.contingent_on_red ? { projectId: c.chain[c.chain.length - 1], chain: c.chain } : null,
+    );
+  }
+  return out;
 }

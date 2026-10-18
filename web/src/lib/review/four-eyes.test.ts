@@ -165,3 +165,28 @@ describe("judgeDecision agrees with the agent-facing evaluateDecision (same verd
     }
   }
 });
+
+describe("judgeDecision: admin-level deletion with one admin (D7, the approvals page passes singleAdmin)", () => {
+  const row = {
+    requested_by_type: "user",
+    requested_by_id: OTHER,
+    requested_principal_id: OTHER,
+    tier: "high_risk",
+  };
+
+  it("hides the buttons from a manager when there are two admins", () => {
+    const v = judgeDecision({ viewer: { id: ME, role: "manager" }, kind: "document_deletion", row, singleAdmin: false });
+    expect(v).toMatchObject({ canDecide: false, block: "needs_admin" });
+  });
+
+  it("offers them to a manager when there is fewer than two admins", () => {
+    const v = judgeDecision({ viewer: { id: ME, role: "manager" }, kind: "document_deletion", row, singleAdmin: true });
+    expect(v.canDecide).toBe(true);
+  });
+
+  it("still refuses the requester themselves even as the fallback approver", () => {
+    const own = { ...row, requested_by_id: ME, requested_principal_id: ME };
+    const v = judgeDecision({ viewer: { id: ME, role: "manager" }, kind: "document_deletion", row: own, singleAdmin: true });
+    expect(v.canDecide).toBe(false);
+  });
+});

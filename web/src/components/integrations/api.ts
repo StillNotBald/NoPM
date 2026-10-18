@@ -23,6 +23,7 @@
  *   GET    /api/projects?limit=100                        -> project[] (feed scope picker)
  */
 import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api-client";
+import { policyOf, type ApprovalPolicy } from "@/lib/governance/tiers";
 import {
   buildCreateConnectorBody,
   buildFeedBody,
@@ -224,4 +225,56 @@ export async function fetchTimeZone(): Promise<{ timeZone: string; defaultTimeZo
 
 export async function saveTimeZone(timeZone: string): Promise<void> {
   await apiPatch("/api/workspace-settings", { time_zone: timeZone });
+}
+
+// ── nudges + weekly report (R-141 / R-142) ───────────────────────────────────
+//   GET   /api/workspace-settings  -> { stale_days, nudges_enabled, weekly_report_enabled, weekly_report_day, ... }
+//   PATCH /api/workspace-settings  -> any subset of the same fields (admin)
+//   POST  /api/reports/weekly      -> { week_start, recipients, report_url } (admin or manager)
+
+export type NudgeSettingsView = {
+  staleDays: number;
+  nudgesEnabled: boolean;
+  weeklyReportEnabled: boolean;
+  /** ISO weekday, 1 = Monday ... 7 = Sunday. */
+  weeklyReportDay: number;
+};
+
+export async function fetchNudgeSettings(): Promise<NudgeSettingsView> {
+  const raw = await apiGet<{
+    stale_days?: number;
+    nudges_enabled?: boolean;
+    weekly_report_enabled?: boolean;
+    weekly_report_day?: number;
+  } | null>("/api/workspace-settings");
+  return {
+    staleDays: typeof raw?.stale_days === "number" ? raw.stale_days : 14,
+    nudgesEnabled: raw?.nudges_enabled !== false,
+    weeklyReportEnabled: raw?.weekly_report_enabled !== false,
+    weeklyReportDay: typeof raw?.weekly_report_day === "number" ? raw.weekly_report_day : 1,
+  };
+}
+
+export async function saveNudgeSettings(v: NudgeSettingsView): Promise<void> {
+  await apiPatch("/api/workspace-settings", {
+    stale_days: v.staleDays,
+    nudges_enabled: v.nudgesEnabled,
+    weekly_report_enabled: v.weeklyReportEnabled,
+    weekly_report_day: v.weeklyReportDay,
+  });
+}
+
+/** The workspace approval policy with every default filled in (GET /api/workspace-settings -> approval_policy). */
+export async function fetchApprovalPolicy(): Promise<ApprovalPolicy> {
+  const raw = await apiGet<{ approval_policy?: unknown } | null>("/api/workspace-settings");
+  return policyOf(raw?.approval_policy);
+}
+
+export async function saveApprovalPolicy(p: ApprovalPolicy): Promise<void> {
+  await apiPatch("/api/workspace-settings", { approval_policy: p });
+}
+
+export async function sendWeeklyReportNow(): Promise<{ weekStart: string; recipients: number; reportUrl: string }> {
+  const raw = await apiPost<{ week_start: string; recipients: number; report_url: string }>("/api/reports/weekly", {});
+  return { weekStart: raw.week_start, recipients: raw.recipients, reportUrl: raw.report_url };
 }

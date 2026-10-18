@@ -47,11 +47,13 @@ interface DecisionTableProps {
   projectMap: Record<string, string>;
   refMap: Record<string, string>; // decision id → reference_id (for supersedes display)
   projects: Array<{ id: string; name: string }>;
+  /** B1: change request id → "CR-004 Title", for the link in the detail. */
+  changeLabelMap?: Record<string, string>;
   /** false for viewer-role callers — see risks/page.tsx (L-46). */
   canWrite?: boolean;
 }
 
-export function DecisionTable({ rows, projectMap, refMap, projects, canWrite = true }: DecisionTableProps) {
+export function DecisionTable({ rows, projectMap, refMap, projects, changeLabelMap, canWrite = true }: DecisionTableProps) {
   const inspector = useInspector();
 
   if (rows.length === 0) {
@@ -70,6 +72,7 @@ export function DecisionTable({ rows, projectMap, refMap, projects, canWrite = t
     inspector.open(
       <DecisionDetail
         decision={d}
+        changeRequestLabel={d.change_request_id ? (changeLabelMap?.[d.change_request_id] ?? null) : null}
         projectName={d.project_id ? (projectMap[d.project_id] ?? undefined) : undefined}
         supersededByRef={d.supersedes ? (refMap[d.supersedes] ?? null) : null}
         projects={projects}

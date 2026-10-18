@@ -1,7 +1,7 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
 import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
@@ -64,28 +64,14 @@ export const PATCH = route(async ({ actor, params, request }) => {
   ]);
 
   const now = new Date().toISOString();
-  const { data: after, error: updateError } = await db
-    .from("programs")
-    .update({
-      ...parsed.data,
-      workspace_id: actor.workspaceId, // never let caller overwrite
-      updated_at: now,
-    })
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  const { after } = await auditedUpdate({
+    table: "programs",
     actor,
     action: "program.update",
-    targetType: "program",
-    targetId: params.id,
-    before,
-    after,
+    id: params.id,
+    patch: { ...parsed.data, updated_at: now },
+    notFoundMessage: "Program not found",
   });
 
   return ok(after);
@@ -121,22 +107,13 @@ export const DELETE = route(async ({ actor, params }) => {
   if (fetchError) throw fetchError;
   if (!existing) throw new NotFoundError("Program not found");
 
-  const { error: deleteError } = await db
-    .from("programs")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw deleteError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited).
+  await auditedDelete({
+    table: "programs",
     actor,
     action: "program.delete",
-    targetType: "program",
-    targetId: existing.id,
-    before: existing,
-    after: null,
+    id: params.id,
+    notFoundMessage: "Program not found",
   });
 
   return noContent();

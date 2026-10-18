@@ -36,9 +36,9 @@ describe("list_pending_approvals registry entry", () => {
     expect("body" in tool.toRequest({ kind: "rebaseline" })).toBe(false);
   });
 
-  it("takes only optional kind/page/limit and rejects extra properties", () => {
+  it("takes only optional kind/mine/page/limit and rejects extra properties", () => {
     const p = tool.parameters as Params;
-    expect(Object.keys(p.properties).sort()).toEqual(["kind", "limit", "page"]);
+    expect(Object.keys(p.properties).sort()).toEqual(["kind", "limit", "mine", "page"]);
     expect(p.required).toEqual([]);
     expect(p.additionalProperties).toBe(false);
   });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { assignedApproverIdField } from "@/lib/review/assignee";
 
 // POST /api/projects/[id]/lock
 export const lockProjectSchema = z.object({
@@ -19,6 +20,8 @@ export const createRebaselineSchema = z.object({
   reason: z.string().min(1).max(2000),
   before: z.unknown().optional(),
   after: z.unknown().optional(),
+  // G5: optional named approver (an admin or manager of the workspace, not the requester).
+  assigned_approver_id: assignedApproverIdField,
 });
 
 // POST /api/rebaselines/[id]/signoff. Q-GOV-21: a no-go always says why.

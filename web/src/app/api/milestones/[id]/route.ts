@@ -1,10 +1,12 @@
 import { route } from "@/lib/api/handler";
+import { requestDeletion } from "@/lib/governance/request-deletion";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ok, noContent, validationError, safeJson } from "@/lib/api/response";
-import { NotFoundError, PreconditionFailedError, RuleError } from "@/lib/api/errors";
+import { ok, validationError, safeJson } from "@/lib/api/response";
+import { NotFoundError, RuleError } from "@/lib/api/errors";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { writeAudit } from "@/lib/audit/write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
 import { updateMilestoneSchema } from "@/app/api/milestones/_schema";
 import {
   assertProjectUnlocked,
@@ -128,89 +130,27 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.baseline_target_date !== undefined) updates.baseline_target_date = input.baseline_target_date;
   if (input.actual_date !== undefined) updates.actual_date = input.actual_date;
 
-  let query = db
-    .from("milestones")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-  // Defense-in-depth: also scope the write itself to the row's pre-check
-  // updated_at, closing the (narrow) race between the fetch above and this
-  // write. On a lost race the row exists but the filter matches zero rows —
-  // maybeSingle() returns null instead of PostgREST's "no rows" error.
-  if (input.expected_updated_at !== undefined) {
-    query = query.eq("updated_at", existing.updated_at);
-  }
-  const { data: updated, error: updateError } = await query.select().maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    if (input.expected_updated_at !== undefined) {
-      throw new PreconditionFailedError("Record changed since you loaded it");
-    }
-    throw new NotFoundError("Milestone not found");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // Row and audit row are one transaction (nopm_mutate_audited); the open-task
+  // count the caller confirmed is added to the audited "after" only.
+  const { after: updated } = await auditedUpdate({
+    table: "milestones",
     actor,
     action: "milestone.update",
-    targetType: "milestone",
-    targetId: params.id,
-    before: existing,
-    after: openTaskCount > 0 ? { ...updated, completed_with_open_tasks: openTaskCount } : updated,
+    id: params.id,
+    patch: updates,
+    expectedUpdatedAt: input.expected_updated_at !== undefined ? existing.updated_at : null,
+    notFoundMessage: "Milestone not found",
+    afterExtra: openTaskCount > 0 ? { completed_with_open_tasks: openTaskCount } : undefined,
   });
 
   return ok(updated);
 });
 
-// DELETE /api/milestones/[id]
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "milestone:write");
-
-  const db = createAdminClient();
-
-  // Fetch existing for workspace check + before snapshot
-  const { data: existing, error: fetchError } = await db
-    .from("milestones")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw new Error(fetchError.message);
-  if (!existing) throw new NotFoundError("Milestone not found");
-
-  // Deleting a milestone removes it from the schedule — always blocked while
-  // the parent project's baseline is frozen.
-  await assertProjectUnlocked(db, existing.project_id, actor.workspaceId, () =>
-    writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "milestone.delete.blocked",
-      targetType: "milestone",
-      targetId: params.id,
-      before: null,
-      after: { reason: "project_locked", project_id: existing.project_id },
-    }),
-  );
-
-  const { error: deleteError } = await db
-    .from("milestones")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId);
-
-  if (deleteError) throw new Error(deleteError.message);
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "milestone.delete",
-    targetType: "milestone",
-    targetId: params.id,
-    before: existing,
-    after: null,
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/milestones/[id] — does NOT delete the milestone. It raises a deletion request (scope
+ * milestone:delete:request) with a required `reason` and returns 202. Refused while the project is locked.
+ * A second person approves it at POST /api/deletion-requests/:id/approve (audit gap G8).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "milestone", id: params.id }),
+);

@@ -12,9 +12,9 @@ export const describe = "List, create, inspect, update, or delete risks";
 export const usage = [
   "nopm risks ls --project <id>                                  list risks for a project [--external-ref <ref>]",
   "nopm risks get <id>                                           fetch a single risk",
-  "nopm risks create --project <id> --title <t> --severity <s> --likelihood <l>  [--description <d>] [--mitigation <m>] [--status <s>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
-  "nopm risks update <id> [--title <t>] [--severity <s>] [--likelihood <l>] [--status <s>] [--mitigation <m>] [--resolution <r>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
-  "nopm risks rm <id>                                            delete a risk",
+  "nopm risks create --project <id> --title <t> --severity <s> --likelihood <l>  [--description <d>] [--mitigation <m>] [--status <s>] [--risk-category <c>] [--impact-area <a,b>] [--source <slug>] [--external-ref <ref>] [--external-url <url>]",
+  "nopm risks update <id> [--title <t>] [--severity <s>] [--likelihood <l>] [--status <s>] [--mitigation <m>] [--resolution <r>] [--risk-category <c>] [--impact-area <a,b>] [--source <slug>] [--external-ref <ref>] [--external-url <url>] [--expected-updated-at <iso>]",
+  "nopm risks rm <id> --reason <why>   (MAKER) request deletion; a different person approves",
   "  severity/likelihood: low | medium | high | critical",
   "  status: open | mitigating | closed | accepted  (closing a risk needs --resolution <note>; without it the API answers 422)",
   "  --source/--external-ref/--external-url: complement seam (R-81) — the system of work this risk mirrors, e.g. --source jira --external-ref PROJ-123",
@@ -23,11 +23,16 @@ export const usage = [
 ];
 
 const LIST_COLS = ["id", "reference_id", "title", "severity", "likelihood", "status", "project_id"];
-const ROW_COLS  = ["id", "reference_id", "title", "severity", "likelihood", "status", "category", "mitigation", "project_id"];
+const ROW_COLS  = ["id", "reference_id", "title", "severity", "likelihood", "status", "risk_category", "impact_areas", "mitigation", "project_id"];
+
+// --impact-area cost,schedule -> impact_areas (K2); a single value is a one-element list.
+const impactAreas = (v) => String(v).split(",").map((s) => s.trim()).filter(Boolean);
 
 export async function run(rest, ctx) {
   const [sub, arg] = ctx.flags._;
   const f = ctx.flags;
+  // The free-text category was retired (K1): fail loudly instead of silently dropping it.
+  if (f.category !== undefined) ctx.die("--category was removed; use --risk-category <technical|schedule|cost|resourcing|scope_requirements|supplier_external|regulatory_legal|organisational>");
 
   switch (sub) {
     case "ls":
@@ -36,7 +41,7 @@ export async function run(rest, ctx) {
       if (!projectId) ctx.die("usage: nopm risks ls --project <project-id>");
       const page  = f.page  || 1;
       const limit = f.limit || 100;
-      let url = `/api/projects/${projectId}/risks?page=${page}&limit=${limit}`;
+      let url = `/api/projects/${projectId}/risks?page=${page}&limit=${limit}&view=full`;
       if (f["external-ref"]) url += `&external_ref=${encodeURIComponent(f["external-ref"])}`;
       const { data } = await ctx.api("GET", url);
       ctx.out(data, ctx, LIST_COLS);
@@ -65,7 +70,8 @@ export async function run(rest, ctx) {
         ...(f.mitigation  && { mitigation:  f.mitigation }),
         ...(f.status      && { status:      f.status }),
         ...(f.resolution  && { resolution:  f.resolution }),
-        ...(f.category    && { category:    f.category }),
+        ...(f["risk-category"] && { risk_category: f["risk-category"] }),
+        ...(f["impact-area"]   && { impact_areas: impactAreas(f["impact-area"]) }),
         ...(f.due         && { due_date:    f.due }),
         ...(f.source            && { source: f.source }),
         ...(f["external-ref"]   && { external_ref: f["external-ref"] }),
@@ -88,7 +94,8 @@ export async function run(rest, ctx) {
       if (f.mitigation)  body.mitigation  = f.mitigation;
       if (f.status)      body.status      = f.status;
       if (f.resolution)  body.resolution  = f.resolution;
-      if (f.category)    body.category    = f.category;
+      if (f["risk-category"]) body.risk_category = f["risk-category"];
+      if (f["impact-area"])   body.impact_areas  = impactAreas(f["impact-area"]);
       if (f.due)         body.due_date    = f.due;
       if (f.source)              body.source       = f.source;
       if (f["external-ref"])     body.external_ref = f["external-ref"];
@@ -104,9 +111,11 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm risks rm <id>");
-      await ctx.api("DELETE", `/api/risks/${id}`);
-      console.log("✓ deleted risk", id);
+      if (!id || !f.reason) ctx.die("usage: nopm risks rm <id> --reason <why>");
+      // Deletion is a request (audit gap G8): it stays until a different person approves it.
+      const result = await ctx.api("DELETE", `/api/risks/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

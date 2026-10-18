@@ -11,7 +11,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
-import { describeDeletionTarget, describeChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
+import { childCountsHeading, describeDeletionTarget, describeChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
+import { deletionKindFor } from "@/lib/integrations/types";
+import { isRetroOverdue } from "@/lib/governance/tiers";
 import { ChildCountsNote } from "@/components/review/child-counts-note";
 import { judgeDecision } from "@/lib/review/four-eyes";
 import { DECIDED_PAGE_SIZE, PENDING_CAP, pageWindow, parsePage } from "./_paging";
@@ -25,6 +27,8 @@ interface DeletionRequest {
   requested_by_type: string;
   requested_by_id: string;
   requested_principal_id: string | null;
+  /** G5: the approver this request was assigned to on raise; null = nobody in particular. */
+  assigned_approver_id?: string | null;
   requested_by_label: string;
   approved_by_label: string | null;
   closed_reason?: string | null;
@@ -33,6 +37,12 @@ interface DeletionRequest {
   created_at: string;
   decided_at: string | null;
   status: string;
+  /** Wave-4 approval tier columns; absent (undefined or null) until the database has them. */
+  tier?: string | null;
+  approval_deadline_at?: string | null;
+  retro_due_at?: string | null;
+  is_emergency?: boolean | null;
+  retro_decided_at?: string | null;
 }
 
 function formatDate(iso: string) {
@@ -65,6 +75,22 @@ function statusTone(s: string) {
   return "neutral" as const;
 }
 
+/** Tier, decision deadline and retro-review state, when the request carries them (wave 4). */
+function TierLine({ req }: { req: DeletionRequest }) {
+  const overdue = isRetroOverdue(req, new Date());
+  if (!req.tier && !req.approval_deadline_at && !req.retro_due_at && !overdue) return null;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-secondary">
+      {req.tier && <Badge tone="neutral" size="sm">{req.tier}</Badge>}
+      {req.approval_deadline_at && req.status === "pending" && (
+        <span>decide by {formatDate(req.approval_deadline_at)}</span>
+      )}
+      {req.retro_due_at && <span>retro review by {formatDate(req.retro_due_at)}</span>}
+      {overdue && <Badge tone="danger" size="sm">Emergency: retro approval overdue</Badge>}
+    </p>
+  );
+}
+
 /** The record the decision is about: its name (from the request's `before` snapshot), type and project. */
 function TargetSummary({
   req,
@@ -92,8 +118,12 @@ function TargetSummary({
           <span className="text-ink-muted">Reason:</span> <span className="italic">{req.reason}</span>
         </p>
       )}
-      {req.target_type === "project" && req.status === "pending" && (
-        <ChildCountsNote lines={describeChildCounts(req.before)} />
+      <TierLine req={req} />
+      {(req.target_type === "project" || req.target_type === "milestone") && req.status === "pending" && (
+        <ChildCountsNote
+          lines={describeChildCounts(req.before, req.target_type)}
+          heading={childCountsHeading(req.target_type)}
+        />
       )}
       {!target.name && (
         <code className="mt-1 inline-block rounded bg-well px-1.5 py-0.5 font-mono text-2xs text-ink-secondary">
@@ -107,10 +137,12 @@ function TargetSummary({
 export default async function ApprovalsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; scope?: string }>;
 }) {
-  const { status: statusParam, page: pageParam } = await searchParams;
+  const { status: statusParam, page: pageParam, scope: scopeParam } = await searchParams;
   const view = statusParam === "decided" ? "decided" : "pending";
+  // G5: "Mine" = pending requests assigned to the signed-in person. Applies to the pending queue only.
+  const scope = scopeParam === "mine" ? "mine" : "all";
 
   const db = await createClient();
   const {
@@ -152,6 +184,9 @@ export default async function ApprovalsPage({
     decided = (decidedRes.data ?? []) as DeletionRequest[];
   }
 
+  // D7: with fewer than two admins a manager may decide an admin-level request (same rule as change-control).
+  const { count: adminCount } = await db.from("profiles").select("id", { count: "exact", head: true }).eq("role", "admin");
+  const singleAdmin = (adminCount ?? 2) < 2;
   const viewer = { id: user.id, role: (viewerProfile?.role as string | null | undefined) ?? null };
   const projectName = new Map<string, string>((projects ?? []).map((p) => [p.id as string, p.name as string]));
 
@@ -160,7 +195,8 @@ export default async function ApprovalsPage({
   );
   const pending = (pendingRes.data ?? []) as DeletionRequest[];
   const pendingCapped = pending.length >= PENDING_CAP;
-  const rows = view === "pending" ? pending : decided;
+  const assignedToMe = pending.filter((r) => r.assigned_approver_id === user.id);
+  const rows = view === "pending" ? (scope === "mine" ? assignedToMe : pending) : decided;
 
   // Four-eyes, decided the way the API decides: by person (a token counts as
   // the person who created it), not by actor id. Only the rows the viewer can
@@ -170,8 +206,9 @@ export default async function ApprovalsPage({
       r.id,
       judgeDecision({
         viewer,
-        kind: r.target_type === "project" ? "project_deletion" : "task_deletion",
+        kind: deletionKindFor(r.target_type),
         row: r,
+        singleAdmin,
         projectLocked: (() => {
           const pid = describeDeletionTarget(r).projectId;
           return !!pid && lockedProjects.has(pid);
@@ -202,21 +239,38 @@ export default async function ApprovalsPage({
 
       <FourEyesNote variant="quiet" />
 
-      <UrlFilter
-        label="Approval status"
-        value={view}
-        defaultValue="pending"
-        options={[
-          { value: "pending", label: "Pending", count: pending.length, attention: mine.length > 0 },
-          { value: "decided", label: "Decided", count: decidedTotal },
-        ]}
-      />
+      {/* Stacks on a phone, side by side from sm up. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+        <UrlFilter
+          label="Approval status"
+          value={view}
+          defaultValue="pending"
+          options={[
+            { value: "pending", label: "Pending", count: pending.length, attention: mine.length > 0 },
+            { value: "decided", label: "Decided", count: decidedTotal },
+          ]}
+        />
+        {view === "pending" && (
+          <UrlFilter
+            param="scope"
+            label="Whose approvals"
+            value={scope}
+            defaultValue="all"
+            options={[
+              { value: "all", label: "All", count: pending.length },
+              { value: "mine", label: "Mine", count: assignedToMe.length, attention: assignedToMe.length > 0 },
+            ]}
+          />
+        )}
+      </div>
 
       {rows.length === 0 ? (
         <EmptyState
           purpose={
             view === "pending"
-              ? "All clear. No deletion requests are pending approval right now."
+              ? scope === "mine"
+                ? "Nothing is assigned to you. Switch to All to see every pending request."
+                : "All clear. No deletion requests are pending approval right now."
               : "No deletion requests have been decided yet."
           }
         />
