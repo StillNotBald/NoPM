@@ -1,0 +1,10 @@
+import { open, BASE } from "./ui.mjs";
+import { call, rec } from "./h.mjs";
+const { browser, page, shot, text } = await open("admin", 390, 844);
+await page.goto(BASE+"/tokens",{waitUntil:"domcontentloaded"}); await page.waitForTimeout(8000);
+await shot("U7-m-1-tokens");
+const t = await text(); console.log(["program:delete:request","sprint:delete:request","resource:delete:request","allocation:delete:request","clash:delete:request","document:write","change:write"].map(s=>s+"="+t.includes(s)).join(" "));
+await browser.close();
+const scopes=["document:write","document:read","change:write","change:read","project:read","task:read","task:write","program:delete:request","sprint:delete:request","resource:delete:request","allocation:delete:request","clash:delete:request"];
+const r = await call("admin","POST","/api/tokens",{name:"w5-uat-pat",scopes}); rec("U7-token",{status:r.status,keys:Object.keys(r.json?.data??{}),text:r.status>=300?r.text:""});
+import("node:fs").then(fs=>fs.writeFileSync("pat.txt", r.json?.data?.token ?? r.json?.token ?? ""));
