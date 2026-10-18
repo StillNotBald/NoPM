@@ -69,6 +69,7 @@ const MEMBER_RPC_AUDIT =
   "audited inside the SQL RPC (nopm_member_change / nopm_member_mfa_reset, migration 0083) called through lib/people/members.ts, in the same transaction as the change";
 
 const ALLOWLIST: Record<string, string> = {
+  "api/openapi.json": "documentation route: GET only, no database access; its text quotes route verbs and audit calls, which the scanner must not read as handlers",
   "api/members/[id]": MEMBER_RPC_AUDIT,
   "api/members/[id]/restore": MEMBER_RPC_AUDIT,
   "api/members/[id]/mfa-reset": MEMBER_RPC_AUDIT,
