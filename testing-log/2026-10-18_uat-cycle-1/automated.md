@@ -71,3 +71,38 @@ Not exercised because of the demo restriction: token mint and revoke, invite cre
 ## Raw evidence
 
 Command tails are in the scratchpad `uat` folder (auth.txt, pw4.txt, pw5.txt, pw6.txt, probe-*.txt). Failure screenshots and traces are in its `pwout`, `pwout2` and `pwout3` folders.
+
+
+## Retest (2026-10-18, after the fix pass dbead57 and the environment restart)
+
+Environment now: DEMO_EMAIL=demo@example.com (admin is no longer demo-restricted), dev server started with the fake-lark override, 0105 re-applied. Run with `BASE=http://localhost:3000`, local stack env, no `web/.env.local`. The sign-out spec stayed opt-in (E2E_SIGNOUT not set).
+
+| Suite | Before | After | Notes |
+|---|---|---|---|
+| auth-smoke | 23/0 | 23/0 | |
+| Playwright full (sign-out opt-in) | 69 pass, 8 fail, 11 skip | 77 pass, 0 fail, 12 skip | Skips are the opt-in write journeys and the sign-out spec. Further test debt fixed during the retest: persisted nav mode (f2b sidebar), persisted column choice (f2a column chooser). |
+| Write journeys (E2E_WRITES=1, writes + f2b) | 9 pass, 4 fail, 1 skip | 13 pass, 0 fail, 1 skip | Token mint, invite create and second-identity saved views now pass (no more `demo_restricted`). The PAT journey needed a test fix for the new "Revoke API token" confirm dialog. |
+| probe-migrations | 9/9 | 9/9 | |
+| probe-four-eyes | 29/29 | 29/29 | |
+| probe-rls-direct-write | 23/23 | 23/23 | no direct write succeeded |
+| probe-calendar | 10/10 | 10/10 | |
+| probe-github | 5/8 | 8/8 | GH3 and GH6 fixtures fixed; GH4 (deploy after merge) now passes against the re-applied 0105 and the fix pass. |
+| probe-lark | 34/51 | 51/51 | The 16 `LK-EM*` checks pass against fake-lark. LK-X1 and LK-EM7 needed `expected_updated_at` in the probe fixture. |
+| probe-api | 13/15 | 13/15 | API8 and API11 fail only on the replay check (wanted 422, got 200). Owner decision UAT-018. |
+| GET /api/integrations/cron | 200 | 200 | connectors 7, deliveries all 0, digests skipped 7, nudges workspaces 29 / failed 0, approvals examined 37 / failed 0, timedOut 0, elapsedMs 1956 |
+| GET /api/cron/snapshots | 200 | 200 | `{"workspaces":29,"projects":56,"taken":25,"skipped":31}` |
+
+### Remaining failures
+
+| Check | Class | Why |
+|---|---|---|
+| probe-api API8 | Owner decision UAT-018 | Replayed deletion-request approve answers 200 `committed:true`, probe expects 422. |
+| probe-api API11 | Owner decision UAT-018 | Replayed change-request decision answers 200, probe expects 422. Everything before the replay step in API11 passes. |
+
+No product defect remains open from the automated suites.
+
+### Retest notes
+
+- Two full Playwright runs in the middle of the retest failed en masse (43 failures, then connection refused from /risks on). The dev server on port 3000 went away for a while during the second run, and the first run overlapped with other activity. Both were discarded; the clean full run is the one counted above.
+- Probe-lark LK-EM7 was a stale fixture I missed in the first fix pass (console decision without `expected_updated_at`); fixed in `scripts/local-db/probe-lark.mjs`.
+- Test-only edits in this retest: `e2e/f2b-features.spec.ts` (nav mode may already be expanded), `e2e/f2a-features.spec.ts` (start the chooser test from a known state), `e2e/writes.spec.ts` (confirm the revoke dialog), `scripts/local-db/probe-lark.mjs` (EM7).

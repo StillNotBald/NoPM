@@ -40,3 +40,17 @@ Blocked steps were almost all caused by the test environment, not the product: `
 - Risks, issues, expenses and documents have no "Request deletion" button in the UI.
 - Link PR saves but the task panel shows nothing on reopen.
 - Editing a project with no programme fails ("Invalid project data", `program: null`).
+
+## Retest (after the fix pass, commit dbead57)
+
+Environment changes for the retest: `DEMO_EMAIL` pointed at a separate demo manager (demo@example.com) so the admin was no longer demo-restricted; `NOPM_LARK_API_BASE_OVERRIDE` pointed at the fake Lark server; migration 0105 re-applied. A Next dev recompile loop (over 4,000 "Compiled in" lines, no source change) slowed the UI testers for about 30 minutes; a server restart cleared it (0 recompiles in the 30 s after boot).
+
+| Runner | Retested | Fixed | Still present | Previously blocked steps now passing |
+|---|---|---|---|---|
+| Tester A (waves 1–2) | 13 IDs | 12 | UAT-020 (plan URL; corrected by the lead and closed) | 26 of 27 (1E-4 still blocked: no removed member in the data) |
+| Tester B (waves 3–4) | 13 IDs | 12 | UAT-017's remaining checks (= the UAT-018 policy) | 8 of 10 (4-11 failed → new finding; 4-22 needs a real GitHub repository) |
+| Runner C (automated) | UAT-016, UAT-017 | both | probe-api API8/API11 (= UAT-018) | Playwright 77/77 (12 opt-in skips), write journeys 13/13, probe-github 8/8, probe-lark 51/51, probe-api 13/15, all other probes unchanged green |
+
+New findings from the retest (minted as UAT-029..UAT-034 in `UAT-log/01`, OPEN for cycle 2): project with no start date cannot save the edit form (major); overdue-emergency marker missing from the Approvals page, Review queue, Change Control list and weekly report (minor); evidence viewer names the change request "Change Control" instead of its reference; a member's tokens-export refusal uses the people-export wording; a member sees an "items awaiting your decision" count; plan step 1A-4 cannot be done in the UI (a member gets no Unlock button, which is by design).
+
+Test-data notes: tester B set a local password for a seeded member, promoted and restored one profile's role, aged records by SQL, and left five stray `UAT-B9` projects; tester A created `UAT-A` records and marked one of its own change requests implemented. All on the local stack only.

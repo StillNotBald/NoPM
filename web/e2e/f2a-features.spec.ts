@@ -121,11 +121,14 @@ test.describe("admin-authenticated journeys", () => {
       await page.goto("/tasks");
       await expect(page.locator(SHELL_MARKER)).toBeVisible({ timeout: 20_000 });
 
+      // Start from a known state: the choice persists per account, so an earlier
+      // (failed) run may have left Priority hidden. Re-check it first.
+      await page.getByRole("button", { name: /^columns$/i }).click();
+      await page.getByRole("checkbox", { name: "Priority", exact: true }).check();
+
       // "Priority" is one of the DEFAULT_COLUMNS — visible in the table
       // header before any change.
       await expect(page.getByRole("columnheader", { name: /priority/i }).first()).toBeVisible();
-
-      await page.getByRole("button", { name: /^columns$/i }).click();
       try {
         await page.getByRole("checkbox", { name: "Priority", exact: true }).uncheck();
 

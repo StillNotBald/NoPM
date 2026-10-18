@@ -1,6 +1,6 @@
 # Sprint Summary — 2026-10-18_audit-gaps
 
-**TL;DR:** every PARTIAL / MISSING / STILL PRESENT item of the 2026-10-18 positioning audit built in four waves on `feat/audit-gaps-2026-10-18` (commits e05a691, 3576496, 693f299, f3e5682), 18 migrations (0088–0105), R-127..R-154, each wave reviewed once, fixed once, rehearsed on a local database, and gated. UAT cycle 1 in progress (see Tests).
+**TL;DR:** UAT cycle 1 closed (27 of 28 findings fixed and retested; 6 new minor/major items queued). Every PARTIAL / MISSING / STILL PRESENT item of the 2026-10-18 positioning audit built in four waves on `feat/audit-gaps-2026-10-18` (commits e05a691, 3576496, 693f299, f3e5682), 18 migrations (0088–0105), R-127..R-154, each wave reviewed once, fixed once, rehearsed on a local database, and gated. 
 
 ## Declared goals
 - Close the audit gaps of `_docs/directions-2026-10-17/NOPM_AUDIT_REPORT.md` for the positioning "Your PMO runs without you, and leaves the evidence auditors ask for" (CR-2026-10-18-01, ADR 0016, ADR 0017). R-IDs: R-127..R-154.
@@ -24,7 +24,7 @@ Owner assumptions A1–A8 and decisions D1–D7 are recorded in `CHANGE-REQUEST.
 ## Tests / verification
 - Gates per wave: tsc 0, vitest green except one pre-existing CRLF-checkout failure (final: 6649/6650), lint 0 errors, cli 68, commit-gate clean.
 - Local-database rehearsals (`testing-log/2026-10-18_audit-gaps-wave1/README.md`): every wave's migrations dry-run + atomic over seeded data; functional probes of every new RPC/trigger; repo probes 9/9 and 29/29.
-- UAT cycle 1 (`testing-log/2026-10-18_uat-cycle-1/`, `UAT-log/`): PENDING — filled in when the cycle closes.
+- UAT cycle 1 (`testing-log/2026-10-18_uat-cycle-1/`, `UAT-log/`): 82 plan steps run by two testers at 390 px + automated suites; 28 findings minted (0 blocker, 8 major), all fixed in one pass (commit dbead57) and retested: 27 CLOSED, UAT-017 REOPENED only for the checks that encode the open owner decision UAT-018, 6 new minor/major findings (UAT-029..034) left OPEN for cycle 2. Automated retest: Playwright 77/77, write journeys 13/13, every database probe green except the two UAT-018 replay checks.
 
 ## Follow-ups
 - Owner confirmations: A1–A8, D1–D7 (CHANGE-REQUEST.md); nine wave-4 owner decisions in `review/wave4.md`.

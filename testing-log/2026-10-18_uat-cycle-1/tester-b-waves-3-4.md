@@ -86,3 +86,32 @@ Date: 2026-10-18. Tester: UAT tester B. App: http://localhost:3000 (Next dev ser
 - The weekly report and the review queue count 5 pending approvals (change requests). The Approvals page lists only the 1 or 2 deletion requests. The Approvals sidebar badge shows 1, the Governance badge 16. This looks deliberate but may confuse a reader.
 - "removes N tasks" for a milestone reads "Approving also detaches: 3 tasks (kept, no longer under this milestone)", which is the more accurate text.
 - probe-github.mjs ran (its guard allowed it, web/.env.local does not exist): 5 of 8 checks pass, 3 fail (see defect list, GH3 and GH6 are fixture problems, GH4 is a real defect).
+
+## Retest (after fix pass dbead57)
+
+Date 2026-10-18. Same rules as the first pass. This time there were three real identities: the admin (Jordan Hale, normal sign-in), the demo manager (Demo Manager, one-click demo button) and a member (Daniel Okoro). I gave the member a local password through the local auth admin endpoint so the member views could be tested. Screenshots are `shots/retest-*.png`. I also used direct SQL on the local database for test-data setup only (aging records, 3-7, 4-11, 4-12, UAT-009); every assertion was made through the app or its API.
+
+Outcome per UAT ID is in `UAT-log/_intake/retest-b.md`: UAT-001, 002, 003, 004, 005, 006, 007, 009, 010, 011, 012, 022 are fixed. UAT-017 is fixed for the GitHub and Lark probes but API11 still fails for another reason (a replayed decision answers 200, the same behaviour as open UAT-018). New findings are in `UAT-log/_intake/tester-b-new.md`.
+
+### Previously BLOCKED steps
+
+| Step | Result | What I saw | Screenshot |
+|---|---|---|---|
+| 3-7 | PASS | Audit rows cannot be backdated, so I inserted a task with updated_at 10 days old (assigned to the admin) and ran the daily tick: stalenudged 1, one "Stale task" notification with a link to the task, shown in the bell. A second tick added none. | retest-3-7-desktop.png |
+| 3-10 (stale sample) | PASS | Email previews now lists the item.stale notification as "Needs an update: Stale task: ..." | retest-3-10-desktop.png |
+| 4-6 | PASS | With two admins, the demo manager sees "This request needs an admin to decide it. Ask an admin to decide." and no decision form on a high-risk change (API 403 "Only admins can approve a high-risk request."). With only one admin the manager may decide it (decision D7 fallback): CR-015 was approved by the manager. | retest-4-6-desktop.png |
+| 4-7 | PASS | Admin approved the manager's high-risk CR-014 with a rationale; status approved, decided by the admin. The manager approving their own was refused (four-eyes). | - |
+| 4-10 | PASS | Manager raised emergency CR-017 and marked it implemented; the admin recorded the approve retro decision: still Implemented, retro_decided_at and outcome approved set. The manager deciding their own was refused. | - |
+| 4-11 | FAIL | CR-013 (retro due set to the past by SQL): the detail panel says "Emergency change, overdue: the approval was due 17 Oct 2026 and is still missing", admins got an "Emergency change overdue for retro approval" notice, and the weekly-report notification text says "1 emergency change is overdue for approval". But there is no red Overdue marker on the Approvals page or in the review queue, the Change Control list row shows only "Implemented", and the weekly report page has no overdue-emergency line. Logged as a new finding. | retest-4-11-desktop.png |
+| 4-12 | PASS | Routine CR-012 deadline set to the past: the tick escalated (admin notice "Overdue: Change request CR-012"), the change stays Raised, autoApproved 0, auto-approve still off. The review queue shows "overdue since 2026-10-18". | retest-4-11-desktop.png |
+| 4-14 | PASS | Demo manager approved the admin's risk deletion in Approvals (two steps: Approve, then Confirm Approve with an optional note); POST approve 200, the risk left the register. The row shows reason, "decide by" and requester, with no "what approving removes" line for a risk. | retest-4-14-desktop.png |
+| 4-16 | PASS | Demo manager approved the milestone deletion (API 200 committed). The milestone is gone and its 3 tasks remain with no milestone. The approver was the manager, not an admin, since the request came from the admin. | retest-4-15-approvals-desktop.png (earlier) |
+| 4-18 | PASS | Member opens Trust Center: the audit stream shows, no Verify now button. GET /api/audit/verify as member answers 403; as manager 200. | retest-4-18-desktop.png |
+| 4-22 | BLOCKED | Still needs a real GitHub repository. | - |
+
+### Notes on the retest
+
+- Phone (390 px) checks on the changed screens (project edit with backup owner, raise change form, Settings policy card, risk panel with the deletion badge): scrollWidth 390, no console errors.
+- A "fixed" UI can still feel stale: Remove dependency, Unlink PR and Save forecast refresh 3 to 6 seconds after the click.
+- My retry runs created five extra projects named UAT-B9 (a harness retry, not a product issue). They are harmless test data.
+- Dev server: it hot-reload-looped while other runs were active (logged as an environment finding); it settled after the restart.

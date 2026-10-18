@@ -71,7 +71,7 @@ If you use the MCP server instead of `curl`, call the `list_projects` tool and a
 |---|---|---|---|---|---|
 | 1F-1 | Admin | Desktop | Open **Tokens**. Click **Export tokens (CSV)**. | A `.csv` file downloads. | |
 | 1F-2 | Admin | Desktop | Open the CSV. | Each token has its label, its scopes and its creation date. No token value (the secret) appears in the file. | |
-| 1F-3 | Member | Desktop | Enter `<NoPM URL>/api/export/tokens` in the address bar as a member. | Refused with a message that names the permission needed. | |
+| 1F-3 | Member | Desktop | Enter `<NoPM URL>/api/export?entity=tokens` in the address bar as a member. | Refused with a message that names the permission needed. | |
 
 ### 1G. Audit CSV showing the human behind a token
 

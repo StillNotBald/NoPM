@@ -73,3 +73,51 @@ Date: 2026-10-18. Build: local dev server (http://localhost:3000), local Supabas
 - 2-3 on the phone Raise form: only the detail view was checked at 390 px.
 - Wave 2 MCP tools (list change requests, get one, list decisions, get a document, earned value): the MCP server is not wired to this local stack in my session, so only the equivalent REST reads were checked.
 - Non-admin refusal of the audit pack, and the member view of Change Control.
+
+
+## Retest (cycle 1, fix pass dbead57)
+
+Date: 2026-10-18. Tester A. Environment: dev server restarted with a separate demo identity. Identities used: admin (admin@example.com, form sign-in), manager (demo button, "Demo Manager"), member (an invite I created, "UAT-A Member"), and an agent token "UAT agent lock" minted by the admin. Records created: CR-023 (raised by the manager, approved by the admin, marked implemented), DEC-008, DOC-021, CLD-APAC locked by the token, IAM-SEC locked by the manager. Screenshots: shots/retest-<id>-<phone|desktop>.png. "API" means curl or a browser fetch with no screenshot.
+
+### Previously blocked steps
+
+| Step | Result | What I saw | Screenshot |
+|---|---|---|---|
+| 1A-1 | PASS | Manager locked IAM-SEC from the UI. Badge reads "Locked by Demo Manager". | shots/retest-1A-1-desktop.png |
+| 1A-2 | PASS | Phone 390 px: badge and title do not overlap, scrollWidth 390. | shots/retest-1A-2-phone.png |
+| 1A-3 | PASS | Admin sees IAM-SEC locked by Demo Manager (API: locked_by_label Demo Manager, type user). | shots/retest-1A-3-desktop.png |
+| 1A-4 | PASS | A member sees no Unlock button at all. The API refuses with "Only a manager or admin can unlock a project, in person." (403). | shots/retest-1A-4-desktop.png |
+| 1A-5 | PASS | Audit row project.lock for IAM-SEC has actor "Demo Manager". Read through the audit API, not the Trust Center page. | API |
+| 1B-1 | PASS | Admin minted the token "UAT agent lock". The secret was returned once with the label. Done through a browser fetch, not the Tokens page. | API |
+| 1B-2 | PASS | POST /api/projects/<id>/lock with the token locked CLD-APAC and returned data. | API |
+| 1B-3 | PASS | Admin sees "Locked by UAT agent lock" on CLD-APAC. | shots/retest-1B-3-desktop.png |
+| 1B-4 | PASS | Exactly one project.lock row for CLD-APAC. Actor type token, label "UAT agent lock", principal_id is the admin. The token's unlock attempt is refused: "Agents and API tokens cannot." | API |
+| 1D-1 to 1D-5 | PASS | Run with the token this time. Summary: 13 keys. Full: 36 keys. fields=id,code,name: 3 keys. No view parameter equals summary. Risks summary has no category. | API |
+| 1E-2 | PASS | Member opens People and sees "Only admins and managers can manage people." No export buttons. | shots/retest-1E-2-desktop.png |
+| 1E-3 | PASS | Member gets 403 "Listing people requires an admin or manager session" on /api/export?entity=members. No file. | API |
+| 1F-3 | PASS with a note | Member gets 403 on /api/export?entity=tokens, but the message says "Listing people requires..." (a people message on a tokens export, new finding). The plan still names /api/export/tokens, which returns 404 (UAT-020). | API |
+| 1G-1 | PASS | The audit export downloads, 19 columns, last column row_hash. | API |
+| 1G-2 | PASS | The token's project.lock row has principal_id equal to the admin who made the token (principal_label Jordan Hale). | API |
+| 1G-3 | PASS | Same row, same principal_id as the admin. | API |
+| 1E-4 | BLOCKED | The workspace still has no removed members, so the check has nothing to test. | none |
+
+### Wave 2 steps
+
+| Step | Result | What I saw | Screenshot |
+|---|---|---|---|
+| 2-1 | PASS | Desktop chips with counts, Implemented 2. Phone: the chips wrap onto three rows and all seven are visible without sideways scroll. | shots/retest-UAT-024-desktop.png, shots/retest-UAT-027-phone.png |
+| 2-2 | PASS | Manager raised CR-023, admin approved it with a rationale, then pressed Mark implemented. Status Implemented, "Implemented on 18 Oct 2026 by Jordan Hale". No Edit button. Edit (PATCH), delete and a second implement all return 422 ("already marked implemented"). | shots/retest-2-2-before-desktop.png, shots/retest-2-2-desktop.png |
+| 2-3 | PASS | Impact column shows "Schedule down, Cost up". The phone raise form fits (scrollWidth 390) and the note placeholder reads "Note". The form now also has Approval tier, Approver and an Emergency tick box. | shots/retest-UAT-025-phone.png |
+| 2-4 | PASS | Manager saved DEC-008 linked to CR-023 with one Chosen option. The phone decision detail shows the change request link and "Proceed - Chosen". CR-023 shows "Decisions: 1". | shots/retest-2-4-phone.png, shots/retest-2-4b-phone.png |
+| 2-5 | PASS | Evidence attached on the phone form (no horizontal scroll). DOC-021 holds test_result, pass, tested by Demo Manager. | API |
+| 2-6a | PASS | The DOC-020 viewer now shows "Evidence for change request", type Test result, Pass, tested by, tested on and the note. The change request is labelled "Change Control" rather than CR-009 (new finding). | shots/retest-UAT-008-desktop.png |
+| 2-6b | PASS | New Document has "Attach as evidence for a change request (optional)". Choosing CR-009 reveals an Evidence section with type, result, tested by, tested on and note. | shots/retest-UAT-015-desktop.png |
+| 2-6c | PASS | The documents filter returns only the request's evidence document with all fields. The refusal without a change request was not re-run. | API |
+| 2-7 | PASS | A reversed range now returns 422 "from must not be after to". A token gets 403 and a member gets 403. CSV and PDF downloads each wrote an export.audit_pack row. | API |
+| 2-8 | PASS | change_requests export has the 32 columns including tier and retro columns. | API |
+| 2-9 | PASS | Lists are lean (19 and 10 keys), decisions carry change_request_id, EVM returns bac, pv, ev, ac, cpi, spi, eac_cpi and eac_bottom_up. | API |
+| 2-10 | PASS | Ran the local MCP server (web/mcp/server.mjs, 45 tools) with the token. list_change_requests, get_change_request, list_decisions, get_document and get_evm all return data. Nothing written. | API |
+
+### Retest totals for this section
+
+PASS 27 rows (the 1D row counts as one), PASS with a note 1 (1F-3), BLOCKED 1 (1E-4).

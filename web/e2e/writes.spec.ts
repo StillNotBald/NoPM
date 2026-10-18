@@ -181,6 +181,8 @@ test("mint and revoke a PAT through the tokens UI", async ({ page }) => {
   const row = page.locator("tr", { hasText: `e2e-token-${STAMP}` });
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: /revoke/i }).click();
+  // Revoking now asks for confirmation in a dialog.
+  await page.getByRole("dialog", { name: /revoke api token/i }).getByRole("button", { name: /^revoke token$/i }).click();
   await expect(row.getByText("revoked")).toBeVisible({ timeout: 15_000 });
 });
 

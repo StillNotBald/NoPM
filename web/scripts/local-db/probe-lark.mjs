@@ -817,7 +817,8 @@ await report.check("LK-EM7", "decided in the CONSOLE (admin session): both sent 
   const req = await raiseViaApi("change_request", "session", "CR-console");
   const cards = await collectCards(req);
   const tokenB = approveTokenOf(cards.cardB.card);
-  const decided = await call("POST", `/api/change-requests/${req.id}/decision`, { cookie: adminCookie, body: { decision: "approve", rationale: "probe: decided in the console" } });
+  const ver = (await pgc.query(`select to_char(updated_at at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as v from change_requests where id = $1`, [req.id])).rows[0].v;
+  const decided = await call("POST", `/api/change-requests/${req.id}/decision`, { cookie: adminCookie, body: { decision: "approve", rationale: "probe: decided in the console", expected_updated_at: ver } });
   expectEqual(decided.status, 200, `console decision (body ${decided.text.slice(0, 200)})`);
   const ids = [cards.cardB.message_id, cards.cardAdmin.message_id];
   const done = await waitFor(async () => {
