@@ -20,6 +20,7 @@ export type RpcHandler = (args: Record<string, unknown>, db: FakeDb) => RpcResul
 import {
   applyRebaselineRpc,
   decideChangeRequestRpc,
+  implementChangeRequestRpc,
   lockProjectRpc,
   signoffRebaselineRpc,
   transitionChangeRequestRpc,
@@ -45,6 +46,7 @@ export class FakeDb {
     nopm_unlock_project_audited: unlockProjectAuditedRpc,
     nopm_signoff_rebaseline: signoffRebaselineRpc,
     nopm_decide_change_request: decideChangeRequestRpc,
+    nopm_implement_change_request: implementChangeRequestRpc,
     nopm_lock_project: lockProjectRpc,
     nopm_transition_change_request: transitionChangeRequestRpc,
     nopm_withdraw_rebaseline: withdrawRebaselineRpc,

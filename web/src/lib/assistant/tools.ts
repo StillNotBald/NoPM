@@ -43,7 +43,10 @@ export const TOOLS: ToolSpec[] = TOOL_REGISTRY.map((t) => ({
  * request. It is a READ scope. This ceiling never holds an
  * approve / decide / write-on-governance scope (task:delete:approve,
  * project:delete:approve, change:decide, rebaseline:approve) — the
- * assistant can SEE what is waiting, a person decides it. Locked by
+ * assistant can SEE what is waiting, a person decides it.
+ *
+ * decision:read and document:read serve the decision-prep reads (list_decisions,
+ * get_document, B7 / R-139); like change:read they are READ scopes only. Locked by
  * tools-openapi.test.ts, scopes.test.ts and review/tool.test.ts.
  */
 export const TOOL_SCOPES = [
@@ -64,6 +67,8 @@ export const TOOL_SCOPES = [
   "resource:read",
   "audit:read",
   "change:read",
+  "decision:read",
+  "document:read",
 ] as const;
 
 export type ToolScope = (typeof TOOL_SCOPES)[number];

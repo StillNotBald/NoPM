@@ -53,6 +53,9 @@ export const PENDING_APPROVAL_KINDS = [
   "rebaseline",
 ];
 
+export const CHANGE_REQUEST_STATUSES = ["raised", "under_review", "approved", "rejected", "deferred", "implemented"];
+const DECISION_STATUSES_READ = ["proposed", "accepted", "superseded", "rejected"];
+
 const DATE = "ISO date, YYYY-MM-DD";
 const DATETIME = "ISO 8601 datetime with timezone, e.g. 2026-09-30T00:00:00Z";
 
@@ -655,6 +658,106 @@ const RAW_TOOLS = [
       additionalProperties: false,
     },
     toRequest: (args) => ({ path: `/api/projects/${idSeg("project_id", args.project_id)}/budget`, method: "GET" }),
+  },
+
+  {
+    name: "get_evm",
+    description:
+      "Get the earned-value numbers for a project, computed exactly as the Budget page does: BAC, AC, EV, PV, CV, SV, " +
+      "CPI, SPI, EAC, ETC, VAC plus committed. An index is null when it is undefined (for example CPI before any cost is " +
+      "booked). schedule_basis says whether PV came from the baseline dates or only from completion (then SPI is 1.00).",
+    parameters: {
+      type: "object",
+      properties: { project_id: { type: "string", description: "Project UUID" } },
+      required: ["project_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({ path: `/api/projects/${idSeg("project_id", args.project_id)}/evm`, method: "GET" }),
+  },
+
+  // ── Decision prep (read-only): change requests, decisions, documents ──────
+  {
+    name: "list_change_requests",
+    description:
+      "List change requests across the workspace, newest first, optionally for one project or one status. " +
+      "Returns a lean summary by default; pass view=full or fields=... for more, or get_change_request for one in full. " +
+      "READ-ONLY: a person decides a change request in the console.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Only this project (UUID)" },
+        status: { type: "string", enum: CHANGE_REQUEST_STATUSES, description: "Only this status" },
+        page,
+        limit,
+        view,
+        fields,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path:
+        `/api/change-requests?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}` +
+        (args.project_id !== undefined && args.project_id !== null ? `&project_id=${idSeg("project_id", args.project_id)}` : "") +
+        (args.status !== undefined && args.status !== null ? `&status=${encodeURIComponent(String(args.status))}` : "") +
+        qview(args),
+      method: "GET",
+    }),
+  },
+  {
+    name: "get_change_request",
+    description:
+      "Get one change request in full: description, impact, the decision (who, when, rationale) and every other column the record holds. READ-ONLY.",
+    parameters: {
+      type: "object",
+      properties: { change_request_id: { type: "string", description: "Change request UUID" } },
+      required: ["change_request_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/change-requests/${idSeg("change_request_id", args.change_request_id)}`,
+      method: "GET",
+    }),
+  },
+  {
+    name: "list_decisions",
+    description:
+      "List logged decisions across the workspace, newest first, optionally for one project or one status. " +
+      "Returns a lean summary by default (title, status, who and when); pass view=full or fields=... for context, options and rationale. READ-ONLY.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Only this project (UUID)" },
+        status: { type: "string", enum: DECISION_STATUSES_READ, description: "Only this status" },
+        page,
+        limit,
+        view,
+        fields,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path:
+        `/api/decisions?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}` +
+        (args.project_id !== undefined && args.project_id !== null ? `&project_id=${idSeg("project_id", args.project_id)}` : "") +
+        (args.status !== undefined && args.status !== null ? `&status=${encodeURIComponent(String(args.status))}` : "") +
+        qview(args),
+      method: "GET",
+    }),
+  },
+  {
+    name: "get_document",
+    description:
+      "Get one document: metadata (type, status, version, owner), external_url, summary and the stored text body " +
+      "when the document has one. File downloads are not returned here; they are fetched by a person in the console. READ-ONLY.",
+    parameters: {
+      type: "object",
+      properties: { document_id: { type: "string", description: "Document UUID" } },
+      required: ["document_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({ path: `/api/documents/${idSeg("document_id", args.document_id)}`, method: "GET" }),
   },
 
   // ── Clashes ───────────────────────────────────────────────────────────────

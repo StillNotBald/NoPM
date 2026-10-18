@@ -12,9 +12,12 @@ import type { DecideState } from "@/components/governance/four-eyes-note";
 import { FieldLabel, FieldError, SelectInput, TextareaInput } from "@/components/forms/project-form";
 import { FormShell, FormSection, FormGrid, FormActions } from "@/components/forms/form-shell";
 import {
+  IMPACT_AREAS,
+  IMPACT_DIRECTIONS,
   RAISE_TIME_STATUSES,
   createChangeRequestSchema,
   updateChangeRequestSchema,
+  type ImpactScopeItem,
 } from "@/app/api/change-requests/_schema";
 
 // ── Local types ───────────────────────────────────────────────────────────────
@@ -26,7 +29,8 @@ export type CRStatus =
   | "under_review"
   | "approved"
   | "rejected"
-  | "deferred";
+  | "deferred"
+  | "implemented";
 
 export interface ChangeRequest {
   id: string;
@@ -41,6 +45,12 @@ export interface ChangeRequest {
   impact_summary: string | null;
   impact_schedule_days: number | null;
   impact_cost: number | null;
+  /** B2: structured impact by area (the free-text impact_summary stays). */
+  impact_scope?: ImpactScopeItem[] | null;
+  /** M2: stamped when an approved request is marked implemented. */
+  implemented_at?: string | null;
+  implemented_by_label?: string | null;
+  implemented_note?: string | null;
   requested_by: string | null;
   requested_by_label: string | null;
   decided_by: string | null;
@@ -64,6 +74,10 @@ export interface ChangeRequest {
   canEdit?: boolean;
   /** Server-computed: a manager or admin may move a raised request to under review (Q-GOV-3). */
   canStartReview?: boolean;
+  /** Server-computed: may this viewer mark an approved request implemented? The requester, or a manager or admin. */
+  canImplement?: boolean;
+  /** B1: decisions taken for this request (server-computed from decisions.change_request_id). */
+  decisions?: Array<{ id: string; reference_id: string | null; title: string }>;
   /** Server-computed: may this viewer reopen it? Deferred only; the requester or a manager or admin (decision 24). */
   canReopen?: boolean;
 }
@@ -95,7 +109,39 @@ export const STATUS_LABEL: Record<CRStatus, string> = {
   approved: "Approved",
   rejected: "Rejected",
   deferred: "Deferred",
+  implemented: "Implemented",
 };
+
+export const AREA_LABELS: Record<(typeof IMPACT_AREAS)[number], string> = {
+  scope: "Scope",
+  schedule: "Schedule",
+  cost: "Cost",
+  quality: "Quality",
+  resources: "Resources",
+  compliance: "Compliance",
+};
+export const DIRECTION_LABELS: Record<(typeof IMPACT_DIRECTIONS)[number], string> = {
+  increase: "Increase",
+  decrease: "Decrease",
+  neutral: "No change",
+};
+
+/** Form state for one impact area: "" = not affected. */
+export type ImpactScopeDraft = Record<(typeof IMPACT_AREAS)[number], { direction: "" | (typeof IMPACT_DIRECTIONS)[number]; note: string }>;
+
+export function impactScopeToDraft(list: ImpactScopeItem[] | null | undefined): ImpactScopeDraft {
+  const draft = Object.fromEntries(IMPACT_AREAS.map((a) => [a, { direction: "", note: "" }])) as ImpactScopeDraft;
+  for (const item of list ?? []) draft[item.area] = { direction: item.direction, note: item.note ?? "" };
+  return draft;
+}
+
+export function draftToImpactScope(draft: ImpactScopeDraft): ImpactScopeItem[] {
+  return IMPACT_AREAS.flatMap((area) =>
+    draft[area].direction
+      ? [{ area, direction: draft[area].direction as ImpactScopeItem["direction"], note: draft[area].note.trim() || null }]
+      : [],
+  );
+}
 
 export interface ChangeFormValues {
   title: string;
@@ -108,6 +154,8 @@ export interface ChangeFormValues {
   impactScheduleDays: string;
   impactCost: string;
   targetDate: string;
+  /** B2: structured impact by area; omitted = leave as is (an edit that does not touch it). */
+  impactScope?: ImpactScopeItem[];
 }
 
 /** The request body for the mode: `status` on create only. */
@@ -122,6 +170,7 @@ export function buildChangePayload(mode: ChangeFormMode, v: ChangeFormValues): R
     impact_cost: v.impactCost !== "" ? Number(v.impactCost) : null,
     target_date: v.targetDate || null,
   };
+  if (v.impactScope !== undefined) body.impact_scope = v.impactScope.length > 0 ? v.impactScope : null;
   if (mode === "create") body.status = v.status;
   return body;
 }
@@ -186,6 +235,9 @@ export function ChangeForm({
   const [targetDate, setTargetDate] = useState(
     changeRequest?.target_date?.slice(0, 10) ?? "",
   );
+  const [scopeDraft, setScopeDraft] = useState<ImpactScopeDraft>(() => impactScopeToDraft(changeRequest?.impact_scope));
+  const setArea = (area: (typeof IMPACT_AREAS)[number], patch: Partial<ImpactScopeDraft[typeof area]>) =>
+    setScopeDraft((d) => ({ ...d, [area]: { ...d[area], ...patch } }));
 
   const [saving, setSaving] = useState(false);
   const [topError, setTopError] = useState<string | null>(null);
@@ -217,6 +269,7 @@ export function ChangeForm({
       impactScheduleDays,
       impactCost,
       targetDate,
+      impactScope: draftToImpactScope(scopeDraft),
     });
     if (!result.ok) {
       setFieldErrors(result.errors);
@@ -391,6 +444,40 @@ export function ChangeForm({
                 <FieldError message={fieldErrors.impact_cost} />
               </div>
             </FormGrid>
+
+            {/* B2: structured impact by area. Not affected = no entry. */}
+            <fieldset className="space-y-2">
+              <legend className="mb-1 block text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                Impact by area
+              </legend>
+              {IMPACT_AREAS.map((area) => (
+                <div key={area} className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_10rem_1fr] sm:items-center">
+                  <span className="text-sm text-ink">{AREA_LABELS[area]}</span>
+                  <SelectInput
+                    aria-label={`${AREA_LABELS[area]} impact`}
+                    value={scopeDraft[area].direction}
+                    onChange={(e) => setArea(area, { direction: e.target.value as ImpactScopeDraft[typeof area]["direction"] })}
+                  >
+                    <option value="">Not affected</option>
+                    {IMPACT_DIRECTIONS.map((d) => (
+                      <option key={d} value={d}>
+                        {DIRECTION_LABELS[d]}
+                      </option>
+                    ))}
+                  </SelectInput>
+                  {scopeDraft[area].direction && (
+                    <Input
+                      aria-label={`${AREA_LABELS[area]} note`}
+                      value={scopeDraft[area].note}
+                      onChange={(e) => setArea(area, { note: e.target.value })}
+                      placeholder="Note (optional)"
+                      className="h-11 sm:h-10 text-base sm:text-sm"
+                    />
+                  )}
+                </div>
+              ))}
+              <FieldError message={fieldErrors.impact_scope} />
+            </fieldset>
 
             {/* Impact Summary — progressive disclosure */}
             {showImpact ? (

@@ -60,6 +60,8 @@ function TextValue({ value }: { value: string | null | undefined }) {
 
 export interface DecisionDetailProps {
   decision: Decision;
+  /** B1: label of the linked change request ("CR-004 Slip the launch"), resolved on the server. */
+  changeRequestLabel?: string | null;
   projectName?: string;
   supersededByRef?: string | null;
   projects: Array<{ id: string; name: string }>;
@@ -67,6 +69,7 @@ export interface DecisionDetailProps {
 
 export function DecisionDetail({
   decision,
+  changeRequestLabel,
   projectName,
   supersededByRef,
   projects,
@@ -127,6 +130,32 @@ export function DecisionDetail({
         {decision.context && decision.context.trim() !== "" && (
           <DetailRow label="Context">
             <TextValue value={decision.context} />
+          </DetailRow>
+        )}
+
+        {decision.change_request_id && (
+          <DetailRow label="Change Request">
+            <a href={"/change-control?cr=" + decision.change_request_id} className="text-accent hover:underline">
+              {changeRequestLabel ?? "Open the change request"}
+            </a>
+          </DetailRow>
+        )}
+
+        {decision.options_structured && decision.options_structured.length > 0 && (
+          <DetailRow label="Options List">
+            <ul className="space-y-1.5">
+              {decision.options_structured.map((o) => (
+                <li key={o.label}>
+                  <span className={o.chosen ? "font-semibold" : undefined}>{o.label}</span>
+                  {o.chosen && (
+                    <Badge tone="success" size="sm" className="ml-2">
+                      Chosen
+                    </Badge>
+                  )}
+                  {o.note && <span className="block text-xs text-ink-secondary">{o.note}</span>}
+                </li>
+              ))}
+            </ul>
           </DetailRow>
         )}
 

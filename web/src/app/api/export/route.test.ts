@@ -28,7 +28,7 @@ vi.mock("@/lib/supabase/admin", () => ({
       const call = { table, ops: [] as Array<[string, unknown[]]> };
       queried.push(call);
       const chain: Record<string, unknown> = {};
-      for (const op of ["select", "eq", "neq", "in", "overlaps", "gte", "lt", "order", "limit", "range"]) {
+      for (const op of ["select", "eq", "neq", "in", "overlaps", "like", "or", "gte", "lt", "order", "limit", "range"]) {
         chain[op] = (...args: unknown[]) => {
           call.ops.push([op, args]);
           return chain;

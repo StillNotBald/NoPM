@@ -49,6 +49,7 @@ Each use case is one file, `UC-NN-<slug>.md`, with a fixed structure: Goal, Acto
 | [UC-24](UC-24-link-lark-account.md) | Link a Lark account | Team member / Approver | governance | Integrations, Identity | see file | — |
 | [UC-25](UC-25-lark-weekly-digest.md) | Lark weekly digest | Admin / Project Manager | easier reporting | Integrations, Notifications | see file | — |
 | [UC-26](UC-26-calendar-feed-subscription.md) | Subscribe to the milestone calendar feed | Team member / Project Manager | presentable multi-project | Calendar, Milestones | see file | — |
+| [UC-27](UC-27-audit-pack.md) | Export an audit pack for a date range | PMO lead / Admin | easier reporting | Change control, Documents, Trust Center | R-138, R-134, R-137 | — |
 
 \* Diagram exists on disk today under this exact filename.
 

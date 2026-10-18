@@ -1947,13 +1947,15 @@ const spec = {
         summary: "Governed CSV export (L-27 / L-36)",
         description:
           "Requires the entity's read scope (task:read, risk:read, issue:read, clash:read, " +
-          "audit:read, program:read, or project:read). entity=members|tokens|identities (access review, R-132) have no scope: " +
+          "audit:read, program:read, project:read, or change:read). entity=members|tokens|identities (access review, R-132) have no scope: " +
           "an admin or manager SESSION only, 403 for any token, member or viewer. members = role/status/mfa_enabled/removed_at/last role change; " +
           "tokens = label/prefix/scopes/creator/expiry/revoked/last_used_at, never the hash; identities = chat-connector links (profile, provider, linked_at, revoked_at). " +
           "from/to (UTC days, inclusive) apply to EVERY entity on created_at, or updated_at with on=updated where the entity has one (R-133). " +
           "entity=audit also carries principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref. " +
           "entity=risks takes impact_area=a,b (any-of) and exports risk_category and impact_areas. Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
+          "entity=change_requests (scope change:read) exports every change request in range, with decision, impact_scope, implemented and evidence columns; on=updated is supported. " +
+          "entity=audit_pack is the audit pack, admin or manager SESSION only (403 for any token, member or viewer): format=csv (default; one file whose first column section is change_requests, evidence, decisions or approvals_audit) or format=pdf; any other format is 422. A change request is in range when raised or decided in range. Each section is capped at 10,000 rows with a TRUNCATED note row. Filename nopm-audit-pack-<date>.csv or .pdf; audited as export.audit_pack. " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
           "export): tasks accept project_id/assignee_id/status_type/priority/" +
@@ -1973,10 +1975,11 @@ const spec = {
           "audited (L-36).",
         operationId: "exportCsv",
         parameters: [
-          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects", "members", "tokens", "identities"] } },
+          { name: "entity", in: "query", required: true, schema: { type: "string", enum: ["tasks", "risks", "issues", "clashes", "audit", "programs", "projects", "members", "tokens", "identities", "change_requests", "audit_pack"] } },
           { name: "from", in: "query", schema: { type: "string", format: "date" }, description: "Inclusive UTC start day, every entity (malformed ignored)" },
           { name: "to", in: "query", schema: { type: "string", format: "date" }, description: "Inclusive UTC end day, every entity (malformed ignored)" },
-          { name: "on", in: "query", schema: { type: "string", enum: ["created", "updated"], default: "created" }, description: "Which date the range filters; updated applies to tasks|risks|issues|clashes|projects only" },
+          { name: "on", in: "query", schema: { type: "string", enum: ["created", "updated"], default: "created" }, description: "Which date the range filters; updated applies to tasks|risks|issues|clashes|projects|change_requests only" },
+          { name: "format", in: "query", schema: { type: "string", enum: ["csv", "pdf"], default: "csv" }, description: "entity=audit_pack only: csv (default) or pdf" },
           { name: "impact_area", in: "query", schema: { type: "string" }, description: "entity=risks: comma list, any-of (schedule|cost|scope|quality|reputation|compliance)" },
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Optional filter for entity=tasks|risks|issues (risks/issues: omitted = whole workspace; a project outside the workspace 404s)" },
           { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — only for entity=tasks|risks|issues|projects (whitelisted per entity, same as the list API)" },
@@ -2003,9 +2006,9 @@ const spec = {
           { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"] }, description: "entity=audit (R-85, lenient — an unrecognized value is dropped, not 422)" },
         ],
         responses: {
-          "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present)", content: { "text/csv": { schema: { type: "string" } } } },
+          "200": { description: "CSV file (RFC 4180, CRLF, BOM, header always present), or a PDF for entity=audit_pack&format=pdf", content: { "text/csv": { schema: { type: "string" } }, "application/pdf": { schema: { type: "string", format: "binary" } } } },
           "403": { description: "Forbidden — missing the entity's read scope", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Invalid/missing entity, or an invalid sort field", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Invalid/missing entity, an invalid sort field, or a format other than csv or pdf", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "project_id not found in this workspace (entity=risks|issues)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
@@ -2276,7 +2279,7 @@ const spec = {
       get: {
         tags: ["documents"],
         summary: "List documents",
-        description: "scope: document:read. Optional filters: ?project_id, ?folder, ?status, ?doc_type.",
+        description: "scope: document:read. Optional filters: ?project_id, ?folder, ?status, ?doc_type, ?change_request_id.",
         operationId: "listDocuments",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -2285,6 +2288,7 @@ const spec = {
           { name: "folder", in: "query", schema: { type: "string" } },
           { name: "status", in: "query", schema: { type: "string" } },
           { name: "doc_type", in: "query", schema: { type: "string" } },
+          { name: "change_request_id", in: "query", schema: { type: "string", format: "uuid" }, description: "Only documents linked to this change request (evidence)" },
         ],
         responses: {
           "200": { description: "Paginated document list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
@@ -2293,9 +2297,9 @@ const spec = {
       post: {
         tags: ["documents"],
         summary: "Create a document",
-        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id (numbers are never reused). Text limits: long text 10,000 chars, body 100,000, external_url 2,000 (422).",
+        description: "scope: document:write. Auto-assigns a DOC-NNN reference_id (numbers are never reused). Text limits: long text 10,000 chars, body 100,000, external_url 2,000 (422). Evidence fields are optional: change_request_id (a change request in the SAME project), evidence_type, evidence_result (needs evidence_type), tested_by_label, tested_at and evidence_note. Evidence without a change request is 422 evidence_needs_change_request; a change request in another project is 422 evidence_link_invalid; one outside the workspace is 422 invalid_reference.",
         operationId: "createDocument",
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "doc_type"], properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "doc_type"], properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, change_request_id: { type: ["string", "null"], format: "uuid", description: "Change request in the SAME project (422 invalid_reference if not in the workspace, 422 evidence_link_invalid if the project differs). null clears all evidence fields." }, evidence_type: { type: ["string", "null"], enum: ["test_result", "uat_signoff", "deploy_record", "screenshot", "other", null] }, evidence_result: { type: ["string", "null"], enum: ["pass", "fail", "partial", "n/a", null], description: "Needs evidence_type (422)." }, tested_by_label: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "Defaults to the caller label when evidence is first recorded." }, tested_at: { type: ["string", "null"], format: "date-time", description: "Defaults to now when evidence is first recorded." }, evidence_note: { type: ["string", "null"], maxLength: 5000 }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
         responses: {
           "201": { description: "Document created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2320,7 +2324,7 @@ const spec = {
         description: "scope: document:write. Bumps version when body changes.",
         operationId: "updateDocument",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, doc_type: { type: "string" }, project_id: { type: "string", format: "uuid" }, folder: { type: "string" }, status: { type: "string" }, summary: { type: "string" }, body: { type: "string" }, change_request_id: { type: ["string", "null"], format: "uuid", description: "Change request in the SAME project (422 invalid_reference if not in the workspace, 422 evidence_link_invalid if the project differs). null clears all evidence fields." }, evidence_type: { type: ["string", "null"], enum: ["test_result", "uat_signoff", "deploy_record", "screenshot", "other", null] }, evidence_result: { type: ["string", "null"], enum: ["pass", "fail", "partial", "n/a", null], description: "Needs evidence_type (422)." }, tested_by_label: { type: ["string", "null"], minLength: 1, maxLength: 200, description: "Defaults to the caller label when evidence is first recorded." }, tested_at: { type: ["string", "null"], format: "date-time", description: "Defaults to now when evidence is first recorded." }, evidence_note: { type: ["string", "null"], maxLength: 5000 }, external_url: { type: "string" }, owner_id: { type: "string", format: "uuid" } } } } } },
         responses: {
           "200": { description: "Updated document", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2388,6 +2392,140 @@ const spec = {
         },
       },
     },
+    "/change-requests": {
+      get: {
+        tags: ["change-requests"],
+        summary: "List change requests across the workspace",
+        description:
+          "scope: change:read. Workspace-wide list of change requests, newest first. Query: project_id (uuid), status (raised | under_review | approved | rejected | deferred | implemented), page, limit (max 100), view (summary default | full), fields (comma list, allow-list in src/lib/api/views.ts; an unknown field is 422).",
+        operationId: "listChangeRequests",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["raised", "under_review", "approved", "rejected", "deferred", "implemented"] } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "view", in: "query", schema: { type: "string", enum: ["summary", "full"], default: "summary" } },
+          { name: "fields", in: "query", schema: { type: "string" }, description: "Comma list of columns; an unknown field is 422" },
+        ],
+        responses: {
+          "200": { description: "Paginated change request list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "422": { description: "Bad status, project_id, view or fields", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/decisions": {
+      get: {
+        tags: ["decisions"],
+        summary: "List decisions across the workspace",
+        description:
+          "scope: decision:read. Workspace-wide list of logged decisions, newest first. Query: project_id (uuid), status (proposed | accepted | superseded | rejected), page, limit (max 100), view (summary default | full), fields (comma list, allow-list in src/lib/api/views.ts; an unknown field is 422).",
+        operationId: "listDecisions",
+        parameters: [
+          { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "status", in: "query", schema: { type: "string", enum: ["proposed", "accepted", "superseded", "rejected"] } },
+          { name: "page", in: "query", schema: { type: "integer", default: 1 } },
+          { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
+          { name: "view", in: "query", schema: { type: "string", enum: ["summary", "full"], default: "summary" } },
+          { name: "fields", in: "query", schema: { type: "string" }, description: "Comma list of columns; an unknown field is 422" },
+        ],
+        responses: {
+          "200": { description: "Paginated decision list", content: { "application/json": { schema: { $ref: "#/components/schemas/SuccessList" } } } },
+          "422": { description: "Bad status, project_id, view or fields", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/projects/{id}/evm": {
+      get: {
+        tags: ["budget"],
+        summary: "Earned-value numbers for a project",
+        description:
+          "scope: budget:read. Earned-value numbers for one project, computed as the Budget page does. schedule_basis says which basis the schedule figures used: baseline_dates or completion_only. cpi, spi, eac, etc and vac are null when they are undefined.",
+        operationId: "getProjectEvm",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Earned-value summary",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: {
+                      type: "object",
+                      properties: {
+                        project_id: { type: "string", format: "uuid" },
+                        currency: { type: "string" },
+                        as_of_date: { type: "string", format: "date" },
+                        schedule_basis: { type: "string", enum: ["baseline_dates", "completion_only"] },
+                        bac: { type: "number" },
+                        pv: { type: "number" },
+                        ev: { type: "number" },
+                        ac: { type: "number" },
+                        committed: { type: "number" },
+                        cv: { type: "number" },
+                        sv: { type: "number" },
+                        cpi: { type: ["number", "null"] },
+                        spi: { type: ["number", "null"] },
+                        eac: { type: ["number", "null"] },
+                        etc: { type: ["number", "null"] },
+                        vac: { type: ["number", "null"] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          "404": { description: "Project not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/change-requests/{id}/implement": {
+      post: {
+        tags: ["change-requests"],
+        summary: "Mark an approved change request implemented",
+        description:
+          "scope: change:write. Allowed for the requester's person, or any admin or manager. Needs a principal: a token with no recorded owner is 403 no_principal; anyone else is 403 not_requester. Moves an APPROVED request to implemented and stamps implemented_at, implemented_by, implemented_by_type/id/label, implemented_principal_id and implemented_note in one transaction with its audit row change_request.implement (nopm_implement_change_request). implemented_at is never earlier than decided_at. Once only: a repeat is 422 already_implemented and the stamp is never rewritten. Any other status is 422 invalid_transition.",
+        operationId: "implementChangeRequest",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { note: { type: ["string", "null"], maxLength: 2000 } } } } } },
+        responses: {
+          "200": { description: "The implemented change request (status implemented)", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not the requester, or an admin or manager (not_requester), or a token with no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "invalid_transition (not approved), already_implemented, or a validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/change-requests/{id}/evidence": {
+      get: {
+        tags: ["change-requests"],
+        summary: "List evidence attached to a change request",
+        description:
+          "scope: document:read. Evidence documents attached to one change request, ordered by tested_at descending (nulls last). Read-only: attach evidence with POST /documents or PATCH /documents/{id} (set change_request_id and the evidence fields; audited as document.create or document.update). Workspace-filtered; 404 when the change request is not in the caller's workspace. Each item carries id, reference_id, title, doc_type, status, version, project_id, change_request_id, evidence_type, evidence_result, tested_by_label, tested_at, evidence_note, external_url, file_name, mime_type, created_at and updated_at.",
+        operationId: "listChangeRequestEvidence",
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "200": {
+            description: "Evidence documents for the change request (not paginated: limit 200)",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    data: { type: "array", items: { type: "object" } },
+                    total: { type: "integer" },
+                    page: { type: "integer", enum: [1] },
+                    limit: { type: "integer", enum: [200] },
+                  },
+                },
+              },
+            },
+          },
+          "404": { description: "Change request not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
     "/projects/{id}/change-requests": {
       get: {
         tags: ["change-requests"],
@@ -2409,8 +2547,8 @@ const spec = {
         description:
           "scope: change:write. Auto-assigns a CR-NNN reference_id. Only `title` is required (category defaults to " +
           "scope, priority to medium, status to raised). `status` may only be raised or under_review: every terminal " +
-          "status needs a decider, so approved / rejected / deferred / implemented are reached through " +
-          "POST /change-requests/{id}/decision — sending one at creation is a 422 validation error, never a raw " +
+          "status needs a decider, so approved / rejected / deferred are reached through " +
+          "POST /change-requests/{id}/decision, and implemented through POST /change-requests/{id}/implement — sending one at creation is a 422 validation error, never a raw " +
           "database error. A token with no recorded owner cannot raise a change request (403, code no_principal): " +
           "a requester with no person behind it is comparable to nobody, so the same person could then decide their " +
           "own request from a session.",
@@ -2450,10 +2588,10 @@ const spec = {
           "decided it is part of the decision record, and editing its impact_cost after approval would rewrite what the " +
           "decider looked at — 422 change_request_decided (raise a new change request instead); the write is a " +
           "compare-and-set on the open statuses, so a decision landing mid-edit wins. Editing a field an approver decides " +
-          "on (title, description, category, priority, impact_summary, impact_schedule_days, impact_cost, target_date) " +
+          "on (title, description, category, priority, impact_summary, impact_schedule_days, impact_cost, impact_scope, target_date) " +
           "bumps the request's updated_at — its content version — and retires any approval card already sent, issuing a " +
           "fresh one with the current content, so a tap on the old card can never approve content it did not show. " +
-          "Editing raised_at alone re-issues nothing.",
+          "Editing raised_at alone re-issues nothing. impact_scope is an optional array (one entry per area, max 6: area, direction, note); editing it on an open request re-issues the approval card the same way.",
         operationId: "updateChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: zodBody(updateChangeRequestSchema),
@@ -2527,10 +2665,10 @@ const spec = {
       post: {
         tags: ["decisions"],
         summary: "Log a decision under a project",
-        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id (numbers are never reused). Long text is limited to 10,000 chars (422).",
+        description: "scope: decision:write. Auto-assigns a DEC-NNN reference_id (numbers are never reused). Long text is limited to 10,000 chars (422). Optional change_request_id must name a change request in this workspace on the same project (422 invalid_reference); options_structured is an optional list of options with at most one chosen.",
         operationId: "createDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["title", "status"], properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, change_request_id: { type: ["string", "null"], format: "uuid", description: "A change request in this workspace on the SAME project (422 invalid_reference otherwise). Link it while the decision is proposed, or when recording it." }, options_structured: { type: "array", maxItems: 20, description: "At most one chosen; labels unique (case-insensitive). The free-text options field stays and both are returned.", items: { type: "object", required: ["label"], properties: { label: { type: "string", minLength: 1, maxLength: 200 }, chosen: { type: "boolean", default: false }, note: { type: ["string", "null"], maxLength: 2000 } } } }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
         responses: {
           "201": { description: "Decision created", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "422": { description: "Validation error", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -2552,10 +2690,10 @@ const spec = {
       patch: {
         tags: ["decisions"],
         summary: "Update a decision",
-        description: "scope: decision:write. `supersedes` must name another decision in this workspace; a decision cannot supersede itself (422 validation error on fields[supersedes]).",
+        description: "scope: decision:write. `supersedes` must name another decision in this workspace; a decision cannot supersede itself (422 validation error on fields[supersedes]). Refused on an accepted or superseded decision, so link change_request_id or structured options while it is proposed.",
         operationId: "updateDecision",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
-        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", properties: { title: { type: "string" }, context: { type: "string" }, options: { type: "string" }, decision: { type: "string" }, rationale: { type: "string" }, status: { type: "string" }, decided_at: { type: "string", format: "date-time" }, supersedes: { type: "string", format: "uuid" }, source: { type: "string", pattern: "^[a-z0-9][a-z0-9_-]{0,39}$", description: "System of work this record mirrors (e.g. jira, slack, teams); NoPM is the governed record beside it" }, external_ref: { type: "string", minLength: 1, maxLength: 200 }, change_request_id: { type: ["string", "null"], format: "uuid", description: "A change request in this workspace on the SAME project (422 invalid_reference otherwise). Link it while the decision is proposed, or when recording it." }, options_structured: { type: "array", maxItems: 20, description: "At most one chosen; labels unique (case-insensitive). The free-text options field stays and both are returned.", items: { type: "object", required: ["label"], properties: { label: { type: "string", minLength: 1, maxLength: 200 }, chosen: { type: "boolean", default: false }, note: { type: ["string", "null"], maxLength: 2000 } } } }, external_url: { type: "string", format: "uri", maxLength: 2000 } } } } } },
         responses: {
           "200": { description: "Updated decision", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },

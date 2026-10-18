@@ -42,6 +42,19 @@ Rows added when wave 2 starts.
 
 | Change | Kind | Where | Why | Agent | Status |
 |---|---|---|---|---|---|
+| Change request gains a "Mark implemented" action on an approved request, with an optional note. Requester, manager or admin only. It records the date and person and cannot be done twice. | added | Change Control, request detail | M2, assumption A2 | W2-A | planned | planned |
+| New status "Implemented" appears on change requests, with its own filter chip and count. An implemented request can no longer be edited or deleted. | added | Change Control list and detail | M2 | W2-A | planned | planned |
+| The earlier answer "remove implemented" is superseded: `implemented` is back as an explicit action, not an automatic status. | behaviour | Change request statuses | Assumption A2 | W2-A | planned | planned |
+| Change request gains "Impact by area" (scope, schedule, cost, quality, resources, compliance, each increase / decrease / neutral, with a note). Free-text impact summary stays. Editing it on a pending request re-issues the approval card. | added | Change request form and detail | B2 | W2-A | planned | planned |
+| Decision form gains a Change request picker and an options list with one "Chosen" option. The decision detail and the change request detail show the link ("Decisions: n"). Free-text options stay. | added | Decisions, Change Control | B1 | W2-A | planned | planned |
+| Change request detail gains an Evidence panel (type, result, tester, date, link) with "Attach evidence". Document form gains an Evidence section; the document viewer shows it. | added | Change Control, Documents | M4 | W2-B | planned | planned |
+| Documents can be filtered by change request through the API; evidence fields are refused without a change request. | behaviour | Documents API | M4 | W2-B | planned | planned |
+| New "Audit pack" button with a date range, CSV or PDF, for admin and manager only. | added | Change Control page, Trust Center | M3 | W2-C | planned | planned |
+| Export gains a `change_requests` entity (CSV) with approver, decision, impact, implemented date, evidence counts and linked decisions. | added | Export API | M3 | W2-C | planned | planned |
+| Every audit pack download is recorded in the audit trail as "export.audit_pack". | added | Trust Center activity stream | M3 | W2-C | planned | planned |
+| New read-only AI tools: list change requests, get one, list decisions, get a document, get earned-value numbers. The assistant scope ceiling gains read access to decisions and documents only. No tool can decide or approve. | added | MCP server, in-app assistant | B7 | W2-D | planned | planned |
+| New read-only addresses: list change requests, list decisions, project earned-value numbers. Lists are lean by default. | added | API | B7 | W2-D | planned | planned |
+| Migrations 0092, 0093, 0094 must be applied before the new build is deployed. | behaviour | Release | Release order | lead | planned | planned |
 
 ## Wave 3 — runs without you
 

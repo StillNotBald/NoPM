@@ -14,11 +14,13 @@ import {
   STATUS_LABEL,
   buildChangePayload,
   validateChangeForm,
+  draftToImpactScope,
+  impactScopeToDraft,
   type CRStatus,
   type ChangeFormValues,
 } from "./change-form";
 
-const ALL_STATUSES: CRStatus[] = ["raised", "under_review", "approved", "rejected", "deferred"];
+const ALL_STATUSES: CRStatus[] = ["raised", "under_review", "approved", "rejected", "deferred", "implemented"];
 
 const values: ChangeFormValues = {
   title: "  Extend the pilot by two weeks  ",
@@ -112,5 +114,33 @@ describe("edit", () => {
     const { status: _createOnly, ...create } = buildChangePayload("create", values);
     void _createOnly;
     expect(buildChangePayload("edit", values)).toEqual(create);
+  });
+});
+
+describe("B2 - structured impact by area", () => {
+  it("sends impact_scope when the form holds a list, null when it is emptied, nothing when untouched", () => {
+    const list = [{ area: "scope" as const, direction: "increase" as const, note: null }];
+    expect(buildChangePayload("create", { ...values, impactScope: list }).impact_scope).toEqual(list);
+    expect(buildChangePayload("edit", { ...values, impactScope: [] }).impact_scope).toBeNull();
+    expect(buildChangePayload("edit", values)).not.toHaveProperty("impact_scope");
+  });
+
+  it("round-trips through the per-area draft; an area left on Not affected is dropped", () => {
+    const stored = [
+      { area: "cost" as const, direction: "increase" as const, note: "licence" },
+      { area: "quality" as const, direction: "neutral" as const, note: null },
+    ];
+    const draft = impactScopeToDraft(stored);
+    expect(draft.scope.direction).toBe("");
+    expect(draftToImpactScope(draft)).toEqual(stored);
+  });
+
+  it("validates the list with the same schema the endpoint uses", () => {
+    const bad = validateChangeForm("create", {
+      ...values,
+      impactScope: [{ area: "scope", direction: "increase", note: null }, { area: "scope", direction: "decrease", note: null }],
+    });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors).toHaveProperty("impact_scope");
   });
 });

@@ -43,6 +43,9 @@ const ID_ARGS: Record<string, string[]> = {
   create_issue: ["project_id"],
   update_issue: ["issue_id"],
   get_budget: ["project_id"],
+  get_evm: ["project_id"],
+  get_change_request: ["change_request_id"],
+  get_document: ["document_id"],
 };
 
 const HOSTILE_IDS = [

@@ -103,15 +103,24 @@ Tool definitions live in [`tools.mjs`](./tools.mjs) — the **same registry the 
 | `create_issue` | POST /api/projects/:id/issues | `issue:write` |
 | `update_issue` | PATCH /api/issues/:id | `issue:write` |
 | `get_budget` | GET /api/projects/:id/budget | `budget:read` |
+| `get_evm` | GET /api/projects/:id/evm (BAC, AC, EV, PV, CV, SV, CPI, SPI, EAC, ETC, VAC, committed; same numbers as the Budget page) | `budget:read` |
+| `list_change_requests` | GET /api/change-requests (filters `project_id`, `status`; `view` / `fields`) | `change:read` |
+| `get_change_request` | GET /api/change-requests/:id | `change:read` |
+| `list_decisions` | GET /api/decisions (filters `project_id`, `status`; `view` / `fields`) | `decision:read` |
+| `get_document` | GET /api/documents/:id (metadata, `external_url`, stored text body; never file bytes) | `document:read` |
 | `list_clashes` | GET /api/clashes | `clash:read` |
 | `list_resources` | GET /api/resources | `resource:read` |
 | `search_workspace` | GET /api/search | `project:read` |
 | `query_audit` | GET /api/audit | `audit:read` |
 | `list_pending_approvals` | GET /api/review (read-only — lists, never decides) | any of `task:read` / `audit:read` / `change:read` / `project:read`; each kind needs its own read scope, others are named in `hidden_kinds` |
 
+### Decision prep (read-only)
+
+An assistant can gather what a person needs before deciding a change request: `list_change_requests` and `get_change_request` for the request and its impact, `list_decisions` for earlier decisions on the same project, `get_document` for a charter or plan, and `get_evm` for the cost position. All five are GET-only and need read scopes only. There is deliberately no approve or decide tool: a person decides in the console.
+
 ### Lean list payloads (`view` / `fields`)
 
-`list_projects`, `list_tasks`, `list_milestones`, `list_risks` and `list_issues` return a **summary** column set by default (ids, names or titles, status, owner, dates, completion, `updated_at`; no charter text, lock detail or `source` / `external_ref`). This keeps a 20-row page small enough to leave room for the agent's own reasoning.
+`list_projects`, `list_tasks`, `list_milestones`, `list_risks`, `list_issues`, `list_change_requests` and `list_decisions` return a **summary** column set by default (ids, names or titles, status, owner, dates, completion, `updated_at`; no charter text, lock detail or `source` / `external_ref`). This keeps a 20-row page small enough to leave room for the agent's own reasoning.
 
 | Argument | Effect |
 |---|---|

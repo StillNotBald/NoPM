@@ -69,6 +69,8 @@ agents_cannot_unlock, connector_not_active, delivery_not_dead, delivery_already_
   defer need a rationale. A deferred request is parked: POST /change-requests/{id}/reopen returns it to under_review.
 - Decisions and documents are tier B: only a manager or admin marks a decision accepted or approves a document, and a
   document's author cannot approve it. Accepted decisions cannot be edited or deleted; supersede them instead.
+- Implemented: POST /change-requests/{id}/implement moves an APPROVED request to implemented. The requester, an admin or a manager may do it, once only (422 already_implemented); the stamp is never rewritten.
+- Evidence: a document linked to a change request (change_request_id, same project) carries test results, UAT sign-offs or deploy records. Evidence fields without a change request are 422 evidence_needs_change_request.
 - Tokens: expires_at defaults to now + 90 days (max 365); GET /tokens adds days_left and expiring_soon. Two-step is
   required for admins and managers after a 14-day grace (GET /auth/mfa shows required, in_grace, grace_days_left, must_enrol);
   tokens keep working. Session length is a Supabase dashboard setting.
@@ -358,23 +360,26 @@ PATCH  /projects/{id}/budget               — scope:budget:write — PARTIAL up
 GET    /projects/{id}/expenses             — scope:budget:read  — list expenses for a project
 POST   /projects/{id}/expenses             — scope:budget:write — create an expense for a project
 DELETE /expenses/{id}                      — scope:budget:write — delete an expense
+GET     /projects/{id}/evm                  — scope:budget:read — earned-value numbers as the Budget page computes them: bac, pv, ev, ac, committed, cv, sv, cpi, spi, eac, etc, vac (cpi, spi, eac, etc, vac null when undefined) plus schedule_basis (baseline_dates | completion_only).
 
-GET    /documents                          — scope:document:read  — list documents (?project_id, ?doc_type, ?status filters)
-POST   /documents                          — scope:document:write — create a document record
+GET    /documents                          — scope:document:read  — list documents (?project_id, ?doc_type, ?status, ?change_request_id filters)
+POST   /documents                          — scope:document:write — create a document record. Optional evidence fields: change_request_id (same project; evidence needs one), evidence_type (test_result|uat_signoff|deploy_record|screenshot|other), evidence_result (pass|fail|partial|n/a; needs evidence_type), tested_by_label, tested_at, evidence_note
 GET    /documents/{id}                     — scope:document:read  — get a document
-PATCH  /documents/{id}                     — scope:document:write — update a document
+PATCH  /documents/{id}                     — scope:document:write — update a document (same evidence fields as create; change_request_id null clears them)
 DELETE /documents/{id}                     — scope:document:write — delete a document
 GET    /documents/{id}/file                — scope:document:read  — download the attached file
 POST   /documents/{id}/file                — scope:document:write — attach an uploaded file (path, file_name, mime_type, file_size)
 DELETE /documents/{id}/file                — scope:document:write — detach the file
 POST   /documents/{id}/file/sign           — scope:document:write — get a signed upload URL (max 25 MiB)
 
+GET     /decisions                          — scope:decision:read  — workspace-wide decision list, newest first. Filters: project_id, status (proposed|accepted|superseded|rejected). ?view=summary|full, ?fields=a,b,c (unknown field 422). Paginated.
 GET    /projects/{id}/decisions            — scope:decision:read  — list decisions for a project. Filters: ?source, ?external_ref (complement seam, R-81 — both exact-match).
-POST   /projects/{id}/decisions            — scope:decision:write — record a decision
+POST   /projects/{id}/decisions            — scope:decision:write — record a decision. Optional change_request_id (a change request in this workspace on the same project) and options_structured (up to 20 options, at most one chosen)
 GET    /decisions/{id}                     — scope:decision:read  — get a decision
-PATCH  /decisions/{id}                     — scope:decision:write — update a decision
+PATCH  /decisions/{id}                     — scope:decision:write — update a decision (refused once accepted or superseded)
 DELETE /decisions/{id}                     — scope:decision:write — delete a decision (422 decision_in_use if another decision supersedes it)
 
+GET     /change-requests                    — scope:change:read  — workspace-wide change request list, newest first. Filters: project_id, status (raised|under_review|approved|rejected|deferred|implemented). ?view=summary|full, ?fields=a,b,c (unknown field 422). Paginated: page, limit (max 100).
 GET    /projects/{id}/change-requests      — scope:change:read  — list change requests for a project
 POST   /projects/{id}/change-requests      — scope:change:write — raise a change request. Only title is required; status may only be raised|under_review (default raised) — any other value is a 422, never a raw database error
 GET    /change-requests/{id}               — scope:change:read  — get a change request
@@ -383,6 +388,8 @@ DELETE /change-requests/{id}               — scope:change:write — delete a c
 POST   /change-requests/{id}/decision      — scope:change:decide — decide a change request (admins and managers only — 403 role_not_permitted; approve | reject | defer + rationale, audited); the decider must be a different PERSON from the requester (principal compare plus the legacy actor checks) — 403 self_approval otherwise, 403 no_principal for a token with no recorded owner; the update is a compare-and-set, so a request already decided (or lost to a racing decider) is 422 already_decided
 POST   /change-requests/{id}/review        — scope:change:decide — start review: raised -> under_review (admins and managers only; audited change_request.start_review)
 POST   /change-requests/{id}/reopen        — scope:change:write — reopen a DEFERRED change request to under_review (the requester or an admin/manager; a deferral is parked, not final; audited change_request.reopen)
+POST    /change-requests/{id}/implement     — scope:change:write — mark an APPROVED change request implemented (the requester, or any admin or manager; no recorded owner is 403 no_principal; 422 invalid_transition unless approved; 422 already_implemented on a repeat, never re-stamped; body { note? } max 2000; audited change_request.implement)
+GET     /change-requests/{id}/evidence      — scope:document:read — evidence documents for one change request, newest test first. Read-only; attach evidence with POST or PATCH /documents (change_request_id + evidence_type, evidence_result, tested_by_label, tested_at, evidence_note).
 
 GET    /projects/{id}/rebaselines          — scope:project:read  — list rebaseline records for a project
 POST   /projects/{id}/rebaselines          — scope:project:write — propose a rebaseline (reason required); 403 no_principal for a token with no recorded owner; 409 pending_rebaseline_exists ("This project already has a rebaseline waiting for sign-off") when one is already awaiting sign-off; 409 rebaseline_version_conflict ("Another rebaseline proposal was created at the same moment. Reload and try again.") when two proposals race (distinct from pending_rebaseline_exists). Lifecycle: draft -> pending_approval -> approved -> applied, or pending_approval -> rejected, or pending_approval / approved -> cancelled when the project is unlocked (applied, rejected and cancelled are terminal)
@@ -406,7 +413,8 @@ GET    /search                            — scope:project:read — full-worksp
 GET    /timeline                           — scope:project:read — the Mainline portfolio graph (every artifact + task-dependency DAG in one governed read)
 GET    /metrics/time-in-status             — scope:task:read — per-task status-span history (?task_id, ?project_id, ?date_from/?date_to entered_at window, ?limit)
 
-GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|programs|projects|members|tokens|identities (required; members/tokens/identities = access review, admin or manager SESSION only, 403 for any token; tokens never export the hash). from/to (UTC days, inclusive) and on=created|updated apply to EVERY entity. risks also take impact_area=a,b (any-of) and export risk_category + impact_areas. Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id OPTIONAL (omitted = whole workspace) + status/severity(/priority for issues)/q/sort; projects: rag_status/phase/program_id/q/sort; clashes: none; audit: target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, lenient — bad value dropped, not 422; after_id NOT supported here); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel, request_id, principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+GET    /export                             — scope:<entity>:read — governed CSV export (L-27/L-36). ?entity=tasks|risks|issues|clashes|audit|programs|projects|members|tokens|identities|change_requests|audit_pack (required; members/tokens/identities = access review, admin or manager SESSION only, 403 for any token; tokens never export the hash). from/to (UTC days, inclusive) and on=created|updated apply to EVERY entity. risks also take impact_area=a,b (any-of) and export risk_category + impact_areas. Reuses the SAME filter/sort params as each entity's list API (tasks: project_id/assignee_id/status_type/priority/due_before/due_after/overdue/q/sort; risks/issues: project_id OPTIONAL (omitted = whole workspace) + status/severity(/priority for issues)/q/sort; projects: rag_status/phase/program_id/q/sort; clashes: none; audit: target_type/target_id/action/actor_id/channel (R-82)/since/order (R-85, lenient — bad value dropped, not 422; after_id NOT supported here); programs: none, fixed name asc). Streams text/csv, filename nopm-<entity>-<date>.csv (server-derived date). entity=audit CSV columns include channel, request_id, principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref. Capped at 10,000 rows (truncation noted in a final CSV row + server log). Writes one audit_log row per export (action export.csv, target_type=entity) — exporting the audit log is itself audited.
+  audit_pack: GET /api/export?entity=audit_pack&from=&to=&format=csv|pdf — admin or manager SESSION only (403 for any token, member, viewer). One CSV (first column section = change_requests | evidence | decisions | approvals_audit) or a PDF: every change request raised or decided in range with approver, evidence, implemented date, plus the change audit trail. Audited as export.audit_pack.
 
 GET    /reports/deck                       — scope:audit:read AND budget:read (both required — the deck carries budget figures) — portfolio deck (?format=pptx|pdf|html)
 POST   /reports/deck                       — scope:audit:read AND budget:read (both required) — portfolio deck (POST variant)

@@ -79,7 +79,21 @@ export const PATCH = route(async ({ actor, params, request }) => {
   // workspace (see the matching note on POST /api/projects/:id/decisions).
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "decisions", id: input.supersedes, field: "supersedes" },
+    // B1: the linked change request must be in this workspace and, when the decision
+    // sits on a project, on that same project.
+    {
+      table: "change_requests",
+      id: input.change_request_id,
+      field: "change_request_id",
+      ...(existing.project_id ? { match: { project_id: existing.project_id as string } } : {}),
+    },
   ]);
+  // A decision with no project cannot be tied to a project's change request.
+  if (input.change_request_id && !existing.project_id) {
+    return validationError("Validation failed", [
+      { field: "change_request_id", message: "decision has no project, so it cannot be linked to a change request" },
+    ]);
+  }
   if (input.supersedes) {
     await assertNoSupersedeLoop(db, actor.workspaceId, input.supersedes, params.id);
   }
@@ -93,6 +107,8 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.status !== undefined) updates.status = input.status;
   if (input.decided_at !== undefined) updates.decided_at = input.decided_at;
   if (input.supersedes !== undefined) updates.supersedes = input.supersedes;
+  if (input.change_request_id !== undefined) updates.change_request_id = input.change_request_id;
+  if (input.options_structured !== undefined) updates.options_structured = input.options_structured;
   // ── complement seam (0041, R-81) ────────────────────────────────────────────
   if (input.source !== undefined) updates.source = input.source;
   if (input.external_ref !== undefined) updates.external_ref = input.external_ref;

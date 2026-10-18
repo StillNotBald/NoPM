@@ -13,7 +13,7 @@
 
 import { RuleError } from "@/lib/api/errors";
 
-export type ViewEntity = "projects" | "tasks" | "milestones" | "risks" | "issues";
+export type ViewEntity = "projects" | "tasks" | "milestones" | "risks" | "issues" | "change_requests" | "decisions";
 
 /** Columns a caller may pick with `fields=` (and what `view=full` returns). */
 export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
@@ -48,6 +48,18 @@ export const FULL_COLUMNS: Record<ViewEntity, readonly string[]> = {
     "issue_category", "impact", "resolution", "resolution_eta", "resolved_at", "owner_id", "status",
     "raised_at", "due_date", "created_at", "updated_at", "source", "external_ref", "external_url",
   ],
+  // Columns that exist today; a column added by a later migration joins this list when it ships.
+  change_requests: [
+    "id", "workspace_id", "project_id", "reference_id", "title", "description", "category", "priority", "status",
+    "impact_summary", "impact_schedule_days", "impact_cost", "impact_scope", "requested_by", "requested_by_label",
+    "decided_by", "decided_by_label", "decision_rationale", "raised_at", "decided_at", "implemented_at",
+    "implemented_by_label", "implemented_note", "target_date", "created_at", "updated_at",
+  ],
+  decisions: [
+    "id", "workspace_id", "project_id", "reference_id", "title", "context", "options", "decision", "rationale",
+    "status", "decided_by", "decided_by_label", "decided_at", "supersedes", "source", "external_ref",
+    "external_url", "change_request_id", "options_structured", "created_at", "updated_at",
+  ],
 };
 
 /** The default list payload: enough to scan, filter and link; no long text, no lock detail, no seam columns. */
@@ -71,6 +83,14 @@ export const SUMMARY_COLUMNS: Record<ViewEntity, readonly string[]> = {
   issues: [
     "id", "reference_id", "project_id", "title", "severity", "priority", "status", "issue_category",
     "owner_id", "due_date", "updated_at",
+  ],
+  change_requests: [
+    "id", "reference_id", "project_id", "title", "category", "priority", "status", "impact_schedule_days",
+    "impact_cost", "requested_by_label", "decided_by_label", "raised_at", "decided_at", "implemented_at", "updated_at",
+  ],
+  decisions: [
+    "id", "reference_id", "project_id", "title", "status", "decided_by_label", "decided_at", "supersedes",
+    "change_request_id", "updated_at",
   ],
 };
 

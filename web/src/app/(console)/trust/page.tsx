@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardBody } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageContainer } from "@/components/ui/page-container";
+import { AuditPackPanel } from "@/components/export/audit-pack-panel";
 import { ExportCsvButton } from "@/components/export-csv-button";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -141,6 +142,9 @@ export default async function TrustPage({
     data: { user },
   } = await db.auth.getUser();
   if (!user) redirect("/login");
+  // Audit pack button: admin or manager only (the export route enforces the same rule).
+  const { data: viewerProfile } = await db.from("profiles").select("role").eq("id", user.id).maybeSingle();
+  const canAuditPack = viewerProfile?.role === "admin" || viewerProfile?.role === "manager";
 
   // Reuses the SAME filter-parsing single source of truth as GET /audit and
   // GET /api/export?entity=audit — an unrecognized channel (or any other
@@ -247,6 +251,8 @@ export default async function TrustPage({
           </>
         }
       />
+
+      {canAuditPack && <AuditPackPanel />}
 
       {/* Error state */}
       {error && <QueryError what="audit log" message={error.message} className="p-0" />}

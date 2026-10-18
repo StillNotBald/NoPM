@@ -6,9 +6,17 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { updateDocumentSchema } from "@/app/api/documents/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
+import { assertEvidenceLink, clearedEvidence } from "@/lib/documents/evidence";
 import { approvalIsStale, assertMayApproveDocument, documentContentChanged } from "@/lib/documents/approval";
 
 export const runtime = "nodejs";
+
+/**
+ * Columns GET /api/documents/:id returns: every column except `storage_path`, the internal
+ * bucket path. A file is fetched through /file or /file/sign, which are scoped and audited.
+ */
+const DOCUMENT_GET_COLUMNS =
+  "id,workspace_id,project_id,reference_id,folder,title,doc_type,status,version,summary,body,external_url,owner_id,created_by,created_at,updated_at,file_name,mime_type,file_size,change_request_id,evidence_type,evidence_result,tested_by_label,tested_at,evidence_note";
 
 /** GET /api/documents/:id — fetch a single document. */
 export const GET = route(async ({ actor, params }) => {
@@ -18,7 +26,7 @@ export const GET = route(async ({ actor, params }) => {
 
   const { data: row, error } = await db
     .from("documents")
-    .select("*")
+    .select(DOCUMENT_GET_COLUMNS)
     .eq("id", params.id)
     .eq("workspace_id", actor.workspaceId)
     .maybeSingle();
@@ -73,6 +81,9 @@ export const PATCH = route(async ({ actor, params, request }) => {
     { table: "profiles", id: input.owner_id, field: "owner_id" },
   ]);
 
+  // M4: the evidence link must stay inside this workspace and this project.
+  await assertEvidenceLink(db, actor.workspaceId, existing, input);
+
   // Build only the fields provided in the patch.
   const updates: Record<string, unknown> = {};
   if (input.project_id   !== undefined) updates.project_id   = input.project_id;
@@ -83,6 +94,23 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.summary      !== undefined) updates.summary      = input.summary;
   if (input.external_url !== undefined) updates.external_url = input.external_url;
   if (input.owner_id     !== undefined) updates.owner_id     = input.owner_id;
+
+  for (const k of ["change_request_id", "evidence_type", "evidence_result", "tested_by_label", "tested_at", "evidence_note"] as const) {
+    if (input[k] !== undefined) updates[k] = input[k];
+  }
+  const effectiveCr = input.change_request_id !== undefined ? input.change_request_id : existing.change_request_id;
+  if (!effectiveCr) {
+    // Unlinked: the document carries no evidence fields.
+    Object.assign(updates, clearedEvidence(existing));
+  } else {
+    const type = input.evidence_type !== undefined ? input.evidence_type : existing.evidence_type;
+    if (type && input.evidence_type !== undefined && existing.evidence_type == null) {
+      // Evidence newly recorded: stamp the tester and time unless the caller gave them.
+      if (input.tested_by_label === undefined && !existing.tested_by_label) updates.tested_by_label = actor.label ?? null;
+      if (input.tested_at === undefined && !existing.tested_at) updates.tested_at = new Date().toISOString();
+    }
+    if (!type) updates.evidence_result = null;
+  }
 
   // Q-GOV-14: editing an approved document returns it to draft.
   if (approvalIsStale(existing.status, input.status, contentChanged)) {

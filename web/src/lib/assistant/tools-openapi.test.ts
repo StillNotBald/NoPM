@@ -79,6 +79,11 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   search_workspace:     { query: "kanban" },
   query_audit:          {},
   list_pending_approvals: {},
+  get_evm:              { project_id: FAKE_UUID },
+  list_change_requests: { project_id: FAKE_UUID, status: "raised" },
+  get_change_request:   { change_request_id: FAKE_UUID },
+  list_decisions:       { project_id: FAKE_UUID, status: "accepted" },
+  get_document:         { document_id: FAKE_UUID },
 };
 
 // Typed view of the spec paths for easier narrowing

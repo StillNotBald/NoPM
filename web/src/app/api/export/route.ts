@@ -1,10 +1,15 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
+import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { writeAudit } from "@/lib/audit/write";
 import { workspaceToday } from "@/lib/integrations/time-zone";
 import { toCsv } from "@/lib/export/csv";
+import {
+  CHANGE_REQUEST_COLUMNS, AUDIT_PACK_COLUMNS, auditPackCsvRows, fetchChangeRequestRows,
+  changeRequestRangeFilter, gatherAuditPack, profileLabels, type ExportDb,
+} from "@/lib/export/audit-pack";
+import { renderAuditPackPdf } from "@/lib/reports/pdf";
 import { RISK_SELECT } from "@/lib/api/views";
 import { parseSort, orderOptions } from "@/lib/api/sort";
 import { TASK_SORT_FIELDS, parseTaskFilters } from "@/app/api/tasks/_query";
@@ -50,6 +55,7 @@ const ENTITY_SCOPES = {
   audit: "audit:read",
   programs: "program:read",
   projects: "project:read",
+  change_requests: "change:read",
 } as const;
 
 /**
@@ -66,7 +72,7 @@ type Entity = ScopedEntity | AdminEntity;
 
 /** Entities that carry an updated_at, so `on=updated` can filter on it. */
 const HAS_UPDATED_AT: ReadonlySet<Entity> = new Set<Entity>([
-  "tasks", "risks", "issues", "clashes", "projects",
+  "tasks", "risks", "issues", "clashes", "projects", "change_requests",
 ]);
 
 function isAdminEntity(e: Entity): e is AdminEntity {
@@ -81,7 +87,8 @@ function rangeColumnFor(entity: Entity, range: ExportRange): string {
   });
 }
 
-const ENTITY_COLUMNS: Record<Entity, string[]> = {
+const ENTITY_COLUMNS: Record<Entity, readonly string[]> = {
+  change_requests: CHANGE_REQUEST_COLUMNS,
   // M5 access review. Email is exported because GET /api/members returns it
   // to the same admin/manager audience. No secrets, no backup codes.
   members: [
@@ -382,7 +389,7 @@ async function fetchAuditRows(
   // principal_label: ONE profiles lookup for every distinct principal on the
   // page (no N+1). Unknown principals (deleted profile, system) stay blank.
   const labels = await profileLabels(
-    db,
+    db as unknown as ExportDb,
     workspaceId,
     rows.map((r) => r.principal_id),
   );
@@ -401,23 +408,14 @@ function rangeFilters(range: ExportRange): Record<string, unknown> {
   return { from: range.from, to: range.to, on: range.from || range.to ? range.on : undefined };
 }
 
-/** profile id -> display name for the given ids, one query, workspace-scoped. */
-async function profileLabels(db: Db, workspaceId: string, ids: unknown[]): Promise<Map<string, string>> {
-  const distinct = [...new Set(ids.filter((v): v is string => typeof v === "string" && v.length > 0))];
-  const out = new Map<string, string>();
-  if (distinct.length === 0) return out;
-  for (let i = 0; i < distinct.length; i += ID_CHUNK) {
-    const { data, error } = await db
-      .from("profiles")
-      .select("id, display_name, email")
-      .eq("workspace_id", workspaceId)
-      .in("id", distinct.slice(i, i + ID_CHUNK));
-    if (error) throw new Error(`Export query failed: ${error.message}`);
-    for (const p of (data ?? []) as { id: string; display_name: string | null; email: string | null }[]) {
-      out.set(p.id, p.display_name || p.email || "");
-    }
-  }
-  return out;
+async function fetchChangeRequestsRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
+  // Same selection rule as the audit pack (raised, decided or implemented in range);
+  // on=updated keeps its meaning and filters on updated_at.
+  const packFilter = changeRequestRangeFilter(range);
+  const { rows, total } = await fetchChangeRequestRows(db as unknown as ExportDb, workspaceId, (q, hasImpl) =>
+    range.on === "updated" ? applyExportRange(q, range, "updated_at") : packFilter(q, hasImpl),
+  );
+  return { rows, total, filters: rangeFilters(range) };
 }
 
 async function fetchMembersRows(workspaceId: string, db: Db, range: ExportRange): Promise<FetchResult> {
@@ -478,7 +476,7 @@ async function fetchTokensRows(workspaceId: string, db: Db, range: ExportRange):
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
   const rows = (data ?? []) as Record<string, unknown>[];
-  const labels = await profileLabels(db, workspaceId, rows.map((r) => r.created_by));
+  const labels = await profileLabels(db as unknown as ExportDb, workspaceId, rows.map((r) => r.created_by));
   for (const r of rows) {
     r.label = r.name;
     r.scopes = Array.isArray(r.scopes) ? (r.scopes as string[]).join(" ") : "";
@@ -497,7 +495,7 @@ async function fetchIdentitiesRows(workspaceId: string, db: Db, range: ExportRan
     .range(0, MAX_EXPORT_ROWS - 1);
   if (error) throw new Error(`Export query failed: ${error.message}`);
   const rows = (data ?? []) as Record<string, unknown>[];
-  const labels = await profileLabels(db, workspaceId, rows.map((r) => r.profile_id));
+  const labels = await profileLabels(db as unknown as ExportDb, workspaceId, rows.map((r) => r.profile_id));
   for (const r of rows) {
     r.profile_label = typeof r.profile_id === "string" ? (labels.get(r.profile_id) ?? "") : "";
   }
@@ -528,6 +526,8 @@ async function fetchEntityRows(
       return fetchProgramsRows(workspaceId, db, range);
     case "projects":
       return fetchProjectsRows(sp, workspaceId, db, range);
+    case "change_requests":
+      return fetchChangeRequestsRows(workspaceId, db, range);
     case "members":
       return fetchMembersRows(workspaceId, db, range);
     case "tokens":
@@ -537,13 +537,82 @@ async function fetchEntityRows(
   }
 }
 
+/** The audit pack is for an external auditor: admin or manager SESSION only (a token gets 403). */
+function assertCanExportAuditPack(actor: { type: string; role?: string | null }): void {
+  if (actor.type !== "user" || !["admin", "manager"].includes(actor.role ?? "")) {
+    throw new ScopeError("The audit pack requires an admin or manager session");
+  }
+}
+
+async function auditPackResponse(
+  actor: Parameters<typeof writeAudit>[0]["actor"],
+  url: URL,
+  today: string,
+): Promise<Response> {
+  const format = url.searchParams.get("format") ?? "csv";
+  if (format !== "csv" && format !== "pdf") throw new RuleError("format must be csv or pdf");
+  const range = parseExportRange(url.searchParams);
+  const pack = await gatherAuditPack(
+    createAdminClient() as unknown as ExportDb,
+    actor.workspaceId,
+    range,
+    actor.label,
+  );
+
+  // Render first: an audit row must not exist for a download that failed to build.
+  let body: Uint8Array | string;
+  if (format === "pdf") {
+    body = new Uint8Array(renderAuditPackPdf(pack));
+  } else {
+    const csvRows = auditPackCsvRows(pack);
+    if (pack.truncated) {
+      console.warn(`[nopm] audit pack truncated: workspace=${actor.workspaceId} cap=${MAX_EXPORT_ROWS}`);
+      const note: unknown[] = AUDIT_PACK_COLUMNS.map(() => "");
+      note[0] = "note";
+      note[1] = `# TRUNCATED: a section hit the cap of ${MAX_EXPORT_ROWS} rows. Narrow the date range.`;
+      csvRows.push(note);
+    }
+    body = toCsv([...AUDIT_PACK_COLUMNS], csvRows);
+  }
+
+  // Export is a read, but it is audited like every export: one fail-closed row with the range.
+  await writeAudit({
+    workspaceId: actor.workspaceId,
+    actor,
+    action: "export.audit_pack",
+    targetType: "entity",
+    targetId: null,
+    before: null,
+    after: {
+      entity: "audit_pack",
+      format,
+      row_counts: pack.totals,
+      truncated: pack.truncated,
+      unavailable: pack.unavailable,
+      filters: { from: range.from, to: range.to },
+    },
+  });
+
+  return new Response(body as BodyInit, {
+    headers: {
+      "content-type": format === "pdf" ? "application/pdf" : "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="nopm-audit-pack-${today}.${format}"`,
+    },
+  });
+}
+
 export const GET = route(async ({ actor, request }) => {
   const url = new URL(request.url);
   const entityParam = url.searchParams.get("entity");
 
+  if (entityParam === "audit_pack") {
+    assertCanExportAuditPack(actor);
+    return auditPackResponse(actor, url, await workspaceToday(actor.workspaceId));
+  }
+
   if (!isEntity(entityParam)) {
     throw new RuleError(
-      `entity must be one of: ${[...Object.keys(ENTITY_SCOPES), ...ADMIN_ENTITIES].join(", ")}`,
+      `entity must be one of: ${[...Object.keys(ENTITY_SCOPES), ...ADMIN_ENTITIES, "audit_pack"].join(", ")}`,
     );
   }
   const entity = entityParam;
@@ -574,7 +643,7 @@ export const GET = route(async ({ actor, request }) => {
     csvRows.push(noteRow);
   }
 
-  const csv = toCsv(columns, csvRows);
+  const csv = toCsv([...columns], csvRows);
 
   // L-36: exporting the audit log itself must appear in the audit log — one
   // fail-closed row for every export, regardless of entity.

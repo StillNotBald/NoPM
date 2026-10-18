@@ -67,6 +67,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "change_request.delete", description: "A change request was deleted" },
   { action: "change_request.start_review", description: "A change request was taken into review" },
   { action: "change_request.reopen", description: "A parked (deferred) change request was reopened for review" },
+  { action: "change_request.implement", description: "An approved change request was marked implemented (live)" },
   // Registers
   { action: "risk.create", description: "A risk was logged" },
   { action: "risk.update", description: "A risk was updated" },
@@ -151,6 +152,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "calendar_feed.create", description: "A calendar feed link was created" },
   { action: "calendar_feed.revoke", description: "A calendar feed link was revoked" },
   { action: "export.csv", description: "A CSV export was generated" },
+  { action: "export.audit_pack", description: "An audit pack (change requests, evidence, approvals) was exported as CSV or PDF" },
   { action: "rate.limited", description: "A caller was rate limited" },
 ];
 

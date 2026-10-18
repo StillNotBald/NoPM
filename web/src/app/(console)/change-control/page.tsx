@@ -8,6 +8,7 @@ import { QueueCallout } from "@/components/ui/queue-callout";
 import { QueryError } from "@/components/ui/query-error";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { ProjectFilter } from "@/components/change-control/project-filter";
+import { AuditPackPanel } from "@/components/export/audit-pack-panel";
 import { ChangeTable } from "@/components/change-control/change-table";
 import { NewChangeButton } from "@/components/change-control/new-change-button";
 import { ChangeFocusOpener } from "@/app/(console)/change-control/_change-focus-opener";
@@ -16,7 +17,7 @@ import { judgeDecision, canEditChangeRequest, canReopenChangeRequest, canDecideB
 
 export const metadata = { title: "Change Control" };
 
-const STATUS_FILTERS = ["raised", "under_review", "approved", "rejected", "deferred", "all"] as const;
+const STATUS_FILTERS = ["raised", "under_review", "approved", "implemented", "rejected", "deferred", "all"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 export default async function ChangeControlPage({
@@ -37,23 +38,39 @@ export default async function ChangeControlPage({
   } = await db.auth.getUser();
   if (!user) redirect("/login");
 
-  const [crRes, projRes, { data: viewerProfile }] = await Promise.all([
+  const [crRes, projRes, { data: viewerProfile }, decisionLinksRes] = await Promise.all([
     db
       .from("change_requests")
       .select(
         // + the requester columns: read here only to work out who may decide
         // (judgeDecision); they are dropped before the rows reach the browser.
-        "id, workspace_id, project_id, reference_id, title, description, category, priority, status, impact_summary, impact_schedule_days, impact_cost, requested_by, requested_by_type, requested_by_id, requested_principal_id, requested_by_label, decided_by, decided_by_label, decision_rationale, raised_at, decided_at, target_date, created_at, updated_at",
+        "id, workspace_id, project_id, reference_id, title, description, category, priority, status, impact_summary, impact_schedule_days, impact_cost, impact_scope, implemented_at, implemented_by_label, implemented_note, requested_by, requested_by_type, requested_by_id, requested_principal_id, requested_by_label, decided_by, decided_by_label, decision_rationale, raised_at, decided_at, target_date, created_at, updated_at",
       )
       .order("created_at", { ascending: false }),
     db.from("projects").select("id, name").order("name"),
     // caller's own role — see risks/page.tsx for the pattern (L-46).
     db.from("profiles").select("role").eq("id", user.id).maybeSingle(),
+    // B1: decisions linked to a change request (shown as "Decisions: n" in its detail).
+    db
+      .from("decisions")
+      .select("id, reference_id, title, change_request_id")
+      .not("change_request_id", "is", null)
+      .order("created_at", { ascending: true }),
   ]);
   const { data: changeRequests, error: crError } = crRes;
   const { data: projects } = projRes;
   if (crError) return <QueryError what="change requests" message={crError.message} />;
   const canWrite = viewerProfile?.role !== "viewer";
+  // Audit pack: admin or manager only (GET /api/export enforces the same rule).
+  const canAuditPack = viewerProfile?.role === "admin" || viewerProfile?.role === "manager";
+
+  // A failed link lookup only hides the decisions list; it never blocks the page.
+  const decisionsByCr = new Map<string, Array<{ id: string; reference_id: string | null; title: string }>>();
+  for (const d of (decisionLinksRes.data ?? []) as Array<{ id: string; reference_id: string | null; title: string; change_request_id: string }>) {
+    const list = decisionsByCr.get(d.change_request_id) ?? [];
+    list.push({ id: d.id, reference_id: d.reference_id, title: d.title });
+    decisionsByCr.set(d.change_request_id, list);
+  }
 
   const projectMap = Object.fromEntries((projects ?? []).map((p) => [p.id, p.name]));
 
@@ -82,9 +99,15 @@ export default async function ChangeControlPage({
       requestedPrincipalId: requested_principal_id,
     });
     const canStartReview = row.status === "raised" && canDecideByRole(viewer.role);
+    // M2: the requester, or a manager or admin, marks an approved request implemented.
+    const canImplement =
+      row.status === "approved" &&
+      (canDecideByRole(viewer.role) || (!!requested_principal_id && requested_principal_id === user.id));
+    const decisions = decisionsByCr.get(row.id);
+    const extra = decisions ? { decisions } : {};
     return open
-      ? { ...row, canEdit, canStartReview, decide: judgeDecision({ viewer, kind: "change_request", row: raw }) }
-      : { ...row, canEdit, canReopen };
+      ? { ...row, ...extra, canEdit, canStartReview, decide: judgeDecision({ viewer, kind: "change_request", row: raw }) }
+      : { ...row, ...extra, canEdit, canReopen, canImplement };
   });
   const projectId =
     rawProject && (projects ?? []).some((p) => p.id === rawProject) ? rawProject : "";
@@ -107,6 +130,8 @@ export default async function ChangeControlPage({
         />
       </Suspense>
 
+      {canAuditPack && <AuditPackPanel />}
+
       <div>
         {canWrite && (
           <QueueCallout count={awaitingMe} noun="change request" plural="change requests">
@@ -124,6 +149,7 @@ export default async function ChangeControlPage({
                 { value: "raised", label: "Raised", count: count("raised") },
                 { value: "under_review", label: "Under review", count: count("under_review") },
                 { value: "approved", label: "Approved", count: count("approved") },
+                { value: "implemented", label: "Implemented", count: count("implemented") },
                 { value: "rejected", label: "Rejected", count: count("rejected") },
                 { value: "deferred", label: "Deferred", count: count("deferred") },
                 { value: "all", label: "All", count: scoped.length },

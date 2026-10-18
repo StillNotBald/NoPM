@@ -14,6 +14,8 @@
 2. Only a change request in `under_review` status shows up in the workspace's **Review Queue** (`/review`) as a `change` item. A request raised with the default `raised` status does not appear there.
 3. Decide the request: `POST /api/change-requests/{id}/decision` (scope `change:decide` — split from `change:write` in R-83, a strictly separate privilege) with `{decision: "approve"|"reject"|"defer", rationale}`. The route re-checks the CR is still `status` `raised` or `under_review` before applying a decision.
 4. The decision writes `status → approved|rejected|deferred`, `decided_by`, `decided_by_label`, `decided_by_type`, `decided_by_id`, `decided_at`, `decision_rationale`, one `change_request.decide` audit row (before/after), and a fail-soft `change.decided` notification to the requester.
+5. Implement the change once it is live: `POST /api/change-requests/{id}/implement` (scope `change:write`, optional body `{note}`). Only an `approved` request can move to `implemented`. The requester, or any admin or manager, may do it. The status move, the stamp and the audit row `change_request.implement` are one transaction. A repeat is `422` `already_implemented`, and the first stamp is kept.
+6. Attach evidence to the request, such as a test result, a UAT sign-off or a deploy record, from the evidence panel on the change detail page. The panel reads `GET /api/change-requests/{id}/evidence` (scope `document:read`, newest test first). Evidence is stored as a document linked with `change_request_id`, and its project must match the request's project.
 
 ## Alternate and exception flows
 
@@ -32,7 +34,8 @@
 ## Reporting and evidence
 
 - `GET /api/projects/{id}/change-requests` (scope `change:read`) lists the register; `GET /change-requests/{id}` fetches one.
-- No `entity=change_requests` value documented on `GET /api/export`'s entity list `[UNVERIFIED]`.
+- `GET /api/change-requests` (scope `change:read`) lists every request in the workspace, filterable by project and status.
+- `GET /api/export?entity=change_requests` (scope `change:read`) exports the register with its decision, impact scope, implementation and evidence columns.
 - Diagram: [`change-request-lifecycle-flow.html`](../processes/change-request-lifecycle-flow.html).
 
 ## Update 2026-10-17 — journey-audit fixes
@@ -51,13 +54,20 @@
 
 Source: owner decisions 19 to 25 and the rule "follow the common pattern" (`journeys/COMMON-PATTERN-ANSWERS.md`, ADR 0015, requirements R-120 to R-126).
 
+## Update 2026-10-18 - change-request evidence chain (audit-gap wave 2)
+
+- **Implemented stamp.** `implemented_at`, `implemented_by` (users only), `implemented_by_type`/`implemented_by_id`, `implemented_by_label`, `implemented_principal_id` and `implemented_note` record who put the change live. Migration `20261018000092_change_request_implemented.sql` holds the columns and the check that implementation never precedes the decision.
+- **Structured impact scope.** `impact_scope` is an optional list, one entry per area (scope, schedule, cost, quality, resources or compliance), each with a direction and an optional note. It sits beside the free-text impact summary. Editing it on an open request re-issues the approval card.
+- **Decision link.** A decision can name the change request it was taken for (`change_request_id`, same workspace and project), and its options can be recorded as structured choices (`options_structured`, at most one chosen). Both are set while the decision is proposed.
+- **Evidence.** A document becomes evidence when it is linked to a change request. Its `evidence_type` is `test_result`, `uat_signoff`, `deploy_record`, `screenshot` or `other`, and its `evidence_result` is `pass`, `fail`, `partial` or `n/a`. Evidence fields without a change request are `422` `evidence_needs_change_request`.
+
 ## Traceability
 
-- R-IDs: R-07 (Change-control register), R-83 (`change:decide` split + actor-typed four-eyes).
+- R-IDs: R-07 (Change-control register), R-83 (`change:decide` split + actor-typed four-eyes), R-134 to R-137 (implemented stamp, structured scope, decision link, evidence) per the wave-2 plan.
+- Key files (wave 2): `web/src/app/api/change-requests/[id]/implement/route.ts`, `web/src/app/api/change-requests/[id]/evidence/route.ts`, `web/src/app/api/change-requests/route.ts`, `web/src/app/api/decisions/route.ts`, migrations `20261018000092` to `20261018000094`.
 - Key files: `web/src/app/api/projects/[id]/change-requests/route.ts`, `web/src/app/api/change-requests/[id]/route.ts`, `web/src/app/api/change-requests/[id]/decision/route.ts`, `web/src/app/api/change-requests/_schema.ts`, migration `20260906000043_change_request_actor_identity.sql`.
 - Tests: `web/src/lib/auth/scopes.test.ts` and `web/src/lib/assistant/scopes.test.ts` assert `change:decide` is never on the assistant ceiling or a PAT preset.
 
 ## Open questions
 
 - `[UNVERIFIED]` The exact audit action string written on CR creation (assumed `change_request.create` by naming convention, not read directly from the create route).
-- `[UNVERIFIED]` Whether CR export exists via `GET /api/export`.

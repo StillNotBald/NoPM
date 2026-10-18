@@ -7,6 +7,7 @@ import { createDocumentSchema } from "@/app/api/documents/_schema";
 import { insertWithReference } from "@/lib/governance/next-ref";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertMayApproveDocument } from "@/lib/documents/approval";
+import { assertEvidenceLink } from "@/lib/documents/evidence";
 
 export const runtime = "nodejs";
 
@@ -27,6 +28,7 @@ export const GET = route(async ({ actor, request }) => {
   const folder    = url.searchParams.get("folder");
   const status    = url.searchParams.get("status");
   const docType   = url.searchParams.get("doc_type");
+  const changeRequestId = url.searchParams.get("change_request_id");
 
   let query = db
     .from("documents")
@@ -39,6 +41,7 @@ export const GET = route(async ({ actor, request }) => {
   if (folder)    query = query.eq("folder", folder);
   if (status)    query = query.eq("status", status);
   if (docType)   query = query.eq("doc_type", docType);
+  if (changeRequestId) query = query.eq("change_request_id", changeRequestId);
 
   const { data: items, error, count } = await query;
   if (error) throw new Error(error.message);
@@ -73,6 +76,11 @@ export const POST = route(async ({ actor, request }) => {
     { table: "profiles", id: input.owner_id, field: "owner_id" },
   ]);
 
+  // M4: a linked change request must be in this workspace and in the document's project.
+  await assertEvidenceLink(db, actor.workspaceId, null, input);
+  const linked = !!input.change_request_id;
+  const evidenceType = linked ? (input.evidence_type ?? null) : null;
+
   // The DOC-NNN reference comes from a per-workspace counter that never goes
   // backwards (a deleted newest record does not free its number).
   const { data: row, error } = await insertWithReference(db, actor.workspaceId, "document", (refId) => db
@@ -89,6 +97,12 @@ export const POST = route(async ({ actor, request }) => {
       body:         input.body         ?? null,
       external_url: input.external_url ?? null,
       owner_id:     input.owner_id     ?? null,
+      change_request_id: input.change_request_id ?? null,
+      evidence_type:     evidenceType,
+      evidence_result:   linked && evidenceType ? (input.evidence_result ?? null) : null,
+      tested_by_label:   linked && evidenceType ? (input.tested_by_label ?? actor.label ?? null) : null,
+      tested_at:         linked && evidenceType ? (input.tested_at ?? new Date().toISOString()) : null,
+      evidence_note:     linked ? (input.evidence_note ?? null) : null,
       created_by:   actor.type === "user" ? actor.id : null,
     })
     .select()

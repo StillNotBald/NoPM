@@ -93,6 +93,8 @@ export const POST = route(async ({ actor, params, request }) => {
   // with a 500.
   await assertRefsInWorkspace(db, actor.workspaceId, [
     { table: "decisions", id: input.supersedes, field: "supersedes" },
+    // B1: the linked change request must be in this workspace AND on this project.
+    { table: "change_requests", id: input.change_request_id, field: "change_request_id", match: { project_id: projectId } },
   ]);
 
   const { data: row, error } = await insertWithReference(db, actor.workspaceId, "decision", (refId) => db
@@ -111,6 +113,8 @@ export const POST = route(async ({ actor, params, request }) => {
       decided_by_label: actor.label,
       decided_at: input.decided_at ?? new Date().toISOString(),
       supersedes: input.supersedes ?? null,
+      change_request_id: input.change_request_id ?? null,
+      options_structured: input.options_structured ?? null,
       // ── complement seam (0041, R-81) ─────────────────────────────────────────
       source: input.source ?? null,
       external_ref: input.external_ref ?? null,

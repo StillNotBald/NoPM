@@ -40,7 +40,9 @@ Then: one reviewer pass (P0/P1/P2 with file:line), one fix pass by the owning ag
 | W2-B evidence (builder agent) | M4 | 0094 | R-137 | `documents` migration (change_request_id, evidence_type, evidence_result, tested_by, tested_at), `web/src/app/api/documents/**`, documents UI, attach-evidence panel on change detail (coordinate: W2-A owns change-detail.tsx; W2-B adds a self-contained `evidence-panel.tsx` that W2-A mounts) |
 | W2-C audit-pack (builder agent) | M3 | none | R-138 | `web/src/app/api/export/**` change_requests entity + audit-pack bundle (CSV zip or multi-CSV), `web/src/lib/reports/**` audit-pack PDF section, `web/src/app/api/reports/**`, UI buttons on change-control + trust |
 | W2-D mcp-reads (builder agent) | B7 | none | R-139 | `web/mcp/tools.mjs` + `web/src/lib/assistant/tools.ts`: list_change_requests, get_change_request, list_decisions, get_document (metadata + text when stored), get_evm; `web/mcp/README.md`; coverage tests |
-| W2-E docs (docs agent) | UC docs, runbook | none | none | `docs/use-cases/UC-10` update, new `UC-21-audit-pack.md`, `CUTOVER/11-AUDIT-GAPS.md` runbook skeleton |
+| W2-E docs (docs agent, runs AFTER A–D report) | OpenAPI + llms.txt for every wave-2 route/field (builders leave notes in `rtm/w2x-openapi-notes.md`), UC docs, runbook | none | none | `web/src/app/api/openapi.json/route.ts`, `web/src/app/llms.txt/route.ts`, `web/mcp/README.md`, `docs/use-cases/UC-10` update, new `UC-21-audit-pack.md`, `CUTOVER/11-AUDIT-GAPS.md` runbook skeleton |
+
+Wave-2 seams: W2-B owns `evidence-panel.tsx` AND the one-line mount in `change-detail.tsx` (done last, re-reading the file first); W2-A never touches the evidence region. Builders do NOT edit OpenAPI/llms (the two coverage tests may fail until W2-E runs; say so in your report instead of fixing them).
 
 ## Wave 3 — runs without you
 

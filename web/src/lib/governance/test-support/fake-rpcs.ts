@@ -345,6 +345,45 @@ export function transitionChangeRequestRpc(args: Record<string, unknown>, db: Fa
   return { data: { ...cr }, error: null };
 }
 
+/** Mirrors nopm_implement_change_request (0092). */
+export function implementChangeRequestRpc(args: Record<string, unknown>, db: FakeDb): RpcResult {
+  const bad = channelGuard(args);
+  if (bad) return bad;
+  const principal = (args.p_principal_id as string | null | undefined) ?? null;
+  if (!principal) return rpcError("P0006", "NO_PRINCIPAL");
+  const profile = db.rows("profiles").find((p) => p.id === principal && p.workspace_id === args.p_workspace_id);
+  const isApprover = !!profile && (profile.role === "admin" || profile.role === "manager");
+  const cr = db.rows("change_requests").find((x) => x.id === args.p_id && x.workspace_id === args.p_workspace_id);
+  if (!cr) return rpcError("P0002", "NOT_FOUND");
+  if (!(isApprover || (cr.requested_principal_id && cr.requested_principal_id === principal))) {
+    return rpcError("P0023", "NOT_ALLOWED");
+  }
+  if (cr.status === "implemented") return rpcError("P0028", "ALREADY_IMPLEMENTED");
+  if (cr.status !== "approved") return rpcError("P0024", "INVALID_TRANSITION");
+  const beforeRow = { ...cr };
+  const note = typeof args.p_note === "string" && args.p_note.trim() ? args.p_note.trim() : null;
+  Object.assign(cr, {
+    status: "implemented",
+    implemented_at: new Date().toISOString(),
+    implemented_by: args.p_actor_type === "user" ? args.p_actor_id : null,
+    implemented_by_type: args.p_actor_type,
+    implemented_by_id: args.p_actor_id,
+    implemented_by_label: args.p_actor_label,
+    implemented_principal_id: principal,
+    implemented_note: note,
+    updated_at: new Date().toISOString(),
+  });
+  pushAudit(db, { ...args, p_approver_principal_id: principal }, {
+    action: "change_request.implement",
+    target_type: "change_request",
+    target_id: cr.id,
+    principal_id: principal,
+    before: beforeRow,
+    after: { ...cr },
+  });
+  return { data: { ...cr }, error: null };
+}
+
 /** Mirrors nopm_withdraw_rebaseline (0076). */
 export function withdrawRebaselineRpc(args: Record<string, unknown>, db: FakeDb): RpcResult {
   const bad = channelGuard(args);

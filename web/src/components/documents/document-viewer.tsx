@@ -10,6 +10,13 @@ import { HistoryTimeline } from "@/components/tracking/history-timeline";
 import { formatByPref, type DateDisplayPref } from "@/lib/format/dates";
 import { DocumentForm, type Document, type DocStatus, type DocType } from "./document-form";
 import { FileUpload } from "./file-upload";
+import {
+  EVIDENCE_RESULT_LABELS,
+  EVIDENCE_TYPE_LABELS,
+  evidenceResultTone,
+  type EvidenceResult,
+  type EvidenceType,
+} from "@/lib/documents/evidence-labels";
 
 // ── Status and type helpers ───────────────────────────────────────────────────
 
@@ -494,6 +501,43 @@ export function DocumentViewer({
           <DetailRow label="Summary">
             <TextValue value={document.summary} />
           </DetailRow>
+        )}
+
+        {document.change_request_id && (
+          <>
+            <DetailRow label="Evidence for change request">
+              <a
+                href="/change-control"
+                className="text-accent underline underline-offset-2"
+              >
+                Change Control
+              </a>
+            </DetailRow>
+            <DetailRow label="Evidence">
+              <span className="flex flex-wrap items-center gap-2">
+                {document.evidence_type && (
+                  <Badge tone="neutral">
+                    {EVIDENCE_TYPE_LABELS[document.evidence_type as EvidenceType] ?? document.evidence_type}
+                  </Badge>
+                )}
+                {document.evidence_result && (
+                  <Badge tone={evidenceResultTone(document.evidence_result)}>
+                    {EVIDENCE_RESULT_LABELS[document.evidence_result as EvidenceResult] ?? document.evidence_result}
+                  </Badge>
+                )}
+                {!document.evidence_type && <span className="text-ink-muted">Type not set</span>}
+              </span>
+            </DetailRow>
+            <DetailRow label="Tested by">
+              <TextValue value={document.tested_by_label} />
+            </DetailRow>
+            <DetailRow label="Tested on">{formatDate(document.tested_at)}</DetailRow>
+            {document.evidence_note && (
+              <DetailRow label="Evidence note">
+                <TextValue value={document.evidence_note} />
+              </DetailRow>
+            )}
+          </>
         )}
 
         {document.external_url && (

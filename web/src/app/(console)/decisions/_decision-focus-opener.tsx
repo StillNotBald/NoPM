@@ -10,6 +10,7 @@ interface Props {
   decisions: Decision[];
   projectMap: Record<string, string>;
   refMap: Record<string, string>;
+  changeLabelMap?: Record<string, string>;
   projects: Array<{ id: string; name: string }>;
 }
 
@@ -18,7 +19,7 @@ interface Props {
  * Renders null — purely a side-effect component.
  * Must be wrapped in <Suspense> (Next.js requirement for useFocusParam).
  */
-export function DecisionFocusOpener({ decisions, projectMap, refMap, projects }: Props) {
+export function DecisionFocusOpener({ decisions, projectMap, refMap, changeLabelMap, projects }: Props) {
   const { focusId, clear } = useFocusParam("dec");
   const inspector = useInspector();
 
@@ -37,6 +38,7 @@ export function DecisionFocusOpener({ decisions, projectMap, refMap, projects }:
     inspector.open(
       <DecisionDetail
         decision={decision}
+        changeRequestLabel={decision.change_request_id ? (changeLabelMap?.[decision.change_request_id] ?? null) : null}
         projectName={projectName}
         supersededByRef={supersededByRef}
         projects={projects}

@@ -94,6 +94,7 @@ export const POST = route(async ({ actor, params, request }) => {
       impact_summary: input.impact_summary ?? null,
       impact_schedule_days: input.impact_schedule_days ?? null,
       impact_cost: input.impact_cost ?? null,
+      impact_scope: input.impact_scope ?? null,
       target_date: input.target_date ?? null,
       // raised_at is NOT NULL DEFAULT now() — an explicit null would violate
       // the column; omit the key so the database default applies when the
