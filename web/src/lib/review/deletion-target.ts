@@ -7,7 +7,7 @@
  * Approve button instead of a 36-character id. Pure helpers; the pages and the
  * review gatherer both use them.
  */
-import { clip } from "./pending";
+import { clip } from "./text";
 
 type Row = Record<string, unknown>;
 

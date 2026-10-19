@@ -27,7 +27,7 @@ import { deletionKindFor } from "@/lib/integrations/types";
 import { isRegisterDeletionTarget, registerDeletionKindFor } from "@/lib/governance/deletion-dispatch";
 import { describeChildCounts, describeDeletionTarget, showsChildCounts, type ChildCountLine } from "./deletion-target";
 import { judgeDecision, judgeRebaselineSignoff, type Viewer } from "./four-eyes";
-import { clip } from "./pending";
+import { clip } from "./text";
 
 // ── ReviewItem shape ──────────────────────────────────────────────────────────
 

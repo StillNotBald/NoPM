@@ -60,6 +60,7 @@ import {
   resolveDeletionApproveScope,
   type RegisterDeletionKind,
 } from "@/lib/governance/deletion-dispatch";
+import { clip } from "./text";
 import { describeChildCounts, type ChildCountLine } from "./deletion-target";
 import {
   loadApprovalPolicy,
@@ -220,12 +221,7 @@ function time(iso: string): number {
 }
 
 /** Collapse whitespace and cap length so a long free-text field can't blow up a row/table. */
-export function clip(value: unknown, max = 160): string | null {
-  if (typeof value !== "string") return null;
-  const flat = value.replace(/\s+/g, " ").trim();
-  if (!flat) return null;
-  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
-}
+export { clip } from "./text";
 
 export interface Requester {
   type: "user" | "token" | null;
