@@ -5,7 +5,7 @@
 | Raised by | Lead session, from the v2 audit report (`_docs/directions-2026-10-17/NOPM_AUDIT_REPORT_v2.md`, section 3) |
 | Source decision | Owner Q8, CR-2026-10-18-01: "Different DB" for the audit-chain head |
 | Category | Audit integrity + Agent surface + Governance |
-| Status | PROPOSED. Scope is the audit's own list (revision 2 after the plan review). Five owner decisions (D8, D9, D15, D18, D19) and assumptions A9 to A16 below await her. Builders use the recommended defaults until she answers; the other former decisions are now builder defaults and need no answer. |
+| Status | BUILT and MERGED (PR #12, main bf064ed, 2026-10-19). Owner confirmation 2026-10-19: "wave 5 default is confirmed", so D8 (a), D9 (a), D15 (a), D18 (a), D19 (a) and D20 (reset row) stand as built; assumptions A9 to A16 stand. Scope is the audit's own list (revision 2 after the plan review). Release: `CUTOVER/14-WAVE5-RELEASE.md`. |
 | Positioning served | "Leaves the evidence auditors ask for": every change atomic, the trail anchored outside the database, evidence reachable by the agent |
 
 ## Scope
