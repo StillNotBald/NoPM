@@ -7,14 +7,11 @@ import {
   deadlineFor,
   eligibleRoles,
   humanRoleOf,
-  isAwaitingRetro,
-  isRetroOverdue,
   mergePolicy,
   policyOf,
   reclassifyOnEdit,
   reminderDueAt,
   requireTierRole,
-  retroDueAt,
   roleMeetsTier,
   tierOf,
   validatePolicyInput,
@@ -219,30 +216,22 @@ describe("routing (G2)", () => {
 describe("timers (G3, G4)", () => {
   const now = new Date("2026-10-20T00:00:00.000Z");
 
-  it("the deadline is now + the tier's turnaround; 0 hours means no timer; emergency has none (the retro clock applies)", () => {
+  it("the deadline is now + the tier's turnaround; 0 hours means no timer; emergency has none (nothing waits)", () => {
     expect(deadlineFor("normal", policy, now)?.toISOString()).toBe("2026-10-22T00:00:00.000Z"); // 48 h
     expect(deadlineFor("routine", policy, now)?.toISOString()).toBe("2026-10-21T00:00:00.000Z"); // 24 h
     expect(deadlineFor("normal", policyOf({ tiers: { normal: { turnaround_hours: 0 } } }), now)).toBeNull();
     expect(deadlineFor("emergency", policy, now)).toBeNull();
   });
 
-  it("the retro is due emergency_retro_hours (default 48) after the raise", () => {
-    expect(retroDueAt(policy, now).toISOString()).toBe("2026-10-22T00:00:00.000Z");
-    expect(retroDueAt(policyOf({ emergency_retro_hours: 6 }), now).toISOString()).toBe("2026-10-20T06:00:00.000Z");
-  });
-
   it("the reminder falls at 50% of the turnaround", () => {
     expect(reminderDueAt("2026-10-20T00:00:00.000Z", "2026-10-22T00:00:00.000Z").toISOString()).toBe("2026-10-21T00:00:00.000Z");
   });
 
-  it("retro awaiting / overdue: flagged until decided, computed live", () => {
-    const live = { is_emergency: true, retro_due_at: "2026-10-19T00:00:00.000Z", retro_decided_at: null };
-    expect(isAwaitingRetro(live)).toBe(true);
-    expect(isRetroOverdue(live, now)).toBe(true);
-    expect(isRetroOverdue({ ...live, retro_due_at: "2026-10-25T00:00:00.000Z" }, now)).toBe(false);
-    expect(isRetroOverdue({ ...live, retro_decided_at: "2026-10-19T12:00:00.000Z" }, now)).toBe(false);
-    expect(isAwaitingRetro({ is_emergency: false })).toBe(false);
-    expect(isRetroOverdue({ is_emergency: false, retro_due_at: "2020-01-01T00:00:00.000Z" }, now)).toBe(false);
+  it("Q1: the retro helpers are gone from the module", async () => {
+    const mod = (await import("./tiers")) as Record<string, unknown>;
+    expect(mod.isAwaitingRetro).toBeUndefined();
+    expect(mod.isRetroOverdue).toBeUndefined();
+    expect(mod.retroDueAt).toBeUndefined();
   });
 });
 
@@ -266,7 +255,6 @@ describe("validatePolicyInput / mergePolicy (the settings PATCH)", () => {
     ["fractional hours", { tiers: { normal: { turnaround_hours: 1.5 } } }, "approval_policy.tiers.normal.turnaround_hours"],
     ["a negative threshold", { currency_threshold: -5 }, "approval_policy.currency_threshold"],
     ["a bad currency", { currency: "RINGGIT" }, "approval_policy.currency"],
-    ["retro hours 0", { emergency_retro_hours: 0 }, "approval_policy.emergency_retro_hours"],
     ["an unknown top-level key", { sneaky: true }, "approval_policy.sneaky"],
   ])("refuses %s", (_label, input, field) => {
     const r = validatePolicyInput(input);

@@ -71,3 +71,34 @@ describe("0105 status label safety", () => {
     expect(sql).toMatch(/case when p_set_label and p_status_label is not null then p_status_label else status end/);
   });
 });
+
+describe("0106 no work event completes a task (owner decision Q7)", () => {
+  const raw = readFileSync(
+    join(__dirname, "..", "..", "..", "..", "supabase", "migrations", "20261018000106_tier_decisions.sql"),
+    "utf8",
+  )
+    .split(/\r?\n/)
+    .map((l) => l.replace(/--.*$/, ""))
+    .join("\n");
+  const section = raw.slice(raw.indexOf("with old as ("));
+  const fn = section.slice(section.indexOf("create or replace function nopm_valid_work_event_rules"));
+
+  it("rewrites every stored completed rule to null before the stricter check exists", () => {
+    expect(section).toMatch(/case when e\.value = '"completed"'::jsonb then 'null'::jsonb else e\.value end/);
+    expect(section.indexOf("update workspaces")).toBeLessThan(section.indexOf("create or replace function nopm_valid_work_event_rules"));
+    expect(section).toContain("'work_event_rules.update'");
+    // the audit row keeps the real pre-update rules (review C2-04)
+    expect(section).toContain("jsonb_build_object('work_event_rules', before_rules)");
+  });
+
+  it("changes the column default so deploy_success is null", () => {
+    expect(section).toMatch(/alter column work_event_rules set default/);
+    expect(section).toMatch(/"deploy_success": null, "deploy_failure": null/);
+    expect(section).not.toMatch(/"deploy_success": "completed"/);
+  });
+
+  it("replaces the check function and rejects completed", () => {
+    expect(fn).toContain("'unstarted', 'started', 'in_review', 'canceled'");
+    expect(fn).not.toContain("'completed'");
+  });
+});

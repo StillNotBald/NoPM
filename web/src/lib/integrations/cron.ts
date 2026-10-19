@@ -124,7 +124,7 @@ export type CronSummary = {
   pruned: PruneSummary;
   /** The daily stale-item nudge + weekly report step (R-141 / R-142); runs for every workspace, connector or not. */
   nudges: NudgeStepSummary;
-  /** The approval timer step (G3 / G4): reminders, escalations, routine auto-approvals, overdue retro flags. */
+  /** The approval timer step (G3 / G4): reminders, escalations, and routine auto-approvals. */
   approvals: ApprovalTimerSummary;
   elapsedMs: number;
 };
@@ -235,7 +235,7 @@ export async function runCron(
   }
 
   // Phase 2c: approval timers (reminder at half the turnaround, escalation, routine auto-approve when the
-  // workspace allows it, overdue emergency retro flags). Database work only; one audit row per workspace.
+  // workspace allows it). Database work only; one audit row per workspace.
   if (Date.now() < deadline) {
     try {
       summary.approvals = await runApprovalTimerStep(now, deadline);

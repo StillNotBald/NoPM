@@ -420,10 +420,20 @@ export interface DocumentViewerProps {
   projects?: { id: string; name: string }[];
   /** Same appearance preference the register list honours; absolute when omitted. */
   dateDisplayPref?: DateDisplayPref;
+  /** The change request this evidence document belongs to (UAT-029); shown by reference and title. */
+  changeRequest?: { reference_id: string | null; title: string } | null;
+}
+
+/** "CR-009 — Vendor swap"; falls back to what is known, then to the folder name. */
+export function changeRequestLabel(cr: { reference_id: string | null; title: string } | null | undefined): string {
+  if (!cr) return "Change Control";
+  if (cr.reference_id && cr.title) return `${cr.reference_id} — ${cr.title}`;
+  return cr.reference_id || cr.title || "Change Control";
 }
 
 export function DocumentViewer({
   document,
+  changeRequest,
   projectName,
   ownerName,
   projects,
@@ -515,7 +525,7 @@ export function DocumentViewer({
                 href="/change-control"
                 className="text-accent underline underline-offset-2"
               >
-                Change Control
+                {changeRequestLabel(changeRequest)}
               </a>
             </DetailRow>
             <DetailRow label="Evidence">

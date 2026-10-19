@@ -1,0 +1,379 @@
+{
+ "t1a-token": {
+  "status": 201,
+  "id": "32102a8d-aead-41d3-9e85-bfb72c8f0b5f",
+  "keys": [
+   "id",
+   "name",
+   "prefix",
+   "scopes",
+   "expires_at",
+   "revoked",
+   "last_used_at",
+   "created_at",
+   "token"
+  ]
+ },
+ "t1a-raise": {
+  "status": 403,
+  "body": "{\"error\":\"An API token needs the change:decide scope to raise an emergency change, because nobody else decides it. Use a signed-in manager or admin, or a token that holds change:decide.\",\"code\":\"role_not_permitted\"}"
+ },
+ "t1b-token": {
+  "status": 201,
+  "id": "bbe1eba3-781f-4306-ac1d-abde07568a7c"
+ },
+ "t1b-raise": {
+  "status": 201,
+  "body": "{\"data\":{\"id\":\"9bf74f2b-699e-4270-baf3-88bd365dde6f\",\"tier\":\"emergency\",\"title\":\"T1 retest emergency decide\",\"status\":\"approved\",\"category\":\"scope\",\"priority\":\"high\",\"raised_at\":\"2026-10-18T13:11:25.320946+00:00\",\"created_at\":\"2026-10-18T13:11:25.320946+00:00\",\"decided_at\":\"2026-10-18T13:11:25.320946+00:00\",\"decided_by\":null,\"project_id\":\"ed3d04cd-18bd-4ad3-8848-07b876dbd907\",\"updated_at\":\"2026-10-18T13:11:25.320946+00:00\",\"description\":\"retest\",\"impact_cost\":null,\"target_date\":null,\"impact_scope\":null,\"is_emergency\":true,\"reference_id\":\"CR-028\",\"requested_by\":null,\"retro_due_at\":null,\"workspa"
+ },
+ "t1-counts": {
+  "before": "0",
+  "afterWildcard": "0",
+  "afterDecide": "1"
+ },
+ "t4": {
+  "status": 403,
+  "body": "{\"error\":\"Only a manager or admin can raise an emergency change.\",\"code\":\"role_not_permitted\"}",
+  "before": "0",
+  "after": "0"
+ },
+ "t5-get-before": {
+  "status": 200,
+  "policy": {
+   "tiers": {
+    "routine": {
+     "approver_role": "manager",
+     "turnaround_hours": 24,
+     "auto_approve": false
+    },
+    "normal": {
+     "approver_role": "manager",
+     "turnaround_hours": 48,
+     "auto_approve": false
+    },
+    "high_risk": {
+     "approver_role": "admin",
+     "turnaround_hours": 72,
+     "auto_approve": false
+    },
+    "emergency": {
+     "approver_role": "admin",
+     "turnaround_hours": 0,
+     "auto_approve": false
+    },
+    "strategic": {
+     "approver_role": "admin",
+     "turnaround_hours": 120,
+     "auto_approve": false
+    }
+   },
+   "currency_threshold": 20000,
+   "currency": "MYR",
+   "schedule_threshold_days": 10,
+   "emergency_retro_hours": 48
+  }
+ },
+ "t5-patch": {
+  "status": 200,
+  "body": "{\"data\":{\"time_zone\":\"Asia/Kuala_Lumpur\",\"default_time_zone\":\"Asia/Kuala_Lumpur\",\"stale_days\":3,\"nudges_enabled\":true,\"weekly_report_enabled\":true,\"weekly_report_day\":1,\"approval_policy\":{\"tiers\":{\"routine\":{\"approver_role\":\"manager\",\"turnaround_hours\":24,\"auto_approve\":false},\"normal\":{\"approver_role\":\"manager\",\"turnaround_hours\":48,\"auto_approve\":false},\"high_risk\":{\"approver_role\":\"admin\",\"turnaround_hours\":72,\"auto_approve\":false},\"emergency\":{\"approver_role\":\"admin\",\"turnaround_hours\":0,\"auto_approve\":false},\"strategic\":{\"approver_role\":\"admin\",\"turnaround_hours\":120,\"auto_approve\":false}"
+ },
+ "t5-get-after": {
+  "status": 200,
+  "policy": {
+   "tiers": {
+    "routine": {
+     "approver_role": "manager",
+     "turnaround_hours": 24,
+     "auto_approve": false
+    },
+    "normal": {
+     "approver_role": "manager",
+     "turnaround_hours": 48,
+     "auto_approve": false
+    },
+    "high_risk": {
+     "approver_role": "admin",
+     "turnaround_hours": 72,
+     "auto_approve": false
+    },
+    "emergency": {
+     "approver_role": "admin",
+     "turnaround_hours": 0,
+     "auto_approve": false
+    },
+    "strategic": {
+     "approver_role": "admin",
+     "turnaround_hours": 120,
+     "auto_approve": false
+    }
+   },
+   "currency_threshold": 20000,
+   "currency": "MYR",
+   "schedule_threshold_days": 10,
+   "emergency_retro_hours": 48
+  }
+ },
+ "t5b-raw-before": "48",
+ "t5b-patch96": {
+  "status": 200,
+  "retro": 48
+ },
+ "t5b-get": {
+  "retro": 48,
+  "thr": 20000
+ },
+ "t5b-raw-after": "48",
+ "t7-create": {
+  "status": 201,
+  "id": "e287d740-a453-481d-9020-048902d09615",
+  "err": "{\"data\":{\"id\":\"e287d740-a453-481d-9020-048902d09615\",\"amount\":25000,\"category\":\"other\",\"created_at\":\"2026-10-18T13:13:07.895365+00:00\",\"project_id\":\"bc20f19b-264a-4675-a30f-6a71c487b664\",\"description\""
+ },
+ "t7-delete": {
+  "status": 202,
+  "tier": "high_risk",
+  "drid": "98fea5c4-3136-4f5f-acd0-d0d4c9dbc59b",
+  "text": "{\"data\":{\"id\":\"98fea5c4-3136-4f5f-acd0-d0d4c9dbc59b\",\"workspace_id\":\"3c8968e0-9577-40db-bc92-39750736abd1\",\"target_type\":\"expense\",\"target_id\":\"e287d740-a453-481d-9020-048902d09615\",\"reason\":\"T7 retest deletion over threshold\",\"status\":\"pending\",\"requested_by_type\":\"user\",\"requested_by_id\":\"bd116b79"
+ },
+ "t7-priya-approve": {
+  "status": 200,
+  "body": "{\"data\":{\"committed\":true}}"
+ },
+ "t7-admin-approve": {
+  "status": 422,
+  "body": "{\"error\":\"Already approved by Priya Nair.\",\"code\":\"already_decided\"}"
+ },
+ "t7-expense-gone": "0",
+ "t7-control-small": {
+  "status": 202,
+  "tier": "normal"
+ },
+ "t8-doc-in-B1": "",
+ "t7b-admins": "2",
+ "t7b-delete": {
+  "status": 202,
+  "tier": "high_risk"
+ },
+ "t7b-priya": {
+  "status": 403,
+  "body": "{\"error\":\"Only admins can approve a high-risk request.\",\"code\":\"role_not_permitted\"}"
+ },
+ "t7b-admin": {
+  "status": 200,
+  "body": "{\"data\":{\"committed\":true}}"
+ },
+ "t7b-expense-gone": "0",
+ "t7b-reverted": "member",
+ "t8-create": {
+  "status": 201,
+  "text": "{\"data\":{\"id\":\"e86b4d76-c55f-4019-9fe2-c2b439d37c77\",\"body\":null,\"title\":\"T8 retest approved doc\",\"folder\":\"General\",\"status\":\"draft\",\"summary\":null,\"version\":1,\"doc_type\":\"other\",\"owner_id\":null,\"file_name\":null,\"file_size\":null,\"mime_type\":null,\"te"
+ },
+ "t8-approve": {
+  "status": 200,
+  "st": "approved",
+  "text": ""
+ },
+ "t8-delete": {
+  "status": 202,
+  "tier": "normal",
+  "text": ""
+ },
+ "t8-admin-approve": {
+  "status": 200,
+  "body": "{\"data\":{\"committed\":true}}"
+ },
+ "t8-gone": "0",
+ "t9-get": {
+  "status": 200,
+  "connector": true,
+  "rules": {
+   "pr_opened": "started",
+   "pr_merged": "in_review",
+   "pr_closed": null,
+   "deploy_success": null,
+   "deploy_failure": null
+  },
+  "targets": [
+   "unstarted",
+   "started",
+   "in_review",
+   "canceled"
+  ]
+ },
+ "t9-patch-completed": {
+  "status": 422,
+  "body": "{\"error\":\"Validation failed\",\"fields\":[{\"field\":\"rules\",\"message\":\"rules.deploy_success: A work event cannot complete a task. Completing a task is a human action; map the event to unstarted, started, in_review or canceled, or leave it unset.\"}]}"
+ },
+ "t9-after": {
+  "rules": {
+   "pr_opened": "started",
+   "pr_merged": "in_review",
+   "pr_closed": null,
+   "deploy_success": null,
+   "deploy_failure": null
+  }
+ },
+ "t10-api-clear-code": {
+  "status": 422,
+  "body": "{\"error\":\"Invalid project data\",\"fields\":[{\"field\":\"code\",\"message\":\"Too small: expected string to have >=1 characters\"}]}"
+ },
+ "t3-390-id": "e8e65fe4-faf0-46da-b051-3f2c46d1e99c",
+ "t3-390-page-has": {
+  "note": false,
+  "badge": true,
+  "approve": false,
+  "reject": true,
+  "defer": true,
+  "url": "http://localhost:3000/change-control?cr=e8e65fe4-faf0-46da-b051-3f2c46d1e99c"
+ },
+ "t3-390-detail": {
+  "note": null,
+  "badge": false,
+  "approveBtn": 0,
+  "panelFound": 1
+ },
+ "t3-1280-id": "ac7f5649-297d-44d4-9398-45b76ce48535",
+ "t3-1280-page-has": {
+  "note": true,
+  "badge": true,
+  "approve": false,
+  "reject": true,
+  "defer": true,
+  "url": "http://localhost:3000/change-control"
+ },
+ "t3-1280-detail": {
+  "note": null,
+  "badge": false,
+  "approveBtn": 0,
+  "panelFound": 1
+ },
+ "t5-ui": {
+  "sentence": true,
+  "retroField": false,
+  "around": "leting a whole project.\nDECIDED BY\nManager or admin\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nEmergency\nCommits when raised. No approval. Flagged everywhere.\nNo approver. It commits when raised.\nFlagged in every list.\nStrategic\nOnly an admin can raise one.\nDECIDED BY\nManager or admin\nAdmin only\nTURNAROUND (HOURS)\n0 means no timer.\nHIGH-RISK S"
+ },
+ "t9-ui": {
+  "completedOption": false,
+  "selectCount": 7,
+  "optionSets": [
+   [
+    "Leave the task as it is",
+    "Not started",
+    "In progress",
+    "In review",
+    "Canceled"
+   ],
+   [
+    "Leave the task as it is",
+    "Not started",
+    "In progress",
+    "In review",
+    "Canceled"
+   ],
+   [
+    "All projects",
+    "UAT-A nostart d 64921",
+    "UAT-A nostart m 91374",
+    "UAT-B10 no program with dates",
+    "UAT-B9 no program project",
+    "UAT-B9 no program project",
+    "UAT-B9 no program project",
+    "UAT-B9 no program project",
+    "UAT-B9 no program project",
+    "UAT-B8 test project",
+    "UAT-B7 test project",
+    "UAT-B6 test project",
+    "UAT-B5 test project",
+    "UAT-B4 test project",
+    "UAT-B3 test project",
+    "UAT-B2 test project",
+    "UAT-B1 test project",
+    "Identity & Access Modernization",
+    "Global E-Commerce Replatform",
+    "Customer Data Platform",
+    "Datacenter Exit to Cloud — APAC",
+    "Finance Data Migration — Global",
+    "S/4HANA Core Rollout — EMEA"
+   ],
+   [
+    "Asia/Kuala Lumpur",
+    "Asia/Singapore",
+    "Asia/Jakarta",
+    "Asia/Bangkok",
+    "Asia/Manila",
+    "Asia/Taipei",
+    "Asia/Shanghai",
+    "Asia/Tokyo",
+    "Asia/Kolkata",
+    "Asia/Dubai",
+    "Europe/London",
+    "Europe/Berlin",
+    "America/New York",
+    "America/Chicago",
+    "America/Los Angeles",
+    "Australia/Sydney",
+    "UTC"
+   ],
+   [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday"
+   ]
+  ],
+  "helper": null,
+  "hasCompletedWord": true
+ },
+ "t11-member": {
+  "labels": [],
+  "srText": [
+   "28 items in review",
+   "4 items in review",
+   "28 items in review"
+  ]
+ },
+ "t11-admin": {
+  "labels": [],
+  "srText": [
+   "20 items awaiting your decision",
+   "10 items awaiting your decision",
+   "6 items awaiting your decision",
+   "1 item awaiting your decision",
+   "3 items awaiting your decision",
+   "3 items awaiting your decision"
+  ]
+ },
+ "t11-manager": {
+  "labels": [],
+  "srText": [
+   "28 items awaiting your decision",
+   "2 items awaiting your decision",
+   "28 items awaiting your decision"
+  ]
+ },
+ "t10-390-code-before": "UAT-B1",
+ "t10-390": {
+  "patchStatus": 200,
+  "body": "{\"data\":{\"id\":\"bc20f19b-264a-4675-a30f-6a71c487b664\",\"code\":null,\"name\":\"UAT-B1 test project\",\"phase\":\"planning\",\"source\":null,\"program\":null,\"sponsor\":null,\"currency\":\"USD\",\"owner_id\":null,\"is_locked",
+  "dbCode": "<null>"
+ },
+ "t10-1280-code-before": "UAT-B1",
+ "t10-1280": {
+  "patchStatus": 200,
+  "body": "{\"data\":{\"id\":\"bc20f19b-264a-4675-a30f-6a71c487b664\",\"code\":null,\"name\":\"UAT-B1 test project\",\"phase\":\"planning\",\"source\":null,\"program\":null,\"sponsor\":null,\"currency\":\"USD\",\"owner_id\":null,\"is_locked",
+  "dbCode": "<null>"
+ },
+ "t12-generate": {
+  "status": 200,
+  "body": "{\"data\":{\"week_start\":\"2026-10-12\",\"recipients\":3,\"report_url\":\"/api/reports/weekly?week=2026-10-12\"}}"
+ },
+ "t12-get": {
+  "status": 200,
+  "section": "Emergency changes this week: 8 Each one committed when it was raised, without an approver, and is flagged here. Reference Change CR-030 Emergency T3 retest emergency 1280 CR-029 Emergency T3 retest emergency 390 CR-028 Emergency T1 retest emergency decide CR-025 Emergency UAT-A emergency retest desktop CR-024 Emergency UAT-A emergency retest phone CR-022 Emergency UAT-B retest emergency UI CR-017 ",
+  "overdue": false,
+  "retro": false,
+  "hasT3": true
+ }
+}

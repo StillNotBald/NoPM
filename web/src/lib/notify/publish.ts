@@ -21,7 +21,7 @@ export type NotificationType =
   | "report.weekly"
   /** A request is waiting and the turnaround is half gone (G3). */
   | "approval.reminder"
-  /** A request passed its turnaround with no decision, or an emergency change is overdue for its retro decision (G3, G4). */
+  /** A request passed its turnaround with no decision (G3). An emergency change never waits, it commits on raise. */
   | "approval.escalated"
   /** A routine request was approved by workspace policy because nobody decided in time (G3). */
   | "approval.auto_approved";

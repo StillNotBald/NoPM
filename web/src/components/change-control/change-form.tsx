@@ -31,7 +31,7 @@ export type CRStatus =
   | "rejected"
   | "deferred"
   | "implemented"
-  /** G4: raised on the emergency path, may be implemented at once, owes a retro decision. */
+  /** Legacy status of an emergency raised before migration 0106; it now commits on raise as "approved". */
   | "emergency";
 
 export interface ChangeRequest {
@@ -53,15 +53,10 @@ export interface ChangeRequest {
   implemented_at?: string | null;
   implemented_by_label?: string | null;
   implemented_note?: string | null;
-  /** G1/G4: approval tier, and the emergency path (flagged until the retro decision is taken). */
+  /** G1/R-159: approval tier, and the emergency path (committed on raise, no approver, flagged everywhere). */
   tier?: string | null;
   approval_deadline_at?: string | null;
   is_emergency?: boolean | null;
-  retro_due_at?: string | null;
-  retro_decided_at?: string | null;
-  retro_outcome?: string | null;
-  /** Server-computed: an emergency change still owing its retro decision past its due date. */
-  retro_overdue?: boolean;
   /** Server-computed: still waiting and past approval_deadline_at. */
   deadline_overdue?: boolean;
   requested_by: string | null;
@@ -182,7 +177,7 @@ export interface ChangeFormValues {
   impactScope?: ImpactScopeItem[];
   /** Create only. "" = let the server decide (normal, lifted to high risk by the workspace thresholds). */
   tier?: "" | "routine" | "normal" | "high_risk" | "strategic";
-  /** Create only; a manager or admin ticks it to ship now and be approved afterwards. */
+  /** Create only; a manager or admin ticks it to commit at once with no approval; it is flagged everywhere. */
   isEmergency?: boolean;
   /** Create only; the one approver the request waits for. "" = nobody in particular. */
   assignedApproverId?: string;
@@ -204,6 +199,10 @@ export function tierOptions(input: {
     ...(input.role === "admin" ? [{ value: "strategic" as const, label: "Strategic" }] : []),
   ];
 }
+
+/** R-159: true when a change request is on the emergency path (flag or tier). */
+export const isEmergencyChange = (cr: { is_emergency?: boolean | null; tier?: string | null }) =>
+  cr.is_emergency === true || cr.tier === "emergency";
 
 /** Only a manager or admin may use the emergency path (the server refuses everyone else). */
 export const canRaiseEmergency = (role: string | null | undefined) => role === "admin" || role === "manager";
@@ -563,10 +562,9 @@ export function ChangeForm({
                 className="focus-ring mt-0.5 h-4 w-4 shrink-0 cursor-pointer rounded border-border-subtle accent-accent"
               />
               <span className="min-w-0">
-                <span className="block text-sm text-ink">Emergency: ship now, approve afterwards</span>
+                <span className="block text-sm text-ink">Emergency: commit now, no approval</span>
                 <span className="mt-0.5 block text-xs text-ink-muted">
-                  The change can go live at once. An admin must approve it within the workspace window (48 hours by
-                  default); it stays flagged until then.
+                  The change commits immediately with no approver and is flagged as an emergency in every report.
                 </span>
               </span>
             </label>

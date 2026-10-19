@@ -170,9 +170,19 @@ export function pendingByHref(counts: PendingCounts | null | undefined): Record<
   return Object.fromEntries(Object.entries(raw).filter(([, n]) => n > 0));
 }
 
-/** Screen-reader text for a pending count. */
-export function pendingSrText(n: number): string {
-  return `${n} ${n === 1 ? "item" : "items"} awaiting your decision`;
+/**
+ * Who can decide governance items. A member sees the queue (transparency is a
+ * feature) but decides nothing, so the badge must not say "awaiting your decision"
+ * for them (UAT-031). An unknown role (still loading) gets the neutral wording.
+ */
+export function canDecideGovernance(role: string | null | undefined): boolean {
+  return role === "admin" || role === "manager";
+}
+
+/** Screen-reader text for a pending count; wording depends on whether the viewer can decide. */
+export function pendingSrText(n: number, canDecide = true): string {
+  const noun = n === 1 ? "item" : "items";
+  return canDecide ? `${n} ${noun} awaiting your decision` : `${n} ${noun} in review`;
 }
 
 /**

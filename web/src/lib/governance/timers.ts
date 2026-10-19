@@ -10,8 +10,8 @@
  *                 one audit row, and it refuses any tier but routine and any request carrying
  *                 money or dates.
  *   3. ESCALATION past the deadline and not auto-approved, the admins are told (once).
- *   4. RETRO      an emergency change that is live and whose retro decision is overdue is
- *                 flagged (once) and the admins are told.
+ * (The old fourth step, the emergency retro flag, was retired by owner decision Q1: an emergency change commits
+ * when it is raised and owes no retro decision.)
  * Each step is recorded in `approval_events`; its unique index (target, kind) is the once-only
  * rule, so a second tick on the same day cannot remind, escalate or flag twice. The timer never
  * writes to the request row itself, so it cannot invalidate the version an approver is reading.
@@ -25,7 +25,7 @@ import { sanitizeError } from "@/lib/integrations/secrets";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { announceDecided, changeRequestEvent } from "@/lib/governance/decide";
 import { recordApprovalEvent, type ApprovalTarget } from "@/lib/governance/approval-events";
-import { isRetroOverdue, loadApprovalPolicy, reminderDueAt, type ApprovalPolicy } from "@/lib/governance/tiers";
+import { loadApprovalPolicy, reminderDueAt, type ApprovalPolicy } from "@/lib/governance/tiers";
 
 type Db = ReturnType<typeof createAdminClient>;
 
@@ -35,12 +35,11 @@ const MAX_PAGES = 20;
 
 export type ApprovalTimerSummary = {
   workspaces: number;
-  /** Requests the timer looked at (waiting with a deadline, or an emergency awaiting retro). */
+  /** Requests the timer looked at (waiting with a deadline). */
   examined: number;
   reminders: number;
   escalated: number;
   autoApproved: number;
-  retroOverdue: number;
   failed: number;
   skippedForDeadline: number;
 };
@@ -51,12 +50,11 @@ export const EMPTY_APPROVAL_TIMER_STEP: ApprovalTimerSummary = {
   reminders: 0,
   escalated: 0,
   autoApproved: 0,
-  retroOverdue: 0,
   failed: 0,
   skippedForDeadline: 0,
 };
 
-export type TimerCounts = Pick<ApprovalTimerSummary, "examined" | "reminders" | "escalated" | "autoApproved" | "retroOverdue" | "failed">;
+export type TimerCounts = Pick<ApprovalTimerSummary, "examined" | "reminders" | "escalated" | "autoApproved" | "failed">;
 
 type Waiting = {
   id: string;
@@ -180,7 +178,7 @@ async function adminIds(db: Db, workspaceId: string): Promise<string[]> {
 export async function runApprovalTimersForWorkspace(workspaceId: string, now: Date, policyIn?: ApprovalPolicy): Promise<TimerCounts> {
   const db = createAdminClient();
   const policy = policyIn ?? (await loadApprovalPolicy(db, workspaceId));
-  const counts: TimerCounts = { examined: 0, reminders: 0, escalated: 0, autoApproved: 0, retroOverdue: 0, failed: 0 };
+  const counts: TimerCounts = { examined: 0, reminders: 0, escalated: 0, autoApproved: 0, failed: 0 };
 
   const waiting = await loadWaiting(db, workspaceId);
   for (const w of waiting) {
@@ -273,53 +271,6 @@ export async function runApprovalTimersForWorkspace(workspaceId: string, now: Da
     }
   }
 
-  // G4: emergency changes that are live and still owed their retro decision.
-  const emergencies = await fetchAll((a, b) =>
-    db
-      .from("change_requests")
-      .select("id, reference_id, title, is_emergency, retro_due_at, retro_decided_at")
-      .eq("workspace_id", workspaceId)
-      .eq("is_emergency", true)
-      .is("retro_decided_at", null)
-      .order("retro_due_at", { ascending: true })
-      .order("id", { ascending: true })
-      .range(a, b),
-  );
-  for (const e of emergencies as unknown as {
-    id: string;
-    reference_id: string | null;
-    title: string | null;
-    is_emergency: boolean;
-    retro_due_at: string | null;
-    retro_decided_at: string | null;
-  }[]) {
-    counts.examined += 1;
-    if (!isRetroOverdue(e, now)) continue;
-    try {
-      const first = await recordApprovalEvent(db, {
-        workspaceId,
-        targetType: "change_request",
-        targetId: e.id,
-        kind: "retro_overdue",
-        detail: { retro_due_at: e.retro_due_at },
-      });
-      if (first) {
-        await notify({
-          workspaceId,
-          recipientIds: await adminIds(db, workspaceId),
-          type: "approval.escalated",
-          title: `Emergency change overdue for retro approval: ${e.reference_id ?? e.id} ${e.title ?? ""}`.trim(),
-          body: `The retro decision was due by ${String(e.retro_due_at).slice(0, 16).replace("T", " ")} UTC. The change is live and still flagged.`,
-          payload: { href: "/approvals", targetType: "change_request", targetId: e.id, tier: "emergency" },
-        });
-        counts.retroOverdue += 1;
-      }
-    } catch (err) {
-      console.error("[approvals] retro flag failed for a request:", sanitizeError(err));
-      counts.failed += 1;
-    }
-  }
-
   if (counts.examined > 0 || counts.failed > 0) {
     await writeAudit({
       workspaceId,
@@ -361,7 +312,6 @@ export async function runApprovalTimerStep(now: Date, deadline: number): Promise
         summary.reminders += c.reminders;
         summary.escalated += c.escalated;
         summary.autoApproved += c.autoApproved;
-        summary.retroOverdue += c.retroOverdue;
         summary.failed += c.failed;
       } catch (err) {
         console.error("[approvals] workspace timer step failed:", sanitizeError(err));

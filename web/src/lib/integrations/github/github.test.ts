@@ -202,19 +202,31 @@ describe("status mapping", () => {
     });
   });
 
-  it("moves to in review on merge and completed on a successful deployment naming the pull request", async () => {
+  it("moves to in review on merge and never completes on a successful deployment (R-160)", async () => {
     await post(request("pull_request", prPayload("closed", 7, { merged: true })));
     expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
 
     await post(request("deployment_status", deployPayload("success", { pr: 7 })));
-    expect(task(TASK)).toMatchObject({ status_type: "completed", status: "Done" });
+    expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
     expect(events().map((e) => e.kind)).toEqual(["pr_merged", "deploy_success"]);
-    expect(auditActions()).toEqual(["task.update", "task.update"]);
+    expect(events()[1]).toMatchObject({ applied: false, reason: "no_rule" });
+    expect(auditActions()).toEqual(["task.update"]);
+  });
+
+  it("reads a stored 'completed' rule (saved before R-160) as no rule", async () => {
+    db = new FakeDb();
+    state.db = db;
+    seed({ rules: { ...DEFAULT_RULES, deploy_success: "completed" as never, pr_merged: "completed" as never } });
+    await post(request("pull_request", prPayload("closed", 7, { merged: true })));
+    await post(request("deployment_status", deployPayload("success", { pr: 7 })));
+    expect(task(TASK).status_type).toBe("unstarted");
+    expect(events().every((e) => e.applied === false && e.reason === "no_rule")).toBe(true);
   });
 
   it("reads the pull request from a pull ref when the deployment payload names none", async () => {
     await post(request("deployment_status", deployPayload("success", null, "refs/pull/7/merge")));
-    expect(task(TASK).status_type).toBe("completed");
+    expect(task(TASK).status_type).toBe("unstarted");
+    expect(events()[0]).toMatchObject({ kind: "deploy_success", task_id: TASK, reason: "no_rule" });
   });
 
   it("does nothing for a deploy failure by default but still records it", async () => {
@@ -227,9 +239,9 @@ describe("status mapping", () => {
   it("follows a changed workspace mapping", async () => {
     db = new FakeDb();
     state.db = db;
-    seed({ rules: { ...DEFAULT_RULES, pr_opened: "completed", pr_closed: "canceled" } });
+    seed({ rules: { ...DEFAULT_RULES, pr_opened: "in_review", pr_closed: "canceled" } });
     await post(request("pull_request", prPayload("opened", 7)));
-    expect(task(TASK).status_type).toBe("completed");
+    expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
   });
 
   it("cancels a task when the mapping says a closed, unmerged pull request cancels", async () => {
@@ -319,19 +331,22 @@ describe("replay and limits", () => {
   });
 
   it("handles at most five pull requests named by one deployment", async () => {
+    db = new FakeDb();
+    state.db = db;
+    seed({ rules: { ...DEFAULT_RULES, deploy_success: "in_review" } });
     const tasks: Row[] = [];
     for (let n = 101; n <= 107; n++) {
-      tasks.push({ id: `t0000000-0000-4000-8000-0000000001${n}`, workspace_id: WS, project_id: PROJECT, status_type: "started", status: "In progress", external_ref: `github:acme/widgets#${n}`, updated_at: T_UPDATED });
+      tasks.push({ id: `t0000000-0000-4000-8000-0000000001${n}`, workspace_id: WS, project_id: PROJECT, status_type: "unstarted", status: "To do", external_ref: `github:acme/widgets#${n}`, updated_at: T_UPDATED });
     }
     db.seed("tasks", tasks);
     await post(request("deployment_status", deployPayload("success", { prs: [101, 102, 103, 104, 105, 106, 107] })));
     expect(events()).toHaveLength(7);
-    expect(db.rows("tasks").filter((t) => t.status_type === "completed")).toHaveLength(5);
+    expect(db.rows("tasks").filter((t) => t.status === "In review")).toHaveLength(5);
     // The two beyond the cap are recorded for the trail, never acted on.
     const extra = events().filter((e) => e.reason === "truncated");
     expect(extra.map((e) => e.ref)).toEqual(["acme/widgets#106", "acme/widgets#107"]);
     expect(extra.every((e) => e.applied === false)).toBe(true);
-    expect(db.rows("tasks").find((t) => t.external_ref === "github:acme/widgets#107")!.status_type).toBe("started");
+    expect(db.rows("tasks").find((t) => t.external_ref === "github:acme/widgets#107")!.status_type).toBe("unstarted");
   });
 
   it("answers 200 and records nothing for events it does not act on", async () => {
@@ -423,12 +438,17 @@ describe("pure helpers", () => {
 
   it("validates rules and orders statuses forward", () => {
     expect(normalizeRules({ pr_opened: "bogus", deploy_failure: "canceled" })).toMatchObject({ pr_opened: "started", deploy_failure: "canceled" });
-    expect(validateRulesPatch({ pr_opened: "completed", deploy_failure: null })).toEqual({ ok: true, rules: { pr_opened: "completed", deploy_failure: null } });
+    expect(normalizeRules({ deploy_success: "completed", pr_opened: "completed" })).toMatchObject({ deploy_success: null, pr_opened: null });
+    expect(normalizeRules({}).deploy_success).toBeNull();
+    expect(validateRulesPatch({ pr_opened: "in_review", deploy_failure: null })).toEqual({ ok: true, rules: { pr_opened: "in_review", deploy_failure: null } });
+    const refused = validateRulesPatch({ deploy_success: "completed" });
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.message).toMatch(/human action/);
     expect(validateRulesPatch({ pr_opened: "done" }).ok).toBe(false);
     expect(validateRulesPatch({ nonsense: "started" }).ok).toBe(false);
     expect(validateRulesPatch({}).ok).toBe(false);
     expect(statusRank("started", "In review")).toBeGreaterThan(statusRank("started", null));
-    expect(targetRank("completed")).toBeGreaterThan(targetRank("in_review"));
+    expect(targetRank("in_review")).toBeGreaterThan(targetRank("started"));
     expect(statusRank("canceled", null)).toBe(-1);
   });
 
@@ -451,10 +471,10 @@ describe("status labels (tasks.status is NOT NULL)", () => {
     expect(task(TASK)).toMatchObject({ status_type: "started", status: "In progress" });
     await post(request("pull_request", prPayload("closed", 7, { merged: true })));
     expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
-    // The case that wrote NULL into tasks.status: completed has no review label, and the task read "In review".
+    // A deployment no longer completes the task (R-160): it is recorded, the task keeps its label.
     await post(request("deployment_status", deployPayload("success", { pr: 7 })));
-    expect(task(TASK)).toMatchObject({ status_type: "completed", status: "Done" });
-    expect(events().map((e) => e.reason)).toEqual(["applied", "applied", "applied"]);
+    expect(task(TASK)).toMatchObject({ status_type: "started", status: "In review" });
+    expect(events().map((e) => e.reason)).toEqual(["applied", "applied", "no_rule"]);
     expect(db.rows("tasks").every((t) => t.status !== null && t.status !== undefined)).toBe(true);
   });
 
@@ -465,6 +485,9 @@ describe("status labels (tasks.status is NOT NULL)", () => {
   });
 
   it("never sends a null label to the database", async () => {
+    db = new FakeDb();
+    state.db = db;
+    seed({ rules: { ...DEFAULT_RULES, pr_closed: "canceled" } });
     const calls: Row[] = [];
     const original = db.rpc.bind(db);
     db.rpc = (async (name?: string, args?: Record<string, unknown>) => {
@@ -473,10 +496,10 @@ describe("status labels (tasks.status is NOT NULL)", () => {
     }) as typeof db.rpc;
     task(TASK).status = "In review";
     task(TASK).status_type = "started";
-    await post(request("deployment_status", deployPayload("success", { pr: 7 })));
+    await post(request("pull_request", prPayload("closed", 7)));
     const move = calls.find((c) => c.name === "nopm_apply_task_status_from_event")!;
     expect(move.p_set_label).toBe(true);
-    expect(move.p_status_label).toBe("Done");
+    expect(move.p_status_label).toBe("Canceled");
   });
 
   it("the fake of the 0105 function mirrors the SQL: a null label keeps the current one", async () => {

@@ -268,71 +268,46 @@ describe("deletion requests are routed too", () => {
   });
 });
 
-describe("the emergency path (G4)", () => {
+describe("Q1: an emergency change commits on raise and is never decided", () => {
   const emergency = (over: Row = {}) =>
     cr({
       tier: "emergency",
       is_emergency: true,
-      status: "emergency",
+      status: "approved",
       requested_principal_id: MGR,
       requested_by: MGR,
       requested_by_id: MGR,
-      retro_due_at: "2026-10-18T09:00:00.000Z",
-      retro_decided_at: null,
+      retro_due_at: null,
+      retro_decided_at: "2026-10-18T09:00:00.000Z",
+      retro_outcome: "not_required",
+      decided_at: "2026-10-18T09:00:00.000Z",
       ...over,
     });
 
-  it("the retro decision needs the emergency tier's role (admin by default): another manager is refused", async () => {
-    seed({ cr: emergency({ requested_principal_id: ADM, requested_by: ADM, requested_by_id: ADM }) });
-    const err = await caught(decideChangeRequest(user(MGR, "manager"), "cr-1", approve));
-    expect(err.code).toBe("role_not_permitted");
-  });
-
-  it("an admin approves an emergency request that has not gone live: status approved, retro stamped", async () => {
+  it("an admin cannot decide an emergency request: it is already approved", async () => {
     seed({ cr: emergency() });
-    const out = await decideChangeRequest(user(ADM, "admin"), "cr-1", approve);
-    expect(out.result.status).toBe("approved");
-    expect(db.rows("change_requests")[0]).toMatchObject({ status: "approved", retro_outcome: "approved" });
-    expect(db.rows("change_requests")[0].retro_decided_at).toBeTruthy();
+    const err = await caught(decideChangeRequest(user(ADM, "admin"), "cr-1", approve));
+    expect(err.code).toBe("already_decided");
+    expect(db.rows("audit_log")).toHaveLength(0);
   });
 
-  it("an admin gives the retro decision on a change that is ALREADY LIVE: the status stays implemented, the flag clears", async () => {
-    seed({ cr: emergency({ status: "implemented", implemented_at: "2026-10-17T10:00:00.000Z" }) });
-    const out = await decideChangeRequest(user(ADM, "admin"), "cr-1", approve);
-    expect(out.result.status).toBe("approved"); // what the decision was
-    const row = db.rows("change_requests")[0];
-    expect(row.status).toBe("implemented");
-    expect(row.retro_outcome).toBe("approved");
-    expect(row.retro_decided_at).toBeTruthy();
-    expect(row.decided_principal_id).toBe(ADM);
-    expect(db.rows("audit_log")).toHaveLength(1);
-  });
-
-  it("a rejected retro decision is recorded as such and the change stays implemented (it happened)", async () => {
-    seed({ cr: emergency({ status: "implemented" }) });
-    await decideChangeRequest(user(ADM, "admin"), "cr-1", { decision: "reject", rationale: "not an emergency", expected_updated_at: V0 });
-    expect(db.rows("change_requests")[0]).toMatchObject({ status: "implemented", retro_outcome: "rejected" });
-  });
-
-  it("a live change cannot be deferred", async () => {
-    seed({ cr: emergency({ status: "implemented" }) });
-    const err = await caught(
-      decideChangeRequest(user(ADM, "admin"), "cr-1", { decision: "defer", rationale: "later", expected_updated_at: V0 }),
-    );
-    expect(err.status).toBe(422);
-    expect(db.rows("change_requests")[0].retro_decided_at).toBeNull();
-  });
-
-  it("once the retro decision is taken, a second decision is refused (already decided)", async () => {
-    seed({ cr: emergency({ status: "implemented", retro_decided_at: "2026-10-18T00:00:00.000Z", retro_outcome: "approved", decided_principal_id: ADM, decided_by_label: "admin" }) });
-    const err = await caught(decideChangeRequest(user(ADM2, "admin"), "cr-1", approve));
+  it("a request still flagged as an emergency with a legacy 'emergency' status is not decidable either", async () => {
+    seed({ cr: emergency({ status: "emergency" }) });
+    const err = await caught(decideChangeRequest(user(ADM, "admin"), "cr-1", approve));
     expect(err.code).toBe("already_decided");
   });
 
-  it("four-eyes holds: the admin who raised the emergency cannot give its retro approval", async () => {
-    seed({ cr: emergency({ requested_principal_id: ADM, requested_by: ADM, requested_by_id: ADM, status: "implemented" }) });
+  it("the database function refuses an emergency decision too (the backstop)", async () => {
+    seed({ cr: emergency({ status: "raised" }) });
     const err = await caught(decideChangeRequest(user(ADM, "admin"), "cr-1", approve));
-    expect([err.status, err.code]).toEqual([403, "self_approval"]);
+    expect(err.code).toBe("already_decided");
+    expect(db.rows("change_requests")[0].status).toBe("raised");
+  });
+
+  it("a live emergency (implemented) owes no retro decision: it is refused as already decided", async () => {
+    seed({ cr: emergency({ status: "implemented", implemented_at: "2026-10-17T10:00:00.000Z" }) });
+    const err = await caught(decideChangeRequest(user(ADM, "admin"), "cr-1", approve));
+    expect(err.code).toBe("already_decided");
   });
 
   it("an implemented NON-emergency request is never decidable", async () => {

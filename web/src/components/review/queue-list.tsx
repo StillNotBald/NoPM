@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { tierLabel } from "@/components/governance/tier-label";
 import { Severity } from "@/components/ui/severity";
 import { SegmentedControl, type SegmentOption } from "@/components/ui/segmented-control";
 import { cn } from "@/lib/cn";
@@ -107,14 +108,6 @@ function AgeChip({ days }: { days: number }) {
 
 // ── Row content (shared between link and button rows) ─────────────────────────
 
-const TIER_TEXT: Record<string, string> = {
-  routine: "Routine",
-  normal: "Normal",
-  high_risk: "High risk",
-  emergency: "Emergency",
-  strategic: "Strategic",
-};
-
 function RowContent({ item }: { item: ReviewItem }) {
   // The server says whether THIS viewer may decide the item; when they can't,
   // the row reads "View" (never an Approve / Reject that would be refused).
@@ -153,12 +146,17 @@ function RowContent({ item }: { item: ReviewItem }) {
       {raisedByMe && <span className="shrink-0 text-2xs text-ink-muted">raised by you</span>}
 
       {/* UAT-005: tier and decision deadline */}
-      {item.tier && (
+      {item.tier === "emergency" && (
+        <Badge tone="danger" className="shrink-0">
+          Emergency
+        </Badge>
+      )}
+      {item.tier && item.tier !== "emergency" && (
         <span className="shrink-0 rounded border border-border-subtle bg-well px-1.5 py-0.5 text-2xs text-ink-secondary">
-          {TIER_TEXT[item.tier] ?? item.tier}
+          {tierLabel(item.tier)}
         </span>
       )}
-      {item.deadline && (
+      {item.deadline && item.tier !== "emergency" && (
         <span className={cn("shrink-0 text-2xs", item.overdue ? "font-medium text-danger-ink" : "text-ink-muted")}>
           {item.overdue ? "overdue since" : "decide by"} {item.deadline.slice(0, 10)}
         </span>

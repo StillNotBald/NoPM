@@ -1,0 +1,14 @@
+import { open, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m";
+const s = await open("admin", w, w>600?800:844); const p = s.page;
+const resp=[]; p.on("response", async r=>{ if(/reports\/weekly/.test(r.url()) && r.request().method()==="POST"){ let t=""; try{t=(await r.text()).slice(0,300)}catch{}; resp.push("POST "+r.status()+" "+t);} });
+await p.goto(BASE + "/integrations", { waitUntil: "load" });
+await p.waitForFunction(()=>/^JH$/m.test(document.body.innerText),null,{timeout:60000}).catch(()=>{}); await p.waitForTimeout(4000);
+const b = p.getByRole("button",{name:/send weekly report now/i}).filter({visible:true}).first();
+await b.scrollIntoViewIfNeeded(); await s.shot(`r12-${tag}-1-send`); await b.click(); await p.waitForTimeout(4000); await s.shot(`r12-${tag}-2-sent`);
+console.log(resp.join("\n"));
+await p.goto(BASE + "/api/reports/weekly", { waitUntil: "load" }); await p.waitForTimeout(1500);
+await s.shot(`r12-${tag}-3-report`);
+const t = await s.text(); console.log(t.slice(0,2500));
+console.log("has 'overdue for approval':", /overdue for approval/i.test(t));
+await s.browser.close();

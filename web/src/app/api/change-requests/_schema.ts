@@ -60,8 +60,8 @@ export const createChangeRequestSchema = z.object({
    */
   tier: z.enum(REQUESTABLE_TIERS, { error: "tier must be routine, normal, high_risk or strategic" }).optional(),
   /**
-   * G4: the emergency path. A manager or admin ships the change now; an admin gives the retro decision within the
-   * workspace's retro window (default 48 h) and the request is flagged until then.
+   * Q1: the emergency flag. A manager or admin raises it and it commits at once: no approver, no retro decision.
+   * The request carries tier "emergency" and a full audit row, and the console flags it wherever it is listed.
    */
   is_emergency: z.boolean().optional(),
 });

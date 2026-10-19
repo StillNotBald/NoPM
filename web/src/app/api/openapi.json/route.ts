@@ -103,8 +103,8 @@ const spec = {
       "name. Approving or deciding (deletion approve/reject, change-request decide, rebaseline sign-off and apply) is for ADMINS and MANAGERS only, on every channel (owner decision D-16, " +
       "'follow Lark rules'): a member or viewer gets 403, code role_not_permitted, 'Only managers and admins can " +
       "approve'. WAVE 4 (G1, G2): the APPROVAL TIER sets the least role that may decide a request. By default a manager " +
-      "decides routine and normal requests; an admin decides high_risk, strategic and an emergency's retro decision " +
-      "(403 role_not_permitted, 'Only admins can approve a high-risk request (the tier is named in words).'). Workspace Settings can change the role per tier. " +
+      "decides routine and normal requests; an admin decides high_risk and strategic requests " +
+      "(403 role_not_permitted, with a message that names the tier's role, such as 'Only admins can approve a high-risk request.'). An emergency change commits when it is raised and needs no decision. Workspace Settings can change the role per tier. " +
       "A token is judged by the CURRENT role of the person who minted it (api_tokens.created_by), so a " +
       "token carrying an approve scope can decide only while its creator is still an admin or manager, and stops " +
       "the moment they are demoted. Such a token acts with its creator's authority: keep approve scopes off " +
@@ -136,7 +136,7 @@ const spec = {
       "project_has_approved_records, change_request_required, change_request_invalid, change_request_not_approved, decision_accepted_locked, " +
       "supersede_loop, author_cannot_approve, approve_after_edit, duplicate_clash, unfinished_tasks, invalid_destination, open_tasks, " +
       "admin_created, not_expired, last_admin, member_removed, member_not_removed, no_change, self_reset, unknown_provider, invalid_key, " +
-      "key_unverified, agents_cannot_unlock, approved_document_needs_admin, connector_exists, encryption_unavailable, " +
+      "key_unverified, agents_cannot_unlock, connector_exists, encryption_unavailable, " +
       "invalid_assigned_approver, not_requester, verify_throttled) — branch on it, not on the message. " +
       "COMMON-PATTERN RULES (owner decisions 19-25, 2026-10-18): a PATCH/POST with a field the endpoint does not know is refused 422 " +
       "(Unknown field x. Nothing was saved.) on projects, tasks, milestones, risks, issues, sprints, clashes, allocations, resources " +
@@ -189,14 +189,14 @@ const spec = {
       "accepts `tier` (routine only with no cost and no schedule impact; strategic needs an admin) and the server can only RAISE it: " +
       "a cost at or over the workspace currency threshold (default 50,000) or a schedule impact over schedule_threshold_days (default 10) makes a normal request high_risk; the currency is a label only, so no cost is converted. A fallback approver (decision D7) lets a manager decide an admin-level request while the workspace has fewer than two admins. The policy is " +
       "`approval_policy` on GET and PATCH /workspace-settings (admin session): the decider role and turnaround hours per tier, the " +
-      "threshold and currency, and the emergency window. TIMERS AND AUTO-APPROVE (G3): the daily scheduler reminds approvers at half " +
+      "threshold and currency (emergency_retro_hours is deprecated and has no effect). TIMERS AND AUTO-APPROVE (G3): the daily scheduler reminds approvers at half " +
       "the turnaround, escalates to admins past it, and never writes the request row. Routine auto-approve is OFF by default; an " +
       "admin may switch it on for the routine tier only, and it never applies to a request with a cost or a schedule impact. " +
-      "EMERGENCY (G4): POST /projects/{id}/change-requests with `is_emergency: true` (a manager or admin) gives status emergency, " +
-      "which can be implemented at once; a live emergency owes an admin's retro decision within the workspace window (default 48 h), " +
-      "and is flagged overdue once that passes (retro_due_at, retro_decided_at, retro_outcome). " +
-      "DELETION BY REQUEST (G8): risk, issue, expense, document and milestone deletions are requests, see the intro above; an APPROVED " +
-      "document can be requested only by an admin. " +
+      "EMERGENCY (G4, owner decision Q1): POST /projects/{id}/change-requests with `is_emergency: true` (a manager or admin) commits at once: " +
+      "the request is stored as approved with tier emergency and is_emergency true. It needs no approver, no retro decision and has no approval deadline; " +
+      "the audit rows are change_request.create and change_request.emergency_commit. retro_due_at, retro_decided_at and retro_outcome are deprecated history fields. " +
+      "DELETION BY REQUEST (G8): risk, issue, expense, document and milestone deletions are requests, see the intro above; an approved " +
+      "document is on the manager tier like any other document. An expense deletion at or above the workspace currency_threshold is high_risk and only an admin approves it (audited deletion_request.tier_raised). " +
       "ATOMIC AUDIT AND TAMPER EVIDENCE (M1): a mutation and its audit row succeed or fail together, and every audit row carries " +
       "prev_hash, row_hash and chain_seq. GET /audit/verify (admin or manager session) recomputes the per-workspace chain and " +
       "reports the first bad row. The hash chain proves rows were not edited or removed from the middle; keep head_hash outside the database to cover a database owner who recomputes the chain. " +
@@ -312,8 +312,6 @@ const spec = {
           reason_if_not: { type: ["string", "null"], description: "Why the caller cannot decide it; null when can_decide is true" },
           tier: { type: ["string", "null"], enum: [null, "routine", "normal", "high_risk", "strategic", "emergency"], description: "The approval tier; null when unknown" },
           approval_deadline_at: { type: ["string", "null"], format: "date-time", description: "When the turnaround timer expires; null for an emergency or a tier with no turnaround" },
-          retro_due_at: { type: ["string", "null"], format: "date-time", description: "Change requests only: when an emergency's retro decision is due" },
-          retro_overdue: { type: ["boolean", "null"], description: "Change requests only: true for a live emergency past its retro_due_at with no retro decision (computed, never stored); null for other requests" },
           removes: {
             type: "array",
             description: "What approving also detaches or removes (a milestone's tasks, a project's records); empty otherwise",
@@ -823,7 +821,7 @@ const spec = {
       get: {
         tags: ["workspace"],
         summary: "Read workspace settings (time zone)",
-        description: "scope: any authenticated caller. Returns { time_zone, default_time_zone, stale_days, nudges_enabled, weekly_report_enabled, weekly_report_day, approval_policy }. approval_policy (wave 4) is always complete with every default filled in: { tiers: { routine | normal | high_risk | emergency | strategic: { approver_role: manager | admin, turnaround_hours (0-8760; 0 = no timer), auto_approve (boolean; true only on routine) } }, currency_threshold (default 50000), currency (a LABEL, default MYR or null: every cost is compared as a plain number in that currency and nothing is converted), schedule_threshold_days (0-3650, default 10: a schedule impact above it lifts a normal request to high_risk), emergency_retro_hours (1-720, default 48) }. Defaults: routine and normal decided by a manager; high_risk, emergency retro and strategic by an admin; turnaround 24, 48, 72, 0 and 120 hours; auto_approve off everywhere. The time zone default is Asia/Kuala_Lumpur. stale_days (1-365, default 14) is the age after which an open item is nudged as stale; weekly_report_day is an ISO weekday (1 = Monday) read in time_zone. Server-side defaults (due dates, sprint timing, reminders) follow the time zone.",
+        description: "scope: any authenticated caller. Returns { time_zone, default_time_zone, stale_days, nudges_enabled, weekly_report_enabled, weekly_report_day, approval_policy }. approval_policy (wave 4) is always complete with every default filled in: { tiers: { routine | normal | high_risk | emergency | strategic: { approver_role: manager | admin, turnaround_hours (0-8760; 0 = no timer), auto_approve (boolean; true only on routine) } }, currency_threshold (default 50000), currency (a LABEL, default MYR or null: every cost is compared as a plain number in that currency and nothing is converted), schedule_threshold_days (0-3650, default 10: a schedule impact above it lifts a normal request to high_risk), emergency_retro_hours (deprecated: accepted and ignored, nothing new is stored and it has no effect) }. Defaults: routine and normal decided by a manager; high_risk and strategic by an admin; turnaround 24, 48, 72, 0 and 120 hours; auto_approve off everywhere. The time zone default is Asia/Kuala_Lumpur. stale_days (1-365, default 14) is the age after which an open item is nudged as stale; weekly_report_day is an ISO weekday (1 = Monday) read in time_zone. Server-side defaults (due dates, sprint timing, reminders) follow the time zone.",
         operationId: "getWorkspaceSettings",
         parameters: [],
         responses: {
@@ -1901,7 +1899,7 @@ const spec = {
         description:
           "scope: expense:delete:request (new in wave 4; it used to need budget:write). Does NOT delete the expense: an expense is a money record. " +
           "Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=expense) and returns 202. " +
-          "A different PERSON holding expense:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve. Audit: expense.delete_requested now, expense.delete on approval.",
+          "A different PERSON holding expense:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve. Audit: expense.delete_requested now, expense.delete on approval. The request is `normal` tier (a manager approves). When the absolute amount is at or above the workspace `currency_threshold` (default 50,000) it is `high_risk` and only an admin approves it, as for a project; the raise is audited as deletion_request.tier_raised. The tier is in the `tier` field of the 202 response.",
         operationId: "deleteExpense",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
@@ -1917,7 +1915,7 @@ const spec = {
       get: {
         tags: ["deletion-requests"],
         summary: "List deletion requests",
-        description: "scope: task:read or audit:read. Optional ?status filter (pending|approved|rejected|committed|withdrawn). Covers every target_type: task, project, risk, issue, expense, document and milestone (wave 4). Each row carries tier and approval_deadline_at.",
+        description: "scope: task:read or audit:read. Optional ?status filter (pending|approved|rejected|committed|withdrawn). Covers every target_type: task, project, risk, issue, expense, document and milestone (wave 4). Each row carries tier and approval_deadline_at; an expense deletion can be high_risk.",
         operationId: "listDeletionRequests",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },
@@ -1942,12 +1940,12 @@ const spec = {
           "the user who minted it, so you cannot approve with your own token what you (or any of your tokens) " +
           "requested (403, code self_approval); a token with no recorded owner can never approve (403, code " +
           "no_principal). The caller must also be an admin or manager — a token is judged by its creator's current role (403, " +
-          "code role_not_permitted, 'Only managers and admins can approve'). Optional body { note }: the approver's note, recorded in the audit row of the " +
+          "code role_not_permitted, 'Only managers and admins can approve', or a tier message such as 'Only admins can approve a high-risk request.'). Optional body { note }: the approver's note, recorded in the audit row of the " +
           "decision (an empty body is fine). " +
           "Dispatches by target_type to the matching atomic commit RPC " +
           "(nopm_commit_task_deletion / nopm_commit_project_deletion, and the wave-4 risk, issue, expense, document and milestone commits) — deletes the target and commits " +
           "the request in one transaction. " +
-          "Wave 4: an approved document's deletion is high_risk, so an admin must approve it. Approving a PROJECT deletion closes every pending request on that project's children as withdrawn, with closed_reason parent_deleted. " +
+          "An approved document is on the manager tier like any other document: a manager or admin other than the requester approves it. A refusal names the tier's role ('Only admins can approve a high-risk request.'). An expense deletion at or above currency_threshold is high_risk and only an admin approves it. Approving a PROJECT deletion closes every pending request on that project's children as withdrawn, with closed_reason parent_deleted. " +
           "For target_type=project, also 422s project_locked if the project's schedule was frozen" +
           "after the deletion was requested, and 422s children_changed if the project gained records (tasks, " +
           "milestones, risks, ...) after the request was raised — the request no longer describes what would be " +
@@ -1972,7 +1970,7 @@ const spec = {
           "200": { description: "Deletion committed — { data: { committed: true } }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Missing the per-type approve scope (forbidden_scope); the caller (or the person behind the token) is not an admin or manager (role_not_permitted, 'Only managers and admins can approve'); the approver is the same person as the requester (self_approval); or the token has no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed; for a milestone, the task count moved); an approved document whose requester is not an admin (approved_document_needs_admin); a project-locked milestone (project_locked, which closes the request); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Request already decided (already_decided); the project is locked (project_locked — target_type=project, schedule frozen since the request was made); the project gained records since the request (children_changed; for a milestone, the task count moved); a project-locked milestone (project_locked, which closes the request); the task was edited since the request (target_changed); the target was already deleted, e.g. by a cascade (target_gone — the request is closed as withdrawn); or validation error (note too long)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
@@ -1980,7 +1978,7 @@ const spec = {
       post: {
         tags: ["deletion-requests"],
         summary: "Reject a pending deletion request (checker step)",
-        description: "scope: task:delete:approve for task requests, project:delete:approve for project requests (per-type gate; a wildcard scope never grants it). Four-eyes compares PEOPLE: the decider must be a different person from the requester. Self-rejection by the SAME actor returns 422 (code self_approval); the same person through ANOTHER identity (e.g. a token they minted) returns 403 (code self_approval); a token with no recorded owner returns 403 (code no_principal). A maker cancels their own request via /withdraw instead. Admins and managers only (403, code role_not_permitted, 'Only managers and admins can approve').",
+        description: "scope: task:delete:approve for task requests, project:delete:approve for project requests (per-type gate; a wildcard scope never grants it). Four-eyes compares PEOPLE: the decider must be a different person from the requester. Self-rejection by the SAME actor returns 422 (code self_approval); the same person through ANOTHER identity (e.g. a token they minted) returns 403 (code self_approval); a token with no recorded owner returns 403 (code no_principal). A maker cancels their own request via /withdraw instead. Admins and managers only (403, code role_not_permitted, 'Only managers and admins can approve', or a tier message such as 'Only admins can approve a high-risk request.').",
         operationId: "rejectDeletionRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { content: { "application/json": { schema: { type: "object", properties: { reason: { type: "string", maxLength: 1000 } } } } } },
@@ -2120,8 +2118,8 @@ const spec = {
           "entity=audit also carries principal_id, principal_label, via_connector_id, external_event_id and external_actor_ref, and (wave 4) row_hash as its LAST column. " +
           "entity=risks takes impact_area=a,b (any-of) and exports risk_category and impact_areas. Streams text/csv with Content-Disposition " +
           "nopm-<entity>-<date>.csv (date is server-derived, never from request input). " +
-          "entity=change_requests (scope change:read) exports every change request in range, with decision, impact_scope, implemented and evidence columns; on=updated is supported. Wave 4 adds trailing columns tier, is_emergency, retro_due_at, retro_decided_at, retro_outcome and retro_overdue. " +
-          "entity=audit_pack is the audit pack, admin or manager SESSION only (403 for any token, member or viewer). Its PDF cover, and the weekly report HTML, print \"Audit chain head: <hash> at <time> UTC\" (wave 4), the newest row_hash at export time; keep a copy of it outside the database. format=csv (default; one file whose first column section is change_requests, evidence, decisions or approvals_audit) or format=pdf; any other format is 422. A change request is in range when raised or decided in range. Each section is capped at 10,000 rows with a TRUNCATED note row. Filename nopm-audit-pack-<date>.csv or .pdf; audited as export.audit_pack. " +
+          "entity=change_requests (scope change:read) exports every change request in range, with decision, impact_scope, implemented and evidence columns; on=updated is supported. Wave 4 adds trailing columns tier, is_emergency, retro_due_at, retro_decided_at, retro_outcome and retro_overdue; the retro_* columns are deprecated history for emergencies raised before the retro was retired. " +
+          "entity=audit_pack is the audit pack, admin or manager SESSION only (403 for any token, member or viewer). Its PDF cover, and the weekly report HTML, print \"Audit chain head: <hash> at <time> UTC\" (wave 4), the newest row_hash at export time; keep a copy of it outside the database. format=csv (default; one file whose first column section is change_requests, evidence, decisions or approvals_audit) or format=pdf; any other format is 422. The change-request sheet has the columns tier, is_emergency (yes, or blank), retro_due_at, retro_decided_at, retro_outcome and retro_overdue. The retro_* columns are history for emergencies raised before the retro was retired, and retro_overdue is deprecated: it is blank in every row and stays one more release so tooling keyed on the header still works. A change request is in range when raised or decided in range. Each section is capped at 10,000 rows with a TRUNCATED note row. Filename nopm-audit-pack-<date>.csv or .pdf; audited as export.audit_pack. " +
           "Filter/sort params are the SAME ones the entity's list API takes (single source of " +
           "truth, so a filter honored in a list view is always honored the same way in its " +
           "export): tasks accept project_id/assignee_id/status_type/priority/" +
@@ -2502,14 +2500,14 @@ const spec = {
         description:
           "scope: document:delete:request (new in wave 4; it used to need document:write). Does NOT delete the document. " +
           "Body: reason (required, max 1000) and assigned_approver_id (optional). Creates a deletion_request (target_type=document) and returns 202. " +
-          "An APPROVED document can be requested only by an admin: any other caller gets 403 role_not_permitted, recorded as document.delete_request.blocked. " +
+          "An approved document is on the manager tier like any other document: any caller with `document:delete:request` may request its deletion and a manager or admin other than the requester approves it. The request is audited (`document.delete_requested`, `deletion_request.approved`). " +
           "On approval the stored file is removed too. A different PERSON holding document:delete:approve and an approver role must approve it at POST /deletion-requests/{id}/approve.",
         operationId: "deleteDocument",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["reason"], properties: { reason: { type: "string", maxLength: 1000 }, assigned_approver_id: { type: ["string", "null"], format: "uuid" } } } } } },
         responses: {
           "202": { description: "Deletion request created (pending) — { data: deletion_request }", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
-          "403": { description: "Missing document:delete:request (forbidden_scope); an approved document and the caller is not an admin (role_not_permitted); or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "403": { description: "Missing document:delete:request (forbidden_scope), or no recorded owner (no_principal)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "422": { description: "duplicate_deletion_request — a request is already pending; or validation error (reason required)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "Not found", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
@@ -2570,7 +2568,7 @@ const spec = {
         tags: ["change-requests"],
         summary: "List change requests across the workspace",
         description:
-          "scope: change:read. Workspace-wide list of change requests, newest first. Query: project_id (uuid), status (raised | under_review | approved | rejected | deferred | implemented | emergency), page, limit (max 100), view (summary default | full), fields (comma list, allow-list in src/lib/api/views.ts; an unknown field is 422). Wave 4: each row carries tier and is_emergency (summary view too), and full or fields= adds approval_deadline_at, retro_due_at, retro_decided_at and retro_outcome (approved | rejected | deferred). emergency is an emergency change request that may be implemented at once; once implemented it stays flagged until an admin's retro decision (retro_outcome) is recorded.",
+          "scope: change:read. Workspace-wide list of change requests, newest first. Query: project_id (uuid), status (raised | under_review | approved | rejected | deferred | implemented | emergency), page, limit (max 100), view (summary default | full), fields (comma list, allow-list in src/lib/api/views.ts; an unknown field is 422). Wave 4: each row carries tier and is_emergency (summary view too), and full or fields= adds approval_deadline_at, retro_due_at, retro_decided_at and retro_outcome. retro_due_at, retro_decided_at and retro_outcome are deprecated: retro_due_at is null for every new emergency, retro_decided_at is the raise time, and retro_outcome is not_required (new), retired (closed out by migration 0106) or, on old rows, approved | rejected | deferred. A new emergency change request is stored as approved with tier emergency and is_emergency true; status emergency is no longer written (old rows were moved to approved) and stays in the filter only for history.",
         operationId: "listChangeRequests",
         parameters: [
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
@@ -2663,7 +2661,7 @@ const spec = {
         tags: ["change-requests"],
         summary: "Mark an approved change request implemented",
         description:
-          "scope: change:write. Allowed for the requester's person, or any admin or manager. Needs a principal: a token with no recorded owner is 403 no_principal; anyone else is 403 not_requester. Moves an APPROVED request to implemented (wave 4: or an emergency change in status emergency, which may ship at once and then owes its retro decision) and stamps implemented_at, implemented_by, implemented_by_type/id/label, implemented_principal_id and implemented_note in one transaction with its audit row change_request.implement (nopm_implement_change_request). implemented_at is never earlier than decided_at. Once only: a repeat is 422 already_implemented and the stamp is never rewritten. Any other status is 422 invalid_transition.",
+          "scope: change:write. Allowed for the requester's person, or any admin or manager. Needs a principal: a token with no recorded owner is 403 no_principal; anyone else is 403 not_requester. Moves an APPROVED request to implemented (an emergency change is already approved when raised, so it can be implemented at once) and stamps implemented_at, implemented_by, implemented_by_type/id/label, implemented_principal_id and implemented_note in one transaction with its audit row change_request.implement (nopm_implement_change_request). implemented_at is never earlier than decided_at. Once only: a repeat is 422 already_implemented and the stamp is never rewritten. Any other status is 422 invalid_transition.",
         operationId: "implementChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         requestBody: { required: false, content: { "application/json": { schema: { type: "object", properties: { note: { type: ["string", "null"], maxLength: 2000 } } } } } },
@@ -2726,8 +2724,8 @@ const spec = {
           "scope: change:write. Auto-assigns a CR-NNN reference_id. WAVE 4 (G1, G2, G4): `tier` (routine | normal | high_risk | strategic; default normal) " +
           "asks for an approval tier. routine needs no cost, no schedule impact and no impact_scope (else 422 on tier); the database also lifts a routine request that later gains one to normal. strategic needs an admin (else 403 role_not_permitted). " +
           "The server raises the tier, never lowers it: a cost at or over the workspace threshold makes it high_risk. " +
-          "`is_emergency: true` (manager or admin only, else 403 role_not_permitted) stores tier emergency and status emergency, sets retro_due_at to now plus the workspace emergency window, and sends no ordinary deadline. " +
-          "The response carries tier, approval_deadline_at, is_emergency, retro_due_at, retro_decided_at and retro_outcome. Only `title` is required (category defaults to " +
+          "`is_emergency: true` (manager or admin only, else 403 role_not_permitted) commits at once: the request is stored as `approved` with `tier` `emergency` and `is_emergency` true. It needs no approver and no retro decision, and it has no approval deadline. The raise writes the normal `change_request.create` audit row and a `change_request.emergency_commit` row, with the raiser as the actor. A member gets 403 `role_not_permitted`. To raise an emergency the caller needs a user session (a manager or admin) or a token holding the exact `change:decide` scope; `change:*` and `change:write` are not enough, because a wildcard never grants a decide scope. A token without it gets 403 `role_not_permitted` with a message naming the `change:decide` scope. " +
+          "The response carries tier, approval_deadline_at, is_emergency and the deprecated retro_due_at (null), retro_decided_at (the raise time) and retro_outcome (not_required). Only `title` is required (category defaults to " +
           "scope, priority to medium, status to raised). `status` may only be raised or under_review: every terminal " +
           "status needs a decider, so approved / rejected / deferred are reached through " +
           "POST /change-requests/{id}/decision, and implemented through POST /change-requests/{id}/implement — sending one at creation is a 422 validation error, never a raw " +
@@ -2766,7 +2764,7 @@ const spec = {
           "request, so nobody can rewrite a pending request and then approve what they wrote; a token with no recorded " +
           "owner is 403 no_principal; a legacy request with no recorded requester can be edited by anyone with the scope. " +
           "`status` is NOT updatable here — every status transition goes through the four-eyes " +
-          "POST /change-requests/{id}/decision. Editable ONLY while the request is still open (raised / under_review), or while it is an emergency not yet implemented (status emergency; a live emergency that is implemented stays part of the record, 422): once" +
+          "POST /change-requests/{id}/decision. Editable ONLY while the request is still open (raised / under_review), (an emergency change is committed when raised, so it is decided from the start): once" +
           "decided it is part of the decision record, and editing its impact_cost after approval would rewrite what the " +
           "decider looked at — 422 change_request_decided (raise a new change request instead); the write is a " +
           "compare-and-set on the open statuses, so a decision landing mid-edit wins. Editing a field an approver decides " +
@@ -2787,7 +2785,7 @@ const spec = {
       delete: {
         tags: ["change-requests"],
         summary: "Delete a change request",
-        description: "scope: change:write. Only while the request is still open (raised / under_review, or an emergency not yet implemented), and only by the requester's person (the user who raised it, or a token that user minted; anyone else is 403 code not_requester, an ownerless token 403 no_principal): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
+        description: "scope: change:write. Only while the request is still open (raised / under_review), and only by the requester's person (the user who raised it, or a token that user minted; anyone else is 403 code not_requester, an ownerless token 403 no_principal): a decided request (approved / rejected / deferred / implemented) is part of the decision record and is never hard-deleted — 422 change_request_decided.",
         operationId: "deleteChangeRequest",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
         responses: {
@@ -2812,7 +2810,7 @@ const spec = {
           "looking at — and if it was edited since, the decision is refused with 412 (code precondition_failed) instead " +
           "of approving content the decider never saw; omit it and today's behaviour is unchanged. The decision write is " +
           "itself pinned to that version, so an edit landing between the check and the write also fails with 412. A " +
-          "decision made from a chat card is always pinned to the version the card was issued for. WAVE 4 (G1, G2, G4): the request's tier sets the least role. Fallback approver (decision D7): in a workspace with fewer than two admins, a manager may decide an admin-level request; the change_request.decide audit row then records fallback_approver true, and the raiser is still barred. An admin decides high_risk and strategic requests, and a manager decides routine and normal ones unless the workspace policy says otherwise (403 role_not_permitted, 'Only admins can approve a high-risk request (the tier is named in words).'). An emergency change takes its RETRO decision here too: send approve or reject while the change is implemented and not yet decided (status implemented, is_emergency, retro_decided_at null). The retro decision needs the emergency tier's role (an admin by default), a different person from the raiser, and does not move the change back: it stays implemented, and retro_decided_at and retro_outcome are stamped. defer is refused on a live emergency (422 invalid_transition). Admins and managers only, and the tier above can narrow that to admins " +
+          "decision made from a chat card is always pinned to the version the card was issued for. WAVE 4 (G1, G2, G4): the request's tier sets the least role. Fallback approver (decision D7): in a workspace with fewer than two admins, a manager may decide an admin-level request; the change_request.decide audit row then records fallback_approver true, and the raiser is still barred. An admin decides high_risk and strategic requests, and a manager decides routine and normal ones unless the workspace policy says otherwise (403 role_not_permitted, 'Only admins can approve a high-risk request.' or 'Only admins can approve an emergency request.'). An emergency change cannot be decided: it commits when raised, so approve, reject and defer answer 422 already_decided (the same on the matching chat paths). Admins and managers only, and the tier above can narrow that to admins " +
           "(403, code role_not_permitted, 'Only managers and admins can approve'); the decision, its audit row and the " +
           "status change are one database transaction (nopm_decide_change_request).",
         operationId: "decideChangeRequest",
@@ -2971,7 +2969,7 @@ const spec = {
           "self_approval; the legacy same-user case returns 422 with the same code. The vote is cast by a person: a " +
           "session votes as themselves and a token votes as the user who minted it (one vote per person per " +
           "rebaseline); a token with no recorded owner cannot vote (403, code no_principal). Admins and managers only (403, code " +
-          "role_not_permitted, 'Only managers and admins can approve'); when the workspace policy asks for an admin to decide the rebaseline's tier, a manager is refused with 403 role_not_permitted, 'Only admins can approve a high-risk request (the tier is named in words).'. The vote, the status change and the audit row are one " +
+          "role_not_permitted, 'Only managers and admins can approve'); when the workspace policy asks for an admin to decide the rebaseline's tier, a manager is refused with 403 role_not_permitted, 'Only admins can approve a high-risk request.'. The vote, the status change and the audit row are one " +
           "transaction (nopm_signoff_rebaseline).",
         operationId: "signoffRebaseline",
         parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
@@ -3194,7 +3192,7 @@ const spec = {
       get: {
         tags: ["reports"],
         summary: "Stored weekly status report (HTML)",
-        description: "scope: report:read. Renders the report as it was generated (a stored snapshot, not live figures) as text/html with cache-control private, no-store. week = a calendar day (2026-10-22) or an ISO week (2026-W43), resolved to that week's Monday; omitted = the current week in the workspace time zone. Contents: workspace name, week, counts (projects, open high risks, pending approvals, stale items), a project table with project codes, milestones due in 14 days and the stalest items. Workspace-filtered.",
+        description: "scope: report:read. Renders the report as it was generated (a stored snapshot, not live figures) as text/html with cache-control private, no-store. week = a calendar day (2026-10-22) or an ISO week (2026-W43), resolved to that week's Monday; omitted = the current week in the workspace time zone. Contents: workspace name, week, counts (projects, open high risks, pending approvals, stale items), a project table with project codes, milestones due in 14 days, the stalest items, and a section \"Emergency changes this week: N\" listing up to ten references and titles of emergency change requests raised in the last 7 days. The stored digest field is emergencyChanges: { count, items: [{ reference, title }] } (it replaces retroOverdue); reports stored before this change have neither field and render \"Emergency changes this week: 0\". The Lark weekly card carries the same line. Workspace-filtered.",
         operationId: "getWeeklyReport",
         parameters: [{ name: "week", in: "query", schema: { type: "string" }, description: "A calendar day or an ISO week" }],
         responses: {
@@ -3299,7 +3297,7 @@ const spec = {
           "Each item also carries assigned_approver_id (uuid or null) and assigned_to_me (boolean). Assignment is routing only and never changes can_decide. " +
           "Wave 4: the kinds gain risk_deletion, issue_deletion, expense_deletion, document_deletion and milestone_deletion. Each item carries " +
           "removes (what approving also detaches, such as a milestone's tasks; an empty list otherwise), tier and approval_deadline_at (both null when unknown), " +
-          "and for a change request retro_due_at and retro_overdue (true for a live emergency change past its retro window; computed, never stored). " +
+          "and for a change request tier (emergency when it carries the flag). The review items no longer carry retro_due_at or retro_overdue: both fields were removed, so do not read them. An emergency change commits when raised and never appears as waiting. " +
           "Also available as the MCP / assistant tool list_pending_approvals and as `nopm review` in the CLI.",
         operationId: "listPendingApprovals",
         parameters: [
@@ -3830,8 +3828,8 @@ const spec = {
           "and no new work STARTS after 40 s — what is left stays queued for the next tick. " +
           "A nudge step runs for every workspace, with or without a connector: open items older than stale_days get one in-app notification each (at most once per item per day), and the weekly report is stored and notified on its configured weekday. The summary gains nudges { workspaces, staleNudged, weeklyReports, failed, skippedForDeadline }. " +
           "WAVE 4: an approval timer step runs for every workspace after the nudges. It reminds the approvers of a waiting request at half its turnaround, " +
-          "escalates to the admins past the deadline, flags an emergency change whose retro decision is overdue (once), and approves a routine request nobody decided " +
-          "only where the workspace admin switched auto-approve on (never with a cost or a schedule impact). The summary gains approvals { workspaces, examined, reminders, escalated, autoApproved, retroOverdue, failed, skippedForDeadline }.",
+          "escalates to the admins past the deadline, and approves a routine request nobody decided " +
+          "only where the workspace admin switched auto-approve on (never with a cost or a schedule impact). The summary gains approvals { workspaces, examined, reminders, escalated, autoApproved, retroOverdue, failed, skippedForDeadline }; retroOverdue is always 0 now: the retro_overdue approval event is no longer written, and the approval.timer_run audit row carries retroOverdue 0.",
         security: [{ cronSecret: [] }],
         operationId: "runIntegrationsCron",
         responses: {
@@ -4100,7 +4098,7 @@ const spec = {
         summary: "Read the GitHub connector and its event mapping (wave 4)",
         description:
           "Session only: a token gets 403. Any signed-in member may read it; the webhook secret is never returned here. data = { connector: null | GithubConnector (members see only { name, status }), can_manage, rules, rule_targets, work_events }. " +
-          "rules maps each event to the task status it moves to: pr_opened, pr_merged, pr_closed, deploy_success, deploy_failure, each unstarted | started | in_review | completed | canceled, or null for no move. Defaults: pr_opened started, pr_merged in_review, pr_closed none, deploy_success completed, deploy_failure none.",
+          "rules maps each event to the task status it moves to: pr_opened, pr_merged, pr_closed, deploy_success, deploy_failure, each unstarted | started | in_review | canceled, or null to leave the task as it is. A work event never completes a task: completing a task is a human action, and completed is not an accepted rule value. rule_targets lists those four values. Defaults: pr_opened started, pr_merged in_review, pr_closed none, deploy_success none, deploy_failure none. A workspace that stored completed before this change reads back as null for that event until migration 0106 rewrites it.",
         operationId: "getGithubConnector",
         responses: {
           "200": { description: "Connector view and mapping", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
@@ -4126,7 +4124,7 @@ const spec = {
         tags: ["integrations"],
         summary: "Pause or resume, change the event mapping, or rotate the secret (admin session)",
         description:
-          "Admin session only. Body: any subset of status (active | paused; paused is the kill switch: every delivery answers 401), rules (an object of event to status or null; unknown events or statuses are 422), and rotate_secret (true). At least one field. " +
+          "Admin session only. Body: any subset of status (active | paused; paused is the kill switch: every delivery answers 401), rules (an object of event to unstarted | started | in_review | canceled, or null to leave the task as it is; completed is not accepted, and unknown events or statuses are 422), and rotate_secret (true). At least one field. " +
           "Rotating returns a new webhook_secret once and the old one stops working at once. Audited integration.connector.update, and work_event_rules.update when rules change.",
         operationId: "updateGithubConnector",
         requestBody: {
@@ -4138,7 +4136,7 @@ const spec = {
                 minProperties: 1,
                 properties: {
                   status: { type: "string", enum: ["active", "paused"] },
-                  rules: { type: "object", additionalProperties: { type: ["string", "null"], enum: ["unstarted", "started", "in_review", "completed", "canceled", null] } },
+                  rules: { type: "object", additionalProperties: { type: ["string", "null"], enum: ["unstarted", "started", "in_review", "canceled", null] } },
                   rotate_secret: { type: "boolean", enum: [true] },
                 },
               },
@@ -4149,7 +4147,7 @@ const spec = {
           "200": { description: "{ connector, rules, webhook_secret? } — webhook_secret only on rotate", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
           "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "404": { description: "No connector exists to change", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
-          "422": { description: "Unknown field, event or status, or no field sent", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Unknown field, event or status, or no field sent. A rule of completed is refused: { error: \"Validation failed\", fields: [{ field: \"rules\", message: \"rules.<event>: A work event cannot complete a task. Completing a task is a human action; map the event to unstarted, started, in_review or canceled, or leave it unset.\" }] }", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
       delete: {
@@ -4185,7 +4183,7 @@ const spec = {
         description:
           "Public: no NoPM token. The caller is GitHub, authenticated by the HMAC-SHA256 signature of the raw body in X-Hub-Signature-256 under the connector's secret (compared in constant time). " +
           "Acts on exactly two events: pull_request (opened or reopened, closed, merged) and deployment_status (success, failure, error). A deployment names its pull request through its payload, or a refs/pull/N or pr-N ref; at most five pull requests per delivery (a delivery naming more is recorded with reason truncated)." +
-          "A move applies only to the task whose external_ref equals github:<owner>/<repo>#<number> inside the connector's workspace, never on a locked project, and never moves a task backwards or out of completed or canceled. " +
+          "A move applies only to the task whose external_ref equals github:<owner>/<repo>#<number> inside the connector's workspace, never on a locked project, and never moves a task backwards or out of completed or canceled, and never completes one. " +
           "Every move is one audited task update as a connector actor (channel github). A replay of the same X-GitHub-Delivery answers 200 and changes nothing. A ping and any other event answer 200 and change nothing. " +
           "One generic 401 covers a bad or missing signature and an unknown, paused or revoked connector. The body is capped at 1 MiB and the endpoint is rate-limited per connector.",
         security: [],

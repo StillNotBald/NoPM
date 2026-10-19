@@ -209,8 +209,8 @@ export async function generateWeeklyReport(workspaceId: string, opts: RunOpts): 
       `${d.openHighRisks} open high risk${d.openHighRisks === 1 ? "" : "s"}, ` +
       `${d.pendingApprovals} pending approval${d.pendingApprovals === 1 ? "" : "s"}, ` +
       `${stale} stale item${stale === 1 ? "" : "s"}.` +
-      ((d.retroOverdue ?? 0) > 0
-        ? ` ${d.retroOverdue} emergency change${d.retroOverdue === 1 ? " is" : "s are"} overdue for approval.`
+      ((d.emergencyChanges?.count ?? 0) > 0
+        ? ` Emergency changes this week: ${d.emergencyChanges?.count}.`
         : "");
     await notifyEach(
       workspaceId,

@@ -109,14 +109,9 @@ export interface ChangeSummary {
 type LooseRow = Record<string, any>;
 
 /** The tier, deadline and overdue flag of a governed request row (absent columns read as nothing). */
-function tierFields(row: { tier?: unknown; approval_deadline_at?: unknown; is_emergency?: unknown; retro_due_at?: unknown; retro_decided_at?: unknown }): Pick<ReviewItem, "tier" | "deadline" | "overdue"> {
+function tierFields(row: { tier?: unknown; approval_deadline_at?: unknown; is_emergency?: unknown }): Pick<ReviewItem, "tier" | "deadline" | "overdue"> {
   const tier = row.is_emergency === true ? "emergency" : typeof row.tier === "string" && row.tier ? row.tier : undefined;
-  const deadline =
-    typeof row.approval_deadline_at === "string"
-      ? row.approval_deadline_at
-      : row.is_emergency === true && !row.retro_decided_at && typeof row.retro_due_at === "string"
-        ? row.retro_due_at
-        : null;
+  const deadline = typeof row.approval_deadline_at === "string" ? row.approval_deadline_at : null;
   return { tier, deadline, overdue: deadline !== null && Date.parse(deadline) < Date.now() };
 }
 
@@ -227,7 +222,7 @@ export async function gatherReviewItems(
         return await db
           .from("change_requests")
           .select("*")
-          .in("status", ["raised", "under_review", "emergency"])
+          .in("status", ["raised", "under_review"])
           .order("created_at", { ascending: true });
       } catch {
         return { data: null, error: null };

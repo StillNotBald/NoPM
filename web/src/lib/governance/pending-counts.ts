@@ -65,21 +65,11 @@ export async function getPendingCounts(
           // compound identity: only a user-typed requester equal to me is "own"
           .or(`requested_by_type.neq.user,requested_by_id.neq.${userId}`),
       ),
-      // W4-09: an emergency not yet live, and a live emergency still owing its retro decision, wait too.
-      Promise.all([
-        count(() =>
-          head(db, "change_requests", workspaceId)
-            .in("status", ["raised", "under_review", "emergency"])
-            .or(`requested_by.is.null,requested_by.neq.${userId}`),
-        ),
-        count(() =>
-          head(db, "change_requests", workspaceId)
-            .eq("status", "implemented")
-            .eq("is_emergency", true)
-            .is("retro_decided_at", null)
-            .or(`requested_by.is.null,requested_by.neq.${userId}`),
-        ),
-      ]).then(([a, b]) => a + b),
+      count(() =>
+        head(db, "change_requests", workspaceId)
+          .in("status", ["raised", "under_review"])
+          .or(`requested_by.is.null,requested_by.neq.${userId}`),
+      ),
       count(() => head(db, "decisions", workspaceId).eq("status", "proposed")),
       count(() =>
         head(db, "rebaselines", workspaceId)

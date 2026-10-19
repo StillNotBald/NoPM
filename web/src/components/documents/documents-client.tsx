@@ -95,6 +95,7 @@ export function DocumentsClient({
         ownerName={doc.owner_id ? (ownerMap[doc.owner_id] ?? undefined) : undefined}
         projects={projects}
         dateDisplayPref={dateDisplayPref}
+        changeRequest={doc.change_request_id ? (changeRequests.find((c) => c.id === doc.change_request_id) ?? null) : null}
       />,
       doc.reference_id ? `Doc ${doc.reference_id}` : "Document",
     );
@@ -133,6 +134,7 @@ export function DocumentsClient({
         ownerName={ownerName(doc.owner_id)}
         projects={projects}
         dateDisplayPref={dateDisplayPref}
+        changeRequest={doc.change_request_id ? (changeRequests.find((c) => c.id === doc.change_request_id) ?? null) : null}
       />,
       doc.reference_id ? `Doc ${doc.reference_id}` : "Document",
     );

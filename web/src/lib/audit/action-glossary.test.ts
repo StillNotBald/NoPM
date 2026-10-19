@@ -73,7 +73,9 @@ describe("audit action glossary", () => {
 
   it("lists no action that is never written", () => {
     const written = new Set([...codeActions(), ...sqlActions()]);
-    const stale = listed.filter((a) => !written.has(a));
+    // Retired actions stay listed because old audit rows still carry them.
+    const LEGACY = new Set(["document.delete_request.blocked"]);
+    const stale = listed.filter((a) => !written.has(a) && !LEGACY.has(a));
     expect(stale).toEqual([]);
   });
 });

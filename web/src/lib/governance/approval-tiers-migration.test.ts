@@ -318,3 +318,106 @@ describe("0101: nopm_auto_approve_routine", () => {
     expect(m101).toContain("grant  execute on function nopm_auto_approve_routine(uuid, uuid, timestamptz) to service_role");
   });
 });
+
+describe("0106: emergency = flag only (Q1), approved documents on the manager tier (Q4), expense deletions (Q5)", () => {
+  const m106 = readFileSync(join(dir, "20261018000106_tier_decisions.sql"), "utf8");
+  const m102 = readFileSync(join(dir, "20261018000102_deletion_by_request_all.sql"), "utf8");
+
+  it("cr_emergency_shape no longer asks for retro_due_at and accepts not_required and retired outcomes", () => {
+    const shape = m106.slice(m106.indexOf("add constraint cr_emergency_shape"), m106.indexOf("alter table change_requests drop constraint if exists cr_maker_checker"));
+    expect(shape).not.toMatch(/retro_due_at is not null/);
+    expect(shape).toContain("'not_required'");
+    expect(shape).toContain("'retired'");
+    expect(shape).toMatch(/is_emergency = \(tier = 'emergency'\)/);
+  });
+
+  it("cr_maker_checker lets an emergency request sit approved with no decider, and keeps the different-human rule for everything else", () => {
+    expect(m106).toMatch(/is_emergency and status in \('emergency', 'approved', 'implemented'\) and decided_by_id is null/);
+    expect(m106).toMatch(/decided_by_id <> requested_by_id/);
+  });
+
+  it("both constraints are re-added NOT VALID and validated in a skip block", () => {
+    expect(m106).toMatch(/exception when others then\s+raise notice '0106: % left NOT VALID/);
+  });
+
+  it("the decide function keeps its signature, decides only raised / under_review and refuses an emergency", () => {
+    const f = fnBody(m106, "nopm_decide_change_request");
+    expect(f).toMatch(/if cr\.is_emergency then\s+raise exception 'ALREADY_DECIDED/);
+    expect(f).toMatch(/cr\.status not in \('raised', 'under_review'\)/);
+    expect(f).not.toMatch(/retro_decided_at/);
+    expect(f).not.toContain("'emergency'");
+    expect(f).toMatch(/only %s can approve a request at the % tier/);
+    expect(f).not.toMatch(/\ba admin\b/);
+    expect(m106).toContain("grant  execute on function nopm_decide_change_request(uuid, uuid, text, text, timestamptz, text, uuid, text, uuid, text, text, uuid, text, text) to service_role");
+  });
+
+  it("the document commit function has no admin gate and does not raise P0041 or P0042", () => {
+    const start = m106.indexOf("create or replace function nopm_commit_document_deletion(");
+    expect(start).toBeGreaterThan(-1);
+    const f = m106.slice(start, m106.indexOf("revoke execute on function nopm_commit_document_deletion"));
+    expect(f).not.toMatch(/errcode = 'P004[12]'/);
+    expect(f).not.toContain("APPROVED_DOCUMENT_NEEDS_ADMIN");
+    expect(f).toContain("nopm_principal_meets_tier");
+    expect(f.indexOf("nopm_principal_meets_tier")).toBeLessThan(f.indexOf("delete from documents"));
+    // the same function in 0102 did have the gate (so this really is the change)
+    expect(m102).toContain("APPROVED_DOCUMENT_NEEDS_ADMIN");
+  });
+
+  it("an expense deletion at or above the workspace threshold becomes high_risk, via the same trigger function as a project", () => {
+    const f = fnBody(m106, "nopm_deletion_tier_default");
+    expect(f).toMatch(/new\.target_type = 'project'/);
+    expect(f).toMatch(/new\.target_type = 'expense'/);
+    expect(f).toContain("currency_threshold");
+    expect(f).toMatch(/>= coalesce\(v_threshold, 50000\)/);
+    expect(f).toMatch(/new\.tier := 'high_risk'/);
+  });
+
+  it("the data step is idempotent: it only touches emergencies still waiting, and writes one audit row each", () => {
+    expect(m106).toMatch(/where is_emergency and retro_decided_at is null/);
+    expect(m106).toContain("retro_outcome      = 'retired'");
+    expect(m106).toMatch(/status\s+= case when r\.status = 'emergency' then 'approved' else r\.status end/);
+    expect(m106).toContain("'change_request.retro_retired'");
+    expect(m106).toMatch(/and d\.tier = 'normal'/);
+    expect(m106).toContain("'deletion_request.tier_raised'");
+    expect(m106.match(/insert into audit_log/g)?.length).toBe(9); // decide, 3 data steps, 2 document commit, 1 work-event rewrite, 2 emergency raise
+  });
+
+  it("C2-02: a trigger refuses an emergency request unless the requester principal is a manager or admin of the workspace", () => {
+    const f = fnBody(m106, "nopm_cr_emergency_guard");
+    expect(f).toContain("new.is_emergency and not old.is_emergency");
+    expect(f).toContain("new.requested_principal_id is null");
+    expect(f).toContain("role in ('admin', 'manager')");
+    expect(f.match(/errcode = 'P0043'/g)?.length).toBe(2);
+    expect(m106).toMatch(/create trigger trg_cr_emergency_guard\s+before insert or update on change_requests/);
+  });
+
+  it("C2-03: one function inserts the emergency request and writes both audit rows, service role only", () => {
+    const f = fnBody(m106, "nopm_raise_emergency_change_request");
+    expect(f).toContain("'change_request.create'");
+    expect(f).toContain("'change_request.emergency_commit'");
+    expect(f.match(/insert into audit_log/g)?.length).toBe(2);
+    expect(f).toContain("'approved', 'emergency', true");
+    expect(f).not.toMatch(/commit;/i);
+    expect(m106).toContain("grant  execute on function nopm_raise_emergency_change_request(uuid, jsonb, text, uuid, text, uuid, text, text, uuid, text, text) to service_role");
+  });
+
+  it("C2-05 and C2-06: the data function lowers approved-document requests and clears a non-admin assignee when raising an expense", () => {
+    const f = fnBody(m106, "nopm_apply_tier_decisions");
+    expect(f).toContain("'deletion_request.tier_lowered'");
+    expect(f).toContain("x.status = 'approved'");
+    expect(f).toMatch(/assigned_approver_id = case when v_cleared is not null then null/);
+    expect(f).toContain("'cleared_assigned_approver', v_cleared");
+  });
+
+  it("C2-07: the data steps live in a re-runnable function that the file calls once", () => {
+    expect(m106.trimEnd().endsWith("select nopm_apply_tier_decisions();")).toBe(true);
+    expect(m106).toContain("grant  execute on function nopm_apply_tier_decisions() to service_role");
+  });
+
+  it("is additive: nothing is dropped except constraints it re-adds, and no new SQLSTATE is taken", () => {
+    expect(m106).not.toMatch(/drop (table|column)/i);
+    const drops = m106.match(/drop constraint if exists (\w+)/g) ?? [];
+    expect(drops.sort()).toEqual(["drop constraint if exists cr_emergency_shape", "drop constraint if exists cr_maker_checker"]);
+    expect(m106).not.toMatch(/errcode = 'P003[6-9]'/);
+  });
+});

@@ -1,0 +1,13 @@
+import { open, BASE } from "./lib.mjs";
+const w = +process.argv[2]; const tag = w>600?"d":"m"; const amt = process.argv[3]; const role=process.argv[4]; const reason=process.argv[5]; const out=process.argv[6];
+const s = await open(role, w, w>600?800:844); const p = s.page;
+const resp=[]; p.on("response", async r=>{ if(r.request().method()==="POST" && /deletion/.test(r.url())){ let t=""; try{t=(await r.text()).slice(0,300)}catch{}; resp.push("POST "+r.url().replace(BASE,"")+" "+r.status()+" "+t);} });
+await p.goto(BASE + "/budget", { waitUntil: "load" }); await p.waitForFunction(()=>/^(DM|JH|UM)$/m.test(document.body.innerText),null,{timeout:60000}).catch(()=>{}); await p.waitForTimeout(3000);
+const clicked = await p.evaluate((amt)=>{ const rows=[...document.querySelectorAll("tr,li")].filter(r=>r.offsetParent && r.innerText.includes(amt) && r.innerText.includes("Finance Data Migration")); const b=rows.map(r=>r.querySelector("button[aria-label^='Request deletion']")).find(Boolean); if(b){b.click(); return true} return false; }, amt);
+console.log("clicked:", clicked); await p.waitForTimeout(1500);
+await s.shot(`${out}-${tag}-1-dialog-${role}`);
+await p.locator("textarea").filter({visible:true}).first().fill(reason);
+await p.getByRole("button", { name: /^request deletion/i }).last().click(); await p.waitForTimeout(3500);
+await s.shot(`${out}-${tag}-2-after-${role}`);
+console.log(resp.join("\n"));
+await s.browser.close();

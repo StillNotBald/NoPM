@@ -1,10 +1,10 @@
 import { requireScope, type Actor } from "@/lib/auth/guard";
-import { APPROVER_ROLE_MESSAGE, requireApprover } from "@/lib/auth/approver";
+import { requireApprover } from "@/lib/auth/approver";
 import { checkOptimisticConcurrency } from "@/lib/api/occ";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { NotFoundError, PreconditionFailedError, RuleError, ScopeError } from "@/lib/api/errors";
 import { writeAudit } from "@/lib/audit/write";
-import { assertTierRole, isAwaitingRetro, tierOf } from "@/lib/governance/tiers";
+import { approverRoleFor, assertTierRole, isTier, loadApprovalPolicy, tierOf, tierRoleMessage } from "@/lib/governance/tiers";
 import { removeStoredFiles } from "@/lib/governance/project-files";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { emitApprovalChanged, emitApprovalDecided, emitApprovalRequested } from "@/lib/integrations/emit";
@@ -63,10 +63,15 @@ export const CHILDREN_CHANGED_MESSAGE =
   "This project gained records (tasks, milestones, risks, ...) after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 export const MILESTONE_CHILDREN_CHANGED_MESSAGE =
   "The tasks on this milestone changed after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
-/** Decision 25, tier B: an approved document carries a signed-off record; only an admin may ask for its deletion. */
-export const APPROVED_DOCUMENT_ADMIN_MESSAGE =
-  "This document is approved, so only an admin can request its deletion. Withdraw or reject this request and ask an admin to raise it.";
-export const APPROVED_DOCUMENT_APPROVER_MESSAGE = "This document is approved, so only an admin can approve its deletion.";
+
+/**
+ * The 403 for a database role refusal (P0018). It names the role the request's tier asks for, so a
+ * refusal at the high-risk tier says "Only admins can approve a high-risk request." (W4-32).
+ */
+async function tierRefusal(db: ReturnType<typeof createAdminClient>, workspaceId: string, tier: string | null | undefined): Promise<ScopeError> {
+  const policy = await loadApprovalPolicy(db, workspaceId);
+  return new ScopeError(tierRoleMessage(approverRoleFor(tier, policy), isTier(tier) ? tier : null), "role_not_permitted");
+}
 export const TARGET_CHANGED_MESSAGE =
   "This task was edited after the deletion was requested, so the request no longer describes what would be deleted — reject or withdraw it and raise a new request.";
 export const TARGET_GONE_MESSAGE = "This record was already deleted, so the request is closed.";
@@ -595,7 +600,7 @@ export async function approveDeletion(
     }
     if (m.includes("SELF_APPROVAL") || error.code === "P0003") throw selfApprovalError();
     if (m.includes("NO_PRINCIPAL") || error.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
-    if (m.includes("ROLE_NOT_PERMITTED") || error.code === "P0018") throw new ScopeError(APPROVER_ROLE_MESSAGE, "role_not_permitted");
+    if (m.includes("ROLE_NOT_PERMITTED") || error.code === "P0018") throw await tierRefusal(db, actor.workspaceId, tierOf(row));
     // Q-GOV-20: the project was locked after the request was raised. The commit
     // rolled back; the request can never succeed as written, so it is closed
     // (audited) rather than left to fail on every attempt.
@@ -618,12 +623,6 @@ export async function approveDeletion(
     // request is refused; withdraw it and raise a new one.
     if (m.includes("CHILDREN_CHANGED") || error.code === "P0016")
       throw new RuleError(row.target_type === "milestone" ? MILESTONE_CHILDREN_CHANGED_MESSAGE : CHILDREN_CHANGED_MESSAGE, "children_changed");
-    // 0102: an approved document is deleted only on a request raised by an admin (decision 25, tier B).
-    if (m.includes("APPROVED_DOCUMENT_NEEDS_ADMIN") || error.code === "P0041")
-      throw new RuleError(APPROVED_DOCUMENT_ADMIN_MESSAGE, "approved_document_needs_admin");
-    // W4-14: the approver of an approved document must be an admin as well.
-    if (m.includes("APPROVED_DOCUMENT_APPROVER_NOT_ADMIN") || error.code === "P0042")
-      throw new ScopeError(APPROVED_DOCUMENT_APPROVER_MESSAGE, "role_not_permitted");
     throw new Error(error.message || "Failed to commit deletion");
   }
 
@@ -859,15 +858,13 @@ const CHANGE_STATUS: Readonly<Record<ChangeDecision, string>> = {
 };
 
 /**
- * The statuses a change request can be decided from. `emergency` is a request raised on the
- * emergency path that has not gone live yet; one that HAS gone live (status implemented) still
- * takes its retro decision, see isDecidable.
+ * The statuses a change request can be decided from. An emergency request is never decided
+ * (owner decision Q1): it commits when it is raised, so it is already approved.
  */
-const CHANGE_DECIDABLE = ["raised", "under_review", "emergency"] as const;
+const CHANGE_DECIDABLE = ["raised", "under_review"] as const;
 
 function isDecidable(cr: ChangeRow): boolean {
-  if ((CHANGE_DECIDABLE as readonly string[]).includes(cr.status)) return true;
-  return cr.status === "implemented" && isAwaitingRetro(cr);
+  return !cr.is_emergency && (CHANGE_DECIDABLE as readonly string[]).includes(cr.status);
 }
 
 type ChangeRow = {
@@ -887,12 +884,10 @@ type ChangeRow = {
   decided_principal_id?: string | null;
   /** The content version: the table's trigger bumps it on every edit. */
   updated_at?: string | null;
-  /** Approval tier (G1) and the emergency path (G4); absent on a row raised before migration 0100. */
+  /** Approval tier (G1) and the emergency flag (Q1: no approval, no retro); absent on a row raised before migration 0100. */
   tier?: string | null;
   assigned_approver_id?: string | null;
   is_emergency?: boolean | null;
-  retro_due_at?: string | null;
-  retro_decided_at?: string | null;
 };
 
 function changeTitle(cr: ChangeRow): string {
@@ -974,10 +969,6 @@ export async function decideChangeRequest(
   // chat card carries the version it was issued for) is refused with 412 if the
   // request has changed since. Opt-in, like every R-90 write: a caller that
   // sends nothing keeps today's behaviour.
-  // G4: a change that is already live is approved or rejected after the fact; deferring it decides nothing.
-  if (cr.status === "implemented" && input.decision === "defer") {
-    throw new RuleError("A change that is already live is approved or rejected, not deferred.", "invalid_transition");
-  }
   // Q-GOV-21: reject and defer always say why (approve's reason is optional).
   if (!rationale && input.decision !== "approve") {
     throw new RuleError(
@@ -1027,8 +1018,7 @@ export async function decideChangeRequest(
       throw new RuleError("Change request already decided", "already_decided");
     if (m.includes("SELF_APPROVAL") || rpcError.code === "P0003") throw selfApprovalError();
     if (m.includes("NO_PRINCIPAL") || rpcError.code === "P0006") throw new ScopeError(NO_PRINCIPAL_MESSAGE, "no_principal");
-    if (m.includes("ROLE_NOT_PERMITTED") || rpcError.code === "P0018")
-      throw new ScopeError(APPROVER_ROLE_MESSAGE, "role_not_permitted");
+    if (m.includes("ROLE_NOT_PERMITTED") || rpcError.code === "P0018") throw await tierRefusal(db, actor.workspaceId, tierOf(cr));
     if (m.includes("PRECONDITION_FAILED") || rpcError.code === "P0021")
       throw new PreconditionFailedError(CHANGE_STALE_MESSAGE);
     throw new Error(rpcError.message || "Failed to record the decision");

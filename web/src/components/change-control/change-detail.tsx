@@ -4,10 +4,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
+import { tierLabel } from "@/components/governance/tier-label";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
-import { AREA_LABELS, DIRECTION_LABELS, ChangeForm, type ChangeRequest } from "@/components/change-control/change-form";
+import { AREA_LABELS, DIRECTION_LABELS, ChangeForm, isEmergencyChange, type ChangeRequest } from "@/components/change-control/change-form";
 import { EvidencePanel } from "@/components/change-control/evidence-panel";
 import { TextareaInput } from "@/components/forms/project-form";
 import { DecisionRefusal } from "@/components/governance/decision-refusal";
@@ -26,7 +27,7 @@ type CRPriority = ChangeRequest["priority"];
 
 export function statusTone(s: CRStatus): Tone {
   if (s === "approved" || s === "implemented") return "success";
-  if (s === "rejected" || s === "emergency") return "danger";
+  if (s === "rejected") return "danger";
   if (s === "deferred") return "warning";
   if (s === "under_review") return "info";
   return "neutral"; // raised
@@ -127,10 +128,6 @@ export type ChangeFactsData = Pick<
       | "tier"
       | "approval_deadline_at"
       | "is_emergency"
-      | "retro_due_at"
-      | "retro_decided_at"
-      | "retro_outcome"
-      | "retro_overdue"
       | "deadline_overdue"
     >
   >;
@@ -143,32 +140,18 @@ const DIRECTION_TONE: Record<string, Tone> = { increase: "warning", decrease: "i
  * the change-control inspector and the review-queue inspector, so both put the
  * same record beside the decision.
  */
-const TIER_LABEL: Record<string, string> = {
-  routine: "Routine",
-  normal: "Normal",
-  high_risk: "High risk",
-  emergency: "Emergency",
-  strategic: "Strategic",
-};
-
 /**
- * G4: an emergency change is live (or can go live at once) and owes an after-the-fact approval.
- * It stays flagged until that decision is taken; past the due date it is called out as overdue.
+ * R-159 (owner decision Q1): an emergency change commits when it is raised. Nobody approves it and nothing
+ * is owed afterwards, so the detail only says so plainly and keeps the flag visible.
  */
+export function emergencyNoteText(cr: { raised_at?: string | null; requested_by_label?: string | null }): string {
+  return `Emergency change: committed without approval on ${formatDate(cr.raised_at ?? null)} by ${cr.requested_by_label ?? "the raiser"}`;
+}
+
 function EmergencyNote({ cr }: { cr: ChangeFactsData }) {
-  const decided = !!cr.retro_decided_at;
-  // Worked out on the server (the page knows "now"); a render must stay pure.
-  const overdue = !decided && cr.retro_overdue === true;
   return (
-    <p
-      role="status"
-      className={`my-2 rounded-md px-3 py-2 text-sm ${overdue ? "bg-danger/15 text-danger-ink" : "bg-well text-ink-secondary"}`}
-    >
-      {decided
-        ? `Emergency change. The after-the-fact decision was taken (${cr.retro_outcome ?? "recorded"}).`
-        : overdue
-          ? `Emergency change, overdue: the approval was due ${formatDate(cr.retro_due_at ?? null)} and is still missing.`
-          : `Emergency change. It can go live now; an admin gives the approval by ${formatDate(cr.retro_due_at ?? null)}.`}
+    <p role="status" className="my-2 rounded-md bg-danger/15 px-3 py-2 text-sm text-danger-ink">
+      {emergencyNoteText(cr)}
     </p>
   );
 }
@@ -179,15 +162,16 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
       {/* Status / priority chips */}
       <div className="flex flex-wrap gap-2 py-2.5 border-b border-border-subtle">
         <Badge tone={statusTone(cr.status)}>{statusLabel(cr.status)}</Badge>
+        {isEmergencyChange(cr) && <Badge tone="danger">Emergency</Badge>}
         <Badge tone={priorityTone(cr.priority)}>{cr.priority}</Badge>
         <Badge tone="neutral">{CATEGORY_LABELS[cr.category] ?? cr.category}</Badge>
         {/* UAT-005: the tier is always shown (a Normal request included) */}
         {cr.tier && cr.tier !== "emergency" && (
-          <Badge tone={cr.tier === "routine" || cr.tier === "normal" ? "neutral" : "warning"}>{TIER_LABEL[cr.tier] ?? cr.tier}</Badge>
+          <Badge tone={cr.tier === "routine" || cr.tier === "normal" ? "neutral" : "warning"}>{tierLabel(cr.tier)}</Badge>
         )}
       </div>
 
-      {cr.is_emergency && <EmergencyNote cr={cr} />}
+      {isEmergencyChange(cr) && <EmergencyNote cr={cr} />}
 
       {/* Fields */}
       <div>
@@ -203,7 +187,7 @@ export function ChangeFacts({ cr, projectName }: { cr: ChangeFactsData; projectN
           <span className="tabular-nums">{formatDate(cr.raised_at)}</span>
         </DetailRow>
 
-        {cr.approval_deadline_at && ["raised", "under_review", "emergency"].includes(cr.status) && (
+        {cr.approval_deadline_at && ["raised", "under_review"].includes(cr.status) && (
           <DetailRow label="Decision due">
             <span className={cr.deadline_overdue ? "font-medium text-danger-ink tabular-nums" : "tabular-nums"}>
               {formatDate(cr.approval_deadline_at)}
@@ -656,11 +640,8 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
     router.refresh();
   }
 
-  // G4: an emergency change is decided too, even after it went live (the retro decision).
-  const awaitingRetro = cr.is_emergency === true && !cr.retro_decided_at;
-  const canDecide =
-    !decided &&
-    (cr.status === "raised" || cr.status === "under_review" || cr.status === "emergency" || (cr.status === "implemented" && awaitingRetro));
+  // R-159: an emergency change commits on raise, so nothing waits for a decision on it.
+  const canDecide = !decided && !isEmergencyChange(cr) && (cr.status === "raised" || cr.status === "under_review");
 
   return (
     <div className="flex flex-col gap-0 pb-4">
@@ -687,7 +668,7 @@ export function ChangeDetail({ cr, projectName, projects }: ChangeDetailProps) {
 
       {!decided && <TransitionActions cr={cr} onDone={handleDecided} />}
 
-      {!decided && (cr.status === "approved" || cr.status === "emergency") && cr.canImplement && (
+      {!decided && cr.status === "approved" && cr.canImplement && (
         <ImplementPanel crId={cr.id} onDone={handleDecided} />
       )}
 

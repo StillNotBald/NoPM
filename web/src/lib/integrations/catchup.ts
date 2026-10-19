@@ -76,23 +76,12 @@ export async function catchUpPendingApprovals(workspaceId: string): Promise<{ co
       .from("change_requests")
       .select("*")
       .eq("workspace_id", workspaceId)
-      .in("status", ["raised", "under_review", "emergency"])
+      .in("status", ["raised", "under_review"])
       .order("created_at", { ascending: true })
       .limit(CATCH_UP_LIMIT_PER_KIND);
     if (error) throw error;
-    // W4-09: a live emergency change still owing its retro decision is pending too.
-    const live = await db
-      .from("change_requests")
-      .select("*")
-      .eq("workspace_id", workspaceId)
-      .eq("status", "implemented")
-      .eq("is_emergency", true)
-      .is("retro_decided_at", null)
-      .order("created_at", { ascending: true })
-      .limit(CATCH_UP_LIMIT_PER_KIND);
-    if (live.error) throw live.error;
     const out: ApprovalEvent[] = [];
-    for (const r of [...((data ?? []) as Row[]), ...((live.data ?? []) as Row[])]) {
+    for (const r of ((data ?? []) as Row[])) {
       out.push(await changeRequestEvent(db, workspaceId, r as never));
     }
     return out;

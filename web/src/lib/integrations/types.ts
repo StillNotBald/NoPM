@@ -222,8 +222,11 @@ export type DigestData = {
   /** Open tasks, risks and issues with no update for `staleDays` (R-141). Absent on a digest built before it existed. */
   staleItems?: number;
   staleDays?: number;
-  /** Emergency changes that are live and past the due date of their retro approval (G4). Absent on a digest built before it existed. */
-  retroOverdue?: number;
+  /**
+   * Emergency changes raised in the last 7 days (R-159). An emergency commits on raise with no approver, so the
+   * report flags it instead of chasing an approval. Absent on a digest built before it existed.
+   */
+  emergencyChanges?: { count: number; items: { reference: string | null; title: string }[] };
 };
 
 /** Outcome of an inbound approve/reject — the adapter turns it into a toast + card. */

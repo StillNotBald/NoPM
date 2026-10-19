@@ -221,35 +221,29 @@ describe("routine auto-approve (G3, assumption A1)", () => {
   });
 });
 
-describe("overdue retro approval on an emergency change (G4)", () => {
+describe("Q1: the retro timer is retired", () => {
   const emergency = (over: Record<string, unknown> = {}) =>
     cr({ tier: "emergency", status: "implemented", is_emergency: true, approval_deadline_at: null, retro_due_at: at(-2), retro_decided_at: null, reference_id: "CR-009", ...over });
 
-  it("flags it once and tells the admins", async () => {
+  it("an old emergency row that still reads overdue is not looked at, flagged or announced", async () => {
     db.seed("change_requests", [emergency()]);
     const r = await runApprovalTimersForWorkspace(WS, NOW);
-    expect(r.retroOverdue).toBe(1);
-    expect(events("retro_overdue")).toHaveLength(1);
-    expect(notices("approval.escalated").map((n) => n.recipient_id)).toEqual([ids.admin]);
-    expect(String(notices("approval.escalated")[0].title)).toMatch(/Emergency change overdue/);
-    expect((await runApprovalTimersForWorkspace(WS, NOW)).retroOverdue).toBe(0);
-    expect(notices("approval.escalated")).toHaveLength(1);
-  });
-
-  it("not yet due, or already decided: nothing", async () => {
-    db.seed("change_requests", [
-      emergency({ id: "a", retro_due_at: at(10) }),
-      emergency({ id: "b", retro_decided_at: at(-1), retro_outcome: "approved" }),
-    ]);
-    const r = await runApprovalTimersForWorkspace(WS, NOW);
-    expect(r.retroOverdue).toBe(0);
-    expect(events()).toHaveLength(0);
+    expect(r.examined).toBe(0);
+    expect(events("retro_overdue")).toHaveLength(0);
+    expect(notices("approval.escalated")).toHaveLength(0);
   });
 
   it("does not write to the request row (an approver's pinned version stays valid)", async () => {
     db.seed("change_requests", [emergency({ updated_at: "2026-10-20T00:00:00.000Z" })]);
     await runApprovalTimersForWorkspace(WS, NOW);
     expect(crRow().updated_at).toBe("2026-10-20T00:00:00.000Z");
+  });
+
+  it("an emergency raised since the decision (approved, no deadline) is never reminded or escalated", async () => {
+    db.seed("change_requests", [emergency({ status: "approved", retro_due_at: null, retro_decided_at: at(-3), retro_outcome: "not_required" })]);
+    const r = await runApprovalTimersForWorkspace(WS, NOW);
+    expect(r).toMatchObject({ reminders: 0, escalated: 0, autoApproved: 0 });
+    expect(r).not.toHaveProperty("retroOverdue");
   });
 });
 
@@ -271,7 +265,7 @@ describe("one audit row per workspace per run (approval.timer_run)", () => {
     const rows = writeAuditMock.mock.calls.map((c) => c[0] as { action: string; after: Record<string, unknown>; actor: Record<string, unknown>; workspaceId: string; targetType: string; targetId: string }).filter((a) => a.action === "approval.timer_run");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ workspaceId: WS, targetType: "workspace", targetId: WS });
-    expect(rows[0].after).toMatchObject({ examined: 2, reminders: 1, escalated: 1, autoApproved: 0, retroOverdue: 0 });
+    expect(rows[0].after).toMatchObject({ examined: 2, reminders: 1, escalated: 1, autoApproved: 0 });
     expect(rows[0].actor).toMatchObject({ type: "token", label: "system:approval-timer" });
   });
 

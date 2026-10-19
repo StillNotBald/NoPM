@@ -11,7 +11,8 @@ const projectPhase = z.enum([
 ]);
 
 export const createProjectSchema = z.object({
-  code: z.string().min(1).max(32),
+  // C2-15: the form sends code: null for an empty code (the column is nullable).
+  code: z.string().min(1).max(32).nullable().optional(),
   name: z.string().min(1).max(255),
   description: z.string().optional(),
   program: z.string().nullable().optional(),
@@ -23,8 +24,9 @@ export const createProjectSchema = z.object({
     .enum(["not_started", "red", "amber", "green", "complete"])
     .optional(),
   completion_pct: z.number().min(0).max(100).optional(),
-  start_date: z.string().optional(), // ISO date string
-  target_date: z.string().optional(), // ISO date string
+  // UAT-033: an unset date is null; the edit form echoes it back.
+  start_date: z.string().nullable().optional(), // ISO date string
+  target_date: z.string().nullable().optional(), // ISO date string
   currency: z.string().length(3).optional(),
   // is_locked is NOT accepted (Q-WRK-18: refused as an unknown field) - a project is
   // never born locked; only POST /projects/:id/lock changes it.
@@ -51,7 +53,7 @@ export const createProjectSchema = z.object({
 });
 
 export const updateProjectSchema = z.object({
-  code: z.string().min(1).max(32).optional(),
+  code: z.string().min(1).max(32).nullable().optional(),
   name: z.string().min(1).max(255).optional(),
   description: z.string().optional(),
   program: z.string().nullable().optional(),
@@ -64,8 +66,9 @@ export const updateProjectSchema = z.object({
   // Accepted for echo-compat only: the route refuses a value that differs from
   // the stored one (422) because completion is calculated from the tasks.
   completion_pct: z.number().min(0).max(100).optional(),
-  start_date: z.string().optional(),
-  target_date: z.string().optional(),
+  // UAT-033: an unset date is null; the edit form echoes it back.
+  start_date: z.string().nullable().optional(),
+  target_date: z.string().nullable().optional(),
   currency: z.string().length(3).optional(),
   // is_locked intentionally NOT accepted here — lock state may only change via
   // the dedicated POST /api/projects/[id]/lock and /unlock routes (governance:

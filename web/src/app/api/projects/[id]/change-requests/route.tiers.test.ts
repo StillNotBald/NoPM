@@ -143,27 +143,109 @@ describe("W4-05 / W4-06: routine means nothing structured; a long slip is high r
   });
 });
 
-describe("G4: the emergency path", () => {
-  it("a manager raises an emergency: status emergency, flagged, retro due in 48 h, no ordinary deadline", async () => {
-    const before = Date.now();
+describe("Q1: emergency = flag only, committed on raise", () => {
+  it("a manager raises an emergency: it commits at once as approved, flagged, with no deadline and no retro", async () => {
     const res = await raise({ title: "Prod is down", is_emergency: true });
     expect(res.status).toBe(201);
     const { data } = await res.json();
-    expect(data).toMatchObject({ tier: "emergency", status: "emergency", is_emergency: true, approval_deadline_at: null });
-    const due = Date.parse(data.retro_due_at);
-    expect(due - before).toBeGreaterThanOrEqual(48 * 3_600_000 - 1000);
-    expect(due - before).toBeLessThan(48 * 3_600_000 + 60_000);
-    expect(data.retro_decided_at ?? null).toBeNull();
-    // told the admins who owe the retro decision
-    await flush();
-    expect(db.rows("notifications").filter((n) => n.type === "approval.requested").map((n) => n.recipient_id)).toEqual([ids.admin]);
+    expect(data).toMatchObject({
+      tier: "emergency",
+      status: "approved",
+      is_emergency: true,
+      approval_deadline_at: null,
+      retro_outcome: "not_required",
+    });
+    expect(data.retro_due_at ?? null).toBeNull();
+    expect(data.retro_decided_at).toBeTruthy();
+    expect(data.decided_at).toBeTruthy();
+    expect(data.decided_by_id ?? null).toBeNull();
+    expect(data.assigned_approver_id ?? null).toBeNull();
   });
 
-  it("the retro window is the workspace's", async () => {
+  it("no approver is asked: no approval notification, no deadline event, no chat card", async () => {
+    await raise({ title: "Prod is down", is_emergency: true });
+    await flush();
+    expect(db.rows("notifications").filter((n) => n.type === "approval.requested")).toEqual([]);
+    expect(db.rows("approval_events")).toEqual([]);
+  });
+
+  it("the raiser is the audit actor on the create row and on a separate emergency commit row, written by the same database call", async () => {
+    await raise({ title: "Prod is down", is_emergency: true });
+    const audit = db.rows("audit_log") as { action: string; actor_id: string; after: Record<string, unknown> }[];
+    const create = audit.find((a) => a.action === "change_request.create")!;
+    expect(create.actor_id).toBe(ids.requester);
+    expect(create.after).toMatchObject({ tier: "emergency", is_emergency: true, status: "approved" });
+    const commit = audit.find((a) => a.action === "change_request.emergency_commit")!;
+    expect(commit.actor_id).toBe(ids.requester);
+    expect(commit.after).toMatchObject({ emergency: true, tier: "emergency", approval_required: false });
+    // the application layer wrote no separate audit row for it
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it("C2-03: if the audit half fails the request is not kept and the raise answers 500", async () => {
+    db.failEmergencyAudit = true;
+    const res = await raise({ title: "Prod is down", is_emergency: true });
+    expect(res.status).toBe(500);
+    expect(db.rows("change_requests").some((r) => r.title === "Prod is down")).toBe(false);
+    expect(db.rows("audit_log")).toEqual([]);
+  });
+
+  const tokenFor = (scopes: string[]): Actor => ({
+    type: "token",
+    id: "c0000000-0000-4000-8000-000000000001",
+    label: "agent token",
+    workspaceId: WS,
+    scopes,
+    principalId: ids.requester,
+    principalRole: "manager",
+  });
+
+  it.each([["change:write"], ["change:*"], ["*"]])("C2-01: a token holding only %s cannot raise an emergency (403), nothing stored", async (scope) => {
+    requireAuthMock.mockResolvedValue(tokenFor([scope]));
+    const res = await raise({ title: "Prod is down", is_emergency: true });
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("role_not_permitted");
+    expect(db.rows("change_requests").some((r) => r.title === "Prod is down")).toBe(false);
+    expect(db.rows("audit_log")).toEqual([]);
+  });
+
+  it("C2-01: a token with the exact change:decide scope (and a manager behind it) can", async () => {
+    requireAuthMock.mockResolvedValue(tokenFor(["change:write", "change:decide"]));
+    const res = await raise({ title: "Prod is down", is_emergency: true });
+    expect(res.status).toBe(201);
+    expect((await res.json()).data).toMatchObject({ tier: "emergency", status: "approved" });
+  });
+
+  it("C2-01: a token without the scope can still raise an ordinary request", async () => {
+    requireAuthMock.mockResolvedValue(tokenFor(["change:write"]));
+    expect((await raise({ title: "Rename a label" })).status).toBe(201);
+  });
+
+  it("C2-02: the database function refuses a requester who is not a manager or admin (P0043), mapped to 403", async () => {
+    // a member slips past the route check only if the route were bypassed; here the principal is a member behind a token that holds change:decide
+    requireAuthMock.mockResolvedValue({ ...tokenFor(["change:write", "change:decide"]), principalId: ids.member, principalRole: "manager" });
+    const res = await raise({ title: "Prod is down", is_emergency: true });
+    expect(res.status).toBe(403);
+    expect(db.rows("change_requests").some((r) => r.title === "Prod is down")).toBe(false);
+  });
+
+  it("the old retro window setting changes nothing", async () => {
     db.rows("workspaces")[0].approval_policy = { emergency_retro_hours: 6 };
-    const before = Date.now();
     const { data } = await (await raise({ title: "Prod is down", is_emergency: true })).json();
-    expect(Date.parse(data.retro_due_at) - before).toBeLessThan(6 * 3_600_000 + 60_000);
+    expect(data.retro_due_at ?? null).toBeNull();
+    expect(data.status).toBe("approved");
+  });
+
+  it("an admin raising an emergency also commits at once", async () => {
+    requireAuthMock.mockResolvedValue(actorOf(ids.admin, "admin"));
+    const { data } = await (await raise({ title: "Prod is down", is_emergency: true })).json();
+    expect(data).toMatchObject({ tier: "emergency", status: "approved" });
+  });
+
+  it("an ordinary request writes no emergency commit row", async () => {
+    await raise({ title: "Rename a label" });
+    expect(writeAuditMock.mock.calls.map((c) => (c[0] as { action: string }).action)).toEqual(["change_request.create"]);
+    expect(db.rows("audit_log")).toEqual([]);
   });
 
   it("a member cannot raise an emergency: 403, nothing stored, nothing audited", async () => {

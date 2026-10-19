@@ -1,0 +1,21 @@
+// usage: node mint-session.mjs <email>  (env sourced). Prints verify URL + cookie JSON path.
+import { createRequire } from "node:module";
+import { writeFileSync } from "node:fs";
+const require = createRequire("<repo>/web/package.json");
+const { createClient } = require("@supabase/supabase-js");
+const email = process.argv[2];
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const admin = createClient(url, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const anon = createClient(url, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, { auth: { persistSession: false } });
+const gl = await admin.auth.admin.generateLink({ type: "magiclink", email });
+if (gl.error) throw gl.error;
+let v = await anon.auth.verifyOtp({ type: "email", token_hash: gl.data.properties.hashed_token });
+if (v.error) v = await anon.auth.verifyOtp({ type: "magiclink", token_hash: gl.data.properties.hashed_token });
+if (v.error) throw v.error;
+const ref = new URL(url).hostname.split(".")[0];
+const val = "base64-" + Buffer.from(JSON.stringify(v.data.session)).toString("base64url");
+const name = `sb-${ref}-auth-token`;
+const pairs = val.length <= 3180 ? [[name, val]] : Array.from({ length: Math.ceil(val.length / 3180) }, (_, n) => [`${name}.${n}`, val.slice(n * 3180, n * 3180 + 3180)]);
+const cookies = pairs.map(([k, x]) => ({ name: k, value: x }));
+writeFileSync(`session-${email.split("@")[0]}.json`, JSON.stringify(cookies));
+console.log(JSON.stringify({ email, cookies: cookies.length, len: val.length }));

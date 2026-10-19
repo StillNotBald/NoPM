@@ -114,3 +114,14 @@ A normal change request whose cost is at or over the threshold becomes `high_ris
 - Code: `web/src/lib/governance/tiers.ts`, `web/src/lib/governance/timers.ts`, `web/src/lib/auth/approver.ts`, `web/src/lib/governance/decide.ts`.
 - Tests: `web/src/lib/governance/tiers.test.ts`, `web/src/lib/governance/timers.test.ts`, `web/src/lib/governance/decide.tiers.test.ts`.
 - Use cases: `docs/use-cases/UC-31-approval-tiers-and-emergency-change.md`.
+
+## Superseded 2026-10-18 by owner decision Q1
+
+The emergency path above is superseded. History above is kept as written.
+
+- An emergency is a flag, not a state. A manager or admin raises it with a user session or a token holding the exact `change:decide` scope, and it commits on raise: stored as `approved`, tier `emergency`, `is_emergency` true. It has no approver, no approval deadline and no retro decision.
+- There is no retro window, no overdue flag and no timer step for emergencies. The setting `emergency_retro_hours` is still accepted and stored but has no effect.
+- The raise writes `change_request.create` and `change_request.emergency_commit`. Migration 0106 moved old rows in status `emergency` to `approved` and closed their retro, writing `change_request.retro_retired`.
+- The emergency is flagged in the lists, the detail, the weekly report ("Emergency changes this week") and the audit pack. The fields `retro_due_at`, `retro_decided_at` and `retro_outcome` are deprecated history.
+- The same pass moved approved documents to the manager tier (Q4) and raised an expense deletion at or above the currency threshold to high risk (Q5, audited `deletion_request.tier_raised`).
+- The rejected alternative "Emergency as a flag on a normal request" is now the chosen design.

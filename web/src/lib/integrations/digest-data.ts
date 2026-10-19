@@ -59,7 +59,7 @@ export async function gatherDigestData(
     return n ?? 0;
   };
 
-  const [workspaceName, projects, milestones, openHighRisks, pendingApprovals, retroOverdue, stale] = await Promise.all([
+  const [workspaceName, projects, milestones, openHighRisks, pendingApprovals, emergencyChanges, stale] = await Promise.all([
     safe("workspace", "Workspace", async () => {
       const { data, error } = await db.from("workspaces").select("name").eq("id", workspaceId).maybeSingle();
       if (error) throw error;
@@ -94,17 +94,26 @@ export async function gatherDigestData(
     safe("approvals", 0, async () => {
       const [deletions, changes, rebaselines] = await Promise.all([
         count("deletion_requests", (q) => q.eq("status", "pending")),
-        count("change_requests", (q) => q.in("status", ["raised", "under_review", "emergency"])),
+        count("change_requests", (q) => q.in("status", ["raised", "under_review"])),
         count("rebaselines", (q) => q.eq("status", "pending_approval")),
       ]);
       return deletions + changes + rebaselines;
     }),
-    // G4: emergency changes already live whose retro approval is past its due date.
-    safe("retro", 0, () =>
-      count("change_requests", (q) =>
-        q.eq("is_emergency", true).is("retro_decided_at", null).lt("retro_due_at", now.toISOString()),
-      ),
-    ),
+    // R-159: emergency changes raised in the last 7 days. They commit on raise, so they are listed, not chased.
+    safe("emergency", { count: 0, items: [] as { reference: string | null; title: string }[] }, async () => {
+      const since = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { data, count: n, error } = await db
+        .from("change_requests")
+        .select("reference_id, title", { count: "exact" })
+        .eq("workspace_id", workspaceId)
+        .eq("is_emergency", true)
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (error) throw error;
+      const items = ((data ?? []) as { reference_id: string | null; title: string }[]).map((r) => ({ reference: r.reference_id, title: r.title }));
+      return { count: n ?? items.length, items };
+    }),
     // The "Stale items" line (R-141): the same threshold the kanban flag and the nudges use.
     safe("stale", { staleDays: 14, staleItems: 0 }, async () => {
       const { stale_days } = await getNudgeSettings(workspaceId);
@@ -138,6 +147,6 @@ export async function gatherDigestData(
     pendingApprovals,
     staleItems: stale.staleItems,
     staleDays: stale.staleDays,
-    retroOverdue,
+    emergencyChanges,
   };
 }

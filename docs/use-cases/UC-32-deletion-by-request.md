@@ -2,7 +2,7 @@
 
 **Goal:** No governed record disappears because one person pressed delete. Deleting a risk, an issue, an expense, a document or a milestone raises a request with a reason. A different person approves it. Tasks and projects already worked this way; this use case extends the rule to the five record types that were hard deletes before (audit gap G8).
 
-**Actors:** Requester (anyone with the matching `<entity>:delete:request` scope, or an admin or manager in the console). Approver (a different person with the matching `<entity>:delete:approve` scope and an approver role). Admin (the only one who can request deletion of an approved document).
+**Actors:** Requester (anyone with the matching `<entity>:delete:request` scope, or an admin or manager in the console). Approver (a different person with the matching `<entity>:delete:approve` scope and an approver role). Admin (also approves a high-risk expense deletion).
 
 **Preconditions:** Migration 0102 is applied before the new build is deployed, in the same release window. An old build that still calls the old delete route gets an error once the migration is live. The stored deletion requests table has the five new target types.
 
@@ -20,7 +20,8 @@
 ## Alternate and exception flows
 
 - **The requester is the approver** → refused (four-eyes by person). A token counts as the person who minted it.
-- **An approved document, and the requester is not an admin** → refused at request time with `403` `role_not_permitted`, recorded as `document.delete_request.blocked`. Refused again at approval as `422` `approved_document_needs_admin`.
+- **An approved document** → on the manager tier like any other document. Anyone with `document:delete:request` may request it, and a manager or admin other than the requester approves it (owner decision Q4).
+- **An expense at or above the workspace `currency_threshold`** (absolute amount, default 50,000) → the request is high risk and only an admin approves it, as for a project. The tier is in the 202 response and the raise is audited as `deletion_request.tier_raised` (owner decision Q5).
 - **A milestone's project is locked** → refused at request time with `422` `project_locked`. A request already waiting is closed at approval.
 - **A milestone gained or lost tasks after the request** → approval refused with `422` `children_changed`. The approver must see the new count and raise a new request.
 - **A second request for the same record while one waits** → `422` `duplicate_deletion_request`.

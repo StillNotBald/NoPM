@@ -53,7 +53,6 @@ import { ScopeError } from "@/lib/api/errors";
 import { DELETION_KIND_BY_TARGET, deletionKindFor, isDeletionKind, targetTypeOfDeletionKind } from "@/lib/integrations/types";
 import { describeChildCounts, type ChildCountLine } from "./deletion-target";
 import {
-  isRetroOverdue,
   loadApprovalPolicy,
   policyOf,
   roleMeetsTier,
@@ -103,9 +102,6 @@ export interface PendingItem {
    */
   tier: string | null;
   approval_deadline_at: string | null;
-  retro_due_at: string | null;
-  /** True for an emergency change still owed its retro approval. Computed, not stored. */
-  retro_overdue: boolean | null;
   is_emergency: boolean;
 }
 
@@ -373,8 +369,8 @@ export async function listPendingApprovals(
       : { rows: [], count: 0 },
     wanted.includes("change_request")
       ? fetchSource(db, "change_requests", ws, "raised_at", window, (q) =>
-          // Waiting = raised, under review or emergency; or an implemented emergency change whose retro decision is owed.
-          onlyMine(q.or("status.in.(raised,under_review,emergency),and(status.eq.implemented,is_emergency.eq.true,retro_decided_at.is.null)")),
+          // Waiting = raised or under review. An emergency change commits when raised and never waits (Q1).
+          onlyMine(q.in("status", ["raised", "under_review"])),
         )
       : { rows: [], count: 0 },
     wanted.includes("rebaseline")
@@ -426,7 +422,6 @@ export async function listPendingApprovals(
 
   // Who may decide which tier (W4-A): the workspace policy, and the role of the human behind the caller.
   // A caller whose role is not known here is left to the decision route, which re-checks.
-  const now = new Date();
   const actorRole = actor.type === "user" ? actor.role : actor.principalRole;
   const policy = actorRole === undefined ? policyOf({}) : await loadApprovalPolicy(db as never, ws);
 
@@ -519,8 +514,6 @@ export async function listPendingApprovals(
         : [],
       tier: r.is_emergency === true ? "emergency" : typeof r.tier === "string" && r.tier ? r.tier : null,
       approval_deadline_at: typeof r.approval_deadline_at === "string" ? r.approval_deadline_at : null,
-      retro_due_at: typeof r.retro_due_at === "string" ? r.retro_due_at : null,
-      retro_overdue: c.kind === "change_request" ? isRetroOverdue(r, now) : null,
       is_emergency: r.is_emergency === true,
     };
   });

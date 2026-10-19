@@ -1,0 +1,13 @@
+import { call, rec, sql } from "./h.mjs";
+const P = "bc20f19b-264a-4675-a30f-6a71c487b664";
+const c = await call("priya", "POST", "/api/documents", { project_id: P, title: "T8 retest approved doc", doc_type: "other", status: "draft" });
+rec("t8-create", { status: c.status, text: c.text.slice(0,250) });
+const id = c.json?.data?.id;
+const a = await call("admin", "PATCH", `/api/documents/${id}`, { status: "approved" });
+rec("t8-approve", { status: a.status, st: a.json?.data?.status, text: a.status>=400?a.text:"" });
+const d = await call("manager", "DELETE", `/api/documents/${id}`, { reason: "T8 retest delete approved doc" });
+rec("t8-delete", { status: d.status, tier: d.json?.data?.tier, text: d.status!=202?d.text:"" });
+const dr = d.json?.data?.id;
+const ad = await call("admin", "POST", `/api/deletion-requests/${dr}/approve`, {});
+rec("t8-admin-approve", { status: ad.status, body: ad.text });
+rec("t8-gone", sql(`select count(*) from documents where id='${id}'`));

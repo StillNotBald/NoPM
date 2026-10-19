@@ -111,11 +111,14 @@ describe("GET / PATCH / DELETE", () => {
     const ok = await send(PATCH, "PATCH", { rules: { pr_opened: "unstarted", deploy_failure: "canceled" } });
     const data = ((await ok.json()) as { data: { rules: Record<string, unknown> } }).data;
     expect(ok.status).toBe(200);
-    expect(data.rules).toMatchObject({ pr_opened: "unstarted", deploy_failure: "canceled", pr_merged: "in_review", deploy_success: "completed" });
+    expect(data.rules).toMatchObject({ pr_opened: "unstarted", deploy_failure: "canceled", pr_merged: "in_review", deploy_success: null });
     expect(db.rows("workspaces")[0].work_event_rules).toMatchObject({ pr_opened: "unstarted" });
     expect(writeAuditMock.mock.calls.at(-1)?.[0]).toMatchObject({ action: "work_event_rules.update" });
 
     expect((await send(PATCH, "PATCH", { rules: { pr_opened: "done" } })).status).toBe(422);
+    const completed = await send(PATCH, "PATCH", { rules: { deploy_success: "completed" } });
+    expect(completed.status).toBe(422);
+    expect(JSON.stringify(await completed.json())).toMatch(/human action/);
     expect((await send(PATCH, "PATCH", { rules: { wat: "started" } })).status).toBe(422);
     expect((await send(PATCH, "PATCH", { bogus: 1 })).status).toBe(422);
     expect((await send(PATCH, "PATCH", {})).status).toBe(422);

@@ -236,21 +236,19 @@ function principalMeetsTierStrict(db: FakeDb, workspaceId: unknown, tier: unknow
   return !!profile && (profile.role === "admin" || (profile.role === "manager" && required === "manager"));
 }
 
-/** Mirrors nopm_decide_change_request (0063, widened by 0100: emergency, tier role, retro stamp). */
+/** Mirrors nopm_decide_change_request (0063, tier role from 0100; 0106: an emergency change is never decided). */
 export function decideChangeRequestRpc(args: Record<string, unknown>, db: FakeDb): RpcResult {
   const guard = approverGuards(db, args);
   if (guard) return guard;
   const principal = args.p_approver_principal_id as string;
   const cr = db.rows("change_requests").find((x) => x.id === args.p_id && x.workspace_id === args.p_workspace_id);
   if (!cr) return rpcError("P0002", "NOT_FOUND");
-  const awaitingRetro = cr.status === "implemented" && cr.is_emergency === true && !cr.retro_decided_at;
-  if (cr.status !== "raised" && cr.status !== "under_review" && cr.status !== "emergency" && !awaitingRetro) {
+  if (cr.is_emergency === true || (cr.status !== "raised" && cr.status !== "under_review")) {
     return rpcError("P0001", "ALREADY_DECIDED");
   }
   if (!principalMeetsTier(db, args.p_workspace_id, cr.tier, principal)) {
     return rpcError("P0018", "ROLE_NOT_PERMITTED: this request needs a higher role");
   }
-  if (cr.status === "implemented" && args.p_new_status === "deferred") return rpcError("P0001", "INVALID_STATUS");
   if (
     (cr.requested_by && cr.requested_by === args.p_actor_id) ||
     (cr.requested_by_id && cr.requested_by_id === args.p_actor_id && cr.requested_by_type === args.p_actor_type) ||
@@ -264,8 +262,7 @@ export function decideChangeRequestRpc(args: Record<string, unknown>, db: FakeDb
   }
   const beforeRow = { ...cr };
   Object.assign(cr, {
-    status: cr.status === "implemented" ? "implemented" : args.p_new_status,
-    ...(cr.is_emergency ? { retro_decided_at: new Date().toISOString(), retro_outcome: args.p_new_status } : {}),
+    status: args.p_new_status,
     decided_by: args.p_actor_type === "user" ? args.p_actor_id : null,
     decided_by_label: args.p_actor_label,
     decided_by_type: args.p_actor_type,
@@ -395,8 +392,8 @@ export function implementChangeRequestRpc(args: Record<string, unknown>, db: Fak
     return rpcError("P0023", "NOT_ALLOWED");
   }
   if (cr.status === "implemented") return rpcError("P0028", "ALREADY_IMPLEMENTED");
-  // 0100: an emergency request is implementable before any decision.
-  if (!(cr.status === "approved" || (cr.status === "emergency" && cr.is_emergency === true))) {
+  // implement needs an approved request; since 0106 an emergency request is approved when it is raised.
+  if (cr.status !== "approved") {
     return rpcError("P0024", "INVALID_TRANSITION");
   }
   const beforeRow = { ...cr };

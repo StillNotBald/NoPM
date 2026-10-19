@@ -136,3 +136,23 @@ Rows added when wave 4 starts. Assumptions A1, A3 and A8 land here.
 | Migrations 0100 and 0101 must be applied before the new build is deployed. Migration 0102 must be applied in the same window as the build, because an old build's direct delete fails once it is live. Migration 0104 holds a lock on the audit log while it hashes existing rows. | behaviour | Release | Release order | lead | planned |
 | Migrations 0103, 0104 and 0105 must be applied before the new build is deployed. | behaviour | Release | Release order | lead | planned |
 | After release an admin connects the GitHub repository webhook on the Integrations page. Nothing is connected until then. | behaviour | Release | Release order | lead | planned |
+
+## Cycle 2 - UAT fixes
+
+| Change | Kind | Where | Why | Agent | Status |
+|---|---|---|---|---|---|
+| Saving a project that has no start or target date now works. | behaviour | Project edit form | UAT-033 | C2-A | planned |
+| The evidence document viewer names the change request by reference and title, for example CR-009 - Vendor swap. | behaviour | Documents | UAT-029 | C2-A | planned |
+| The governance badge reads "N items in review" for people who cannot decide, and "N items awaiting your decision" for managers and admins. The queue stays visible. | renamed | Sidebar, bottom bar | UAT-031 | C2-A | planned |
+| A refused tokens export now says "Exporting tokens requires an admin or manager session". | behaviour | Export API | UAT-030 | C2-A | planned |
+| An emergency change request now commits the moment it is raised. It is marked as an emergency, it needs no approver, and no admin has to approve it afterwards within 48 hours. The overdue marker, the overdue notification and the overdue line in the digest are gone. | behaviour | Change Control, Approvals, digest | Owner decision Q1, UAT-034 | C2-B | planned |
+| Emergency changes that were still waiting for an after-the-fact approval are closed out by migration 0106. Each one gets an audit row saying the requirement was retired by owner decision. A request still in the emergency status becomes approved. | behaviour | Release, existing data | Owner decision Q1 | C2-B | planned |
+| Deleting an approved document is now decided by a manager, like any other document. The admin-only request rule and the admin-only approval rule are gone. Every step stays in the audit trail. | behaviour | Documents, Approvals | Owner decision Q4 | C2-B | planned |
+| Deleting an expense of 50,000 or more (the workspace threshold) is now high risk: only an admin can approve it, the same as deleting a project. Smaller expenses stay on the manager tier. | behaviour | Expenses, Approvals | Owner decision Q5 | C2-B | planned |
+| When someone below the required role tries to approve, the refusal now names the role, for example "Only admins can approve a high-risk request." | behaviour | Approvals, API errors | W4-32 | C2-B | planned |
+| Migration 0106 must be applied before the new build is deployed. It is additive and can be run on live data. | behaviour | Release | Release order | lead | planned |
+| An emergency change request shows a red "Emergency" badge beside its status in the Change Control list (phone and desktop), in its detail, and in the review queue. Nothing says "overdue" any more. | renamed | Change Control, Review, Approvals | Q1 / UAT-034 | C2-C | planned |
+| The emergency change detail reads "Emergency change: committed without approval on <date> by <raiser>", and no Approve or Reject buttons appear on it. | behaviour | Change detail | Q1 | C2-C | planned |
+| The Emergency tick on the raise form now says it commits immediately with no approver and is flagged in every report. | renamed | Raise change request | Q1 | C2-C | planned |
+| The weekly report and the weekly Lark card gain "Emergency changes this week: N" with the list. The "overdue for approval" line is gone. The audit pack change-request sheet gains an `emergency` column (yes or no) and loses `retro_overdue`. | behaviour | Weekly report, audit pack | Q1 | C2-C | planned |
+| A GitHub event can no longer complete a task. The mapping selects no longer offer Completed, a deployment succeeding leaves the task as it is, and a saved Completed rule is treated as "leave the task as it is". | behaviour | Integrations, GitHub card | Q7 | C2-C | planned |

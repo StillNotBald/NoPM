@@ -14,6 +14,7 @@ import {
   hiddenCount,
   pendingByHref,
   pendingSrText,
+  canDecideGovernance,
   type NavItem,
   type NavSection,
 } from "@/lib/nav/nav-config";
@@ -43,6 +44,7 @@ function SidebarItem({
   collapsed,
   count,
   signal,
+  canDecide,
   onNavigate,
 }: {
   item: NavItem;
@@ -50,15 +52,16 @@ function SidebarItem({
   collapsed: boolean;
   count: number;
   signal: number;
+  canDecide: boolean;
   onNavigate?: () => void;
 }) {
   const showDot = collapsed && (count > 0 || signal > 0);
   // aria-label replaces the link's content, so the count must be folded into it.
   const collapsedName =
     count > 0
-      ? `${label}, ${pendingSrText(count)}`
+      ? `${label}, ${pendingSrText(count, canDecide)}`
       : signal > 0
-        ? `${label}. Governance: ${pendingSrText(signal)}`
+        ? `${label}. Governance: ${pendingSrText(signal, canDecide)}`
         : label;
   return (
     <Link
@@ -77,7 +80,7 @@ function SidebarItem({
     >
       <Icon size={18} className={active ? "text-ink" : "text-ink-muted"} strokeWidth={2} />
       {!collapsed && <span className="min-w-0 flex-1 truncate">{label}</span>}
-      {!collapsed && <NavBadge count={count} />}
+      {!collapsed && <NavBadge count={count} canDecide={canDecide} />}
       {showDot && (
         <span
           aria-hidden="true"
@@ -124,6 +127,7 @@ export function Sidebar({
   const pending = pendingByHref(pendingCounts);
   const pendingTotal = pendingCounts?.total ?? 0;
   const role = useMyRole();
+  const canDecide = canDecideGovernance(role);
   const roleSections = filterSectionsByRole(NAV_SECTIONS, role);
   const sections = visibleSections(roleSections, mode, pathname);
   const hidden = hiddenCount(roleSections, mode, pathname);
@@ -180,7 +184,7 @@ export function Sidebar({
                 ) : (
                   <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
                     <span>{section.label}</span>
-                    {section.label === GOVERNANCE_SECTION_LABEL && <NavBadge count={pendingTotal} />}
+                    {section.label === GOVERNANCE_SECTION_LABEL && <NavBadge count={pendingTotal} canDecide={canDecide} />}
                   </div>
                 )}
               </>
@@ -189,7 +193,7 @@ export function Sidebar({
             {sectionIdx === 0 && !collapsed && (
               <div className="flex items-center justify-between px-2.5 pb-1 pt-1 text-[11px] font-medium uppercase tracking-wide text-ink-muted">
                 <span>{section.label}</span>
-                {section.label === GOVERNANCE_SECTION_LABEL && <NavBadge count={pendingTotal} />}
+                {section.label === GOVERNANCE_SECTION_LABEL && <NavBadge count={pendingTotal} canDecide={canDecide} />}
               </div>
             )}
             <div className="space-y-0.5">
@@ -201,6 +205,7 @@ export function Sidebar({
                   collapsed={collapsed}
                   count={pending[n.href] ?? 0}
                   signal={itemIdx === 0 ? railSignal(section) : 0}
+                  canDecide={canDecide}
                   onNavigate={onNavigate}
                 />
               ))}

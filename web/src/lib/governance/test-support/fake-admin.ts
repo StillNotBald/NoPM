@@ -381,12 +381,7 @@ export function commitDeletionRpc(args: Record<string, unknown>, db: FakeDb): Rp
       const live = db.rows("tasks").filter((t) => t.milestone_id === r.target_id).length;
       if (typeof expected === "number" && expected !== live) return rpcError("P0016", "CHILDREN_CHANGED");
     }
-    if (r.target_type === "document" && target?.status === "approved") {
-      const requester = db.rows("profiles").find((p) => p.id === r.requested_principal_id);
-      if (requester?.role !== "admin") return rpcError("P0041", "APPROVED_DOCUMENT_NEEDS_ADMIN");
-      const approver = db.rows("profiles").find((p) => p.id === principal);
-      if (approver?.role !== "admin") return rpcError("P0042", "APPROVED_DOCUMENT_APPROVER_NOT_ADMIN");
-    }
+    // 0106 (owner decision Q4): an approved document has no admin gate; its request tier names the approver role.
     if (!target) return rpcError("P0017", "TARGET_GONE");
     db.tables[table] = db.rows(table).filter((t) => t.id !== r.target_id);
     if (r.target_type === "milestone") {

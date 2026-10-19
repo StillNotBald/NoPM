@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 
-const h = vi.hoisted(() => ({ updates: [] as Record<string, unknown>[], programFound: true }));
-const EXISTING = {
+const h = vi.hoisted(() => ({ updates: [] as Record<string, unknown>[], programFound: true, row: {} as Record<string, unknown> }));
+const BASE = {
   id: "p1", workspace_id: "w", name: "Apollo", completion_pct: 40, updated_at: "2026-10-01T00:00:00Z",
 };
+const existing = () => ({ ...BASE, ...h.row });
 const PROGRAM = "33333333-3333-4333-8333-333333333333";
 vi.mock("@/lib/audit/write", () => ({ writeAudit: vi.fn(async () => {}) }));
 vi.mock("@/lib/auth/guard", async (orig) => ({
@@ -20,7 +21,7 @@ vi.mock("@/lib/supabase/admin", () => ({
     rpc: async (name: string, a: { p_patch?: Record<string, unknown> }) => {
       if (name !== "nopm_mutate_audited") return { data: { allowed: true }, error: null };
       h.updates.push(a.p_patch as Record<string, unknown>);
-      return { data: { before: EXISTING, after: { ...EXISTING, ...a.p_patch } }, error: null };
+      return { data: { before: existing(), after: { ...existing(), ...a.p_patch } }, error: null };
     },
     from: (table: string) => {
       let isUpdate = false;
@@ -32,7 +33,7 @@ vi.mock("@/lib/supabase/admin", () => ({
         return b;
       };
       b.maybeSingle = async () => ({
-        data: isUpdate ? { ...EXISTING, ...h.updates[h.updates.length - 1] } : EXISTING,
+        data: isUpdate ? { ...existing(), ...h.updates[h.updates.length - 1] } : existing(),
         error: null,
       });
       // assertRefsInWorkspace batches an `in` query and awaits the builder itself.
@@ -58,6 +59,7 @@ const patch = (body: unknown) =>
 beforeEach(() => {
   h.updates.length = 0;
   h.programFound = true;
+  h.row = {};
 });
 
 describe("PATCH /api/projects/:id", () => {
@@ -84,5 +86,31 @@ describe("PATCH /api/projects/:id", () => {
     h.programFound = false;
     const res = await patch({ program_id: PROGRAM });
     expect(res.status).toBe(422);
+  });
+
+  it("saves start_date and target_date null on an unlocked project (UAT-033)", async () => {
+    h.row = { start_date: null, target_date: null, is_locked: false };
+    const res = await patch({ start_date: null, target_date: null, name: "Apollo 2" });
+    expect(res.status).toBe(200);
+    expect(h.updates[0].start_date).toBeNull();
+  });
+
+  it("lets a locked project echo a null start_date back (no baseline change)", async () => {
+    h.row = { start_date: null, is_locked: true, lock_reason: "frozen" };
+    const res = await patch({ start_date: null, name: "Apollo 2" });
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses clearing a start_date on a locked project (baseline change)", async () => {
+    h.row = { start_date: "2026-11-01", is_locked: true, lock_reason: "frozen" };
+    const res = await patch({ start_date: null });
+    expect(res.status).toBe(422);
+    expect(h.updates).toHaveLength(0);
+  });
+
+  it("accepts code: null from the edit form (C2-15)", async () => {
+    const res = await patch({ code: null, name: "Apollo 2" });
+    expect(res.status).toBe(200);
+    expect(h.updates[0].code).toBeNull();
   });
 });

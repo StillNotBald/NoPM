@@ -21,7 +21,7 @@ import { ConfirmDialog, CopyValue, Field, InlineAlert, LoadingRow, Select } from
  */
 
 type EventKind = "pr_opened" | "pr_merged" | "pr_closed" | "deploy_success" | "deploy_failure";
-type Target = "unstarted" | "started" | "in_review" | "completed" | "canceled";
+type Target = "unstarted" | "started" | "in_review" | "canceled";
 type Rules = Record<EventKind, Target | null>;
 
 interface ConnectorSummary {
@@ -59,7 +59,6 @@ export const TARGET_OPTIONS: { value: Target; label: string }[] = [
   { value: "unstarted", label: "Not started" },
   { value: "started", label: "In progress" },
   { value: "in_review", label: "In review" },
-  { value: "completed", label: "Completed" },
   { value: "canceled", label: "Canceled" },
 ];
 
@@ -235,7 +234,7 @@ export function GithubCard() {
       <CardBody className="space-y-5">
         <p className="text-sm text-ink-secondary">
           Link a task to a pull request and its status follows the work: opening the pull request starts it, merging
-          moves it to review, a successful deployment completes it. Only tasks whose pull request is linked are touched,
+          moves it to review. A deployment never completes a task; only a person marks it Completed. Only tasks whose pull request is linked are touched,
           never on a locked project, and every change is recorded in the audit trail as the GitHub connection.
         </p>
 
@@ -323,7 +322,9 @@ export function GithubCard() {
               </Field>
             ))}
           </div>
-          <p className="text-xs text-ink-muted">A task only ever moves forward: an event never reopens a completed or canceled task.</p>
+          <p className="text-xs text-ink-muted">
+            A task only ever moves forward: an event never reopens a completed or canceled task. A GitHub event never completes a task; only a person marks it Completed.
+          </p>
           {canManage ? (
             <Button size="sm" disabled={busy || !dirty} onClick={saveRules}>
               Save mapping

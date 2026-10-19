@@ -84,6 +84,16 @@ export function renderWeeklyReportHtml(snap: WeeklySnapshot): string {
           stale > snap.stale.length ? `<p class="reg">Showing the ${snap.stale.length} stalest of ${stale}.</p>` : ""
         }`;
 
+  const emergency = d.emergencyChanges;
+  const emergencySection =
+    !emergency || emergency.count === 0
+      ? `<h2>Emergency changes this week: 0</h2><p class="reg">No emergency change was raised this week.</p>`
+      : `<h2>Emergency changes this week: ${emergency.count}</h2><p class="reg">Each one committed when it was raised, without an approver, and is flagged here.</p><table><thead><tr><th>Reference</th><th>Change</th></tr></thead><tbody>${emergency.items
+          .map((i) => `<tr><td>${esc(i.reference ?? "—")}</td><td><span style="color:${P.red};font-weight:600">Emergency</span> ${esc(i.title)}</td></tr>`)
+          .join("")}</tbody></table>${
+          emergency.count > emergency.items.length ? `<p class="reg">Showing ${emergency.items.length} of ${emergency.count}.</p>` : ""
+        }`;
+
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(d.workspaceName)} — Weekly status</title>
@@ -95,6 +105,7 @@ ${cards}
 ${projects}
 ${milestones}
 ${staleSection}
+${emergencySection}
 <div class="foot">Governed by NoPM — every change behind this report is captured in an immutable audit log.</div>
 </div></body></html>`;
 }
