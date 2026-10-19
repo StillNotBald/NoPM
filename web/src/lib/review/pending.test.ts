@@ -61,6 +61,10 @@ const ALL_READ = [
   "budget:read",
   "document:read",
   "milestone:read",
+  "program:read",
+  "sprint:read",
+  "resource:read",
+  "clash:read",
 ];
 const ALL_DECIDE = Object.values(DECIDE_SCOPES);
 
@@ -197,7 +201,10 @@ describe("listPendingApprovals — shape and ordering", () => {
     expect(ops("deletion_requests")).toContainEqual(["eq", ["status", "pending"]]);
     expect(ops("deletion_requests")).toContainEqual([
       "in",
-      ["target_type", ["task", "project", "risk", "issue", "expense", "document", "milestone"]],
+      [
+        "target_type",
+        ["task", "project", "risk", "issue", "expense", "document", "milestone", "program", "sprint", "resource", "allocation", "clash"],
+      ],
     ]);
     expect(ops("change_requests")).toContainEqual(["in", ["status", ["raised", "under_review"]]]);
     expect(ops("rebaselines")).toContainEqual(["eq", ["status", "pending_approval"]]);
@@ -205,7 +212,7 @@ describe("listPendingApprovals — shape and ordering", () => {
 
   it("drops deletion rows of an unsupported target type instead of mis-labelling them", async () => {
     const { db } = fullDb({
-      deletion_requests: { data: [{ ...deletionTask, id: "odd", target_type: "clash" }] },
+      deletion_requests: { data: [{ ...deletionTask, id: "odd", target_type: "widget" }] },
       change_requests: { data: [] },
       rebaselines: { data: [] },
     });
@@ -316,6 +323,11 @@ describe("listPendingApprovals — read gating by kind", () => {
       "expense_deletion",
       "document_deletion",
       "milestone_deletion",
+      "program_deletion",
+      "sprint_deletion",
+      "resource_deletion",
+      "allocation_deletion",
+      "clash_deletion",
       "rebaseline",
     ]);
     // Hidden families are never even queried.
@@ -581,5 +593,82 @@ describe("listPendingApprovals: tiers and emergency change requests", () => {
     const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
     expect(byId["d-hi"].can_decide).toBe(false);
     expect(byId["del-proj"].can_decide).toBe(true);
+  });
+});
+
+// ── wave 5 (R-176): deletion by request for programs, sprints, resources, allocations and clashes ──────────────
+
+describe("listPendingApprovals — the five wave-5 register kinds", () => {
+  const reg = (id: string, target_type: string, before: Row, over: Row = {}): Row => ({
+    id,
+    workspace_id: WS,
+    target_type,
+    target_id: `${target_type}-1`,
+    reason: "no longer needed",
+    status: "pending",
+    tier: target_type === "program" ? "high_risk" : "normal",
+    requested_by_type: "user",
+    requested_by_id: OTHER,
+    requested_by_label: "Requester A",
+    before,
+    created_at: "2026-10-12T08:00:00+00:00",
+    ...over,
+  });
+  const rows = [
+    reg("d-prog", "program", { name: "Payments", child_counts: { projects: 3 } }),
+    reg("d-spr", "sprint", { name: "Sprint 9", project_id: "proj-1", child_counts: { tasks: 0 } }),
+    reg("d-res", "resource", { name: "Dana", child_counts: { allocations: 2, allocation_ids: ["a", "b"], assigned_tasks: 1 } }),
+    reg("d-alloc", "allocation", { id: "al-1", member_id: "m-1", project_id: "proj-1" }),
+    reg("d-clash", "clash", { title: "Overlap on Apollo" }),
+  ];
+
+  it("lists each register request under its own kind, with a title, the reason and what approving removes", async () => {
+    const { db } = fullDb({ deletion_requests: { data: rows }, change_requests: { data: [] }, rebaselines: { data: [] } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["d-prog"]).toMatchObject({ kind: "program_deletion", title: "Delete program: Payments", tier: "high_risk", summary: "no longer needed" });
+    expect(byId["d-spr"]).toMatchObject({ kind: "sprint_deletion", title: "Delete sprint: Sprint 9", project_name: "Apollo" });
+    expect(byId["d-res"]).toMatchObject({ kind: "resource_deletion", title: "Delete resource: Dana" });
+    expect(byId["d-alloc"]).toMatchObject({ kind: "allocation_deletion" });
+    expect(byId["d-clash"]).toMatchObject({ kind: "clash_deletion", title: "Delete clash: Overlap on Apollo" });
+    expect(byId["d-prog"].removes).toEqual([{ label: "projects (kept, no longer in this program)", count: 3, governed: false }]);
+    // the assigned tasks are KEPT (only unlinked), so they are not listed as removed
+    expect(byId["d-res"].removes.map((x) => x.count)).toEqual([2]);
+    expect(byId["d-clash"].removes).toEqual([]);
+    expect(r.total).toBe(5);
+  });
+
+  it("a kinds filter on a register kind queries only that target type", async () => {
+    const { db, calls } = fullDb({ deletion_requests: { data: [rows[0]] }, change_requests: { data: [] }, rebaselines: { data: [] } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]), { kinds: ["program_deletion", "clash_deletion"] });
+    expect(r.items.map((i) => i.kind)).toEqual(["program_deletion"]);
+    const ops = calls.find((c) => c.table === "deletion_requests")!.ops;
+    expect(ops).toContainEqual(["in", ["target_type", ["program", "clash"]]]);
+  });
+
+  it("the requester cannot decide their own register request (four-eyes), someone else can", async () => {
+    const own = reg("d-own", "sprint", { name: "Mine" }, { requested_by_id: ME });
+    const { db } = fullDb({ deletion_requests: { data: [own, rows[1]] }, change_requests: { data: [] }, rebaselines: { data: [] } });
+    const r = await listPendingApprovals(db, me, probe([...ALL_READ, ...ALL_DECIDE]));
+    const byId = Object.fromEntries(r.items.map((i) => [i.id, i]));
+    expect(byId["d-own"].can_decide).toBe(false);
+    expect(byId["d-own"].reason_if_not).toMatch(/requested this|Raised by you/);
+    expect(byId["d-spr"].can_decide).toBe(true);
+  });
+
+  it("a token without the matching read scope does not see the kind, and it is named in hidden_kinds", async () => {
+    const { db } = fullDb({ deletion_requests: { data: rows }, change_requests: { data: [] }, rebaselines: { data: [] } });
+    const r = await listPendingApprovals(db, { ...me, type: "token" }, probe(["task:read", "sprint:read"]));
+    expect(r.hidden_kinds).toEqual(expect.arrayContaining(["program_deletion", "resource_deletion", "allocation_deletion", "clash_deletion"]));
+    expect(r.hidden_kinds).not.toContain("sprint_deletion");
+  });
+
+  it("the decide scope of every register kind is an existing privileged verb (no wildcard can approve)", () => {
+    for (const k of ["program_deletion", "sprint_deletion", "resource_deletion", "allocation_deletion", "clash_deletion"] as const) {
+      expect(PENDING_KINDS).toContain(k);
+      expect(["project:delete:approve", "task:delete:approve"]).toContain(DECIDE_SCOPES[k]);
+      expect(READ_SCOPES[k]).toContain("audit:read");
+    }
+    expect(DECIDE_SCOPES.program_deletion).toBe("project:delete:approve");
   });
 });

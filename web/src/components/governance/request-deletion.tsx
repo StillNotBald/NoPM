@@ -12,16 +12,27 @@ import { FieldError, FieldLabel, TextareaInput } from "@/components/forms/projec
 import { apiDelete, apiGet, type ApiError } from "@/lib/api-client";
 
 /**
- * Deletion by request (audit gap G8). Risks, issues, expenses, documents and milestones are
- * no longer deleted by one person: DELETE /api/<entity>/:id raises a deletion request and a
- * different person approves it. This is the maker-step UI for all five.
+ * Deletion by request (audit gap G8). Risks, issues, expenses, documents and milestones, and since wave 5
+ * programs, sprints, resources, allocations and clashes (R-176, R-177), are no longer deleted by one person:
+ * DELETE /api/<entity>/:id raises a deletion request and a different person approves it. This is the
+ * maker-step UI for all ten.
  *
  *   - RequestDeletionDialog: the reason dialog (stacked buttons on a phone, a row from sm up).
  *   - useRequestDeletion: opens the dialog, calls the API, toasts, refreshes the page.
  *   - usePendingDeletionIds: which records already have a request waiting, so the control reads
  *     "Deletion requested" instead of offering a second request.
  */
-export type DeletionEntity = "risk" | "issue" | "expense" | "document" | "milestone";
+export type DeletionEntity =
+  | "risk"
+  | "issue"
+  | "expense"
+  | "document"
+  | "milestone"
+  | "program"
+  | "sprint"
+  | "resource"
+  | "allocation"
+  | "clash";
 
 const PATH: Record<DeletionEntity, string> = {
   risk: "risks",
@@ -29,6 +40,11 @@ const PATH: Record<DeletionEntity, string> = {
   expense: "expenses",
   document: "documents",
   milestone: "milestones",
+  program: "programs",
+  sprint: "sprints",
+  resource: "resources",
+  allocation: "allocations",
+  clash: "clashes",
 };
 
 export function RequestDeletionDialog({

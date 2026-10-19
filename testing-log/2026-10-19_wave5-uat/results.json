@@ -1,0 +1,314 @@
+{
+ "U1-verify": {
+  "status": 429,
+  "text": "{\"error\":\"The audit chain was verified a moment ago. Try again later.\",\"code\":\"verify_throttled\",\"retry_after_seconds\":81,\"last_result\":{\"ok\":true,\"from\":null,\"limit\":50000,\"anchor\":{\"state\":\"not_anchored\",\"chain_seq\":null,\"anchored_at\":null,\"rows_behind\":null},\"checked\":318,\"chain_ok\":true,\"first_seq\":1,\"head_hash\":\"4b711e1365205107483cfecc27f1d6657a605327ad1f346413d080021f2d2437\",\"verified_at\":\"2026-10-18T16:33:16.761Z\",\"first_bad_at\":null,\"first_bad_id\":null,\"recorded_at\":\"2026-10-18T16:33:16.76319+00:00\"}}"
+ },
+ "U1-verify2": {
+  "status": 429,
+  "text": "{\"error\":\"The audit chain was verified a moment ago. Try again later.\",\"code\":\"verify_throttled\",\"retry_after_seconds\":12,\"last_result\":{\"ok\":true,\"from\":null,\"limit\":50000,\"anchor\":{\"state\":\"not_anchored\",\"chain_seq\":null,\"anchored_at\":null,\"rows_behind\":null},\"checked\":318,\"chain_ok\":true,\"first_seq\":1,\"head_hash\":\"4b711e1365205107483cfecc27f1d6657a605327ad1f346413d080021f2d2437\",\"verified_at\":\"2026-10-18T16:33:16.761Z\",\"first_bad_at\":null,\"first_bad_id\":null,\"recorded_at\":\"2026-10-18T16:33:16.76319+00:00\"}}"
+ },
+ "U1-verify3": {
+  "status": 200,
+  "text": "{\"data\":{\"ok\":true,\"chain_ok\":true,\"checked\":319,\"first_bad_id\":null,\"first_bad_at\":null,\"first_seq\":1,\"from\":null,\"limit\":50000,\"head_hash\":\"27db35ae5daadbe92222ad1c150f0e42ad6e1fd586cfbbf94700de7bd5fd056d\",\"verified_at\":\"2026-10-18T16:35:14.433Z\",\"all_clear\":true,\"anchor\":{\"state\":\"not_anchored\",\"chain_seq\":null,\"anchored_at\":null,\"row_count\":null,\"rows_behind\":null,\"since\":null}}}"
+ },
+ "members": {
+  "status": 200,
+  "d": [
+   [
+    "admin@example.com",
+    "admin",
+    "0e83f2a6-4abd-47e2-aeca-31b1171f4620"
+   ],
+   [
+    "agent.owner@stillnotbald.com",
+    "member",
+    "b27cfea9-d847-4c79-a41d-07c002ee728c"
+   ],
+   [
+    "priya.nair@stillnotbald.com",
+    "manager",
+    "02fc1853-bcbd-4e07-840d-4d80e3c56dfd"
+   ],
+   [
+    "daniel.okoro@stillnotbald.com",
+    "member",
+    "dc87e62b-6bfb-4d83-a3d0-b095b4f3b4b5"
+   ],
+   [
+    "demo@example.com",
+    "manager",
+    "bd116b79-ce19-4b26-8f99-7ead9704a160"
+   ],
+   [
+    "uat-a-member@example.com",
+    "member",
+    "486c03e5-1fac-4d0a-8f8f-f4c39b0822cf"
+   ]
+  ]
+ },
+ "create-program": {
+  "status": 201,
+  "id": "dc2e3a14-c295-489d-8083-f98a4c87df0f",
+  "text": ""
+ },
+ "create-program2": {
+  "status": 201,
+  "id": "63188012-fb44-45ef-b846-58b3dc385aad",
+  "text": ""
+ },
+ "create-sprint": {
+  "status": 201,
+  "id": "83705242-e857-4d20-a432-1c4fa419b412",
+  "text": ""
+ },
+ "create-resource": {
+  "status": 201,
+  "id": "31846240-fcb3-42aa-8089-6c62c84c9564",
+  "text": ""
+ },
+ "create-resource2": {
+  "status": 201,
+  "id": "6d47393d-4325-49a5-ad6b-d3b0e18a706e",
+  "text": ""
+ },
+ "create-allocation": {
+  "status": 201,
+  "id": "d8e2989f-bb4d-44f4-b07e-3ce6bdce473b",
+  "text": ""
+ },
+ "create-clash": {
+  "status": 201,
+  "id": "e21572e2-c9bf-4b8c-be38-a3ab8a382552",
+  "text": ""
+ },
+ "ids": {
+  "prog": "dc2e3a14-c295-489d-8083-f98a4c87df0f",
+  "prog2": "63188012-fb44-45ef-b846-58b3dc385aad",
+  "res": "31846240-fcb3-42aa-8089-6c62c84c9564",
+  "res2": "6d47393d-4325-49a5-ad6b-d3b0e18a706e",
+  "cl": "e21572e2-c9bf-4b8c-be38-a3ab8a382552"
+ },
+ "pid": {
+  "pid": "21271166-3cce-4d9b-99d4-59d6417008c3",
+  "n": 3
+ },
+ "ids2": {
+  "pid": "21271166-3cce-4d9b-99d4-59d6417008c3",
+  "spr": "83705242-e857-4d20-a432-1c4fa419b412",
+  "al": "d8e2989f-bb4d-44f4-b07e-3ce6bdce473b"
+ },
+ "U3-noreason": {
+  "status": 422,
+  "text": "{\"error\":\"Validation failed\",\"fields\":[{\"field\":\"reason\",\"message\":\"Invalid input: expected string, received undefined\"}]}"
+ },
+ "U3-member": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"10768d5f-f821-4e00-af11-72f2cc53cb54\",\"tier\":\"normal\",\"before\":{\"id\":\"83705242-e857-4d20-a432-1c4fa419b412\",\"goal\":null,\"name\":\"W5UAT sprint 1792341368259\",\"state\":\"planned\",\"end_date\":"
+ },
+ "U3-del-prog": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"23e239a0-55f4-41f7-9b56-7c913a1ade78\",\"tier\":\"high_risk\",\"before\":{\"id\":\"dc2e3a14-c295-489d-8083-f98a4c87df0f\",\"code\":null,\"name\":\"W5UAT prog 1792341360753\",\"owner_id\":null,\"created_at\":\"2026-10-18T16:36:01.302267+00:00\",\"rag_status\":\"not_started\",\"updated_at\":\"2026-10-18T16:36:01.29+00:00\",\"description\":null,\"child_counts\":{\"projects\":0},\"workspace_id\":\"3c8968e0-9577-40db-bc92-39750736abd1\"},\"reason\":"
+ },
+ "U3-del-prog2": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"df642a8f-7a22-4841-b373-f5648ef5c288\",\"tier\":\"high_risk\",\"before\":{\"id\":\"63188012-fb44-45ef-b846-58b3dc385aad\",\"code\":null,\"name\":\"W5UAT prog2 1792341360753\",\"owner_id\":null,\"created_at\":\"2026-10-18T16:36:01.414393+00:00\",\"rag_status\":\"not_started\",\"updated_at\":\"2026-10-18T16:36:01.403+00:00\",\"description\":null,\"child_counts\":{\"projects\":0},\"workspace_id\":\"3c8968e0-9577-40db-bc92-39750736abd1\"},\"reason"
+ },
+ "U3-del-spr": {
+  "status": 422,
+  "text": "{\"error\":\"A pending deletion request already exists for this sprint\",\"code\":\"duplicate_deletion_request\"}"
+ },
+ "U3-del-res": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"6a8d2f61-17b5-449b-90b3-68dda2e9bb0e\",\"tier\":\"normal\",\"before\":{\"id\":\"31846240-fcb3-42aa-8089-6c62c84c9564\",\"name\":\"W5UAT res 1792341360753\",\"email\":null,\"cost_rate\":0,\"created_at\":\"2026-10-18T16:36:01.81866+00:00\",\"profile_id\":null,\"role_title\":null,\"updated_at\":\"2026-10-18T16:36:01.81866+00:00\",\"child_counts\":{\"allocations\":0,\"allocation_ids\":[],\"assigned_tasks\":0},\"workspace_id\":\"3c8968e0-9577-40db-"
+ },
+ "U3-del-res2": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"767fdcf6-c72d-4bde-bdc5-bfe8374d9d1b\",\"tier\":\"normal\",\"before\":{\"id\":\"6d47393d-4325-49a5-ad6b-d3b0e18a706e\",\"name\":\"W5UAT res2 1792341360753\",\"email\":null,\"cost_rate\":0,\"created_at\":\"2026-10-18T16:36:01.926159+00:00\",\"profile_id\":null,\"role_title\":null,\"updated_at\":\"2026-10-18T16:36:01.926159+00:00\",\"child_counts\":{\"allocations\":1,\"allocation_ids\":[\"d8e2989f-bb4d-44f4-b07e-3ce6bdce473b\"],\"assigned_task"
+ },
+ "U3-del-al": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"03d1adf8-5c5b-4463-8560-215d1ac6f0ec\",\"tier\":\"normal\",\"before\":{\"id\":\"d8e2989f-bb4d-44f4-b07e-3ce6bdce473b\",\"hours\":null,\"task_id\":null,\"member_id\":\"6d47393d-4325-49a5-ad6b-d3b0e18a706e\",\"created_at\":\"2026-10-18T16:36:08.798011+00:00\",\"project_id\":\"21271166-3cce-4d9b-99d4-59d6417008c3\",\"updated_at\":\"2026-10-18T16:36:08.798011+00:00\",\"window_end\":\"2026-11-10\",\"window_start\":\"2026-11-01\",\"workspace_id\":\""
+ },
+ "U3-del-cl": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"1e6c6bf4-2fc9-4de5-92c9-cd69130730b7\",\"tier\":\"normal\",\"before\":{\"id\":\"e21572e2-c9bf-4b8c-be38-a3ab8a382552\",\"type\":\"resource\",\"title\":\"W5UAT clash 1792341360753\",\"status\":\"open\",\"owner_id\":null,\"severity\":\"low\",\"created_at\":\"2026-10-18T16:36:02.5243+00:00\",\"resolution\":null,\"updated_at\":\"2026-10-18T16:36:02.5243+00:00\",\"window_end\":null,\"description\":null,\"project_a_id\":null,\"project_b_id\":null,\"refere"
+ },
+ "U3-reqs": {
+  "prog": "23e239a0-55f4-41f7-9b56-7c913a1ade78",
+  "prog2": "df642a8f-7a22-4841-b373-f5648ef5c288",
+  "res": "6a8d2f61-17b5-449b-90b3-68dda2e9bb0e",
+  "res2": "767fdcf6-c72d-4bde-bdc5-bfe8374d9d1b",
+  "al": "03d1adf8-5c5b-4463-8560-215d1ac6f0ec",
+  "cl": "1e6c6bf4-2fc9-4de5-92c9-cd69130730b7"
+ },
+ "U3-self-prog": {
+  "status": 403,
+  "text": "{\"error\":\"Self-approval is not allowed (four-eyes)\",\"code\":\"self_approval\"}"
+ },
+ "U3-priya-prog": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U3-admin-prog": {
+  "status": 422,
+  "text": "{\"error\":\"Already approved by Priya Nair.\",\"code\":\"already_decided\"}"
+ },
+ "U3-priya-clash": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U3-priya-res": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U3-p3-req": {
+  "status": 202,
+  "tier": "high_risk"
+ },
+ "U3-priya-403-twoadmins": {
+  "status": 403,
+  "text": "{\"error\":\"Only admins can approve a high-risk request.\",\"code\":\"role_not_permitted\"}"
+ },
+ "U3-admin-approve": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U3-admin-prog2": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U4-task": {
+  "status": 201,
+  "text": "",
+  "id": "bff88cf0-06e4-46a3-b69d-dea0df4feb25"
+ },
+ "U4-alloc": {
+  "status": 201,
+  "text": "",
+  "id": "e88615e5-8770-4000-978d-d2a4f4e8381e"
+ },
+ "U4-req": {
+  "status": 202,
+  "text": "{\"data\":{\"id\":\"196b9cfe-36a0-4d41-bbd4-7457aa0226e3\",\"tier\":\"normal\",\"before\":{\"id\":\"bff88cf0-06e4-46a3-b69d-dea0df4feb25\",\"eta\":null,\"name\":\"W5UAT al"
+ },
+ "U4-approve": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U3-res2-approve": {
+  "status": 200,
+  "text": "{\"data\":{\"committed\":true}}"
+ },
+ "U7-token": {
+  "status": 201,
+  "keys": [
+   "id",
+   "name",
+   "prefix",
+   "scopes",
+   "expires_at",
+   "revoked",
+   "last_used_at",
+   "created_at",
+   "token"
+  ],
+  "text": ""
+ },
+ "U7-evidence": {
+  "status": 201,
+  "text": "{\"data\":{\"id\":\"7613744c-981a-46f6-9af9-4ddbf701a059\",\"body\":null,\"title\":\"W5 UAT evidence 1792341855098\",\"folder\":\"General\",\"status\":\"draft\",\"summary\":null,\"version\":1,\"doc_type\":\"other\",\"owner_id\":null,\"file_name\":null,\"file_size\":null,\"mime_type\":null,\"tested_at\":\"2026-10-18T16:44:15.211+00:00\",\"c"
+ },
+ "U7-evidence-rejectedCR": {
+  "status": 422,
+  "text": "{\"error\":\"A rejected change request does not take evidence. Evidence can be attached while it is raised, under review, emergency, approved or implemented.\",\"code\":\"evidence_not_accepted\"}"
+ },
+ "U7-docs-default": {
+  "status": 200,
+  "hasBody": false,
+  "keys": [
+   "id",
+   "reference_id",
+   "project_id",
+   "folder",
+   "title",
+   "doc_type",
+   "status",
+   "version",
+   "owner_id",
+   "file_name",
+   "change_request_id",
+   "evidence_type",
+   "evidence_result",
+   "tested_at",
+   "created_at",
+   "updated_at"
+  ]
+ },
+ "U7-docs-full": {
+  "status": 200,
+  "hasBody": true,
+  "keys": 25
+ },
+ "U7-docs-fields": {
+  "status": 422,
+  "text": "{\"error\":\"Unknown field \\\"storage_path\\\" for documents. Allowed: id, workspace_id, project_id, reference_id, folder, title, doc_type, status, version, summary, body, external_url, owner_id, created_by, created_at, updated_at, file_name, mime_type, fi"
+ },
+ "U7-implement-raised": {
+  "status": 422,
+  "text": "{\"error\":\"Only an approved change request can be marked implemented.\",\"code\":\"invalid_transition\"}"
+ },
+ "U7-implement-approved": {
+  "status": 200,
+  "text": "{\"data\":{\"id\":\"ac7f5649-297d-44d4-9398-45b76ce48535\",\"tier\":\"emergency\",\"title\":\"T3 retest emergency 1280\",\"status\":\"implemented\",\"category\":\"scope\",\"priority\":\"medium\",\"raised_at\":\"2026-10-18T14:01:55.064083+00:00\",\"created_at\":\"2026-10-18T14:01:55.064083+00:00\",\"decided_at\":\"2026-10-18T14:01:55.06"
+ },
+ "U7-pat-delete-sprint-dup": {
+  "status": 404,
+  "text": "{\"error\":\"Sprint not found\",\"code\":\"not_found\"}"
+ },
+ "U7-pat-approve": {
+  "status": 403,
+  "text": "{\"error\":\"API token is missing required scope: task:delete:approve\",\"code\":\"forbidden_scope\"}"
+ },
+ "U8-get": {
+  "status": 200,
+  "hasRetro": false,
+  "full": false
+ },
+ "U8-patch": {
+  "status": 422,
+  "text": "{\"error\":\"Validation failed\",\"fields\":[{\"field\":\"settings\",\"message\":\"Send at least one of: time_zone, stale_days, nudges_enabled, weekly_report_enabled, weekly_report_day, approval_policy.\"}]}"
+ },
+ "U8-after": {
+  "same": true,
+  "hasRetro": false
+ },
+ "U8-patch-with-valid": {
+  "status": 200,
+  "retro": false,
+  "text": "{\"data\":{\"time_zone\":\"Asia/Kuala_Lumpur\",\"default_time_zone\":\"Asia/Kuala_Lumpur\",\"stale_days\":3,\"nudges_enabled\":true,\"weekly_report_enabled\":true,\"weekly_report_day\":1,\"approval_policy\":{\"tiers\":{\"ro"
+ },
+ "U8-patch-in-policy": {
+  "status": 200,
+  "retro": false,
+  "text": "{\"data\":{\"time_zone\":\"Asia/Kuala_Lumpur\",\"default_time_zone\":\"Asia/Kuala_Lumpur\",\"stale_days\":3,\"nudges_enabled\":true,\"weekly_report_enabled\":true,\"weekly_report_day\":1,\"approval_policy\":{\"tiers\":{\"ro"
+ },
+ "U8-patch-in-tier": {
+  "status": 422,
+  "text": "{\"error\":\"Validation failed\",\"fields\":[{\"field\":\"approval_policy.tiers.emergency.emergency_retro_hours\",\"message\":\"Unknown setting.\"}]}"
+ },
+ "U8-final": {
+  "retro": false,
+  "same": true
+ },
+ "U9-raise": {
+  "status": 201,
+  "text": "{\"data\":{\"id\":\"79b4e5ff-95cb-4af1-bd4b-043762218fc5\",\"tier\":\"emergency\",\"title\":\"W5UAT emergency 1792341914862\",\"status\":\"approved\",\"category\":\"scope\",\"priority\":\"high\",\"raised_at\":\"2026-10-18T16:45:15.038583+00:00\",\"created_at\":\"2026-10-18T16:45:15.038583+00:00\",\"decided_at\":\"2026-10-18T16:45:15.038583+00:00\",\"decided_by\":null,\"project_id\":\"21271166-3cce-4d9b-99d4-59d6417008c3\",\"updated_at\":\"2026-10-18T16:45:15.038583+00:00\",\"description\":\"w5 uat\",\"impact_cost\":null,\"target_date\":null,\"impact_s"
+ },
+ "U9-normal": {
+  "status": 201
+ },
+ "U10-weekly-api": {
+  "status": 200,
+  "text": "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>StillNotBald Programme Office — Weekly status</title>\n<style>\n  :"
+ }
+}

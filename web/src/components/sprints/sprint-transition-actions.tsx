@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
-import { apiPost, apiDelete, type ApiError } from "@/lib/api-client";
+import { apiPost, type ApiError } from "@/lib/api-client";
+import { RequestDeletionControl } from "@/components/governance/request-deletion";
 
 type SprintState = "planned" | "active" | "closed";
 
@@ -31,12 +32,12 @@ export function SprintTransitionActions({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [busy, setBusy] = useState<"start" | "close" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"start" | "close" | null>(null);
   // Q-WRK-20: closing asks where the unfinished tasks go.
   const [asking, setAsking] = useState(false);
   const [destination, setDestination] = useState("backlog");
 
-  async function run(action: "start" | "close" | "delete") {
+  async function run(action: "start" | "close") {
     if (action === "close" && unfinishedCount > 0 && !asking) {
       setAsking(true);
       return;
@@ -46,16 +47,12 @@ export function SprintTransitionActions({
       if (action === "start") {
         await apiPost(`/api/sprints/${sprintId}/start`);
         toast.success("Sprint started");
-      } else if (action === "close") {
+      } else {
         await apiPost(
           `/api/sprints/${sprintId}/close`,
           unfinishedCount > 0 ? { move_unfinished_to: destination } : undefined,
         );
         toast.success("Sprint closed");
-      } else {
-        await apiDelete(`/api/sprints/${sprintId}`);
-        toast.success("Sprint deleted");
-        router.push("/sprints");
       }
       router.refresh();
     } catch (err) {
@@ -82,16 +79,18 @@ export function SprintTransitionActions({
             {busy === "start" ? <Spinner size="sm" className="mr-1.5" /> : null}
             Start Sprint
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy !== null || hasAttachedTasks}
-            title={hasAttachedTasks ? "Detach all tasks before deleting" : undefined}
-            onClick={() => run("delete")}
-          >
-            {busy === "delete" ? <Spinner size="sm" className="mr-1.5" /> : null}
-            Delete
-          </Button>
+          {hasAttachedTasks ? (
+            <Button variant="ghost" size="sm" disabled title="Detach all tasks before requesting deletion">
+              Request deletion
+            </Button>
+          ) : (
+            // R-177: a sprint is deleted only after a different person approves the request.
+            <RequestDeletionControl
+              entity="sprint"
+              id={sprintId}
+              consequence="Only a planned sprint with no tasks can be deleted."
+            />
+          )}
         </>
       )}
       {state === "active" && asking && (

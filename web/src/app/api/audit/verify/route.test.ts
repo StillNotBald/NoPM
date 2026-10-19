@@ -4,12 +4,21 @@ import type { Actor } from "@/lib/auth/guard";
 
 const h = vi.hoisted(() => ({
   verify: vi.fn(),
-  head: { data: { row_hash: "abc123" } as { row_hash: string } | null, error: null as unknown },
+  head: { data: { row_hash: "abc123", chain_seq: 10 } as { row_hash: string; chain_seq?: number } | null, error: null as unknown },
   writeAudit: vi.fn(),
   requireAuth: vi.fn(),
   selects: [] as unknown[],
   gate: { allowed: true, retry_after_seconds: 0 },
   last: { data: null as unknown, error: null as unknown },
+  // external anchor (R-168/R-169)
+  sink: undefined as unknown,
+  receipt: { data: null as unknown, error: null as unknown },
+  receiptSaves: [] as unknown[],
+  hashAt: {} as Record<number, string>,
+  order: [] as string[],
+}));
+vi.mock("@/lib/audit/anchor/get-sink", () => ({
+  getAnchorSink: () => h.sink ?? { kind: "none", put: async () => ({ status: "disabled" }), latest: async () => ({ ok: true, records: new Map() }) },
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
@@ -19,12 +28,19 @@ vi.mock("@/lib/supabase/admin", () => ({
         : h.verify(name, args),
     from: (table: string) => {
       let wantsLast = false;
+      let atSeq: number | null = null;
       const q = {
         select: (cols?: string) => ((wantsLast = String(cols).includes("after")), q),
-        eq: (c: string, v: unknown) => (h.selects.push([table, c, v]), q),
+        eq: (c: string, v: unknown) => (c === "chain_seq" && (atSeq = Number(v)), h.selects.push([table, c, v]), q),
+        not: () => q,
         order: () => q,
         limit: () => q,
-        maybeSingle: async () => (wantsLast ? h.last : h.head),
+        upsert: async (row: unknown) => (h.receiptSaves.push(row), { error: null }),
+        maybeSingle: async () => {
+          if (table === "audit_anchor_receipts") return h.receipt;
+          if (atSeq !== null) return { data: h.hashAt[atSeq] ? { row_hash: h.hashAt[atSeq] } : null, error: null };
+          return wantsLast ? h.last : h.head;
+        },
       };
       return q;
     },
@@ -49,10 +65,15 @@ beforeEach(() => {
   h.writeAudit.mockReset();
   h.requireAuth.mockReset();
   h.selects.length = 0;
-  h.head.data = { row_hash: "abc123" };
+  h.head.data = { row_hash: "abc123", chain_seq: 10 };
+  h.sink = undefined;
+  h.receipt = { data: null, error: null };
+  h.receiptSaves.length = 0;
+  h.hashAt = { 10: "abc123" };
+  h.order.length = 0;
   h.gate = { allowed: true, retry_after_seconds: 0 };
   h.last = { data: null, error: null };
-  h.verify.mockResolvedValue({ data: [{ ok: true, checked: "42", first_bad_id: null, first_bad_at: null }], error: null });
+  h.verify.mockResolvedValue({ data: [{ ok: true, checked: "42", first_bad_id: null, first_bad_at: null, first_seq: 1 }], error: null });
   as({});
 });
 
@@ -147,5 +168,189 @@ describe("GET /api/audit/verify (R-154)", () => {
     h.verify.mockResolvedValue({ data: null, error: { message: "boom" } });
     expect((await call()).status).toBe(500);
     expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+});
+
+// ── External anchor (R-168 / R-169 / R-170) ─────────────────────────────────────────────────────────
+type Rec = { workspace_id: string; chain_seq: number; head_hash: string; row_count: number; anchored_at: string };
+const stored = (over: Partial<Rec> = {}): Rec => ({ workspace_id: WS, chain_seq: 10, head_hash: "abc123", row_count: 10, anchored_at: "2026-10-18T20:09:00.000Z", ...over });
+
+function useSink(latest: Rec | null | "down", put: (r: Rec) => Promise<unknown> = async (r) => ({ status: "stored", record: r })) {
+  const sink = {
+    kind: "fake",
+    latest: vi.fn(async () => (latest === "down" ? { ok: false, error: "connect ECONNREFUSED [host]" } : { ok: true, records: new Map(latest ? [[WS, latest]] : []) })),
+    put: vi.fn(async (r: Rec) => (h.order.push("put"), put(r))),
+  };
+  h.sink = sink;
+  return sink;
+}
+/** Writing an audit row appends it to the live chain: the head moves to seq+1. */
+function chainGrowsOnAudit() {
+  h.writeAudit.mockImplementation(async (i: { action: string }) => {
+    h.order.push(`audit:${i.action}`);
+    const seq = (h.head.data?.chain_seq ?? 0) + 1;
+    h.head.data = { row_hash: `abc${seq}`, chain_seq: seq };
+    h.hashAt[seq] = `abc${seq}`;
+  });
+}
+const audited = () => h.writeAudit.mock.calls.map((c) => c[0].action);
+
+describe("GET /api/audit/verify: external anchor", () => {
+  it("with NOPM_ANCHOR_DB_URL unset (sink none) says not_anchored, writes nothing, and is an all-clear", async () => {
+    const { data } = await (await call()).json();
+    expect(data.anchor).toEqual({ state: "not_anchored", chain_seq: null, anchored_at: null, row_count: null, rows_behind: null, since: null, reset_at: null });
+    expect(data).toMatchObject({ ok: true, chain_ok: true, all_clear: true });
+    expect(h.writeAudit.mock.calls[0][0].after.anchor).toMatchObject({ state: "not_anchored", chain_seq: null });
+    expect(h.receiptSaves).toHaveLength(0);
+  });
+
+  it("state anchored: verifies, writes audit.verified, THEN anchors the head that includes the verify row (PR-13)", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(stored({ chain_seq: 8, head_hash: "old" }));
+    h.hashAt[8] = "old";
+    const { data } = await (await call()).json();
+    expect(h.order).toEqual(["audit:audit.verified", "put"]);
+    expect(sink.put).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: WS, chain_seq: 11, head_hash: "abc11", row_count: 11 }));
+    expect(data.anchor).toMatchObject({ state: "anchored", chain_seq: 11 });
+    expect(data).toMatchObject({ ok: true, all_clear: true });
+    expect(h.writeAudit.mock.calls[0][0].after.anchor).toMatchObject({ state: "behind", chain_seq: 8, rows_behind: 2 });
+    expect(audited()).toEqual(["audit.verified"]); // a routine success writes no extra audit row
+  });
+
+  it("the first anchor of a workspace is announced by ONE audit.anchored row after the sink confirmed", async () => {
+    chainGrowsOnAudit();
+    useSink(null);
+    const { data } = await (await call()).json();
+    expect(data.anchor.state).toBe("anchored");
+    expect(h.order).toEqual(["audit:audit.verified", "put", "audit:audit.anchored"]);
+  });
+
+  it("state mismatch (newest rows deleted): ok false, chain_ok true, never anchors, ONE audit.anchor_mismatch per streak", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(stored({ chain_seq: 14, head_hash: "gone" }));
+    const first = (await (await call()).json()).data;
+    expect(first).toMatchObject({ ok: false, chain_ok: true, all_clear: false });
+    expect(first.anchor).toMatchObject({ state: "mismatch", chain_seq: 14 });
+    expect(sink.put).not.toHaveBeenCalled();
+    expect(audited()).toEqual(["audit.anchor_mismatch", "audit.verified"]);
+    // a second verify in the same streak: the receipt already says mismatch, so no second mismatch row
+    h.receipt = { data: { workspace_id: WS, status: "mismatch", chain_seq: 14, streak_started_at: "2026-10-19T00:00:00Z" }, error: null };
+    h.writeAudit.mockClear();
+    chainGrowsOnAudit();
+    await call();
+    expect(audited()).toEqual(["audit.verified"]);
+  });
+
+  it("state mismatch for a flipped hash at the anchored chain_seq", async () => {
+    useSink(stored({ chain_seq: 10, head_hash: "abc123" }));
+    h.head.data = { row_hash: "flipped", chain_seq: 10 };
+    const { data } = await (await call()).json();
+    expect(data).toMatchObject({ ok: false, all_clear: false });
+    expect(data.anchor.state).toBe("mismatch");
+  });
+
+  it("state mismatch when the chain was deleted and regrew to the same chain_seq with a different hash", async () => {
+    useSink(stored({ chain_seq: 7, head_hash: "was7" }));
+    h.hashAt[7] = "regrown7";
+    const { data } = await (await call()).json();
+    expect(data).toMatchObject({ ok: false, all_clear: false });
+    expect(data.anchor.state).toBe("mismatch");
+  });
+
+  it("state unreachable: no comparison ran, so never anchored and never an all-clear; ONE audit.anchor_failed; request still 200", async () => {
+    const sink = useSink("down");
+    const res = await call();
+    expect(res.status).toBe(200);
+    const { data } = await res.json();
+    expect(data.anchor.state).toBe("unreachable");
+    expect(data).toMatchObject({ ok: true, chain_ok: true, all_clear: false });
+    expect(sink.put).not.toHaveBeenCalled();
+    expect(audited()).toEqual(["audit.anchor_failed", "audit.verified"]);
+  });
+
+  it("a failed put never fails the request: anchor.state unreachable, one audit.anchor_failed, all_clear false", async () => {
+    chainGrowsOnAudit();
+    useSink(stored({ chain_seq: 8, head_hash: "old" }), async () => ({ status: "failed", error: "timeout" }));
+    h.hashAt[8] = "old";
+    const res = await call();
+    expect(res.status).toBe(200);
+    const { data } = await res.json();
+    expect(data.anchor.state).toBe("unreachable");
+    expect(data).toMatchObject({ ok: true, all_clear: false });
+    expect(audited()).toEqual(["audit.verified", "audit.anchor_failed"]);
+    expect(h.receiptSaves.some((r) => (r as { status?: string }).status === "failed")).toBe(true);
+  });
+
+  it("a unique conflict on the head is a mismatch, not a failed insert", async () => {
+    chainGrowsOnAudit();
+    useSink(stored({ chain_seq: 8, head_hash: "old" }), async (r) => ({ status: "conflict", stored: { ...r, head_hash: "someone-else" } }));
+    h.hashAt[8] = "old";
+    const { data } = await (await call()).json();
+    expect(data.anchor.state).toBe("mismatch");
+    expect(data).toMatchObject({ ok: false, all_clear: false });
+    expect(audited()).toEqual(["audit.verified", "audit.anchor_mismatch"]);
+  });
+
+  it("a chain that does not verify is never anchored", async () => {
+    h.verify.mockResolvedValue({ data: [{ ok: false, checked: 7, first_bad_id: "r-8", first_bad_at: "2026-10-02T00:00:00Z" }], error: null });
+    const sink = useSink(stored());
+    const { data } = await (await call()).json();
+    expect(data).toMatchObject({ ok: false, chain_ok: false });
+    expect(sink.put).not.toHaveBeenCalled();
+  });
+
+  it("keeps the throttle: a second call inside the window never touches the sink", async () => {
+    h.gate = { allowed: false, retry_after_seconds: 60 };
+    const sink = useSink(stored());
+    expect((await call()).status).toBe(429);
+    expect(sink.latest).not.toHaveBeenCalled();
+    expect(sink.put).not.toHaveBeenCalled();
+  });
+
+  it("an unexpected error while anchoring does not fail a verify that succeeded", async () => {
+    chainGrowsOnAudit();
+    useSink(stored({ chain_seq: 8, head_hash: "old" }), async () => {
+      throw new Error("unexpected");
+    });
+    h.hashAt[8] = "old";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await call();
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("GET /api/audit/verify: anchoring only on a window that reaches the previous anchor (W2-04)", () => {
+  const verifyFrom = (first_seq: number) =>
+    h.verify.mockResolvedValue({ data: [{ ok: true, checked: 1, first_bad_id: null, first_bad_at: null, first_seq }], error: null });
+
+  it("?limit=1 passes but is NOT anchored: the window starts at the head, not at the previous anchor", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(stored({ chain_seq: 4, head_hash: "old" }));
+    h.hashAt[4] = "old";
+    verifyFrom(10);
+    const { data } = await (await call("?limit=1")).json();
+    expect(data).toMatchObject({ ok: true, chain_ok: true });
+    expect(sink.put).not.toHaveBeenCalled();
+    expect(data.anchor.state).toBe("behind");
+  });
+
+  it("a window that starts at the previous anchor is anchored", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(stored({ chain_seq: 4, head_hash: "old" }));
+    h.hashAt[4] = "old";
+    verifyFrom(4);
+    await call();
+    expect(sink.put).toHaveBeenCalledTimes(1);
+  });
+
+  it("a first anchor needs the window to reach row 1", async () => {
+    chainGrowsOnAudit();
+    const sink = useSink(null);
+    verifyFrom(5001);
+    await call();
+    expect(sink.put).not.toHaveBeenCalled();
+    verifyFrom(1);
+    await call();
+    expect(sink.put).toHaveBeenCalledTimes(1);
   });
 });

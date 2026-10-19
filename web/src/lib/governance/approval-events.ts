@@ -2,6 +2,8 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 
 type Db = ReturnType<typeof createAdminClient>;
 
+// "retro_overdue" is HISTORY only: rows written before the retro was retired (Q1) stay readable and the DB CHECK still
+// allows the value. Nothing writes it any more. Removing it from the CHECK is a later migration (see rtm/w5i.md).
 export type ApprovalEventKind = "deadline_set" | "reminder_sent" | "escalated" | "auto_approved" | "retro_overdue";
 export type ApprovalTarget = "change_request" | "deletion_request" | "rebaseline";
 

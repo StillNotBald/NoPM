@@ -76,7 +76,16 @@ console.log("purging previous seed artifacts...");
   // is safe. ON DELETE SET NULL on tasks.sprint_id (migration 0037) handles
   // detaching tasks automatically.
   const { error } = await db.from("sprints").delete().eq("workspace_id", W);
-  if (error) throw new Error(`purge sprints: ${error.message}`);
+  if (error) {
+    // Sprints are deleted only by an approved deletion request since migration 0114 (P0040). A database that already
+    // holds sprints cannot be re-seeded in place: stop here, changing nothing, rather than adding duplicates.
+    if (error.code === "P0040" || /DELETE_NEEDS_REQUEST/.test(error.message)) {
+      console.log("SKIPPED: the existing sprints cannot be purged (a sprint is deleted only by an approved deletion request).");
+      console.log("         Nothing was changed. Run this script on a fresh or newly reset database.");
+      process.exit(0);
+    }
+    throw new Error(`purge sprints: ${error.message}`);
+  }
 }
 console.log("purge complete");
 

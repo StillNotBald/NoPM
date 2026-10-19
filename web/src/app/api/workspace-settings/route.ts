@@ -32,7 +32,7 @@ export const runtime = "nodejs";
  * (`workspace.settings_update`) holding only the fields that changed.
  *
  *  - `approval_policy` (G1/G3/G4/G7, migration 0100): the five approval tiers (approver role, turnaround
- *    hours, auto-approve for routine only), the currency threshold, its currency. (emergency_retro_hours is deprecated: accepted, ignored and
+ *    hours, auto-approve for routine only), the currency threshold, its currency. (emergency_retro_hours is retired (D17): accepted, ignored and
  *    never stored; an emergency change owes no retro decision.) GET returns the policy with every default filled in. PATCH takes any subset of it (only the
  *    rules sent change), validates it, stores the complete result and records it in the audit row. Auto-approve
  *    is OFF unless an admin switches it on here.

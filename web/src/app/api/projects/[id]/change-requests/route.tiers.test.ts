@@ -25,6 +25,7 @@ vi.mock("next/server", async (importOriginal) => ({
 }));
 
 import { FakeDb, TEST_ENCRYPTION_KEY, WS, ids, seedWorkspace } from "@/lib/integrations/test-support";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 import { POST } from "./route";
 
 const PROJECT = "7b1d0c4e-0000-4000-8000-0000000000aa";
@@ -58,7 +59,7 @@ beforeEach(() => {
   writeAuditMock.mockResolvedValue(undefined);
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue(actorOf(ids.requester, "manager"));
-  db = new FakeDb();
+  db = installAtomicGovernance(new FakeDb());
   state.db = db;
   seedWorkspace(db);
   db.seed("projects", [{ id: PROJECT, workspace_id: WS, name: "Apollo", currency: "MYR" }]);
@@ -76,9 +77,10 @@ describe("raising sets the tier and the deadline (G1, G3)", () => {
     const due = Date.parse(data.approval_deadline_at);
     expect(due - before).toBeGreaterThanOrEqual(48 * 3_600_000 - 1000);
     expect(due - before).toBeLessThan(48 * 3_600_000 + 60_000);
-    const audit = writeAuditMock.mock.calls.map((c) => c[0] as { action: string; after: Record<string, unknown> });
-    expect(audit.filter((a) => a.action === "change_request.create")).toHaveLength(1);
-    expect(audit[0].after.tier).toBe("normal");
+    // wave 5: the audit row is written by the database function, in the same transaction as the request
+    const audit = db.rows("audit_log").filter((a) => a.action === "change_request.create");
+    expect(audit).toHaveLength(1);
+    expect((audit[0].after as Record<string, unknown>).tier).toBe("normal");
     // the ledger records that a deadline was set
     expect(db.rows("approval_events")).toEqual([expect.objectContaining({ kind: "deadline_set", target_type: "change_request" })]);
   });
@@ -244,8 +246,8 @@ describe("Q1: emergency = flag only, committed on raise", () => {
 
   it("an ordinary request writes no emergency commit row", async () => {
     await raise({ title: "Rename a label" });
-    expect(writeAuditMock.mock.calls.map((c) => (c[0] as { action: string }).action)).toEqual(["change_request.create"]);
-    expect(db.rows("audit_log")).toEqual([]);
+    expect(db.rows("audit_log").map((a) => a.action)).toEqual(["change_request.create"]);
+    expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
   it("a member cannot raise an emergency: 403, nothing stored, nothing audited", async () => {

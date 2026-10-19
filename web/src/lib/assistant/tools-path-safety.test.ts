@@ -41,6 +41,11 @@ const ID_ARGS: Record<string, string[]> = {
   request_expense_deletion: ["expense_id"],
   request_document_deletion: ["document_id"],
   request_milestone_deletion: ["milestone_id"],
+  request_program_deletion: ["program_id"],
+  request_sprint_deletion: ["sprint_id"],
+  request_resource_deletion: ["resource_id"],
+  request_allocation_deletion: ["allocation_id"],
+  request_clash_deletion: ["clash_id"],
   list_risks: ["project_id"],
   create_risk: ["project_id"],
   update_risk: ["risk_id"],
@@ -52,6 +57,9 @@ const ID_ARGS: Record<string, string[]> = {
   get_project_trend: ["project_id"],
   get_change_request: ["change_request_id"],
   get_document: ["document_id"],
+  list_rebaselines: ["project_id"],
+  get_baseline_history: ["project_id"],
+  list_project_dependencies: ["project_id"],
 };
 
 const HOSTILE_IDS = [

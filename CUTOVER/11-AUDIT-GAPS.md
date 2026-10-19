@@ -2,7 +2,7 @@
 
 **Status: SKELETON, NOT YET RUN.** This file covers all four waves of the audit-gap programme (change request CR-2026-10-18-01): migrations 0088–0094 in waves 1 and 2, 0095–0099 in wave 3, and 0100–0105 in wave 4. The wave 4 section below is the one to read for the next release window.
 
-It follows [10-COMMON-PATTERN-ANSWERS.md](10-COMMON-PATTERN-ANSWERS.md). Apply that release first. The runner applies by filename, so 0088–0094 land after 0086 in the same window.
+It follows [10-COMMON-PATTERN-ANSWERS.md](10-COMMON-PATTERN-ANSWERS.md). The wave 5 close-out (migrations 0107 to 0114) is a separate release: see [14-WAVE5-RELEASE.md](14-WAVE5-RELEASE.md), with its checks in [12-POST-RELEASE-CHECKS.md](12-POST-RELEASE-CHECKS.md) and the optional audit anchor in [13-AUDIT-ANCHOR.md](13-AUDIT-ANCHOR.md). Apply that release first. The runner applies by filename, so 0088–0094 land after 0086 in the same window.
 
 **Order, fixed:** backup → dry run → apply `--atomic` → verify the ledger → deploy the build → smoke. **Apply the migrations BEFORE the new build serves traffic.**
 

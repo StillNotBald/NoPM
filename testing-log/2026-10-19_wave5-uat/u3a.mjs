@@ -1,0 +1,12 @@
+import { call, rec, sql } from "./h.mjs";
+const T = Date.now();
+let r = await call("manager","GET","/api/members"); rec("members", {status:r.status, d:(r.json?.data??[]).map(m=>[m.email,m.role,m.id??m.user_id])});
+const mk = async (path, body, key) => { const x = await call("manager","POST",path,body); rec("create-"+key,{status:x.status,id:x.json?.data?.id ?? x.json?.id,text:x.status>=300?x.text:""}); return x.json?.data?.id ?? x.json?.id; };
+const prog = await mk("/api/programs",{name:"W5UAT prog "+T},"program");
+const prog2 = await mk("/api/programs",{name:"W5UAT prog2 "+T},"program2");
+const spr = await mk("/api/sprints",{name:"W5UAT sprint "+T, start_date:"2026-11-01", end_date:"2026-11-14", project_id: sql("select id from projects limit 1")},"sprint");
+const res = await mk("/api/resources",{name:"W5UAT res "+T},"resource");
+const res2 = await mk("/api/resources",{name:"W5UAT res2 "+T},"resource2");
+const al = await mk("/api/allocations",{member_id:res2, project_id: sql("select id from projects limit 1"), allocation_pct:10, window_start:"2026-11-01T00:00:00Z", window_end:"2026-11-10T00:00:00Z"},"allocation");
+const cl = await mk("/api/clashes",{title:"W5UAT clash "+T, type:"resource", severity:"low"},"clash");
+rec("ids",{prog,prog2,spr,res,res2,al,cl});

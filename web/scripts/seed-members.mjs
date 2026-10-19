@@ -13,8 +13,8 @@ const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_
 const W = (await db.from("workspaces").select("id").eq("slug", "demo").single()).data.id;
 
 const members = [
-  { email: "priya.nair@stillnotbald.com", display_name: "Priya Nair", role: "manager" },
-  { email: "daniel.okoro@stillnotbald.com", display_name: "Daniel Okoro", role: "member" },
+  { email: "priya.nair@example.com", display_name: "Priya Nair", role: "manager" },
+  { email: "daniel.okoro@example.com", display_name: "Daniel Okoro", role: "member" },
 ];
 
 for (const m of members) {

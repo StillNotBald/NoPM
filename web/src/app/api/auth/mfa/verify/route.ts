@@ -4,13 +4,13 @@ import { route } from "@/lib/api/handler";
 import { AuthError, NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { DEMO_RESTRICTED_MESSAGE, isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { computeEnrollmentBinding, issueMfaCookie, MFA_COOKIE_NAME } from "@/lib/auth/mfa";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { consumeTotp, spendMfaAttempt } from "@/lib/auth/mfa-factor";
 import { verifyMfaSchema } from "../_schema";
+import { mfaVerify } from "../_rpc";
 
 export const runtime = "nodejs";
 
@@ -56,15 +56,8 @@ export const POST = route(async ({ actor, request }) => {
   // D-ACC-19: the code's 30-second step is burned on success, so it cannot be replayed.
   const outcome = await consumeTotp(db, actor.id, secret, parsed.data.code);
   if (outcome !== "ok") {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "auth.mfa.verify_failed",
-      targetType: "user_mfa",
-      targetId: actor.id,
-      before: null,
-      after: { reason: outcome },
-    });
+    // One audit row; the step burn and the attempt budget above are separate and never roll back.
+    await mfaVerify(db, actor, outcome);
     throw new RuleError(outcome === "replay" ? "That code was already used. Wait for the next one." : "Invalid code");
   }
 
@@ -78,27 +71,8 @@ export const POST = route(async ({ actor, request }) => {
     createHash("sha256").update(code).digest("hex"),
   );
 
-  const now = new Date().toISOString();
-  const { error: updateError } = await db
-    .from("user_mfa")
-    .update({
-      enabled: true,
-      backup_codes: backupCodeHashes,
-      confirmed_at: now,
-    })
-    .eq("user_id", actor.id);
-
-  if (updateError) throw updateError;
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "mfa.enabled",
-    targetType: "user_mfa",
-    targetId: actor.id,
-    before: { enabled: mfa.enabled },
-    after: { enabled: true },
-  });
+  // Enable the factor, store the backup code HASHES and write mfa.enabled in one transaction (migration 0109).
+  await mfaVerify(db, actor, "ok", backupCodeHashes);
 
   // R-91 / Q-ACC-7 - the person just proved the factor by entering a valid code,
   // so this session counts as proven: swap any cookie from a prior enrollment for

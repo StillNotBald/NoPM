@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb } from "@/lib/governance/test-support/fake-admin";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 import { AGENT_PRESET_SCOPES } from "@/lib/auth/scopes";
 
 const { holder, emitted, authHolder } = vi.hoisted(() => ({
@@ -139,7 +140,7 @@ const auditActions = () => db.rows("audit_log").map((r) => r.action);
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
-  db = seed();
+  db = installAtomicGovernance(seed());
   holder.db = db;
   emitted.requested.length = 0;
   emitted.decided.length = 0;

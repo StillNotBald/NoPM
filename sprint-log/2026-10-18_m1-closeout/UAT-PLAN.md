@@ -102,7 +102,7 @@ The point of 5A to 5C: nothing looks different. Every action below must behave e
 | 5G-5 | Manager | Desktop | Approve the program request. | Refused: a program needs an admin (per D15 default). | |
 | 5G-6 | Admin | Desktop | Approve the program request. | The program is removed. Its projects remain. | |
 | 5G-7 | Manager | Desktop | Request deletion of a resource that has open allocations, then add another allocation, then approve. | The approval is refused as stale (the child count changed). | |
-| 5G-8 | Tester | Desktop | Send `DELETE` on each of the five addresses with a member's token, then with a manager's token. | 403 for members. For others 202 with the deletion request in the body (it was 204 with no body before). Nothing is deleted. | |
+| 5G-8 | Tester | Desktop | Send `DELETE` on each of the five addresses with a member's token, then with a manager's token. | 202 with the deletion request: a member could delete these registers outright before wave 5 (write scope only), so a member may request; a viewer gets 403; approval stays with a manager or admin (D4, kept as built). | |
 | 5G-9 | **Dev** | n/a | Run the register probe (raw `DELETE` on each table). | Each raw delete fails with the "needs request" error. A project deletion commit still cascades. | |
 | 5G-10 | Tester | Desktop | Call `request_sprint_deletion` through MCP. | Same as 5G-1. | |
 | 5G-11 | Manager (second person) | Desktop | Request and approve the deletion of a task that has an allocation, and of a resource that has allocations. | Both approvals succeed, before and after the delete-refusing trigger step. The audit row of the resource lists the removed allocations. | |

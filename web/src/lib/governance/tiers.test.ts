@@ -21,14 +21,14 @@ const policy = policyOf({});
 const base = { kind: "change_request" as const, policy, requester_role: "manager" };
 
 describe("policyOf: the CR A3 defaults", () => {
-  it("an empty policy is the defaults: routine and normal -> manager, high_risk and strategic -> admin, emergency retro -> admin", () => {
+  it("an empty policy is the defaults: routine and normal -> manager, high_risk and strategic -> admin, emergency -> admin (nobody decides it)", () => {
     expect(approverRoleFor("routine", policy)).toBe("manager");
     expect(approverRoleFor("normal", policy)).toBe("manager");
     expect(approverRoleFor("high_risk", policy)).toBe("admin");
     expect(approverRoleFor("emergency", policy)).toBe("admin");
     expect(approverRoleFor("strategic", policy)).toBe("admin");
     expect(policy.currency_threshold).toBe(50_000);
-    expect(policy.emergency_retro_hours).toBe(48);
+    expect(policy).not.toHaveProperty("emergency_retro_hours"); // retired (D17)
   });
 
   it("auto-approve is OFF by default on every tier", () => {
@@ -44,7 +44,7 @@ describe("policyOf: the CR A3 defaults", () => {
     expect(p.tiers.normal).toMatchObject({ approver_role: "admin", turnaround_hours: 12 });
     expect(p.tiers.high_risk).toMatchObject({ approver_role: "admin", turnaround_hours: DEFAULT_POLICY.tiers.high_risk.turnaround_hours });
     expect(p.currency_threshold).toBe(50_000);
-    expect(p.emergency_retro_hours).toBe(48);
+    expect(p).not.toHaveProperty("emergency_retro_hours"); // retired: read, ignored, never returned
   });
 
   it("auto_approve is honoured for routine only, whatever a hand-edited row says", () => {
@@ -276,5 +276,27 @@ describe("validatePolicyInput / mergePolicy (the settings PATCH)", () => {
       expect(merged.tiers.normal).toMatchObject({ turnaround_hours: 20, approver_role: "admin" });
       expect(merged.currency_threshold).toBe(7);
     }
+  });
+});
+
+describe("wave 5 registers (R-176, D15): the tier is fixed by the kind", () => {
+  it("a program deletion is high_risk and cannot be asked for lower; the other four are normal", () => {
+    expect(classify({ ...base, kind: "program_deletion" }).tier).toBe("high_risk");
+    expect(classify({ ...base, kind: "program_deletion", requested_tier: "normal" }).tier).toBe("high_risk");
+    expect(classify({ ...base, kind: "program_deletion" }).reason).toBe("Deleting a whole program is high risk.");
+    for (const kind of ["sprint_deletion", "resource_deletion", "allocation_deletion", "clash_deletion"] as const) {
+      expect(classify({ ...base, kind }).tier).toBe("normal");
+    }
+  });
+
+  it("a requester may ask for more scrutiny on a normal kind, and the workspace policy cannot lower the program floor", () => {
+    expect(classify({ ...base, kind: "sprint_deletion", requested_tier: "high_risk" }).tier).toBe("high_risk");
+    const lenient = policyOf({ tiers: { high_risk: { approver_role: "manager", turnaround_hours: 24 } } });
+    expect(classify({ ...base, kind: "program_deletion", policy: lenient }).tier).toBe("high_risk");
+  });
+
+  it("an expense amount never lifts a register kind, and an emergency path is refused for them", () => {
+    expect(classify({ ...base, kind: "clash_deletion", amount: 9_000_000 }).tier).toBe("normal");
+    expect(() => classify({ ...base, kind: "program_deletion", is_emergency: true })).toThrowError(FieldsError);
   });
 });

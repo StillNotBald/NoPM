@@ -1,6 +1,6 @@
 import type { createAdminClient } from "@/lib/supabase/admin";
 import type { Actor } from "@/lib/auth/guard";
-import { writeAudit } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 
 /** Decision 19 (Q-WRK-7): warn at 90% of plan by default, over at 100%. Never blocks. */
 export const DEFAULT_WARN_PCT = 90;
@@ -60,43 +60,25 @@ export async function recordOverspendCrossing(
     const previous = (budget.overspend_level as OverspendLevel | null) ?? "ok";
     if (next === previous) return next;
 
-    // Compare-and-set so two concurrent expenses cannot both claim the crossing.
-    const { data: claimed } = await db
-      .from("project_budget")
-      .update({ overspend_level: next })
-      .eq("project_id", projectId)
-      .eq("workspace_id", actor.workspaceId)
-      .eq("overspend_level", previous)
-      .select("project_id");
-    if (!claimed || claimed.length === 0) return next;
-
-    try {
-      await writeAudit({
-        workspaceId: actor.workspaceId,
-        actor,
-        action: OVERSPEND_AUDIT_ACTION,
-        targetType: "project_budget",
-        targetId: projectId,
-        before: { level: previous },
-        after: {
-          level: next,
-          planned_amount: planned,
-          actual,
-          burn_pct: planned > 0 ? Number(((actual / planned) * 100).toFixed(1)) : 0,
-          warn_pct: warnPct,
-        },
-      });
-    } catch (auditError) {
-      // The crossing was claimed but its audit row was not written: give the claim
-      // back so the next check reports the crossing instead of losing it for good.
-      await db
-        .from("project_budget")
-        .update({ overspend_level: previous })
-        .eq("project_id", projectId)
-        .eq("workspace_id", actor.workspaceId)
-        .eq("overspend_level", next);
-      throw auditError;
-    }
+    // One database call (R-165): compare-and-set the level on the previous value, so two concurrent
+    // expenses cannot both claim the crossing, and write the crossing's audit row in the same transaction.
+    // If the audit row cannot be written the marker change rolls back with it, so the next check reports
+    // the crossing instead of losing it. A lost compare-and-set writes nothing.
+    const { error } = await db.rpc("nopm_overspend_cross", {
+      p_workspace_id: actor.workspaceId,
+      p_project_id: projectId,
+      p_previous: previous,
+      p_next: next,
+      p_audit: buildRpcAudit(actor, OVERSPEND_AUDIT_ACTION, "project_budget"),
+      p_after: {
+        level: next,
+        planned_amount: planned,
+        actual,
+        burn_pct: planned > 0 ? Number(((actual / planned) * 100).toFixed(1)) : 0,
+        warn_pct: warnPct,
+      },
+    });
+    if (error) throw error;
     return next;
   } catch (e) {
     console.error("[budget] overspend check failed (never blocks)", e);

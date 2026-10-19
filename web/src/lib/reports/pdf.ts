@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { chainHeadLine } from "@/lib/audit/chain-head";
+import { anchorLine, chainHeadLine } from "@/lib/audit/chain-head";
 import type { PortfolioReport, ProjectReport } from "./gather";
 import type { EvmResult } from "@/lib/evm";
 import type { AuditPackData } from "@/lib/export/audit-pack";
@@ -652,6 +652,8 @@ export function renderAuditPackPdf(pack: AuditPackData): Buffer {
     doc.setFont("courier", "normal");
     doc.setFontSize(7);
     doc.text(headLine, margin, 158);
+    // R-169: the external-anchor state at build time, so the cover says whether the head was anchored outside the database.
+    doc.text(anchorLine(pack.anchor), margin, 166);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
   }

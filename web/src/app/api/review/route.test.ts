@@ -112,6 +112,11 @@ describe("GET /api/review", () => {
         "expense_deletion",
         "document_deletion",
         "milestone_deletion",
+        "program_deletion",
+        "sprint_deletion",
+        "resource_deletion",
+        "allocation_deletion",
+        "clash_deletion",
         "rebaseline",
       ],
     });

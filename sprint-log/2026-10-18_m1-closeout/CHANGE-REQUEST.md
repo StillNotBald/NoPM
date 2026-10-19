@@ -91,3 +91,11 @@ Kept in `OWNER-VISIBLE.md` per wave and summarised in the PR.
 ## Findings and fixes after UAT
 
 Findings are minted in `UAT-log/01-FINDINGS.md` only, root causes in `02`, retest in `03`. No pass or fail counts in `UAT-log/`; counts go to `testing-log/`.
+
+## Decision raised by the wave-2/3 review (2026-10-19 02:50 MYT)
+
+| Decision | Builder's default (built in the fix pass) | What changes if the owner says no |
+|---|---|---|
+| D20. Clearing an anchor mismatch after a legitimate restore | The owner inserts one `reset` source row in the anchor database (exact SQL in `CUTOVER/13-AUDIT-ANCHOR.md`); the comparison treats it as a new baseline, and a mismatch that happens after the reset is still reported. The Trust Center shows "re-baselined on <date>". | Keep the red state until the restored log regrows past the old anchor position (no reset path), or require a hand-inserted anchor above the old position. |
+
+UAT note D5 (PATCH `/api/workspace-settings` with only the retired `emergency_retro_hours` answers 422 "nothing to update"): pre-existing contract for an empty update, left as is.

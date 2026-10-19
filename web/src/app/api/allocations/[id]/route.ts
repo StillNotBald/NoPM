@@ -2,9 +2,10 @@ import { z } from "zod";
 import { NextResponse } from "next/server";
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
-import { ok, noContent, safeJson, validationError } from "@/lib/api/response";
+import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
-import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { requestDeletion } from "@/lib/governance/request-deletion";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { detectOverAllocationSafe } from "@/lib/clash/detect";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
@@ -97,31 +98,11 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return warnings.length ? NextResponse.json({ data: updated, warnings }) : ok(updated);
 });
 
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "resource:write");
-
-  const db = createAdminClient();
-  const { data: existing, error: fetchError } = await db
-    .from("allocations")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw fetchError;
-  if (!existing) throw new NotFoundError("Allocation not found");
-
-  // Row and audit row are one transaction (nopm_mutate_audited).
-  await auditedDelete({
-    table: "allocations",
-    actor,
-    action: "allocation.delete",
-    id: params.id,
-    notFoundMessage: "Allocation not found",
-  });
-
-  // Re-check the member's allocation state after deletion
-  await detectOverAllocationSafe(db, actor.workspaceId, existing.member_id, actor);
-
-  return noContent();
-});
+/**
+ * DELETE /api/allocations/[id] — does NOT delete the allocation. It raises a deletion request (scope resource:write,
+ * as the direct delete had) with a required `reason` and returns 202 with the deletion_requests row. A second person
+ * approves it at POST /api/deletion-requests/:id/approve; the member's over-allocation is re-checked then (R-176).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "allocation", id: params.id }),
+);

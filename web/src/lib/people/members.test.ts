@@ -6,6 +6,7 @@ import type { Actor } from "@/lib/auth/guard";
 const h = vi.hoisted(() => ({
   rpc: vi.fn(),
   updateUser: vi.fn(),
+  getUser: vi.fn(),
   status: "active" as string | null,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -18,7 +19,7 @@ vi.mock("@/lib/supabase/admin", () => ({
       b.maybeSingle = async () => ({ data: h.status ? { status: h.status } : null, error: null });
       return b;
     },
-    auth: { admin: { updateUserById: h.updateUser } },
+    auth: { admin: { updateUserById: h.updateUser, getUserById: h.getUser } },
   }),
 }));
 vi.mock("@/lib/crypto", () => ({ encrypt: (s: string) => `enc(${s.length})` }));
@@ -33,6 +34,8 @@ import {
   resetMemberMfa,
   restoreMember,
   LAST_ADMIN_MESSAGE,
+  LAST_SIGN_IN_BATCH,
+  memberLastSignIns,
 } from "./members";
 
 const admin: Actor = { type: "user", id: "a1", label: "Admin", workspaceId: "ws", role: "admin", principalId: "a1" };
@@ -41,6 +44,7 @@ beforeEach(() => {
   h.status = "active";
   h.rpc.mockReset();
   h.updateUser.mockReset();
+  h.getUser.mockReset();
   h.updateUser.mockResolvedValue({ error: null });
 });
 
@@ -174,5 +178,35 @@ describe("restore is retryable (R3-4) and removal ends sessions (R3-3)", () => {
       fn === "nopm_revoke_user_sessions" ? Promise.reject(new Error("boom")) : { data: { member: { id: "t" } }, error: null },
     );
     await expect(removeMember(admin, "t")).resolves.toBeTruthy();
+  });
+});
+
+describe("memberLastSignIns (R-167)", () => {
+  it("reads each person by id in parallel batches and leaves never-signed-in people out", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    h.getUser.mockImplementation(async (id: string) => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await Promise.resolve();
+      inFlight--;
+      return { data: { user: { id, last_sign_in_at: id === "p3" ? null : "2026-10-01T00:00:00Z" } }, error: null };
+    });
+    const ids = Array.from({ length: 25 }, (_, n) => "p" + n);
+    const got = await memberLastSignIns(ids);
+    expect(h.getUser).toHaveBeenCalledTimes(25);
+    expect(peak).toBeLessThanOrEqual(LAST_SIGN_IN_BATCH);
+    expect(got.get("p0")).toBe("2026-10-01T00:00:00Z");
+    expect(got.has("p3")).toBe(false);
+  });
+
+  it("makes no auth call for an empty list", async () => {
+    expect((await memberLastSignIns([])).size).toBe(0);
+    expect(h.getUser).not.toHaveBeenCalled();
+  });
+
+  it("throws when any lookup fails, so an empty cell never means 'lookup failed'", async () => {
+    h.getUser.mockResolvedValue({ data: { user: null }, error: new Error("auth down") });
+    await expect(memberLastSignIns(["a"])).rejects.toThrow("auth down");
   });
 });

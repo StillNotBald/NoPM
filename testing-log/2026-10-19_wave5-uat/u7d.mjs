@@ -1,0 +1,16 @@
+import { call, rec, sql } from "./h.mjs";
+import { readFileSync } from "node:fs";
+const pat = readFileSync("pat.txt","utf8").trim();
+const cr = sql("select id from change_requests where workspace_id='3c8968e0-9577-40db-bc92-39750736abd1' and status='approved' and project_id is not null and implemented_at is null order by created_at desc limit 1");
+const crRaised = sql("select id from change_requests where workspace_id='3c8968e0-9577-40db-bc92-39750736abd1' and status='raised' limit 1");
+const crRej = sql("select id from change_requests where workspace_id='3c8968e0-9577-40db-bc92-39750736abd1' and status='rejected' limit 1");
+let r = await call(pat,"POST",`/api/change-requests/${cr}/evidence`,{title:"W5 UAT evidence "+Date.now(),evidence_type:"test_result",evidence_result:"pass",tested_by:"w5 tester"}); rec("U7-evidence",{status:r.status,text:r.text.slice(0,300)});
+r = await call(pat,"POST",`/api/change-requests/${crRej}/evidence`,{title:"x",evidence_type:"test_result"}); rec("U7-evidence-rejectedCR",{status:r.status,text:r.text.slice(0,200)});
+r = await call(pat,"GET","/api/documents?limit=2"); rec("U7-docs-default",{status:r.status,hasBody:JSON.stringify(r.json?.data?.[0]??{}).includes('"body"'),keys:Object.keys(r.json?.data?.[0]??{})});
+r = await call(pat,"GET","/api/documents?view=full&limit=2"); rec("U7-docs-full",{status:r.status,hasBody:"body" in (r.json?.data?.[0]??{}),keys:Object.keys(r.json?.data?.[0]??{}).length});
+r = await call(pat,"GET","/api/documents?fields=storage_path&limit=2"); rec("U7-docs-fields",{status:r.status,text:r.text.slice(0,250)});
+r = await call(pat,"POST",`/api/change-requests/${crRaised}/implement`,{}); rec("U7-implement-raised",{status:r.status,text:r.text.slice(0,250)});
+r = await call(pat,"POST",`/api/change-requests/${cr}/implement`,{}); rec("U7-implement-approved",{status:r.status,text:r.text.slice(0,300)});
+console.log(sql(`select status,implemented_at from change_requests where id='${cr}'`));
+r = await call(pat,"DELETE","/api/sprints/10768d5f-f821-4e00-af11-72f2cc53cb54",{reason:"x"}); rec("U7-pat-delete-sprint-dup",{status:r.status,text:r.text.slice(0,200)});
+r = await call(pat,"POST",`/api/deletion-requests/10768d5f-f821-4e00-af11-72f2cc53cb54/approve`,{}); rec("U7-pat-approve",{status:r.status,text:r.text.slice(0,200)});

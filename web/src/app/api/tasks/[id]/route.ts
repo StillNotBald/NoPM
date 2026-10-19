@@ -11,8 +11,8 @@ import { TaskUpdateSchema, TaskDeleteRequestSchema } from "@/app/api/tasks/_sche
 import { resolveAssignedApprover } from "@/lib/review/assignee";
 import { notify, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { approverRoleFor, classify, deadlineFor, humanRoleOf, loadApprovalPolicy } from "@/lib/governance/tiers";
-import { recordApprovalEvent } from "@/lib/governance/approval-events";
 import { actorLabel, announceRequested, projectNameOf, requireMakerPrincipal } from "@/lib/governance/decide";
+import { requestDeletionAtomic } from "@/lib/governance/atomic-rpc";
 import { assertProjectUnlocked, changedScheduleShapeFields, SCHEDULE_SHAPE_TASK_FIELDS } from "@/lib/governance/lock";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertTaskBackupDiffers, effective } from "@/lib/handover/backup";
@@ -143,6 +143,9 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return ok(updated);
 });
 
+// One constant per audit action (see request-deletion.ts): a text search for the action finds the line that writes it.
+const TASK_REQUESTED_AUDIT_ACTION = "task.delete_requested";
+
 /**
  * DELETE /api/tasks/[id] — does NOT delete the task.
  * Requires scope task:delete:request.
@@ -227,60 +230,18 @@ export const DELETE = route(async ({ actor, params, request }) => {
     approverRoleFor(tier, policy),
   );
 
-  const { data: deletionRequest, error: insertError } = await db
-    .from("deletion_requests")
-    .insert({
-      workspace_id: actor.workspaceId,
-      target_type: "task",
-      target_id: params.id,
-      reason,
-      status: "pending",
-      tier,
-      approval_deadline_at: deadline ? deadline.toISOString() : null,
-      requested_by_type: actor.type,
-      requested_by_id: actor.id,
-      requested_by_label: actor.label,
-      // The HUMAN behind the requester (the user, or the token's creator) —
-      // four-eyes compares this, not the actor id. Never null: an ownerless
-      // token was refused above.
-      requested_principal_id: requesterPrincipal,
-      before: task,
-      // G5: only sent when asked for (deploy-order safe).
-      ...(assignedApproverId ? { assigned_approver_id: assignedApproverId } : {}),
-    })
-    .select()
-    .single();
-
-  // Two concurrent requests both pass the pre-check above; the partial unique
-  // index uniq_pending_deletion lets one win and refuses the other (23505) —
-  // the same clean 422 as the pre-check, not a raw 500.
-  if (insertError?.code === "23505") {
-    throw new RuleError(
-      "A pending deletion request already exists for this task",
-      "duplicate_deletion_request",
-    );
-  }
-  if (insertError || !deletionRequest) {
-    throw new Error(insertError?.message ?? "Failed to create deletion request");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
+  // The request row, its task.delete_requested audit row and the deadline_set event are written by one database
+  // function in one transaction (wave 5, R-162); uniq_pending_deletion answers a racing second request.
+  const deletionRequest = await requestDeletionAtomic(db, {
     actor,
-    action: "task.delete_requested",
-    targetType: "task",
+    entity: "task",
+    action: TASK_REQUESTED_AUDIT_ACTION,
     targetId: params.id,
-    before: task,
-    after: assignedApproverId ? { assigned_approver_id: assignedApproverId } : null,
-  });
-
-  await recordApprovalEvent(db, {
-    workspaceId: actor.workspaceId,
-    targetType: "deletion_request",
-    targetId: deletionRequest.id,
-    kind: "deadline_set",
-    actorLabel: actor.label,
-    detail: { tier, deadline: deadline?.toISOString() ?? null },
+    reason,
+    tier,
+    deadline,
+    assignedApproverId,
+    requesterPrincipal,
   });
 
   // Notify approvers of THIS tier (G2) — fail-soft (never throws)

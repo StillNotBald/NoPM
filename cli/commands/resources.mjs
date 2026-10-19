@@ -5,7 +5,7 @@
 //   POST   /api/resources                  resource:write (create)
 //   GET    /api/resources/:id              resource:read  (get one)
 //   PATCH  /api/resources/:id             resource:write (update)
-//   DELETE /api/resources/:id             resource:write (delete)
+//   DELETE /api/resources/:id   resource:delete:request (four-eyes: creates a deletion_request, 202)
 
 export const describe = "List, create, inspect, update, or delete resource members";
 
@@ -14,7 +14,7 @@ export const usage = [
   "nopm resources get <id>                                   fetch a single resource member",
   "nopm resources create --name <n> [--email <e>] [--role <r>] [--rate <$/hr>] [--capacity <hrs/wk>]",
   "nopm resources update <id> [--name <n>] [--email <e>] [--role <r>] [--rate <$/hr>] [--capacity <hrs/wk>]",
-  "nopm resources rm     <id>                                delete a resource member",
+  "nopm resources rm <id> --reason <why>   (MAKER) request deletion of a resource member; a different person approves it",
   "  flags: --page <n>  --limit <n>  --json",
 ];
 
@@ -77,9 +77,10 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm resources rm <id>");
-      await ctx.api("DELETE", `/api/resources/${id}`);
-      console.log("✓ deleted resource member", id);
+      if (!id || !f.reason) ctx.die("usage: nopm resources rm <id> --reason <why>");
+      const result = await ctx.api("DELETE", `/api/resources/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

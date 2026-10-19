@@ -39,16 +39,16 @@ import { PATCH as taskPatch } from "./tasks/[id]/route";
 import { PATCH as milestonePatch } from "./milestones/[id]/route";
 import { PATCH as issuePatch } from "./issues/[id]/route";
 import { POST as clashPost } from "./clashes/route";
-import { PATCH as clashPatch, DELETE as clashDelete } from "./clashes/[id]/route";
+import { PATCH as clashPatch } from "./clashes/[id]/route";
 import { POST as programPost } from "./programs/route";
-import { PATCH as programPatch, DELETE as programDelete } from "./programs/[id]/route";
+import { PATCH as programPatch } from "./programs/[id]/route";
 import { POST as sprintPost } from "./sprints/route";
 import { POST as sprintStart } from "./sprints/[id]/start/route";
 import { POST as sprintAttach, DELETE as sprintDetach } from "./sprints/[id]/tasks/route";
 import { POST as viewPost } from "./saved-views/route";
 import { POST as viewDuplicate } from "./saved-views/[id]/duplicate/route";
 import { POST as resourcePost } from "./resources/route";
-import { PATCH as resourcePatch, DELETE as resourceDelete } from "./resources/[id]/route";
+import { PATCH as resourcePatch } from "./resources/[id]/route";
 import { POST as taskDepPost, DELETE as taskDepDelete } from "./tasks/[id]/dependencies/route";
 
 const W = "11111111-1111-4111-8111-111111111111";
@@ -220,17 +220,8 @@ describe("update: before and after in the audit row, the same response", () => {
   });
 });
 
-describe("delete: 204 and one audit row with the removed row as before", () => {
-  it("clash, program and resource", async () => {
-    for (const [h, id] of [[clashDelete, C1], [programDelete, G1], [resourceDelete, R1]] as const) {
-      const res = await call(h, "DELETE", undefined, { id });
-      expect(res.status).toBe(204);
-    }
-    expect(audits().map((a) => a.action)).toEqual(["clash.delete", "program.delete", "resource.delete"]);
-    expect(audits().every((a) => a.after === null && a.before !== null)).toBe(true);
-    expect(db.rows("clashes")).toHaveLength(0);
-  });
-});
+// The clash, program and resource DELETE routes no longer delete: they raise a deletion request (202, R-176). Their
+// contract and the approval are tested in deletion-by-request-registers.test.ts.
 
 describe("audit events that are not 'this row changed'", () => {
   it("sprint start audits the committed points, not the sprint row", async () => {

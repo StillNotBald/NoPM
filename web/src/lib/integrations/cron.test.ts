@@ -7,6 +7,13 @@ const { writeAuditMock } = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
 vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
 vi.mock("@/lib/integrations/lark", () => ({ larkAdapter: undefined }));
+// The anchor step (R-168) runs the real code by default; tests swap in a stub to watch how the tick treats it.
+const anchorStep = vi.hoisted(() => ({ run: vi.fn(), real: undefined as undefined | ((...a: unknown[]) => Promise<unknown>) }));
+vi.mock("@/lib/audit/anchor/step", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/audit/anchor/step")>();
+  anchorStep.real = original.runAnchorStep as unknown as (...a: unknown[]) => Promise<unknown>;
+  return { ...original, runAnchorStep: anchorStep.run };
+});
 
 import { clearAdapters, insertDeliveries, registerAdapter } from "./deliveries";
 import {
@@ -59,6 +66,8 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   writeAuditMock.mockReset();
   writeAuditMock.mockResolvedValue(undefined);
+  anchorStep.run.mockReset();
+  anchorStep.run.mockImplementation((...a: unknown[]) => anchorStep.real!(...a));
   db = new FakeDb();
   state.db = db;
   seedWorkspace(db);
@@ -801,5 +810,38 @@ describe("sendWeeklyDigestIfDue (standalone)", () => {
     expect(await sendWeeklyDigestIfDue(cfg, new Date())).toBe("sent");
     expect(await sendWeeklyDigestIfDue(cfg, new Date())).toBe("skipped");
     expect(fake.calls.sends).toHaveLength(1);
+  });
+});
+
+describe("runCron: the external anchor step (R-168, D11)", () => {
+  it("is a no-op with NOPM_ANCHOR_DB_URL unset: configured false, all zeros, no audit row", async () => {
+    vi.stubEnv("NOPM_ANCHOR_DB_URL", "");
+    setConfig(digestConfig({ enabled: false }));
+    const summary = await runCron({ now: new Date() });
+    expect(summary.anchor).toEqual({ configured: false, workspaces: 0, anchored: 0, skipped: 0, mismatched: 0, failed: 0, skippedForDeadline: 0 });
+    expect(writeAuditMock.mock.calls.filter((c) => String(c[0].action).startsWith("audit.anchor"))).toHaveLength(0);
+  });
+
+  it("runs once per tick with the tick's time and deadline, and reports its summary", async () => {
+    const result = { configured: true, workspaces: 2, anchored: 2, skipped: 0, mismatched: 0, failed: 0, skippedForDeadline: 0 };
+    anchorStep.run.mockResolvedValue(result);
+    const now = new Date();
+    const summary = await runCron({ now });
+    expect(anchorStep.run).toHaveBeenCalledTimes(1);
+    expect(anchorStep.run.mock.calls[0][0]).toBe(now);
+    expect(typeof anchorStep.run.mock.calls[0][1]).toBe("number");
+    expect(summary.anchor).toEqual(result);
+  });
+
+  it("fails open: a step that throws never stops the digests, the nudges or the pruning", async () => {
+    anchorStep.run.mockRejectedValue(new Error("anchor database exploded"));
+    const summary = await runCron({ now: new Date() });
+    expect(summary.digests.sent).toBe(1);
+    expect(summary.anchor.configured).toBe(false);
+  });
+
+  it("is not started once the tick's deadline has passed", async () => {
+    await runCron({ now: new Date(), deadlineMs: -1 });
+    expect(anchorStep.run).not.toHaveBeenCalled();
   });
 });

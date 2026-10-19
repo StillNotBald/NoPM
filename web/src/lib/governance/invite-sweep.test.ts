@@ -1,58 +1,60 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-
-const h = vi.hoisted(() => ({ audit: vi.fn(), ops: [] as string[], rows: [] as unknown[] }));
-vi.mock("@/lib/audit/write", () => ({ writeAudit: h.audit }));
-
+import { describe, it, expect, beforeEach } from "vitest";
 import { revokeOtherInvitesForEmail } from "./invite-accept";
 
-function client() {
-  const b: Record<string, unknown> = {};
-  for (const m of ["update", "eq", "is", "neq"]) {
-    b[m] = (...a: unknown[]) => {
-      h.ops.push(`${m}:${a.join("=")}`);
-      return b;
-    };
-  }
-  b.ilike = (_c: string, p: string) => {
-    h.ops.push(`ilike:${p}`);
-    return b;
-  };
-  b.select = async () => ({ data: h.rows, error: null });
-  return { from: () => b };
-}
+// The sweep is ONE database function (nopm_revoke_other_invites, migration 0109, R-164c): it revokes every other
+// open invite for the e-mail and writes one invite.revoked row per invite in the same transaction. The ilike
+// escape, the accepted_at / revoked guards and the one-row-per-invite audit are proved against a real database by
+// scripts/local-db/probe-atomic-security.mjs; this file proves what the TypeScript side sends and returns.
+const h: { calls: { fn: string; args: Record<string, any> }[]; reply: { data: unknown; error: { message: string } | null } } = { // eslint-disable-line @typescript-eslint/no-explicit-any
+  calls: [],
+  reply: { data: [], error: null },
+};
 
-beforeEach(() => {
-  h.audit.mockReset();
-  h.ops.length = 0;
-  h.rows = [];
+const client = () => ({
+  rpc: async (fn: string, args: Record<string, unknown>) => {
+    h.calls.push({ fn, args });
+    return h.reply;
+  },
 });
 
-describe("revokeOtherInvitesForEmail (R3-2)", () => {
-  it("revokes every other open invite for the email in the workspace, one audit row each", async () => {
-    h.rows = [
-      { id: "i2", email: "a_b@x.com", role: "member" },
-      { id: "i3", email: "a_b@x.com", role: "admin" },
-    ];
-    const ids = await revokeOtherInvitesForEmail(client(), {
-      workspaceId: "ws1",
-      email: "a_b@x.com",
-      keepInviteId: "i1",
-      actorId: "p1",
-      actorLabel: "a_b@x.com",
-    });
+beforeEach(() => {
+  h.calls.length = 0;
+  h.reply = { data: [], error: null };
+});
+
+const base = { workspaceId: "ws1", email: "a_b@x.com", keepInviteId: "i1", actorId: "p1", actorLabel: "a_b@x.com" };
+
+describe("revokeOtherInvitesForEmail (R3-2, R-164c)", () => {
+  it("sends the whole sweep to one database function and returns the revoked ids", async () => {
+    h.reply = { data: ["i2", "i3"], error: null };
+    const ids = await revokeOtherInvitesForEmail(client(), { ...base, channel: "api", requestId: "req-1" });
     expect(ids).toEqual(["i2", "i3"]);
-    expect(h.ops).toContain("neq:id=i1");
-    expect(h.ops).toContain("eq:workspace_id=ws1");
-    expect(h.ops).toContain("ilike:a\\_b@x.com");
-    expect(h.ops).toContain("eq:revoked=false");
-    expect(h.ops).toContain("is:accepted_at=");
-    expect(h.audit).toHaveBeenCalledTimes(2);
-    expect(h.audit.mock.calls[0][0]).toMatchObject({ action: "invite.revoked", targetId: "i2", workspaceId: "ws1" });
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0].fn).toBe("nopm_revoke_other_invites");
+    expect(h.calls[0].args).toMatchObject({ p_workspace_id: "ws1", p_email: "a_b@x.com", p_keep_invite_id: "i1" });
   });
-  it("does nothing (no audit) when there is nothing else open", async () => {
-    expect(
-      await revokeOtherInvitesForEmail(client(), { workspaceId: "ws1", email: "a@x.com", keepInviteId: "i1", actorId: "p", actorLabel: "a" }),
-    ).toEqual([]);
-    expect(h.audit).not.toHaveBeenCalled();
+
+  it("describes the audit row as invite.revoked by the accepting person, with channel and request id", async () => {
+    await revokeOtherInvitesForEmail(client(), { ...base, channel: "api", requestId: "req-1" });
+    const audit = h.calls[0].args.p_audit;
+    expect(audit).toMatchObject({
+      action: "invite.revoked",
+      target_type: "invite",
+      actor_type: "user",
+      actor_id: "p1",
+      actor_label: "a_b@x.com",
+      principal_id: "p1",
+      channel: "api",
+      request_id: "req-1",
+    });
+  });
+
+  it("does nothing and returns [] when there is nothing else open", async () => {
+    expect(await revokeOtherInvitesForEmail(client(), base)).toEqual([]);
+  });
+
+  it("throws when the database function fails, so no half-done sweep is reported as done", async () => {
+    h.reply = { data: null, error: { message: "audit down" } };
+    await expect(revokeOtherInvitesForEmail(client(), base)).rejects.toMatchObject({ message: "audit down" });
   });
 });

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import type { Actor } from "@/lib/auth/guard";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import { TENANT_MISMATCH_MESSAGE, maskExternalId, tenantMismatch } from "@/lib/integrations/store";
@@ -145,15 +145,19 @@ type CodeRow = {
  * Consume a link code sent from a verified bot DM and create the identity
  * link. Never throws — every failure is a typed outcome the adapter turns into
  * a bot reply. The link itself is audited (`integration.identity.link`) with
- * the CODE OWNER as actor and `channel='lark'`; if that audit write fails the
- * link is rolled back (fail-closed), so there is never an unaudited link.
+ * the CODE OWNER as actor and `channel='lark'`.
  *
- * Tenant pin: the FIRST successful link pins the connector to the event's
- * tenant (atomically — of two tenants racing to link first, exactly one wins);
- * from then on a code consumed from any other tenant is refused with
- * `forbidden` and left unburned. The pin is part of the link mutation and is
- * recorded in its audit row (`after.tenant_pinned`); if the link is rolled
- * back the pin is released with it.
+ * ONE database function does the whole link (migration 0109, R-164d,
+ * nopm_link_identity): consume the code, revoke the profile's previous link,
+ * insert the identity, pin the tenant and write the audit row in a single
+ * transaction. If any step fails nothing is kept, so a consumed code with no
+ * identity cannot exist and there is no compensating code here.
+ *
+ * Tenant pin: the FIRST successful link by an admin or manager pins the
+ * connector to the event's tenant (the connector row is locked, so of two
+ * tenants racing to link first exactly one wins); from then on a code consumed
+ * from any other tenant is refused with `forbidden` and left unburned. The
+ * pin is recorded in the audit row (`after.tenant_pinned`).
  */
 export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutcome> {
   const { connector } = input;
@@ -168,12 +172,11 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
   const budget = await linkAttemptBudget(connector, externalTenant, externalUserId);
   if (!budget.allowed) return { status: "rate_limited", retryAfterSeconds: budget.retryAfterSeconds };
 
-  let pinnedHere = false;
-  let completed = false;
   try {
     const db = createAdminClient();
     const codeHash = hashLinkCode(code);
 
+    // Fast paths only: the database function re-checks all of this under lock.
     const { data: found, error: findError } = await db
       .from("identity_link_codes")
       .select("id, profile_id, used_at, expires_at")
@@ -209,201 +212,75 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
       externalActorRef: externalActorRef(connector.kind, externalTenant, externalUserId),
     };
 
-    // Conflict checks BEFORE the code is burned, so a refused link leaves the
-    // code usable for a corrected attempt.
-    const { data: sameAccount, error: sameError } = await db
-      .from("external_identities")
-      .select("id, profile_id")
-      .eq("workspace_id", connector.workspace_id)
-      .eq("connector_id", connector.id)
-      .eq("external_tenant", externalTenant)
-      .eq("external_user_id", externalUserId)
-      .is("revoked_at", null)
-      .maybeSingle();
-    if (sameError) throw sameError;
-    if (sameAccount && sameAccount.profile_id !== profile.id) {
+    // The whole link in one transaction. Conflict checks run before the code is burned, so a refused link
+    // leaves the code usable for a corrected attempt; a profile that already holds a link has the code spent
+    // and the refusal recorded (integration.identity.link.blocked), inside the function.
+    const { data, error } = await db.rpc("nopm_link_identity", {
+      p_workspace_id: connector.workspace_id,
+      p_connector_id: connector.id,
+      p_code_hash: codeHash,
+      p_profile_id: profile.id,
+      p_external_tenant: externalTenant,
+      p_external_user_id: externalUserId,
+      p_external_union_id: input.externalUnionId ?? null,
+      p_display_name: input.displayName ?? null,
+      // Masked ids live in before/after (built in SQL); the actor keeps the full reference.
+      p_audit: buildRpcAudit(actor, "integration.identity.link", "external_identity"),
+    });
+    if (error) throw error;
+    return mapLinkResult(data as LinkRpcResult | null, label, connector, profile.id);
+  } catch (err) {
+    console.error("[integrations] link code consume failed:", sanitizeError(err));
+    return { status: "error", message: "Could not link your account right now. Please try again." };
+  }
+}
+
+type LinkRpcResult = {
+  status?: string;
+  reason?: string;
+  already_linked?: boolean;
+  profile_label?: string;
+  displaced?: { external_tenant: string; external_user_id: string }[];
+};
+
+/** Turn nopm_link_identity's answer into the adapter-facing outcome (and send the replaced-link notice). */
+async function mapLinkResult(
+  r: LinkRpcResult | null,
+  label: string,
+  connector: Pick<ConnectorRow, "id" | "workspace_id">,
+  profileId: string,
+): Promise<LinkOutcome> {
+  switch (r?.status) {
+    case "paused":
+      return { status: "paused" };
+    case "invalid_code":
+      return { status: "invalid_code" };
+    case "already_used":
+      return { status: "already_used" };
+    case "expired":
+      return { status: "expired" };
+    case "forbidden":
+      return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
+    case "conflict":
+      if (r.reason === "already_linked") return { status: "conflict", message: ALREADY_LINKED_MESSAGE };
+      if (r.reason === "duplicate") {
+        return { status: "conflict", message: "This account is already linked. Unlink it first, then try again." };
+      }
       return {
         status: "conflict",
         message: "This account is already linked to another NoPM user. Ask them (or an admin) to unlink it first.",
       };
+    case "linked": {
+      if (r.already_linked) return { status: "linked", profileLabel: label, alreadyLinked: true };
+      // A code replaced the person's earlier link. A leaked or phished code could do exactly this, so the
+      // person is told on both sides: in NoPM, and on the Lark account that just lost its link (the adapter
+      // sends that DM).
+      const displaced = (r.displaced ?? []).map((d) => ({ externalTenant: d.external_tenant, externalUserId: d.external_user_id }));
+      if (displaced.length > 0) await notifyLinkReplaced(connector, profileId);
+      return { status: "linked", profileLabel: label, alreadyLinked: false, ...(displaced.length > 0 ? { displaced } : {}) };
     }
-
-    // Re-confirming a link that already exists is a pure no-op: nothing is
-    // linked, pinned or audited, and the code is NOT burned (burning it would be
-    // a state change with no audit row). The person is simply told it is linked.
-    if (sameAccount) return { status: "linked", profileLabel: label, alreadyLinked: true };
-
-    // A code never REPLACES an existing link. If the person is already linked to
-    // another chat account, the account presenting the code is either them on a
-    // new device (who can unlink in NoPM and send a fresh code) or someone who
-    // got hold of a live code: silently moving the link would hand that holder
-    // the owner's approvals. Refused BEFORE the pin, and the code is spent.
-    const { data: held, error: heldError } = await db
-      .from("external_identities")
-      .select("id, external_tenant, external_user_id")
-      .eq("workspace_id", connector.workspace_id)
-      .eq("connector_id", connector.id)
-      .eq("profile_id", profile.id)
-      .is("revoked_at", null)
-      .limit(1);
-    if (heldError) throw heldError;
-    const existing = ((held ?? []) as { id: string; external_tenant: string; external_user_id: string }[])[0];
-    if (existing) {
-      await refuseReplacement(connector, row.id, actor, existing, externalTenant, externalUserId);
-      return { status: "conflict", message: ALREADY_LINKED_MESSAGE };
-    }
-
-    // Pin the tenant on the first NEW link (before the code is burned, so a
-    // refused tenant leaves the code usable) — but only when an admin or manager
-    // is linking. Any member can mint a code, so letting a viewer's first link
-    // pin the connector would let one person lock the real tenant out by
-    // linking from a foreign one. A non-approver's link still works (it grants
-    // nothing by itself); it just does not decide which tenant is trusted.
-    if (profile.role === "admin" || profile.role === "manager") {
-      const pin = await pinTenant(connector, externalTenant);
-      if (pin === "mismatch") return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
-      pinnedHere = pin === "pinned";
-    } else if (connector.tenant_key && connector.tenant_key !== externalTenant) {
-      return { status: "forbidden", message: TENANT_MISMATCH_MESSAGE };
-    }
-
-    const nowIso = new Date().toISOString();
-    const { data: consumed, error: consumeError } = await db
-      .from("identity_link_codes")
-      .update({ used_at: nowIso })
-      .eq("id", row.id)
-      .eq("workspace_id", connector.workspace_id)
-      .is("used_at", null)
-      .gt("expires_at", nowIso)
-      .select("id");
-    if (consumeError) throw consumeError;
-    if (!consumed || consumed.length === 0) return { status: "already_used" };
-
-    // One active link per profile per connector: a fresh link replaces any
-    // earlier one (e.g. the person moved to a different platform account).
-    const { data: replaced, error: replaceError } = await db
-      .from("external_identities")
-      .update({ revoked_at: nowIso })
-      .eq("workspace_id", connector.workspace_id)
-      .eq("connector_id", connector.id)
-      .eq("profile_id", profile.id)
-      .is("revoked_at", null)
-      .select("id, external_tenant, external_user_id");
-    if (replaceError) throw replaceError;
-    const replacedRows = (replaced ?? []) as { id: string; external_tenant: string; external_user_id: string }[];
-
-    const { data: inserted, error: insertError } = await db
-      .from("external_identities")
-      .insert({
-        workspace_id: connector.workspace_id,
-        connector_id: connector.id,
-        provider: connector.kind,
-        external_tenant: externalTenant,
-        external_user_id: externalUserId,
-        external_union_id: input.externalUnionId ?? null,
-        display_name: input.displayName ?? null,
-        profile_id: profile.id,
-      })
-      .select("id")
-      .single();
-    if (insertError || !inserted) {
-      await restoreReplaced(replacedRows.map((r) => r.id), connector.workspace_id);
-      if (insertError?.code === "23505") {
-        return { status: "conflict", message: "This account is already linked. Unlink it first, then try again." };
-      }
-      throw insertError ?? new Error("Identity insert returned no row");
-    }
-
-    try {
-      await writeAudit({
-        workspaceId: connector.workspace_id,
-        actor,
-        action: "integration.identity.link",
-        targetType: "external_identity",
-        targetId: inserted.id,
-        // Masked: the audit stream is readable by every member.
-        before: replacedRows.length
-          ? { external_ref: maskedExternalRef(connector.kind, replacedRows[0].external_tenant, replacedRows[0].external_user_id) }
-          : null,
-        after: {
-          connector_id: connector.id,
-          provider: connector.kind,
-          profile_id: profile.id,
-          external_ref: maskedExternalRef(connector.kind, externalTenant, externalUserId),
-          replaced_previous_link: replacedRows.length > 0,
-          tenant_pinned: pinnedHere,
-        },
-      });
-    } catch (auditError) {
-      // Fail-closed: undo the link rather than leave an unaudited one.
-      await db.from("external_identities").update({ revoked_at: nowIso }).eq("id", inserted.id).eq("workspace_id", connector.workspace_id);
-      await restoreReplaced(replacedRows.map((r) => r.id), connector.workspace_id);
-      throw auditError;
-    }
-
-    completed = true;
-
-    // A code replaced the person's earlier link. A leaked or phished code could
-    // do exactly this, so the person is told on both sides: in NoPM, and on the
-    // Lark account that just lost its link (the adapter sends that DM).
-    const displaced = replacedRows
-      .filter((r) => !(r.external_tenant === externalTenant && r.external_user_id === externalUserId))
-      .map((r) => ({ externalTenant: r.external_tenant, externalUserId: r.external_user_id }));
-    if (displaced.length > 0) await notifyLinkReplaced(connector, profile.id);
-
-    return { status: "linked", profileLabel: label, alreadyLinked: false, ...(displaced.length > 0 ? { displaced } : {}) };
-  } catch (err) {
-    console.error("[integrations] link code consume failed:", sanitizeError(err));
-    return { status: "error", message: "Could not link your account right now. Please try again." };
-  } finally {
-    // Any exit that did not complete the link releases a pin taken for it.
-    if (pinnedHere && !completed) await releasePin(connector, externalTenant).catch(() => {});
-  }
-}
-
-/**
- * A code was presented for a user who already holds a link: spend the code and
- * record the refused attempt (`integration.identity.link.blocked`, the code
- * owner as actor, ids masked like every audit row the members can read). The
- * record is best effort: a refusal changes nothing, so a failing audit write
- * must not turn it into an error reply.
- */
-async function refuseReplacement(
-  connector: ConnectorRow,
-  codeId: string,
-  actor: Actor,
-  existing: { id: string; external_tenant: string; external_user_id: string },
-  externalTenant: string,
-  externalUserId: string,
-): Promise<void> {
-  const db = createAdminClient();
-  const nowIso = new Date().toISOString();
-  try {
-    const { error } = await db
-      .from("identity_link_codes")
-      .update({ used_at: nowIso })
-      .eq("id", codeId)
-      .eq("workspace_id", connector.workspace_id)
-      .is("used_at", null);
-    if (error) throw error;
-    await writeAudit({
-      workspaceId: connector.workspace_id,
-      actor,
-      action: "integration.identity.link.blocked",
-      targetType: "external_identity",
-      targetId: existing.id,
-      before: null,
-      after: {
-        connector_id: connector.id,
-        provider: connector.kind,
-        profile_id: actor.id,
-        reason: "profile_already_linked",
-        external_ref: maskedExternalRef(connector.kind, externalTenant, externalUserId),
-        existing_external_ref: maskedExternalRef(connector.kind, existing.external_tenant, existing.external_user_id),
-      },
-    });
-  } catch (err) {
-    console.error("[integrations] could not record a refused link:", sanitizeError(err));
+    default:
+      return { status: "error", message: "Could not link your account right now. Please try again." };
   }
 }
 
@@ -455,53 +332,6 @@ async function notifyLinkReplaced(connector: Pick<ConnectorRow, "id" | "workspac
   } catch (err) {
     console.error("[integrations] link-replaced notice failed:", sanitizeError(err));
   }
-}
-
-/**
- * Atomically pin the connector to `tenant` if (and only if) it is not pinned
- * yet: a conditional UPDATE on `tenant_key is null`. "mismatch" = pinned to a
- * different tenant (including losing a race to one).
- */
-async function pinTenant(
-  connector: Pick<ConnectorRow, "id" | "workspace_id" | "tenant_key">,
-  tenant: string,
-): Promise<"pinned" | "already" | "mismatch"> {
-  if (connector.tenant_key) return connector.tenant_key === tenant ? "already" : "mismatch";
-  const db = createAdminClient();
-  const { data, error } = await db
-    .from("integration_connectors")
-    .update({ tenant_key: tenant })
-    .eq("id", connector.id)
-    .eq("workspace_id", connector.workspace_id)
-    .is("tenant_key", null)
-    .select("id");
-  if (error) throw error;
-  if (data && data.length > 0) return "pinned";
-
-  const { data: current, error: readError } = await db
-    .from("integration_connectors")
-    .select("tenant_key")
-    .eq("id", connector.id)
-    .eq("workspace_id", connector.workspace_id)
-    .maybeSingle();
-  if (readError) throw readError;
-  return current?.tenant_key === tenant ? "already" : "mismatch";
-}
-
-async function releasePin(connector: Pick<ConnectorRow, "id" | "workspace_id">, tenant: string): Promise<void> {
-  const db = createAdminClient();
-  await db
-    .from("integration_connectors")
-    .update({ tenant_key: null })
-    .eq("id", connector.id)
-    .eq("workspace_id", connector.workspace_id)
-    .eq("tenant_key", tenant);
-}
-
-async function restoreReplaced(ids: string[], workspaceId: string): Promise<void> {
-  if (ids.length === 0) return;
-  const db = createAdminClient();
-  await db.from("external_identities").update({ revoked_at: null }).in("id", ids).eq("workspace_id", workspaceId);
 }
 
 // ── lookup / list / unlink ─────────────────────────────────────────────────

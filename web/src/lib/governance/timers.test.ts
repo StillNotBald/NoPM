@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-// The daily approval timer (G3 reminder / escalation / routine auto-approve, G4 overdue retro flag).
+// The daily approval timer (G3 reminder / escalation / routine auto-approve; the G4 retro flag is retired, see the Q1 block below).
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
 const { writeAuditMock } = vi.hoisted(() => ({
   writeAuditMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),

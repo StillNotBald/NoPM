@@ -18,11 +18,28 @@ import { buildSnapshot, forecastDates, takeSnapshots } from "./snapshots";
 type Row = Record<string, unknown>;
 
 /** A small stateful stand-in for the admin client: filters, upsert with ignoreDuplicates. */
-function memoryDb(tables: Record<string, Row[]>, maxRows = Infinity) {
+function memoryDb(tables: Record<string, Row[]>, maxRows = Infinity, rpcError: { message: string } | null = null) {
   const writes: Array<{ table: string; rows: Row[] }> = [];
+  const rpcCalls: Array<{ fn: string; args: Record<string, unknown> }> = [];
   return {
     writes,
+    rpcCalls,
     client: {
+      /** nopm_snapshot_run (R-165): rows on conflict do nothing, plus ONE audit row, in one call. */
+      async rpc(fn: string, args: { p_workspace_id: string; p_taken_at: string; p_rows: Row[]; p_audit: Record<string, unknown> }) {
+        rpcCalls.push({ fn, args });
+        if (rpcError) return { data: null, error: rpcError };
+        const store = (tables.project_snapshots ??= []);
+        let taken = 0;
+        for (const row of args.p_rows) {
+          if (store.some((x) => x.project_id === row.project_id && x.taken_at === args.p_taken_at)) continue;
+          store.push({ id: `project_snapshots-${store.length + 1}`, ...row, workspace_id: args.p_workspace_id, taken_at: args.p_taken_at });
+          taken += 1;
+        }
+        const after = { taken_at: args.p_taken_at, projects: args.p_rows.length, taken, already_taken: args.p_rows.length - taken };
+        writeAuditMock({ workspaceId: args.p_workspace_id, action: args.p_audit.action, p_audit: args.p_audit, after });
+        return { data: { projects: after.projects, taken, already_taken: after.already_taken }, error: null };
+      },
       from(table: string) {
         const filters: Array<(r: Row) => boolean> = [];
         let order: { col: string; asc: boolean } | null = null;
@@ -173,6 +190,31 @@ describe("takeSnapshots", () => {
     const out = await takeSnapshots(memoryDb(tables).client, { workspaceId: WS });
     expect(out.projects).toBe(1);
     expect(tables.project_snapshots.map((r) => r.project_id)).toEqual(["p1"]);
+  });
+});
+
+describe("takeSnapshots: one atomic call per workspace (R-165)", () => {
+  it("calls nopm_snapshot_run once per workspace, with the system actor and the workspace id", async () => {
+    const db = memoryDb({ projects: [project("p1"), project("p2"), project("p9", { workspace_id: "ws-2" })] });
+    await takeSnapshots(db.client);
+    expect(db.rpcCalls.map((c) => c.fn)).toEqual(["nopm_snapshot_run", "nopm_snapshot_run"]);
+    expect(db.rpcCalls.map((c) => c.args.p_workspace_id)).toEqual([WS, "ws-2"]);
+    expect(db.rpcCalls[0].args.p_taken_at).toBe("2026-10-18");
+    expect(db.rpcCalls[0].args.p_audit).toMatchObject({
+      action: "snapshot.taken",
+      target_type: "workspace",
+      actor_type: "token",
+      actor_id: "00000000-0000-0000-0000-000000000000",
+      actor_label: "system:snapshots",
+      principal_id: null,
+    });
+    expect(db.writes).toHaveLength(0); // no direct upsert, no separate audit write
+    expect(writeAuditMock).toHaveBeenCalledTimes(2); // the fake RPC records one audit row per workspace, not per project
+  });
+
+  it("a failing atomic call makes the run throw and counts nothing", async () => {
+    const db = memoryDb({ projects: [project("p1")] }, Infinity, { message: "audit down" });
+    await expect(takeSnapshots(db.client)).rejects.toThrow(/snapshots: write failed: audit down/);
   });
 });
 

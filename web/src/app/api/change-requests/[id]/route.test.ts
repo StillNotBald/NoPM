@@ -38,6 +38,7 @@ import {
   seedWorkspace,
 } from "@/lib/integrations/test-support";
 import type { ApprovalEvent } from "@/lib/integrations/types";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 import { DELETE, PATCH } from "./route";
 
 const requester = (): Actor => ({
@@ -80,7 +81,7 @@ beforeEach(() => {
   writeAuditMock.mockResolvedValue(undefined);
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue(requester());
-  db = new FakeDb();
+  db = installAtomicGovernance(new FakeDb());
   state.db = db;
   seedWorkspace(db);
   Object.assign(db.rows("change_requests")[0], {

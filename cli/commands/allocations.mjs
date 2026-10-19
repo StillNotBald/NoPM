@@ -5,7 +5,7 @@
 //   POST   /api/allocations                resource:write (create)
 //   GET    /api/allocations/:id            resource:read  (get one)
 //   PATCH  /api/allocations/:id           resource:write (update)
-//   DELETE /api/allocations/:id           resource:write (delete)
+//   DELETE /api/allocations/:id   allocation:delete:request (four-eyes: creates a deletion_request, 202)
 
 export const describe = "List, create, inspect, update, or delete resource allocations";
 
@@ -14,7 +14,7 @@ export const usage = [
   "nopm allocations get <id>                                    fetch a single allocation",
   "nopm allocations create --member <uuid> [--project <uuid>] [--task <uuid>] [--pct <0-500>] [--hours <h>] [--start <datetime>] [--end <datetime>] [--idempotency-key <key>]",
   "nopm allocations update <id> [--member <uuid>] [--project <uuid>] [--task <uuid>] [--pct <0-500>] [--hours <h>] [--start <datetime>] [--end <datetime>]",
-  "nopm allocations rm     <id>                                 delete an allocation",
+  "nopm allocations rm <id> --reason <why>   (MAKER) request deletion of an allocation; a different person approves it",
   "  --idempotency-key <key>: retry-safe create — the same key (24 h) returns the first allocation, not a duplicate",
   "  flags: --page <n>  --limit <n>  --json",
 ];
@@ -84,9 +84,10 @@ export async function run(rest, ctx) {
     case "rm":
     case "delete": {
       const id = arg || f.id;
-      if (!id) ctx.die("usage: nopm allocations rm <id>");
-      await ctx.api("DELETE", `/api/allocations/${id}`);
-      console.log("✓ deleted allocation", id);
+      if (!id || !f.reason) ctx.die("usage: nopm allocations rm <id> --reason <why>");
+      const result = await ctx.api("DELETE", `/api/allocations/${id}`, { reason: f.reason });
+      console.log("⏸ delete requested — pending a checker's approval (four-eyes).");
+      ctx.out(result.data || result, ctx, ["id", "target_type", "target_id", "status", "reason"]);
       break;
     }
 

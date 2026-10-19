@@ -55,8 +55,9 @@ Each use case is one file, `UC-NN-<slug>.md`, with a fixed structure: Goal, Acto
 | [UC-30](UC-30-cross-project-dependencies.md) | Cross-project dependencies and contingency | Project Manager / Admin | presentable multi-project | Projects, Portfolio, Mainline | R-147 | — |
 | [UC-31](UC-31-approval-tiers-and-emergency-change.md) | Approval tiers, turnaround timers and the emergency change | Admin / Manager / Project Manager | governance | Change control, Settings, Approvals | R-148, R-149, R-150 | — |
 | [UC-32](UC-32-deletion-by-request.md) | Deletion by request for risks, issues, expenses, documents and milestones | Requester / Approver / Admin | governance | Risks, Issues, Budget, Documents, Milestones, Approvals | R-151 | — |
-| [UC-33](UC-33-audit-chain-verification.md) | Verify the audit hash chain | Admin / Manager / Auditor | governance | Trust Center, Audit | R-154, R-152 | — |
+| [UC-33](UC-33-audit-chain-verification.md) | Verify the audit hash chain, and the external anchor | Admin / Manager / Auditor | governance | Trust Center, Audit | R-154, R-152, R-168, R-169, R-170 | — |
 | [UC-34](UC-34-github-work-events.md) | Task status from GitHub work events | Admin / Project Manager / Team member | easier reporting | Integrations, Tasks | R-153 | — |
+| [UC-35](UC-35-deletion-by-request-all-registers.md) | Deletion by request for programs, sprints, resource members, allocations and clashes | Requester / Approver / Admin | governance | Programs, Sprints, Resources, Allocations, Clashes, Approvals | R-175, R-176, R-177 | — |
 
 \* Diagram exists on disk today under this exact filename.
 

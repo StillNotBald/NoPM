@@ -69,6 +69,7 @@ const MEMBER_RPC_AUDIT =
   "audited inside the SQL RPC (nopm_member_change / nopm_member_mfa_reset, migration 0083) called through lib/people/members.ts, in the same transaction as the change";
 
 const ALLOWLIST: Record<string, string> = {
+  "api/openapi.json": "documentation route: GET only, no database access; its text quotes route verbs and audit calls, which the scanner must not read as handlers",
   "api/members/[id]": MEMBER_RPC_AUDIT,
   "api/members/[id]/restore": MEMBER_RPC_AUDIT,
   "api/members/[id]/mfa-reset": MEMBER_RPC_AUDIT,
@@ -118,6 +119,74 @@ const DELEGATED_AUDIT: Record<string, { fn: string; reason: string }> = {
   },
 };
 
+/**
+ * Wave 5 (R-163..R-165): modules whose every database call is a SQL function that writes its own audit row
+ * through nopm_audit_insert. A route that imports one of them is audited by that function, not by a
+ * writeAudit( in the route. This is a checked rule, not an allowlist: the test "every RPC named in an
+ * audited-RPC module audits inside its latest SQL definition" fails if any function in these files stops
+ * auditing, so importing the module can never hide an unaudited write.
+ */
+const AUDITED_RPC_MODULES: { file: string; importPattern: RegExp }[] = [
+  { file: join("src", "lib", "governance", "atomic-rpc.ts"), importPattern: /from\s+["']@\/lib\/governance\/atomic-rpc["']/ },
+  { file: join("src", "app", "api", "auth", "mfa", "_rpc.ts"), importPattern: /from\s+["']\.\.\/_rpc["']/ },
+];
+
+/** Names of the nopm_* database functions a module calls (quoted literals, which also covers helper-style calls). */
+function moduleRpcNames(fileRel: string): string[] {
+  const src = readFileSync(join(process.cwd(), fileRel), "utf8");
+  return [...new Set([...src.matchAll(/["'`](nopm_\w+)["'`]/g)].map((m) => m[1]))];
+}
+
+/** Function names a route imports from an audited-RPC module. */
+function auditedModuleImports(src: string): string[] {
+  const names: string[] = [];
+  for (const m of src.matchAll(/import\s*(?:type\s*)?\{([^}]*)\}\s*(from\s+["'][^"']+["'])/g)) {
+    if (!AUDITED_RPC_MODULES.some((mod) => mod.importPattern.test(m[2]))) continue;
+    for (const part of m[1].split(",")) {
+      const local = part.trim().split(/\s+as\s+/).pop();
+      if (local && !/^type\s/.test(part.trim())) names.push(local);
+    }
+  }
+  return names;
+}
+
+/**
+ * W1-01: a handler span is covered by an audited-RPC module only when it calls at least one imported module
+ * function AND contains no other mutating call: no direct .from(...).insert|update|delete|upsert( on a governed
+ * table and no .rpc( that is not audited in SQL. One RPC call followed by a direct update fails.
+ */
+function handlerCoveredByModule(span: string, imported: string[]): boolean {
+  if (!imported.some((n) => new RegExp(String.raw`\b${n}\s*\(`).test(span))) return false;
+  return findWrites(span).filter(isGoverned).every((w) => w.rpc && rpcAuditsInSql(w.table) === true);
+}
+
+/** Every POST/PATCH/PUT/DELETE handler audits itself (writeAudit / audited RPC) or is covered by a module. */
+function everyMutatingHandlerAudited(src: string): boolean {
+  const imported = auditedModuleImports(src);
+  if (imported.length === 0) return false;
+  const spans = verbSpans(src).filter((sp) => sp.verb !== "GET");
+  if (spans.length === 0) return false;
+  return spans.every((sp) => {
+    const body = src.slice(sp.start, sp.end);
+    return (
+      handlerCoveredByModule(body, imported) ||
+      WRITE_AUDIT_CALL.test(body) ||
+      [...body.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].some((m) => rpcAuditsInSql(m[1]) === true)
+    );
+  });
+}
+
+/** RPC names called by one exported function of atomic-rpc.ts (the wrapper a delegate follows into). */
+function atomicWrapperRpcs(fn: string): string[] {
+  const src = readFileSync(join(process.cwd(), "src", "lib", "governance", "atomic-rpc.ts"), "utf8");
+  const start = src.search(new RegExp(String.raw`export\s+(?:async\s+)?function\s+${fn}\s*\(`));
+  if (start < 0) return [];
+  const rest = src.slice(start + 1);
+  const next = rest.search(/\nexport\s/);
+  const body = next < 0 ? rest : rest.slice(0, next);
+  return [...body.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+}
+
 const DECIDE_TS = join(process.cwd(), "src", "lib", "governance", "decide.ts");
 
 /** Source of one top-level exported function in decide.ts, up to the next top-level declaration. */
@@ -164,6 +233,10 @@ describe("audit-coverage invariant", () => {
       // audited atomically inside a SQL RPC (latest definition inserts into audit_log)
       if ([...src.matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].some((m) => rpcAuditsInSql(m[1]) === true)) continue;
 
+      // audited through an audited-RPC module (atomic-rpc.ts, mfa/_rpc.ts), PER HANDLER: every mutating
+      // handler of the file must be covered by the module (or audit by itself). The module is verified below.
+      if (everyMutatingHandlerAudited(src)) continue;
+
       const apiPath = toApiPath(file);
       if (Object.prototype.hasOwnProperty.call(ALLOWLIST, apiPath)) continue; // explicitly justified
       if (Object.prototype.hasOwnProperty.call(DELEGATED_AUDIT, apiPath)) continue; // audited in decide.ts — verified below
@@ -173,6 +246,45 @@ describe("audit-coverage invariant", () => {
 
     expect(violations).toEqual([]);
   });
+});
+
+describe("W1-01 per-handler module rule and W1-02 SQL scan (negative fixtures)", () => {
+  const imp = ["rejectDeletionAtomic"];
+  it("a handler with one module call and a later direct write is NOT covered", () => {
+    const bad = 'export const PATCH = route(async () => { await rejectDeletionAtomic(db, a); await db.from("tasks").update({ x: 1 }).eq("id", 1); });';
+    expect(handlerCoveredByModule(bad, imp)).toBe(false);
+  });
+  it("a handler that only calls the module is covered; one that never calls it is not", () => {
+    expect(handlerCoveredByModule('export const DELETE = route(async () => { await rejectDeletionAtomic(db, a); });', imp)).toBe(true);
+    expect(handlerCoveredByModule('export const PATCH = route(async () => { await db.from("tasks").update({}); });', imp)).toBe(false);
+  });
+  it("a file whose PATCH is unaudited stays a violation even though its DELETE uses the module", () => {
+    const src = [
+      'import { rejectDeletionAtomic } from "@/lib/governance/atomic-rpc";',
+      'export const PATCH = route(async () => { await db.from("tasks").update({}); });',
+      'export const DELETE = route(async () => { await rejectDeletionAtomic(db, a); });',
+    ].join("\n");
+    expect(everyMutatingHandlerAudited(src)).toBe(false);
+  });
+  it("SQL: comments, dead branches and the exception path do not count", () => {
+    expect(sqlBodyAudits("begin\n  -- perform nopm_audit_insert(a);\n  update t set x = 1;\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  /* perform nopm_audit_insert(a); */\n  update t set x = 1;\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  if false then\n    perform nopm_audit_insert(a);\n  end if;\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  update t set x = 1;\nexception when others then\n  perform nopm_audit_insert(a);\nend")).toBe(false);
+    expect(sqlBodyAudits("begin\n  update t set x = 1;\n  perform nopm_audit_insert(a);\nend")).toBe(true);
+    expect(sqlBodyAudits("begin\n  insert into audit_log (x) values (1);\nend")).toBe(true);
+  });
+});
+
+describe("audited-RPC modules", () => {
+  for (const m of AUDITED_RPC_MODULES) {
+    it(`every RPC named in ${m.file.split("\\").join("/")} audits inside its latest SQL definition`, () => {
+      const names = moduleRpcNames(m.file);
+      expect(names.length).toBeGreaterThan(0);
+      const bad = names.filter((n) => NON_MUTATING_RPC[n] === undefined && rpcAuditsInSql(n) !== true);
+      expect(bad).toEqual([]);
+    });
+  }
 });
 
 describe("audit delegation to governance/decide.ts", () => {
@@ -207,7 +319,10 @@ describe("audit delegation to governance/decide.ts", () => {
         const calls = (body as string).match(/writeAudit\s*\(/g) ?? [];
         if (calls.length === 1) return;
         expect(calls.length).toBe(0);
-        const rpcs = [...(body as string).matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+        const direct = [...(body as string).matchAll(/\.rpc\(\s*["'`](\w+)["'`]/g)].map((m) => m[1]);
+        // wave 5: the function may call a wrapper in atomic-rpc.ts (rejectDeletionAtomic ...); follow it to its RPC
+        const followed = [...(body as string).matchAll(/\b(\w+Atomic)\s*\(/g)].flatMap((m) => atomicWrapperRpcs(m[1]));
+        const rpcs = [...direct, ...followed];
         expect(rpcs.filter((r) => rpcAuditsInSql(r) === true).length, `${fn}: no audited RPC`).toBe(1);
       });
     });
@@ -312,11 +427,15 @@ const NON_MUTATING_RPC: Record<string, string> = {
 
 /** Files (path under src/) that write business tables with no writeAudit, each with a real reason. */
 const UNAUDITED_WRITER_ALLOWLIST: Record<string, string> = {
+  "lib/audit/anchor/receipts.ts":
+    "bookkeeping of the external-anchor state per workspace (display and streak memory only, never evidence; the evidence is the anchor database); each state change carries its own audit row (audit.anchored, audit.anchor_failed, audit.anchor_mismatch) written by anchor/step.ts and the verify route (R-168..R-170)",
   "app/api/calendar/[token]/route.ts":
     "GET feed fetch stamps calendar_feeds.last_fetched_at (read telemetry on the creator's own feed); no governed field changes",
   "lib/auth/guard.ts": "stamps api_tokens.last_used_at on use; telemetry, not a governed change",
   "lib/integrations/github/process.ts":
     "bookkeeping ledger of received GitHub events (work_events); the only governed change it triggers, a task status move, is made by nopm_apply_task_status_from_event (lib/work/apply-task-status.ts), which writes the task.update or work_event.skipped audit row in the same transaction",
+  "lib/integrations/identity.ts":
+    "mintLinkCode inserts and deletes identity_link_codes rows: minting a short-lived link code is not a governed change; the link itself is audited inside nopm_link_identity (migration 0109)",
   "lib/governance/approval-events.ts":
     "bookkeeping ledger of what the daily approval timer did (reminder, escalation, overdue flag); the governed facts it describes carry their own audit rows and the timer writes one approval.timer_run row per workspace per run",
 };
@@ -387,7 +506,37 @@ function rpcAuditsInSql(fn: string): boolean | null {
       latest = end < 0 ? rest : rest.slice(0, end);
     }
   }
-  return latest === null ? null : /insert\s+into\s+(?:public\.)?audit_log/i.test(latest);
+  return latest === null ? null : sqlBodyAudits(latest);
+}
+
+/** SQL without -- line comments and block comments, so a commented-out call never counts. */
+function stripSqlComments(sql: string): string {
+  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, "");
+}
+
+/**
+ * W1-02: a function audits when, after comments are stripped, it holds a statement-level
+ * insert into audit_log or perform|select nopm_audit_insert( that can run: not inside a branch whose condition is
+ * literally false/null (if false then ... end if), and not inside the function's own exception handler
+ * (an exception when at the top level of the body). Calls inside ordinary conditional branches count, because
+ * wave 5 functions audit per operation (create, update, revoke).
+ */
+function sqlBodyAudits(sql: string): boolean {
+  const body = stripSqlComments(sql);
+  const tok = /\bend\s+(?:if|loop|case)\b|\bexception\s+when\b|\bif\b([\s\S]*?)\bthen\b|\bloop\b|(?:^|[;\s])(?:perform|select)\s+(?:public\.)?nopm_audit_insert\s*\(|insert\s+into\s+(?:public\.)?audit_log\b/gi;
+  const dead = /^\s*(?:not\s+true|false|null|0\s*=\s*1|1\s*=\s*0)\s*$/i;
+  const stack: boolean[] = []; // true = dead branch
+  let m: RegExpExecArray | null;
+  while ((m = tok.exec(body))) {
+    const t = m[0].toLowerCase().trim();
+    if (/^end\s/.test(t)) stack.pop();
+    else if (t.startsWith("exception")) {
+      if (stack.length === 0) return false; // top-level handler: the rest is the error path
+    } else if (t === "loop") stack.push(false);
+    else if (/^if\b/.test(t)) stack.push(dead.test(m[1] ?? ""));
+    else if (!stack.includes(true)) return true; // statement-level audit call that can run
+  }
+  return false;
 }
 
 const isGoverned = (w: Write) => (w.rpc ? !NON_MUTATING_RPC[w.table] : !NON_BUSINESS_TABLES[w.table]);

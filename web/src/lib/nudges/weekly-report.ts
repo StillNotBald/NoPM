@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getChainHead } from "@/lib/audit/chain-head";
-import { writeAudit, systemActor } from "@/lib/audit/write";
+import { systemActor } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import type { Actor } from "@/lib/auth/guard";
 import { notifyEach, resolveWorkspaceApprovers } from "@/lib/notify/publish";
 import { gatherDigestData } from "@/lib/integrations/digest-data";
@@ -116,16 +117,6 @@ export type WeeklyRunResult =
 
 type RunOpts = { now?: Date; trigger: "scheduled" | "manual"; actor?: Actor };
 
-async function storeSnapshot(db: Db, workspaceId: string, snap: WeeklySnapshot, generatedBy: string, now: Date) {
-  const existing = await db.from("weekly_reports").select("id").eq("workspace_id", workspaceId).eq("week_start", snap.weekStart).maybeSingle();
-  if (existing.error) throw existing.error;
-  const row = { data: snap, generated_at: now.toISOString(), generated_by: generatedBy };
-  const res = existing.data
-    ? await db.from("weekly_reports").update(row).eq("id", existing.data.id).eq("workspace_id", workspaceId)
-    : await db.from("weekly_reports").insert({ workspace_id: workspaceId, week_start: snap.weekStart, ...row });
-  if (res.error) throw res.error;
-}
-
 /**
  * Generate, store, audit and announce one workspace's weekly report.
  * `scheduled` honours the enabled flag, the weekday and the once-a-day slot;
@@ -150,7 +141,9 @@ export async function generateWeeklyReport(workspaceId: string, opts: RunOpts): 
     const recipients = await resolveWorkspaceApprovers(workspaceId);
     if (recipients.length === 0) return { status: "no_recipients" };
 
-    // Scheduled runs take a ledger row per recipient; one earlier this ISO week (a repeat tick) means this week is done.
+    // Scheduled runs take a ledger row per recipient; one earlier this ISO week (a repeat tick) means this
+    // week is done. This read is only a cheap early exit that saves rebuilding the snapshot on every repeat
+    // tick; the database call below is the authority and claims again.
     let toNotify = recipients;
     if (opts.trigger === "scheduled") {
       const { data, error } = await db
@@ -164,43 +157,34 @@ export async function generateWeeklyReport(workspaceId: string, opts: RunOpts): 
       const done = new Set(((data ?? []) as { recipient_id: string }[]).map((r) => r.recipient_id));
       toNotify = recipients.filter((id) => !done.has(id));
       if (toNotify.length === 0) return { status: "already_sent" };
-      const claim = await db.from("nudge_log").insert(
-        toNotify.map((id) => ({
-          workspace_id: workspaceId,
-          target_type: "workspace",
-          target_id: workspaceId,
-          kind: "weekly_report",
-          recipient_id: id,
-          sent_on: today,
-        })),
-      );
-      if (claim.error) {
-        // A racing tick took the slot (unique violation) or the ledger is unavailable: send nothing.
-        console.error("[nudges] weekly report claim failed:", sanitizeError(claim.error));
-        return { status: "already_sent" };
-      }
     }
 
+    // Build first, then claim, store and audit in ONE transaction (R-165): a failure anywhere leaves no claim,
+    // no report and no audit row behind, so there is nothing to give back. A lost claim writes nothing.
     const snap = await buildWeeklySnapshot(workspaceId, now, weekStart);
     const actor = opts.actor ?? systemActor(workspaceId, "weekly-report", { channel: "api" });
+    let stored: { status?: string; recipients?: string[] } | null;
     try {
-      await storeSnapshot(db, workspaceId, snap, actor.label, now);
-      await writeAudit({
-        workspaceId,
-        actor,
-        action: "report.weekly.generated",
-        targetType: "workspace",
-        targetId: workspaceId,
-        after: { week_start: weekStart, trigger: opts.trigger, recipients: toNotify.length },
+      const { data, error } = await db.rpc("nopm_weekly_report_store", {
+        p_workspace_id: workspaceId,
+        p_week_start: weekStart,
+        p_snapshot: snap,
+        p_generated_by: actor.label,
+        p_generated_at: now.toISOString(),
+        p_recipients: toNotify,
+        p_sent_on: today,
+        p_trigger: opts.trigger,
+        p_audit: buildRpcAudit(actor, "report.weekly.generated", "workspace"),
       });
+      if (error) throw error;
+      stored = data as { status?: string; recipients?: string[] } | null;
     } catch (err) {
-      // Fail-closed: no audit row, nobody is told. Free the day's slot so the next tick retries.
+      // Fail-closed: nothing was claimed, stored or audited, and nobody is told. The next tick retries.
       console.error("[nudges] weekly report not stored or audited:", sanitizeError(err));
-      if (opts.trigger === "scheduled") {
-        await db.from("nudge_log").delete().eq("workspace_id", workspaceId).eq("kind", "weekly_report").eq("sent_on", today);
-      }
       return { status: "failed" };
     }
+    if (stored?.status === "already_sent") return { status: "already_sent" };
+    toNotify = Array.isArray(stored?.recipients) ? stored.recipients : toNotify;
 
     const d = snap.digest;
     const stale = d.staleItems ?? 0;

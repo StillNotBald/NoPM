@@ -3,12 +3,12 @@ import { route } from "@/lib/api/handler";
 import { AuthError, RateLimitError, RuleError } from "@/lib/api/errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
-import { writeAudit } from "@/lib/audit/write";
 import { decrypt } from "@/lib/crypto";
 import { ok, safeJson, validationError } from "@/lib/api/response";
 import { issueMfaCookie, computeEnrollmentBinding, MFA_COOKIE_NAME } from "@/lib/auth/mfa";
 import { consumeTotp, hashBackupCode, spendMfaAttempt } from "@/lib/auth/mfa-factor";
 import { challengeMfaSchema } from "../_schema";
+import { mfaChallenge } from "../_rpc";
 
 export const runtime = "nodejs";
 
@@ -91,48 +91,23 @@ export const POST = route(async ({ actor, request }) => {
   const usedBackupCode = !validTotp && backupCodes.includes(codeHash);
 
   if (!validTotp && !usedBackupCode) {
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "auth.mfa.challenge_failed",
-      targetType: "user_mfa",
-      targetId: actor.id,
-      before: null,
-      after: null,
-    });
+    // One audit row, nothing else to change. The attempt budget and the step burn were spent above,
+    // outside this call, so they keep counting even if this audit write fails.
+    await mfaChallenge(db, actor, "failed");
     throw new RuleError("Invalid code");
   }
 
+  // The outcome is recorded by ONE database function (migration 0109): burning a backup code and the audit
+  // row are one transaction, so a code can never be spent without its audit row. Audit BEFORE credential: the
+  // cookie is staged only after this call has durably succeeded.
   if (usedBackupCode) {
-    // Consume the code atomically: the WHERE clause's `.contains` guard
-    // (Postgres `@>` array containment) only lets the update succeed if the
-    // hash is STILL present at write time. Two concurrent requests holding
-    // the same still-valid backup code race on this condition — only the
-    // first UPDATE actually matches a row (`.select("user_id")` echoes back
-    // the updated row so we can tell); the second gets zero rows back and
-    // is treated as an already-consumed (invalid) code rather than a second
-    // successful challenge. Plain read-filter-write here would let both
-    // requests pass (verified-adversarial finding).
-    const remaining = backupCodes.filter((h) => h !== codeHash);
-    const { data: consumed, error: updateError } = await db
-      .from("user_mfa")
-      .update({ backup_codes: remaining })
-      .eq("user_id", actor.id)
-      .contains("backup_codes", [codeHash])
-      .select("user_id");
-    if (updateError) throw updateError;
-    if (!consumed || consumed.length === 0) {
-      await writeAudit({
-        workspaceId: actor.workspaceId,
-        actor,
-        action: "auth.mfa.challenge_failed",
-        targetType: "user_mfa",
-        targetId: actor.id,
-        before: null,
-        after: null,
-      });
-      throw new RuleError("Invalid code");
-    }
+    // The function burns the code with a compare-and-set (Postgres array containment): two requests holding the
+    // same still-valid code race on it, only the first matches, the second comes back "failed" and is audited
+    // as a failed challenge instead of passing twice.
+    const result = await mfaChallenge(db, actor, "backup_code", codeHash);
+    if (result === "failed") throw new RuleError("Invalid code");
+  } else {
+    await mfaChallenge(db, actor, "totp");
   }
 
   // Cap the cookie at the underlying Supabase session's own expiry (never
@@ -150,23 +125,6 @@ export const POST = route(async ({ actor, request }) => {
 
   const enr = computeEnrollmentBinding(mfa.enrolled_at);
   const { value, maxAgeSeconds } = issueMfaCookie(actor.id, enr, sessionExp);
-
-  // Audit BEFORE credential: write the governance record first, and only
-  // stage the cookie once that write has durably succeeded. Next.js Route
-  // Handlers stage `cookies().set()` into a request-scoped store that gets
-  // merged onto whatever Response is ultimately returned for this
-  // invocation — including an error response built after a later throw —
-  // so setting the cookie first could hand out a working credential with no
-  // audit row if writeAudit then failed (verified-adversarial finding).
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "auth.mfa.challenge_passed",
-    targetType: "user_mfa",
-    targetId: actor.id,
-    before: null,
-    after: { via: usedBackupCode ? "backup_code" : "totp" },
-  });
 
   const store = await cookies();
   store.set(MFA_COOKIE_NAME, value, {

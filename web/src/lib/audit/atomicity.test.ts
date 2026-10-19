@@ -23,34 +23,17 @@ type Exception = { reason: string; owner: string };
 const ex = (owner: string, reason: string): Exception => ({ owner, reason });
 
 /** "<api path>#<VERB>" for a route, "lib/<path>.ts" for a library file. */
-const EXCEPTIONS: Record<string, Exception> = {
-  // ── routes ────────────────────────────────────────────────────────────────
-  "projects/[id]#DELETE": ex("deletion-flow wave", "inserts a deletion_requests row (maker step of the four-eyes flow, not an allowlisted table), then audits project.delete_requested"),
-  "tasks/[id]#DELETE": ex("deletion-flow wave", "inserts a deletion_requests row (maker step of the four-eyes flow, not an allowlisted table), then audits task.delete_requested"),
-  "projects/[id]/change-requests#POST": ex("approval-tier wave", "change-request raise: governance path with tier routing, needs its own function"),
-  "projects/[id]/rebaselines#POST": ex("approval-tier wave", "rebaseline draft: governance path, needs its own function"),
-  "change-requests/[id]#PATCH": ex("approval-tier wave", "edit of a raised change request: update then audit, change_requests is not an allowlisted table"),
-  "change-requests/[id]#DELETE": ex("approval-tier wave", "withdraw of a raised change request: status update then audit, change_requests is not an allowlisted table"),
-  "auth/mfa/challenge#POST": ex("lead (decision needed)", "writes user_mfa state then audits; user_mfa is per-user security state, not an allowlisted table"),
-  "auth/mfa/disable#POST": ex("lead (decision needed)", "writes user_mfa state then audits; user_mfa is per-user security state, not an allowlisted table"),
-  "auth/mfa/enroll#POST": ex("lead (decision needed)", "writes user_mfa state then audits; user_mfa is per-user security state, not an allowlisted table"),
-  "auth/mfa/verify#POST": ex("lead (decision needed)", "writes user_mfa state then audits; user_mfa is per-user security state, not an allowlisted table"),
-  "integrations/connectors#POST": ex("route group 2 agent", "connector create: integration_connectors is allowlisted, the handler still writes then audits"),
-  "integrations/connectors/[id]#PATCH": ex("route group 2 agent", "connector update/rotate: integration_connectors is allowlisted, the handler still writes then audits"),
-  "integrations/github/connector#POST": ex("work-events wave", "GitHub connector create: writes then audits"),
-  "integrations/github/connector#PATCH": ex("work-events wave", "GitHub connector update: writes then audits"),
-  "integrations/github/connector#DELETE": ex("work-events wave", "GitHub connector revoke: writes then audits"),
-  // ── library writers ───────────────────────────────────────────────────────
-  "lib/governance/request-deletion.ts": ex("deletion-flow wave", "the five *.delete_requested writes (risk, issue, expense, document, milestone): deletion_requests insert, then audit"),
-  "lib/governance/decide.ts": ex("deletion-flow wave", "withdraw and reopen of deletion requests: status update then audit; the approve path is already an RPC"),
-  "lib/assistant/token.ts": ex("route group 2 agent", "mints and revokes the assistant's ephemeral api_tokens row, then audits; api_tokens is allowlisted"),
-  "lib/governance/invite-accept.ts": ex("route group 2 agent", "revokes the invite when account creation fails after nopm_accept_invite, then audits; invites is allowlisted"),
-  "lib/integrations/identity.ts": ex("route group 2 agent", "link-code consume and external_identities insert / revoke, then audit; external_identities is allowlisted"),
-  "lib/clash/detect.ts": ex("lead (follow-up)", "system auto-create and auto-resolve of clashes, then audit; clashes is allowlisted, convert with a system actor"),
-  "lib/insight/overspend.ts": ex("lead (follow-up)", "sets the budget overspend level marker, then audits the crossing; project_budget is allowlisted"),
-  "lib/insight/snapshots.ts": ex("lead (follow-up)", "nightly project_snapshots upsert, then one audit row for the whole run (system job, not a user change)"),
-  "lib/nudges/weekly-report.ts": ex("lead (follow-up)", "stores the weekly report and its nudge claim, then audits the send; weekly_reports and nudge_log are not allowlisted"),
-};
+import { EXCEPTIONS as GOVERNANCE } from "./atomicity-exceptions-governance";
+import { EXCEPTIONS as SECURITY } from "./atomicity-exceptions-security";
+import { EXCEPTIONS as JOBS } from "./atomicity-exceptions-jobs";
+
+/** Merged from the three per-builder slices (wave-5 Pre-1); the slices must not overlap. */
+const EXCEPTIONS: Record<string, Exception> = { ...GOVERNANCE, ...SECURITY, ...JOBS };
+const SLICE_SIZES = { governance: Object.keys(GOVERNANCE).length, security: Object.keys(SECURITY).length, jobs: Object.keys(JOBS).length };
+if (SLICE_SIZES.governance + SLICE_SIZES.security + SLICE_SIZES.jobs !== Object.keys(EXCEPTIONS).length) {
+  throw new Error("atomicity exception slices overlap: " + JSON.stringify(SLICE_SIZES));
+}
+
 
 function scanAll(): string[] {
   const found: string[] = [];

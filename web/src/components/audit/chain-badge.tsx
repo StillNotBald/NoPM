@@ -48,7 +48,10 @@ export function ChainBadge({ initial, className }: { initial: ChainCheck | null;
       }
       if (!res.ok) throw new Error(body?.error ?? `Verification failed (${res.status})`);
       const d = body.data;
-      setCheck({ ok: d.ok, checked: d.checked, at: d.verified_at, firstBadId: d.first_bad_id, firstBadAt: d.first_bad_at });
+      // R-169: on an anchor mismatch the verify answers ok:false while the chain itself is fine (chain_ok:true);
+      // the badge reports the chain, the anchor card (nopm:audit-verified) reports the anchor.
+      setCheck({ ok: d.chain_ok ?? d.ok, checked: d.checked, at: d.verified_at, firstBadId: d.first_bad_id, firstBadAt: d.first_bad_at });
+      window.dispatchEvent(new CustomEvent("nopm:audit-verified", { detail: d.anchor }));
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Verification failed");
     } finally {

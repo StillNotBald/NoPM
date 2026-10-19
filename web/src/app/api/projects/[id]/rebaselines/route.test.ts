@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb } from "@/lib/governance/test-support/fake-admin";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 
 const { holder, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -63,11 +64,11 @@ function call(body: unknown) {
 let db: FakeDb;
 
 beforeEach(() => {
-  db = new FakeDb({
+  db = installAtomicGovernance(new FakeDb({
     projects: [{ id: PROJECT, workspace_id: WS, name: "Billing", is_locked: true }],
     rebaselines: [],
     audit_log: [],
-  });
+  }));
   holder.db = db;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -80,30 +81,11 @@ describe("D4 — one rebaseline waiting for sign-off per project", () => {
   });
 
   async function collide(constraint: string) {
-    const realFrom = db.client.from;
-    db.client.from = (table: string) => {
-      const b = realFrom(table) as unknown as { insert: (r: unknown) => unknown };
-      if (table === "rebaselines") {
-        b.insert = () => {
-          const result = {
-            data: null,
-            error: { code: "23505", message: `duplicate key value violates unique constraint "${constraint}"` },
-          };
-          const chain: unknown = new Proxy(
-            {},
-            {
-              get: (_t, prop) => {
-                if (prop === "then") return (res: (v: unknown) => unknown, rej: (e: unknown) => unknown) => Promise.resolve(result).then(res, rej);
-                if (prop === "single" || prop === "maybeSingle") return () => Promise.resolve(result);
-                return () => chain;
-              },
-            },
-          );
-          return chain;
-        };
-      }
-      return b as never;
-    };
+    // The unique violation is raised inside nopm_propose_rebaseline (one transaction, nothing written).
+    db.client.rpc = (async () => ({
+      data: null,
+      error: { code: "23505", message: `duplicate key value violates unique constraint "${constraint}"` },
+    })) as never;
     return call({ reason: "again" });
   }
 

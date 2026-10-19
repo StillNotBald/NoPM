@@ -14,6 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 
 const { holder, emitted, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -185,7 +186,7 @@ const project = () => db.rows("projects")[0];
 const auditActions = () => db.rows("audit_log").map((r) => r.action);
 
 beforeEach(() => {
-  db = seed();
+  db = installAtomicGovernance(seed());
   holder.db = db;
   emitted.requested.length = 0;
   emitted.decided.length = 0;
@@ -317,6 +318,8 @@ describe("H3 — a token with no recorded owner cannot raise a governed request"
   it("a token WITH an owner, and a session, still raise normally", async () => {
     expect((await call(raiseChange, alicePat(), PROJECT, { title: "Add APAC module" })).status).toBe(201);
     project().is_locked = true; // Q-GOV-4: a rebaseline is proposed on a locked project
+    // uniq_pending_rebaseline allows one proposal waiting for sign-off; the seed already holds one.
+    db.rows("rebaselines").find((r) => r.id === "rb-pending")!.status = "rejected";
     expect((await call(raiseRebaseline, session(ALICE), PROJECT, { reason: "dates slipped" })).status).toBe(201);
     project().is_locked = false;
     expect((await call(deleteProject, alicePat(), PROJECT, { reason: "cancelled" }, "DELETE")).status).toBe(202);
@@ -465,7 +468,7 @@ describe("M4 — project deletion cannot cascade over records added after the re
 
   it("...whichever kind of child it is (a risk / a milestone)", async () => {
     for (const table of ["risks", "milestones"]) {
-      db = seed();
+      db = installAtomicGovernance(seed());
       holder.db = db;
       const id = await requestDeletion();
       db.rows(table).push({ id: `${table}-x`, workspace_id: WS, project_id: PROJECT });

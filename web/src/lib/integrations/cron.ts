@@ -16,6 +16,7 @@ import { gatherDigestData } from "@/lib/integrations/digest-data";
 import { getWorkspaceTimeZone, shiftToZone } from "@/lib/integrations/time-zone";
 import { sanitizeError } from "@/lib/integrations/secrets";
 import { EMPTY_NUDGE_STEP, runNudgeStep, type NudgeStepSummary } from "@/lib/nudges/step";
+import { EMPTY_ANCHOR_STEP, runAnchorStep, type AnchorStepSummary } from "@/lib/audit/anchor/step";
 import { EMPTY_APPROVAL_TIMER_STEP, runApprovalTimerStep, type ApprovalTimerSummary } from "@/lib/governance/timers";
 import { CONNECTOR_COLUMNS, maskExternalId, normalizeConfig } from "@/lib/integrations/store";
 import type { ConnectorRow, DeliveryRow } from "@/lib/integrations/types";
@@ -126,6 +127,8 @@ export type CronSummary = {
   nudges: NudgeStepSummary;
   /** The approval timer step (G3 / G4): reminders, escalations, and routine auto-approvals. */
   approvals: ApprovalTimerSummary;
+  /** The external audit-chain anchor step (R-168); `configured: false` and all zeros when NOPM_ANCHOR_DB_URL is unset. */
+  anchor: AnchorStepSummary;
   elapsedMs: number;
 };
 
@@ -154,6 +157,7 @@ export async function runCron(
     pruned: { deliveries: 0, action_tokens: 0, inbound_actions: 0 },
     nudges: { ...EMPTY_NUDGE_STEP },
     approvals: { ...EMPTY_APPROVAL_TIMER_STEP },
+    anchor: { ...EMPTY_ANCHOR_STEP },
     elapsedMs: 0,
   };
 
@@ -241,6 +245,17 @@ export async function runCron(
       summary.approvals = await runApprovalTimerStep(now, deadline);
     } catch (err) {
       console.error("[integrations] cron approval timer step failed:", sanitizeError(err));
+    }
+  }
+
+  // Phase 2d: anchor each workspace's audit chain head outside the database (R-168). Verifies only the
+  // rows since the last anchor, anchors only when that is ok, fails open (never blocks the tick), and
+  // does nothing at all when NOPM_ANCHOR_DB_URL is unset. Own budget of 8 s inside the deadline.
+  if (Date.now() < deadline) {
+    try {
+      summary.anchor = await runAnchorStep(now, deadline);
+    } catch (err) {
+      console.error("[integrations] cron anchor step failed:", sanitizeError(err));
     }
   }
 

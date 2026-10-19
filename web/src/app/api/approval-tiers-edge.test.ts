@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 
 const { holder, emitted, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -70,6 +71,7 @@ function seed(extra: Record<string, Row[]> = {}) {
     ...extra,
   });
   holder.db = db;
+  installAtomicGovernance(db);
 }
 
 function call(

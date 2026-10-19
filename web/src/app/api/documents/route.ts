@@ -9,10 +9,14 @@ import { createDocumentSchema } from "@/app/api/documents/_schema";
 import { assertRefsInWorkspace } from "@/lib/api/workspace-refs";
 import { assertMayApproveDocument } from "@/lib/documents/approval";
 import { assertEvidenceLink } from "@/lib/documents/evidence";
+import { parseListSelection } from "@/lib/api/views";
 
 export const runtime = "nodejs";
 
-/** GET /api/documents — list documents, workspace-scoped. */
+/**
+ * GET /api/documents — list documents, workspace-scoped. Lean by default (R-173): the summary view leaves out
+ * body, summary and evidence_note; `view=full` or `fields=` bring them back. `storage_path` is never returned.
+ */
 export const GET = route(async ({ actor, request }) => {
   requireScope(actor, "document:read");
 
@@ -25,6 +29,7 @@ export const GET = route(async ({ actor, request }) => {
   const page      = Math.max(1, isNaN(rawPage) ? 1 : rawPage);
   const offset    = (page - 1) * limit;
 
+  const { select } = parseListSelection(url.searchParams, "documents");
   const projectId = url.searchParams.get("project_id");
   const folder    = url.searchParams.get("folder");
   const status    = url.searchParams.get("status");
@@ -33,7 +38,7 @@ export const GET = route(async ({ actor, request }) => {
 
   let query = db
     .from("documents")
-    .select("*", { count: "exact" })
+    .select(select, { count: "exact" })
     .eq("workspace_id", actor.workspaceId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);

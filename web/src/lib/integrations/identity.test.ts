@@ -56,21 +56,20 @@ afterEach(() => {
 });
 
 /**
- * A link of this profile that lands AFTER the refusal check but before the write (two codes
- * racing): the only way an existing link can still be replaced.
+ * The link is ONE database function now (nopm_link_identity, migration 0109), which refuses a profile that
+ * already holds a link, so the old "two codes race" path cannot replace a link inside the database. The
+ * adapter-facing handling of a displaced account is still covered: this makes the database ANSWER that an
+ * earlier link of the profile was replaced (the old identity is stored revoked, as the function would leave it).
  */
-function oldLinkAppearsWhenCodeIsSpent(profileId: string, openId: string) {
-  const realFrom = db.from.bind(db);
-  db.from = (table: string) => {
-    const q = realFrom(table);
-    if (table === "identity_link_codes") {
-      const update = q.update.bind(q);
-      q.update = (patch) => {
-        linkIdentity(db, profileId, openId);
-        return update(patch);
-      };
-    }
-    return q;
+function databaseReportsReplacedLink(profileId: string, openId: string) {
+  const realRpc = db.rpc.bind(db);
+  (db as unknown as { rpc: unknown }).rpc = async (fn: string, args: Record<string, unknown>) => {
+    const r = await realRpc(fn, args);
+    if (fn !== "nopm_link_identity" || r.error) return r;
+    linkIdentity(db, profileId, openId);
+    for (const row of db.rows("external_identities")) if (row.external_user_id === openId) row.revoked_at = "2026-10-16T09:00:00.000Z";
+    const data = r.data as Record<string, unknown>;
+    return { ...r, data: { ...data, displaced: [{ external_tenant: "tenant-1", external_user_id: openId }] } };
   };
 }
 
@@ -280,12 +279,13 @@ describe("consumeLinkCode", () => {
     expect(audit.after.external_ref).toBe(maskedExternalRef("lark", "tenant-abcdef123456", "ou_new_open_id_value"));
   });
 
-  it("a refused link is still answered if its audit row cannot be written (a refusal changes nothing)", async () => {
+  it("a refusal and its record are one transaction: if the audit row cannot be written the call fails and the code stays usable", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     linkIdentity(db, ids.manager, "ou_old");
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
     writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
-    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("conflict");
+    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("error");
+    expect(db.rows("identity_link_codes")[0].used_at).toBeNull();
     expect(db.rows("external_identities").filter((r) => r.revoked_at == null).map((r) => r.external_user_id)).toEqual(["ou_old"]);
   });
 
@@ -314,32 +314,33 @@ describe("consumeLinkCode", () => {
     expect(calls.some((k) => k.startsWith("lark-link:"))).toBe(true);
   });
 
-  it("if two codes race and an old link appears after the check, the old link is still replaced (and announced)", async () => {
+  it("fails closed: if the audit row cannot be written NOTHING is kept (code unburned, no identity, no pin)", async () => {
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
-    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
-    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("linked");
-
-    const active = db.rows("external_identities").filter((r) => r.revoked_at == null);
-    expect(active).toHaveLength(1);
-    expect(active[0].external_user_id).toBe("ou_new");
-    expect(db.rows("external_identities").find((r) => r.external_user_id === "ou_old")?.revoked_at).not.toBeNull();
-    const audit = writeAuditMock.mock.calls[0][0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
-    // masked: the audit stream is member-readable (the full reference is the actor's external_actor_ref)
-    expect(audit.before).toEqual({ external_ref: "lark:te…:ou…" });
-    expect(audit.after.replaced_previous_link).toBe(true);
-  });
-
-  it("fails closed: if the audit row cannot be written the link is rolled back and the old link restored", async () => {
-    const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
-    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
     writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const out = await link({ rawCode: code, externalUserId: "ou_new" });
 
     expect(out.status).toBe("error");
-    const active = db.rows("external_identities").filter((r) => r.revoked_at == null);
-    expect(active.map((r) => r.external_user_id)).toEqual(["ou_old"]);
+    expect(db.rows("external_identities")).toHaveLength(0);
+    expect(db.rows("identity_link_codes")[0].used_at).toBeNull();
+    expect(db.rows("integration_connectors")[0].tenant_key).toBeNull();
+    // and the same code links on the next try: a consumed code with no identity cannot exist
+    expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("linked");
+  });
+
+  it("links through ONE database function and writes no audit row itself", async () => {
+    const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
+    const realRpc = db.rpc.bind(db);
+    const seen: string[] = [];
+    (db as unknown as { rpc: unknown }).rpc = async (fn: string, args: Record<string, unknown>) => {
+      seen.push(fn);
+      return realRpc(fn, args);
+    };
+    expect((await link({ rawCode: code })).status).toBe("linked");
+    expect(seen.filter((f) => f === "nopm_link_identity")).toHaveLength(1);
+    const direct = db.log.filter((l) => l.op !== "select" && ["external_identities", "identity_link_codes"].includes(l.table));
+    expect(direct.filter((l) => l.table === "external_identities")).toHaveLength(0);
   });
 
   it("never throws: a database failure becomes a typed error outcome", async () => {
@@ -507,7 +508,9 @@ describe("consumeLinkCode — guessing a code is throttled", () => {
   type Call = { key: string; max: number; window: number };
   function watchRate(decide: (call: Call) => { allowed: boolean; retry?: number } | "error" = () => ({ allowed: true })) {
     const calls: Call[] = [];
+    const realRpc = db.rpc.bind(db);
     (db as unknown as { rpc: unknown }).rpc = async (_fn: string, args: Record<string, unknown>) => {
+      if (_fn !== "nopm_rate_check") return realRpc(_fn, args);
       const call = { key: String(args.p_key), max: Number(args.p_max), window: Number(args.p_window_seconds) };
       calls.push(call);
       const verdict = decide(call);
@@ -627,7 +630,7 @@ describe("consumeLinkCode — a replaced link is announced", () => {
 
   it("reports the displaced account to the adapter and tells the profile in NoPM", async () => {
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
-    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
+    databaseReportsReplacedLink(ids.manager, "ou_old");
 
     const out = await link({ rawCode: code, externalUserId: "ou_new" });
 
@@ -658,7 +661,7 @@ describe("consumeLinkCode — a replaced link is announced", () => {
   it("a failed notification never undoes the link", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
-    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
+    databaseReportsReplacedLink(ids.manager, "ou_old");
     db.failNext({ table: "notifications", op: "insert", error: { message: "notifications down" } });
 
     const out = await link({ rawCode: code, externalUserId: "ou_new" });
@@ -670,7 +673,7 @@ describe("consumeLinkCode — a replaced link is announced", () => {
   it("a rolled-back link (audit down) announces nothing", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
-    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old");
+    databaseReportsReplacedLink(ids.manager, "ou_old");
     writeAuditMock.mockRejectedValueOnce(new Error("audit down"));
     expect((await link({ rawCode: code, externalUserId: "ou_new" })).status).toBe("error");
     expect(notices()).toHaveLength(0);
@@ -680,7 +683,7 @@ describe("consumeLinkCode — a replaced link is announced", () => {
 describe("consumeLinkCode — the audit row masks platform ids but the actor keeps the full reference", () => {
   it("masks tenant and open id in before/after AND in the external_actor_ref the actor carries into audit_log", async () => {
     const { code } = await mintLinkCode({ workspaceId: WS, profileId: ids.manager, connectorId: CONNECTOR_ID });
-    oldLinkAppearsWhenCodeIsSpent(ids.manager, "ou_old_open_id_value");
+    databaseReportsReplacedLink(ids.manager, "ou_old_open_id_value");
     await link({ rawCode: code, externalTenant: "tenant-abcdef123456", externalUserId: "ou_new_open_id_value" });
 
     const audit = writeAuditMock.mock.calls[0][0] as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any

@@ -3,7 +3,6 @@ import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError, RuleError, ScopeError } from "@/lib/api/errors";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
 import { RAISE_TIME_STATUSES, updateChangeRequestSchema } from "@/app/api/change-requests/_schema";
 import {
   actorLabel,
@@ -13,6 +12,7 @@ import {
   requireMakerPrincipal,
 } from "@/lib/governance/decide";
 import { changedMaterialFields } from "@/lib/governance/change-request-edit";
+import { editChangeRequestAtomic, withdrawChangeRequestAtomic } from "@/lib/governance/atomic-rpc";
 
 export const runtime = "nodejs";
 
@@ -112,30 +112,10 @@ export const PATCH = route(async ({ actor, params, request }) => {
   if (input.target_date !== undefined) updates.target_date = input.target_date;
   if (input.raised_at !== undefined) updates.raised_at = input.raised_at;
 
-  const { data: updated, error: updateError } = await db
-    .from("change_requests")
-    .update(updates)
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .in("status", OPEN_STATUSES)
-    .select()
-    .maybeSingle();
-
-  if (updateError) throw new Error(updateError.message);
-  if (!updated) {
-    // Decided (or deleted) between our read and our write.
-    throw new RuleError("This change request was decided while you were editing it.", "change_request_decided");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "change_request.update",
-    targetType: "change_request",
-    targetId: updated.id,
-    before: existing,
-    after: updated,
-  });
+  // The update and its change_request.update audit row are one database transaction (wave 5, R-161). The
+  // function re-reads the row under a lock, so a decision landing after our read wins and the audit `before`
+  // is exactly the row that was replaced.
+  const updated = await editChangeRequestAtomic(db, actor, params.id, updates, editor);
 
   // Bait-and-switch guard: if the edit changed anything an approver decides on,
   // the approval cards already sent describe content that no longer exists. The
@@ -169,28 +149,8 @@ export const DELETE = route(async ({ actor, params }) => {
   assertStillOpen(existing.status, "deleted");
   assertRequester(existing, editor);
 
-  const { data: removed, error: deleteError } = await db
-    .from("change_requests")
-    .delete()
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .in("status", OPEN_STATUSES)
-    .select("id");
-
-  if (deleteError) throw new Error(deleteError.message);
-  if (!removed || removed.length === 0) {
-    throw new RuleError("This change request was decided while you were deleting it.", "change_request_decided");
-  }
-
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "change_request.delete",
-    targetType: "change_request",
-    targetId: existing.id,
-    before: existing,
-    after: null,
-  });
+  // The delete and its change_request.delete audit row are one database transaction (wave 5, R-161).
+  await withdrawChangeRequestAtomic(db, actor, params.id, editor);
 
   // An open request that is deleted still has approval cards out. Close them like
   // a withdrawal: their tokens die and the cards are patched, instead of sitting

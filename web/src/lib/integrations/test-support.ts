@@ -18,6 +18,7 @@
 
 import { mutateAuditedRpc } from "@/lib/governance/test-support/fake-mutate-audited";
 import { encryptSecrets } from "@/lib/integrations/secrets";
+import { SECURITY_RPCS, securityRpc } from "@/lib/integrations/test-support-security";
 import type { ApprovalEvent, ConnectorAdapter, ConnectorRow, DeliverResult, OutboundMessage } from "@/lib/integrations/types";
 
 export type Row = Record<string, unknown>;
@@ -270,6 +271,11 @@ export class FakeDb {
   async rpc(name?: string, args: Record<string, unknown> = {}): Promise<Result> {
     // Atomic audited write (migration 0103): mirrored by the governance test support, which only
     // needs rows(), nextId() and tables from the database it is handed.
+    // Migration 0109 (wave 5, W5-B): connector, GitHub connector, invite sweep and identity link, each with its audit row.
+    if (name && SECURITY_RPCS.has(name)) {
+      const r = securityRpc(this, name, args);
+      if (r) return (await r) as Result;
+    }
     if (name === "nopm_mutate_audited") {
       const r = mutateAuditedRpc(args, this as unknown as Parameters<typeof mutateAuditedRpc>[1]);
       return { data: r.data, error: r.error, count: null } as Result;

@@ -26,6 +26,7 @@ vi.mock("next/server", async (importOriginal) => ({
 
 import { FakeDb, TEST_ENCRYPTION_KEY, WS, ids, seedWorkspace } from "@/lib/integrations/test-support";
 import { resolveAssignedApprover } from "@/lib/review/assignee";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 import { POST } from "./route";
 
 const PROJECT = "7b1d0c4e-0000-4000-8000-0000000000aa";
@@ -56,7 +57,7 @@ beforeEach(() => {
   writeAuditMock.mockResolvedValue(undefined);
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue(requester());
-  db = new FakeDb();
+  db = installAtomicGovernance(new FakeDb());
   state.db = db;
   seedWorkspace(db);
   db.seed("projects", [{ id: PROJECT, workspace_id: WS, name: "Apollo" }]);
@@ -68,9 +69,10 @@ describe("raising a change request with assigned_approver_id", () => {
     expect(res.status).toBe(201);
     const { data } = await res.json();
     expect(data.assigned_approver_id).toBe(ids.manager);
-    const audit = writeAuditMock.mock.calls.map((c) => c[0] as { action: string; after: Record<string, unknown> });
-    expect(audit.filter((a) => a.action === "change_request.create")).toHaveLength(1);
-    expect(audit[0].after.assigned_approver_id).toBe(ids.manager);
+    // wave 5: the audit row is written inside the database function, in the same transaction as the request
+    const audit = db.rows("audit_log").filter((a) => a.action === "change_request.create");
+    expect(audit).toHaveLength(1);
+    expect((audit[0].after as Record<string, unknown>).assigned_approver_id).toBe(ids.manager);
   });
 
   it("still raises with nobody assigned, and does not send the column at all", async () => {

@@ -12,6 +12,8 @@ import { createChangeRequestSchema } from "@/app/api/change-requests/_schema";
 import { createRebaselineSchema, signoffSchema } from "@/app/api/rebaselines/_schema";
 import { createDecisionSchema } from "@/app/api/decisions/_schema";
 import { createDocumentSchema } from "@/app/api/documents/_schema";
+import { attachEvidenceSchema } from "@/app/api/change-requests/[id]/evidence/_schema";
+import { implementActionSchema } from "@/app/api/change-requests/_schema";
 import { closeSprintSchema } from "@/app/api/sprints/_schema";
 import { updateRiskSchema } from "@/app/api/risks/_schema";
 import { updateMilestoneSchema } from "@/app/api/milestones/_schema";
@@ -27,6 +29,9 @@ const ARGS: Record<string, Record<string, unknown>> = {
   create_decision: { project_id: ID, title: "Use vendor A", status: "accepted" },
   create_document: { title: "Kickoff notes", doc_type: "minutes" },
   close_sprint: { sprint_id: ID, move_unfinished_to: "backlog" },
+  // W5-F (R-171, R-172). attach_evidence's POST path joins the OpenAPI spec when W5-H applies rtm/w5f-openapi-notes.md.
+  attach_evidence: { change_request_id: ID, title: "Regression run", evidence_type: "test_result", evidence_result: "pass" },
+  implement_change_request: { change_request_id: ID, note: "Live at 22:00" },
 };
 
 const SCOPE: Record<string, string> = {
@@ -37,6 +42,8 @@ const SCOPE: Record<string, string> = {
   create_decision: "decision:write",
   create_document: "document:write",
   close_sprint: "sprint:write",
+  attach_evidence: "document:write",
+  implement_change_request: "change:write",
 };
 
 function norm(p: string): string {
@@ -47,7 +54,7 @@ function norm(p: string): string {
 }
 
 describe("MCP governance tools", () => {
-  it("covers exactly the seven expected tools", () => {
+  it("covers exactly the nine expected tools", () => {
     expect(MCP_GOVERNANCE_TOOLS.map((t: { name: string }) => t.name).sort()).toEqual(Object.keys(ARGS).sort());
   });
 
@@ -84,6 +91,8 @@ describe("MCP governance tools", () => {
     expect(createDecisionSchema.safeParse(body("create_decision")).success).toBe(true);
     expect(createDocumentSchema.safeParse(body("create_document")).success).toBe(true);
     expect(closeSprintSchema.safeParse(body("close_sprint")).success).toBe(true);
+    expect(attachEvidenceSchema.safeParse(body("attach_evidence")).success).toBe(true);
+    expect(implementActionSchema.safeParse(body("implement_change_request")).success).toBe(true);
   });
 
   it("close_sprint omits move_unfinished_to when not given", () => {

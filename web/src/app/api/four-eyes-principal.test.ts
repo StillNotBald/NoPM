@@ -22,6 +22,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb } from "@/lib/governance/test-support/fake-admin";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 
 const { holder, emitted, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -216,7 +217,7 @@ async function expectForbidden(res: Response, code: string, messagePart?: string
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
-  db = seed();
+  db = installAtomicGovernance(seed());
   holder.db = db;
   emitted.requested.length = 0;
   emitted.decided.length = 0;

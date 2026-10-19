@@ -8,19 +8,37 @@ import type { ChildCountLine } from "@/lib/review/deletion-target";
  */
 export function ChildCountsNote({ lines, heading = "Approving also deletes:" }: { lines: ChildCountLine[]; heading?: string }) {
   if (lines.length === 0) return null;
-  const governed = lines.filter((l) => l.governed);
+  const deleted = lines.filter((l) => !l.kept);
+  const kept = lines.filter((l) => l.kept);
+  const governed = deleted.filter((l) => l.governed);
   return (
     <div role="note" className="mt-2 rounded-md border border-danger/30 bg-danger/10 px-3 py-2 text-xs leading-snug text-danger-ink">
-      <p className="flex items-center gap-1.5 font-semibold">
-        <Trash2 size={12} aria-hidden="true" /> {heading}
-      </p>
-      <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-        {lines.map((l) => (
-          <li key={l.key} className="tabular-nums">
-            {l.count} {l.label}
-          </li>
-        ))}
-      </ul>
+      {deleted.length > 0 && (
+        <>
+          <p className="flex items-center gap-1.5 font-semibold">
+            <Trash2 size={12} aria-hidden="true" /> {heading}
+          </p>
+          <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+            {deleted.map((l) => (
+              <li key={l.key} className="tabular-nums">
+                {l.count} {l.label}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      {kept.length > 0 && (
+        <>
+          <p className={`font-semibold ${deleted.length > 0 ? "mt-1.5" : ""}`}>Kept, only unlinked:</p>
+          <ul className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+            {kept.map((l) => (
+              <li key={l.key} className="tabular-nums">
+                {l.count} {l.label}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {governed.length > 0 && (
         <p className="mt-1">
           Governed records ({governed.map((l) => l.label).join(", ")}) go with it, without a separate audit entry each.

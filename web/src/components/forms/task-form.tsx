@@ -49,6 +49,10 @@ export interface Task {
   story_points?: number | null;
   labels?: string[] | null;
   blocked_by?: string | null;
+  /** R-166 (0111): why the task is blocked (max 500 characters). */
+  blocker_reason?: string | null;
+  /** R-166 (0111): forecast finish date, YYYY-MM-DD. */
+  eta?: string | null;
   checklist?: ChecklistItem[] | null;
   // Optimistic concurrency (R-90) — present on any record loaded from the
   // API; carried back on PATCH as expected_updated_at when editing.
@@ -112,6 +116,8 @@ export function TaskForm({
   );
   const [labels, setLabels] = useState((task?.labels ?? []).join(", "));
   const [blockedBy, setBlockedBy] = useState(task?.blocked_by ?? "");
+  const [blockerReason, setBlockerReason] = useState(task?.blocker_reason ?? "");
+  const [eta, setEta] = useState(task?.eta?.slice(0, 10) ?? "");
 
   // ── assignee picker ──────────────────────────────────────────────────────────
   const [assigneeId, setAssigneeId] = useState(task?.assignee_id ?? "");
@@ -201,6 +207,8 @@ export function TaskForm({
       story_points: storyPoints.trim() === "" ? null : Number(storyPoints),
       labels: parsedLabels,
       blocked_by: blockedBy || null,
+      blocker_reason: blockerReason.trim() || null,
+      eta: eta || null,
       checklist: checklist.length > 0 ? checklist : null,
       ...backup.payload(Boolean(task)),
       // Optimistic concurrency (R-90) — only meaningful (and only sent) on
@@ -416,6 +424,27 @@ export function TaskForm({
                   </option>
                 ))}
             </SelectInput>
+          </Field>
+
+          {/* Blocker reason (R-166): optional, independent of "Blocked by" */}
+          <Field label="Blocker reason" error={fieldErrors.blocker_reason}>
+            <TextareaInput
+              value={blockerReason}
+              onChange={(e) => setBlockerReason(e.target.value)}
+              maxLength={500}
+              rows={2}
+              placeholder="Why is this blocked? (optional)"
+            />
+          </Field>
+
+          {/* ETA (R-166): optional forecast date, may be in the past */}
+          <Field label="ETA" error={fieldErrors.eta}>
+            <Input
+              type="date"
+              value={eta}
+              onChange={(e) => setEta(e.target.value)}
+              className="h-11 sm:h-10 text-base sm:text-sm"
+            />
           </Field>
 
           {/* Labels */}

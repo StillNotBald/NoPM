@@ -17,6 +17,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 import { FakeDb, type Row } from "@/lib/governance/test-support/fake-admin";
+import { installAtomicGovernance } from "@/lib/governance/test-support/fake-atomic-governance";
 
 const { holder, authHolder } = vi.hoisted(() => ({
   holder: { db: null as unknown },
@@ -152,19 +153,16 @@ function failingChain(error: { code: string; message: string }) {
   return chain;
 }
 
-/** The next `op` on `table` fails with `error`; everything else behaves normally. */
-function failNext(fake: FakeDb, table: string, op: "insert" | "update" | "delete", error: { code: string; message: string }) {
-  const realFrom = fake.client.from;
+/** The next call of database function `name` fails with `error` (the whole transaction is rolled back); everything else behaves normally. */
+function failNextRpc(fake: FakeDb, name: string, error: { code: string; message: string }) {
+  const realRpc = fake.client.rpc;
   let armed = true;
-  fake.client.from = (t: string) => {
-    const builder = realFrom(t) as unknown as Record<string, unknown>;
-    if (t === table && armed) {
-      builder[op] = () => {
-        armed = false;
-        return failingChain(error);
-      };
+  fake.client.rpc = async (n: string, args: Record<string, unknown> = {}) => {
+    if (n === name && armed) {
+      armed = false;
+      return { data: null, error };
     }
-    return builder as never;
+    return realRpc(n, args);
   };
 }
 
@@ -238,7 +236,7 @@ function seed(): FakeDb {
 }
 
 beforeEach(() => {
-  db = seed();
+  db = installAtomicGovernance(seed());
   holder.db = db;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
@@ -487,7 +485,7 @@ describe("P2-14 — a lost unique-index race is the same 422 as the pre-check, n
   });
 
   it("task deletion request: uniq_pending_deletion -> 422 duplicate_deletion_request", async () => {
-    failNext(db, "deletion_requests", "insert", raced("uniq_pending_deletion"));
+    failNextRpc(db, "nopm_request_deletion", raced("uniq_pending_deletion"));
     const json = await expectRule(
       await call(deleteTask, alicePat(), TASK_1, { reason: "obsolete" }, "DELETE"),
       "duplicate_deletion_request",
@@ -498,7 +496,7 @@ describe("P2-14 — a lost unique-index race is the same 422 as the pre-check, n
   });
 
   it("project deletion request: uniq_pending_deletion -> 422 duplicate_deletion_request", async () => {
-    failNext(db, "deletion_requests", "insert", raced("uniq_pending_deletion"));
+    failNextRpc(db, "nopm_request_deletion", raced("uniq_pending_deletion"));
     const json = await expectRule(
       await call(deleteProject, alicePat(), PROJECT, { reason: "cancelled" }, "DELETE"),
       "duplicate_deletion_request",
@@ -515,7 +513,7 @@ describe("P2-14 — a lost unique-index race is the same 422 as the pre-check, n
 
 // ── P2-12: DELETE /resources/:id ───────────────────────────────────────────
 
-describe("P2-12 — DELETE /resources/:id keeps the approval history", () => {
+describe("P2-12 — DELETE /resources/:id keeps the approval history (a request since R-176)", () => {
   const sheet = (status: string): Row => ({
     id: `ts-${status}`,
     workspace_id: WS,
@@ -538,21 +536,24 @@ describe("P2-12 — DELETE /resources/:id keeps the approval history", () => {
 
   it("another member's sheet does not block this member", async () => {
     db.rows("timesheet_submissions").push({ ...sheet("approved"), member_id: "99999999-9999-4999-8999-999999999999" });
-    const res = await call(deleteResource, alicePat(), MEMBER, undefined, "DELETE");
-    expect(res.status).toBe(204);
-    expect(db.rows("resource_members").some((m) => m.id === MEMBER)).toBe(false);
-    expect(auditActions()).toEqual(["resource.delete"]);
+    // R-176: the delete is a request now. Nothing is removed; the request and its audit row are written together.
+    const res = await call(deleteResource, alicePat(), MEMBER, { reason: "left the team" }, "DELETE");
+    expect(res.status).toBe(202);
+    expect(db.rows("resource_members").some((m) => m.id === MEMBER)).toBe(true);
+    expect(auditActions()).toEqual(["resource.delete_requested"]);
   });
 
-  it("a member with no sheets is deleted as before", async () => {
-    expect((await call(deleteResource, alicePat(), MEMBER, undefined, "DELETE")).status).toBe(204);
-    expect(auditActions()).toEqual(["resource.delete"]);
+  it("a member with no sheets can be asked for (202), and is still there", async () => {
+    expect((await call(deleteResource, alicePat(), MEMBER, { reason: "left the team" }, "DELETE")).status).toBe(202);
+    expect(row("resource_members", MEMBER)).toBeDefined();
+    expect(auditActions()).toEqual(["resource.delete_requested"]);
   });
 
-  it("any other delete error is still a 500", async () => {
-    // the delete and its audit row are one database function (nopm_mutate_audited)
+  it("any other error while raising the request is still a 500", async () => {
+    // the request row and its audit row are one database function (nopm_request_deletion)
     db.mutateFailure = { code: "XX000", message: "connection reset" };
-    expect((await call(deleteResource, alicePat(), MEMBER, undefined, "DELETE")).status).toBe(500);
+    expect((await call(deleteResource, alicePat(), MEMBER, { reason: "left the team" }, "DELETE")).status).toBe(500);
+    expect(db.rows("deletion_requests")).toHaveLength(0);
   });
 
   it("a member of another workspace is a 404", async () => {

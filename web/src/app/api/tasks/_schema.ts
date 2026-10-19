@@ -38,6 +38,27 @@ function checkGithubRef(v: { source?: string | null; external_ref?: string | nul
   }
 }
 
+/**
+ * R-166 (migration 0111): why a task is blocked, and when it is now expected to finish. Both optional and
+ * nullable, independent of each other and of blocked_by. An ETA in the past is allowed (it is a forecast,
+ * not the baseline). The ETA is a calendar date (YYYY-MM-DD) so it sorts and compares with due_date.
+ */
+export const BLOCKER_REASON_MAX = 500;
+const blockerReasonField = z
+  .string()
+  .max(BLOCKER_REASON_MAX, `blocker_reason must be at most ${BLOCKER_REASON_MAX} characters`)
+  .nullable()
+  .optional();
+const etaField = z
+  .string()
+  .regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/, "eta must be a date (YYYY-MM-DD)")
+  .refine((v) => {
+    const d = new Date(v + "T00:00:00Z");
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, "eta must be a real calendar date")
+  .nullable()
+  .optional();
+
 export const TaskCreateSchema = z.object({
   // id/workspace_id/project_id are taken from the route, ignored from body
   project_id: z.string().uuid("project_id must be a UUID").optional(),
@@ -59,6 +80,8 @@ export const TaskCreateSchema = z.object({
   story_points: z.number().min(0, "story_points must be >= 0").nullable().optional(),
   labels: z.array(z.string()).optional(),
   blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
+  blocker_reason: blockerReasonField,
+  eta: etaField,
   checklist: z.array(ChecklistItemSchema).nullable().optional(),
   // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
   source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),
@@ -91,6 +114,8 @@ export const TaskUpdateSchema = z.object({
   story_points: z.number().min(0, "story_points must be >= 0").nullable().optional(),
   labels: z.array(z.string()).optional(),
   blocked_by: z.string().uuid("blocked_by must be a UUID").nullable().optional(),
+  blocker_reason: blockerReasonField,
+  eta: etaField,
   checklist: z.array(ChecklistItemSchema).nullable().optional(),
   // ── complement seam (0041, R-81) — additive, all optional/nullable ───────────
   source: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/).nullable().optional(),

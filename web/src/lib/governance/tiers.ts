@@ -55,16 +55,12 @@ export type ApprovalPolicy = {
   currency: string | null;
   /** A schedule impact of more than this many days (either sign) lifts normal to high_risk. */
   schedule_threshold_days: number;
-  /** DEPRECATED (owner decision Q1): read from old data, never used and never changed. An emergency owes no retro decision. */
-  emergency_retro_hours: number;
 };
 
 export const DEFAULT_CURRENCY_THRESHOLD = 50_000;
-export const DEFAULT_EMERGENCY_RETRO_HOURS = 48;
 export const DEFAULT_SCHEDULE_THRESHOLD_DAYS = 10;
 export const MAX_SCHEDULE_THRESHOLD_DAYS = 3650;
 export const MAX_TURNAROUND_HOURS = 8760;
-export const MAX_RETRO_HOURS = 720;
 
 export const DEFAULT_POLICY: ApprovalPolicy = {
   tiers: {
@@ -78,7 +74,6 @@ export const DEFAULT_POLICY: ApprovalPolicy = {
   currency_threshold: DEFAULT_CURRENCY_THRESHOLD,
   currency: "MYR",
   schedule_threshold_days: DEFAULT_SCHEDULE_THRESHOLD_DAYS,
-  emergency_retro_hours: DEFAULT_EMERGENCY_RETRO_HOURS,
 };
 
 const TIER_RANK: Readonly<Record<Tier, number>> = { routine: 1, normal: 2, high_risk: 3, strategic: 4, emergency: 0 };
@@ -132,9 +127,6 @@ export function policyOf(stored: unknown): ApprovalPolicy {
     schedule_threshold_days: isInt(raw.schedule_threshold_days, 0, MAX_SCHEDULE_THRESHOLD_DAYS)
       ? raw.schedule_threshold_days
       : DEFAULT_SCHEDULE_THRESHOLD_DAYS,
-    emergency_retro_hours: isInt(raw.emergency_retro_hours, 1, MAX_RETRO_HOURS)
-      ? raw.emergency_retro_hours
-      : DEFAULT_POLICY.emergency_retro_hours,
   };
 }
 
@@ -152,7 +144,7 @@ export function validatePolicyInput(input: unknown): { ok: true; value: Approval
   }
   const p = input as Record<string, unknown>;
   for (const k of Object.keys(p)) {
-    if (!["tiers", "currency_threshold", "currency", "emergency_retro_hours", "schedule_threshold_days"].includes(k)) {
+    if (!["tiers", "currency_threshold", "currency", "emergency_retro_hours" /* retired, accepted and ignored */, "schedule_threshold_days"].includes(k)) {
       issues.push({ field: `approval_policy.${k}`, message: "Unknown setting." });
     }
   }
@@ -228,7 +220,7 @@ export function validatePolicyInput(input: unknown): { ok: true; value: Approval
     if (typeof p.currency === "string" && /^[A-Za-z]{3}$/.test(p.currency)) value.currency = p.currency.toUpperCase();
     else issues.push({ field: "approval_policy.currency", message: "Use a three-letter currency code such as MYR." });
   }
-  // `emergency_retro_hours` is deprecated (Q1): an old client may still send it. It is accepted, not validated and
+  // `emergency_retro_hours` is a retired setting (Q1, D17): an old client may still send it. It is accepted, not validated and
   // not stored, so it can neither fail a save nor change anything.
   return issues.length > 0 ? { ok: false, issues } : { ok: true, value };
 }
@@ -269,7 +261,19 @@ export async function loadApprovalPolicy(db: Db, workspaceId: string): Promise<A
 
 // ── classification (G1, G7) ───────────────────────────────────────────────
 
-export type ClassifyKind = "change_request" | "task_deletion" | "project_deletion" | "expense_deletion" | "rebaseline";
+export type ClassifyKind =
+  | "change_request"
+  | "task_deletion"
+  | "project_deletion"
+  | "expense_deletion"
+  | "rebaseline"
+  // Wave 5 registers (R-176). Their tier is fixed by the build and not routable in Settings (D15): a program is
+  // high_risk, the other four are normal. A requester may still ask for more scrutiny, never less than the floor.
+  | "program_deletion"
+  | "sprint_deletion"
+  | "resource_deletion"
+  | "allocation_deletion"
+  | "clash_deletion";
 
 export type ClassifyInput = {
   kind: ClassifyKind;
@@ -305,7 +309,7 @@ const STRATEGIC_MESSAGE = "Only an admin can raise a strategic request.";
  *  - `requested_tier: 'strategic'` -> strategic (admin only).
  *  - `requested_tier: 'routine'` -> routine, change requests only, and only with no cost and no
  *    schedule impact (else 422): a second human decides money and dates.
- *  - otherwise `normal`; a project deletion starts at high_risk (never lower), and so does an expense
+ *  - otherwise `normal`; a project or program deletion starts at high_risk (never lower), and so does an expense
  *    deletion whose amount reaches the cost threshold (owner decision Q5).
  *  - a normal change request with |cost| at or above the cost threshold, or a schedule impact of more
  *    than `schedule_threshold_days`, becomes high_risk (G7).
@@ -338,12 +342,17 @@ export function classify(input: ClassifyInput): Classification {
     }
   }
 
-  const floor: Tier = kind === "project_deletion" ? "high_risk" : "normal";
+  const floor: Tier = kind === "project_deletion" || kind === "program_deletion" ? "high_risk" : "normal";
   let tier: Tier = asked ?? floor;
   // Routine (validated above: a change request with no money and no dates) is the one tier below the floor.
   if (asked !== "routine" && TIER_RANK[tier] < TIER_RANK[floor]) tier = floor;
 
-  let reason: string | null = tier !== "normal" && tier === floor && !asked ? "Deleting a whole project is high risk." : null;
+  let reason: string | null =
+    tier !== "normal" && tier === floor && !asked
+      ? kind === "program_deletion"
+        ? "Deleting a whole program is high risk."
+        : "Deleting a whole project is high risk."
+      : null;
   let bump = false;
   if (kind === "expense_deletion" && tier === "normal") {
     const amount = Math.abs(Number(input.amount ?? 0) || 0);

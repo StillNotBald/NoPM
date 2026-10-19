@@ -12,7 +12,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Table, THead, TH, TR, TD } from "@/components/ui/data-table";
 import { UrlFilter } from "@/app/(console)/review/_url-filter";
 import { oldestAgeDays } from "@/lib/format/dates";
-import { childCountsHeading, describeDeletionTarget, describeChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
+import { childCountsHeading, describeDeletionTarget, describeChildCounts, showsChildCounts, targetPhrase, type DeletionTarget } from "@/lib/review/deletion-target";
+import { isRegisterDeletionTarget, registerDeletionKindFor } from "@/lib/governance/deletion-dispatch";
 import { deletionKindFor } from "@/lib/integrations/types";
 import { ChildCountsNote } from "@/components/review/child-counts-note";
 import { judgeDecision } from "@/lib/review/four-eyes";
@@ -114,7 +115,7 @@ function TargetSummary({
         </p>
       )}
       <TierLine req={req} />
-      {(req.target_type === "project" || req.target_type === "milestone") && req.status === "pending" && (
+      {showsChildCounts(req.target_type) && req.status === "pending" && (
         <ChildCountsNote
           lines={describeChildCounts(req.before, req.target_type)}
           heading={childCountsHeading(req.target_type)}
@@ -201,10 +202,12 @@ export default async function ApprovalsPage({
       r.id,
       judgeDecision({
         viewer,
-        kind: deletionKindFor(r.target_type),
+        kind: isRegisterDeletionTarget(r.target_type) ? registerDeletionKindFor(r.target_type) : deletionKindFor(r.target_type),
         row: r,
         singleAdmin,
         projectLocked: (() => {
+          // A locked project freezes the schedule shape; the five wave-5 registers are not schedule shape (R-176).
+          if (isRegisterDeletionTarget(r.target_type)) return false;
           const pid = describeDeletionTarget(r).projectId;
           return !!pid && lockedProjects.has(pid);
         })(),

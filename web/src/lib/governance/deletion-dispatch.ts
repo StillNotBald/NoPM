@@ -19,7 +19,8 @@ import { requestDeleteScopes } from "@/lib/auth/scopes";
  * tasks and projects. Audit gap G8 (CHANGE-REQUEST assumption A8, migration 0102)
  * extended it to risks, issues, expenses, documents and milestones, each with its own
  * sibling commit RPC (nopm_commit_<entity>_deletion) and a BEFORE DELETE backstop in
- * the database. Clashes and programs are not governed records and stay direct.
+ * the database. Wave 5 (R-176, migrations 0113 and 0114) extended it to programs, sprints, resources
+ * (resource_members), allocations and clashes, each with its own sibling commit RPC.
  */
 const DELETION_COMMIT_RPC: Readonly<Record<string, string>> = {
   task: "nopm_commit_task_deletion",
@@ -29,7 +30,40 @@ const DELETION_COMMIT_RPC: Readonly<Record<string, string>> = {
   expense: "nopm_commit_expense_deletion",
   document: "nopm_commit_document_deletion",
   milestone: "nopm_commit_milestone_deletion",
+  program: "nopm_commit_program_deletion",
+  sprint: "nopm_commit_sprint_deletion",
+  resource: "nopm_commit_resource_deletion",
+  allocation: "nopm_commit_allocation_deletion",
+  clash: "nopm_commit_clash_deletion",
 };
+
+/**
+ * The five registers that gained deletion-by-request in wave 5 (R-176). Their approval kind strings live HERE and not in
+ * @/lib/integrations/types: no chat card is sent for them (the hub's ApprovalKind stays the seven governed records),
+ * so announceRequested / announceDecided are skipped for these kinds.
+ */
+export const REGISTER_DELETION_ENTITIES = ["program", "sprint", "resource", "allocation", "clash"] as const;
+export type RegisterDeletionEntity = (typeof REGISTER_DELETION_ENTITIES)[number];
+export type RegisterDeletionKind = `${RegisterDeletionEntity}_deletion`;
+
+/** True when this `deletion_requests.target_type` is one of the five wave-5 registers. */
+export function isRegisterDeletionTarget(targetType: string): targetType is RegisterDeletionEntity {
+  return (REGISTER_DELETION_ENTITIES as readonly string[]).includes(targetType);
+}
+
+/** True for "program_deletion", "sprint_deletion", "resource_deletion", "allocation_deletion", "clash_deletion". */
+export function isRegisterDeletionKind(kind: string): kind is RegisterDeletionKind {
+  return REGISTER_DELETION_ENTITIES.some((e) => `${e}_deletion` === kind);
+}
+
+export function registerDeletionKindFor(entity: RegisterDeletionEntity): RegisterDeletionKind {
+  return `${entity}_deletion`;
+}
+
+/** The `deletion_requests.target_type` of a register kind ("program_deletion" is "program"). */
+export function registerEntityOfKind(kind: RegisterDeletionKind): RegisterDeletionEntity {
+  return kind.slice(0, -"_deletion".length) as RegisterDeletionEntity;
+}
 
 /**
  * Resolve the atomic commit RPC name for a `deletion_requests.target_type`.
@@ -61,6 +95,15 @@ const DELETION_APPROVE_SCOPE: Readonly<Record<string, string>> = {
   expense: "expense:delete:approve",
   document: "document:delete:approve",
   milestone: "milestone:delete:approve",
+  // Wave 5 registers. No new scope names: a program is a group of projects and is approved with the project verb,
+  // the other four with the task verb. Both are PRIVILEGED (a wildcard never grants them), so an agent token can
+  // approve only when someone deliberately minted it with the exact name. Approval is still limited to an admin or
+  // manager of the tier the request carries (a program is high_risk) and never to the requester.
+  program: "project:delete:approve",
+  sprint: "task:delete:approve",
+  resource: "task:delete:approve",
+  allocation: "task:delete:approve",
+  clash: "task:delete:approve",
 };
 const DELETION_REQUEST_SCOPE: Readonly<Record<string, string>> = {
   task: "task:delete:request",
@@ -70,6 +113,25 @@ const DELETION_REQUEST_SCOPE: Readonly<Record<string, string>> = {
   expense: "expense:delete:request",
   document: "document:delete:request",
   milestone: "milestone:delete:request",
+  // Wave 5 registers: the new `<entity>:delete:request` scope (registered in scopes.ts; the agent preset holds none).
+  program: "program:delete:request",
+  sprint: "sprint:delete:request",
+  resource: "resource:delete:request",
+  allocation: "allocation:delete:request",
+  clash: "clash:delete:request",
+};
+
+/**
+ * The write scope that could delete a register BEFORE wave 5. A token minted with it keeps the right to ASK (the same
+ * backward-compatible alias risk:delete and issue:delete got in 0102); nobody gains the right to approve. Viewers stay
+ * read-only (requireScope).
+ */
+const REGISTER_LEGACY_WRITE_SCOPE: Readonly<Record<RegisterDeletionEntity, string>> = {
+  program: "program:write",
+  sprint: "sprint:write",
+  resource: "resource:write",
+  allocation: "resource:write",
+  clash: "clash:write",
 };
 
 /** Scope required to approve/reject a request of this target type (422 if unsupported). */
@@ -102,6 +164,18 @@ export function resolveDeletionRequestScope(targetType: string): string {
  * the new scope when the caller holds neither. Viewers stay read-only (requireScope).
  */
 export function requireDeletionRequestScope(actor: Actor, targetType: string): void {
+  if (isRegisterDeletionTarget(targetType)) {
+    try {
+      requireScope(actor, DELETION_REQUEST_SCOPE[targetType]);
+    } catch (err) {
+      try {
+        requireScope(actor, REGISTER_LEGACY_WRITE_SCOPE[targetType]);
+      } catch {
+        throw err; // report the failure for the modern scope
+      }
+    }
+    return;
+  }
   const accepted = requestDeleteScopes(targetType);
   let first: unknown = null;
   for (const scope of accepted) {

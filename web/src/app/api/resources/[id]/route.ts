@@ -1,8 +1,9 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
-import { ok, noContent, safeJson, validationError } from "@/lib/api/response";
-import { NotFoundError, RuleError } from "@/lib/api/errors";
-import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
+import { ok, safeJson, validationError } from "@/lib/api/response";
+import { NotFoundError } from "@/lib/api/errors";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { requestDeletion } from "@/lib/governance/request-deletion";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createResourceSchema, patchResourceSchema } from "../_schema";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
@@ -70,47 +71,12 @@ export const PATCH = route(async ({ actor, params, request }) => {
   return ok(updated);
 });
 
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "resource:write");
-
-  const db = createAdminClient();
-  const { data: existing, error: fetchError } = await db
-    .from("resource_members")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw fetchError;
-  if (!existing) throw new NotFoundError("Resource member not found");
-
-  // Archived time_entries / timesheet_submissions (hour logging was removed but
-  // the data was kept) both cascade from the member, so a delete would erase the
-  // member's hours AND the approval record of every sheet. A member who has ever
-  // had a sheet is part of the approval history: refuse rather than erase it.
-  const { data: sheets, error: sheetsError } = await db
-    .from("timesheet_submissions")
-    .select("id")
-    .eq("member_id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .limit(1);
-
-  if (sheetsError) throw sheetsError;
-  if (sheets && sheets.length > 0) {
-    throw new RuleError(
-      "This member has archived hours from before hour logging was removed. They are kept for the record, so the member can't be deleted — remove their allocations instead.",
-      "has_timesheet_records",
-    );
-  }
-
-  // Row and audit row are one transaction (nopm_mutate_audited).
-  await auditedDelete({
-    table: "resource_members",
-    actor,
-    action: "resource.delete",
-    id: params.id,
-    notFoundMessage: "Resource member not found",
-  });
-
-  return noContent();
-});
+/**
+ * DELETE /api/resources/[id] — does NOT delete the member. It raises a deletion request (scope resource:write, as the
+ * direct delete had) with a required `reason` and returns 202 with the deletion_requests row. A member who has archived
+ * timesheets is refused (422 has_timesheet_records), now and again at approval. The request records the member's
+ * allocations; approving deletes them with the member and lists their ids on the audit trail (R-176).
+ */
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "resource", id: params.id }),
+);

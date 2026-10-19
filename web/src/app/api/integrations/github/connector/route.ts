@@ -2,13 +2,12 @@ import { route } from "@/lib/api/handler";
 import { ApiError, NotFoundError, RuleError } from "@/lib/api/errors";
 import { created, ok, safeJson, validationError } from "@/lib/api/response";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { writeAudit } from "@/lib/audit/write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import { assertIntegrationAdmin } from "@/lib/integrations/store";
 import { loadWorkEventRules } from "@/lib/integrations/github/process";
 import { RULE_TARGETS, WORK_EVENT_KINDS, normalizeRules, validateRulesPatch } from "@/lib/integrations/github/rules";
 import { encryptWebhookSecret, generateWebhookSecret } from "@/lib/integrations/github/secrets";
 import {
-  GITHUB_CONNECTOR_COLUMNS,
   getLiveGithubConnector,
   toPublicGithubConnector,
   type GithubConnectorRow,
@@ -69,34 +68,23 @@ export const POST = route(async ({ actor, request }) => {
     throw new ApiError(503, "Server encryption key (NOPM_ENCRYPTION_KEY) is not configured", "encryption_unavailable");
   }
 
-  const { data: row, error } = await db
-    .from("integration_connectors")
-    .insert({
-      workspace_id: actor.workspaceId, // always from the actor, never the body
-      kind: "github",
-      name,
-      status: "active",
-      config: {},
-      secret_enc: secretEnc,
-      created_by: actor.id,
-    })
-    .select(GITHUB_CONNECTOR_COLUMNS)
-    .single();
+  // ONE database function (migration 0109): the connector row and its audit row are one transaction. The audit
+  // payload is {kind, name, status}; the encrypted secret is written and never read into an audit row.
+  const { data: written, error } = await db.rpc("nopm_github_connector_write", {
+    p_workspace_id: actor.workspaceId, // always from the actor, never the body
+    p_op: "create",
+    p_name: name,
+    p_secret_enc: secretEnc,
+    p_created_by: actor.id,
+    p_audit: buildRpcAudit(actor, "integration.connector.create", "integration_connector"),
+  });
   if (error?.code === "23505") {
     throw new RuleError("This workspace already has a GitHub connector.", "connector_exists");
   }
+  const row = (written as { connector?: unknown } | null)?.connector;
   if (error || !row) throw error ?? new Error("Failed to create connector");
 
   const view = toPublicGithubConnector(row as unknown as GithubConnectorRow, origin(request));
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "integration.connector.create",
-    targetType: "integration_connector",
-    targetId: view.id,
-    before: null,
-    after: { kind: "github", name: view.name, status: view.status },
-  });
   return created({ ...view, webhook_secret: secret });
 });
 
@@ -129,56 +117,46 @@ export const PATCH = route(async ({ actor, request }) => {
   let newSecret: string | null = null;
   let view = existing ? toPublicGithubConnector(existing, origin(request)) : null;
 
+  let statusArg: string | null = null;
+  let secretEncArg: string | null = null;
   if (existing && wantsConnector) {
-    const update: Record<string, unknown> = {};
-    if ("status" in input) update.status = input.status;
+    if ("status" in input) statusArg = input.status as string;
     if (input.rotate_secret === true) {
       newSecret = generateWebhookSecret();
       try {
-        update.secret_enc = encryptWebhookSecret(newSecret);
+        secretEncArg = encryptWebhookSecret(newSecret);
       } catch {
         throw new ApiError(503, "Server encryption key (NOPM_ENCRYPTION_KEY) is not configured", "encryption_unavailable");
       }
     }
-    const { data: row, error } = await db
-      .from("integration_connectors")
-      .update(update)
-      .eq("id", existing.id)
-      .eq("workspace_id", actor.workspaceId)
-      .neq("status", "revoked")
-      .select(GITHUB_CONNECTOR_COLUMNS)
-      .maybeSingle();
-    if (error) throw error;
-    if (!row) throw new NotFoundError("No GitHub connector to update");
-    view = toPublicGithubConnector(row as unknown as GithubConnectorRow, origin(request));
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "integration.connector.update",
-      targetType: "integration_connector",
-      targetId: existing.id,
-      before: { kind: "github", status: existing.status },
-      after: { kind: "github", status: view.status, secret_rotated: newSecret !== null },
-    });
   }
 
   let rules = await loadWorkEventRules(db, actor.workspaceId);
-  if (rulesPatch && rulesPatch.ok) {
-    const before = rules;
-    const next = normalizeRules({ ...rules, ...rulesPatch.rules });
-    const { error } = await db.from("workspaces").update({ work_event_rules: next }).eq("id", actor.workspaceId);
-    if (error) throw error;
-    rules = next;
-    await writeAudit({
-      workspaceId: actor.workspaceId,
-      actor,
-      action: "work_event_rules.update",
-      targetType: "workspace",
-      targetId: actor.workspaceId,
-      before,
-      after: next,
-    });
+  const nextRules = rulesPatch && rulesPatch.ok ? normalizeRules({ ...rules, ...rulesPatch.rules }) : null;
+
+  // ONE database function (migration 0109): the connector change (status, rotated secret) AND workspaces.work_event_rules
+  // are written in one transaction, each with its own audit row (integration.connector.update and
+  // work_event_rules.update), or none of it is. The webhook secret never enters an audit payload.
+  const { data: written, error: writeError } = await db.rpc("nopm_github_connector_write", {
+    p_workspace_id: actor.workspaceId,
+    p_op: "update",
+    p_connector_id: existing && wantsConnector ? existing.id : null,
+    p_status: statusArg,
+    p_secret_enc: secretEncArg,
+    p_secret_rotated: newSecret !== null,
+    p_rules_after: nextRules,
+    p_audit: buildRpcAudit(actor, "integration.connector.update", "integration_connector"),
+  });
+  if (writeError) {
+    if (/CONNECTOR_NOT_FOUND/.test(writeError.message)) throw new NotFoundError("No GitHub connector to update");
+    throw writeError;
   }
+  const result = (written ?? {}) as { connector?: unknown };
+  if (existing && wantsConnector) {
+    if (!result.connector) throw new NotFoundError("No GitHub connector to update");
+    view = toPublicGithubConnector(result.connector as unknown as GithubConnectorRow, origin(request));
+  }
+  if (nextRules) rules = nextRules;
 
   return ok({ connector: view, rules, ...(newSecret ? { webhook_secret: newSecret } : {}) });
 });
@@ -188,26 +166,20 @@ export const DELETE = route(async ({ actor, request }) => {
   const db = createAdminClient();
   const existing = await getLiveGithubConnector(db, actor.workspaceId);
   if (!existing) throw new NotFoundError("No GitHub connector to revoke");
-  const nowIso = new Date().toISOString();
-  const { data: row, error } = await db
-    .from("integration_connectors")
-    .update({ status: "revoked", revoked_at: nowIso })
-    .eq("id", existing.id)
-    .eq("workspace_id", actor.workspaceId)
-    .neq("status", "revoked")
-    .select(GITHUB_CONNECTOR_COLUMNS)
-    .maybeSingle();
-  if (error) throw error;
+  // ONE database function (migration 0109): the revoke and its audit row are one transaction.
+  const { data: written, error } = await db.rpc("nopm_github_connector_write", {
+    p_workspace_id: actor.workspaceId,
+    p_op: "revoke",
+    p_connector_id: existing.id,
+    p_audit: buildRpcAudit(actor, "integration.connector.revoke", "integration_connector"),
+  });
+  if (error) {
+    if (/CONNECTOR_REVOKED/.test(error.message)) throw new RuleError("This connector is already revoked", "connector_revoked");
+    if (/CONNECTOR_NOT_FOUND/.test(error.message)) throw new NotFoundError("No GitHub connector to revoke");
+    throw error;
+  }
+  const row = (written as { connector?: unknown } | null)?.connector;
   if (!row) throw new RuleError("This connector is already revoked", "connector_revoked");
   const view = toPublicGithubConnector(row as unknown as GithubConnectorRow, origin(request));
-  await writeAudit({
-    workspaceId: actor.workspaceId,
-    actor,
-    action: "integration.connector.revoke",
-    targetType: "integration_connector",
-    targetId: existing.id,
-    before: { kind: "github", status: existing.status },
-    after: { kind: "github", status: "revoked" },
-  });
   return ok(view);
 });

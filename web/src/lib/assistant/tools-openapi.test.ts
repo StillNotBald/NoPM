@@ -72,6 +72,11 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   request_expense_deletion: { expense_id: FAKE_UUID, reason: "test cleanup" },
   request_document_deletion: { document_id: FAKE_UUID, reason: "test cleanup" },
   request_milestone_deletion: { milestone_id: FAKE_UUID, reason: "test cleanup" },
+  request_program_deletion: { program_id: FAKE_UUID, reason: "test cleanup" },
+  request_sprint_deletion: { sprint_id: FAKE_UUID, reason: "test cleanup" },
+  request_resource_deletion: { resource_id: FAKE_UUID, reason: "test cleanup" },
+  request_allocation_deletion: { allocation_id: FAKE_UUID, reason: "test cleanup" },
+  request_clash_deletion: { clash_id: FAKE_UUID, reason: "test cleanup" },
   list_risks:           { project_id: FAKE_UUID },
   create_risk:          { project_id: FAKE_UUID, title: "R1", severity: "low", likelihood: "low" },
   update_risk:          { risk_id: FAKE_UUID, status: "mitigating" },
@@ -91,6 +96,10 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   get_change_request:   { change_request_id: FAKE_UUID },
   list_decisions:       { project_id: FAKE_UUID, status: "accepted" },
   get_document:         { document_id: FAKE_UUID },
+  list_documents:       { change_request_id: FAKE_UUID, project_id: FAKE_UUID },
+  list_rebaselines:     { project_id: FAKE_UUID },
+  get_baseline_history: { project_id: FAKE_UUID },
+  list_project_dependencies: { project_id: FAKE_UUID },
 };
 
 // Typed view of the spec paths for easier narrowing

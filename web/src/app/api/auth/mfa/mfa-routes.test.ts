@@ -10,6 +10,7 @@ import { authenticator } from "otplib";
 import type { Actor } from "@/lib/auth/guard";
 import { fakeDb, type Call } from "@/lib/auth/fake-db.testutil";
 import { encrypt } from "@/lib/crypto";
+import { mfaRpcMirror, type MfaAudit } from "./mfa-rpc.testutil";
 import { hashBackupCode } from "@/lib/auth/mfa-factor";
 
 type MfaRow = {
@@ -24,6 +25,7 @@ const { state } = vi.hoisted(() => ({
   state: {
     actor: null as unknown,
     mfa: null as unknown,
+    audits: [] as unknown[],
     rateAllowed: true,
     db: null as unknown as ReturnType<typeof import("@/lib/auth/fake-db.testutil").fakeDb>,
   },
@@ -64,6 +66,7 @@ function mfaRow(over: Partial<MfaRow> = {}): MfaRow {
 
 function setup(row: MfaRow | null) {
   state.mfa = row;
+  state.audits = [];
   state.db = fakeDb(
     (c: Call) => {
       const cur = state.mfa as MfaRow | null;
@@ -84,10 +87,18 @@ function setup(row: MfaRow | null) {
       if (c.table === "audit_log" && c.op === "select") return { count: 0 };
       return {};
     },
-    () =>
-      state.rateAllowed
-        ? { data: { allowed: true, remaining: 9, retry_after_seconds: 0 } }
-        : { data: { allowed: false, remaining: 0, retry_after_seconds: 123 } },
+    // The four two-step functions (migration 0109) change user_mfa and write the audit row in one call.
+    mfaRpcMirror({
+      get: () => state.mfa as MfaRow | null,
+      set: (r) => {
+        state.mfa = r;
+      },
+      audits: state.audits as MfaAudit[],
+      other: () =>
+        state.rateAllowed
+          ? { data: { allowed: true, remaining: 9, retry_after_seconds: 0 } }
+          : { data: { allowed: false, remaining: 0, retry_after_seconds: 123 } },
+    }),
   );
 }
 
@@ -101,7 +112,7 @@ const post = (handler: typeof enroll, body?: unknown) =>
     { params: Promise.resolve({}) },
   );
 
-const actions = () => state.db.auditRows().map((r) => r.action);
+const actions = () => (state.audits as MfaAudit[]).map((a) => a.action);
 
 beforeEach(() => {
   state.actor = user;

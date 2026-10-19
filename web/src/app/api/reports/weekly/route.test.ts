@@ -3,21 +3,15 @@ import { NextRequest } from "next/server";
 import type { Actor } from "@/lib/auth/guard";
 
 const state = vi.hoisted(() => ({ db: undefined as unknown }));
-const { writeAuditMock, requireAuthMock } = vi.hoisted(() => ({
-  writeAuditMock: vi.fn<(input: Record<string, unknown>) => Promise<void>>(async () => {}),
-  requireAuthMock: vi.fn(),
-}));
+const { requireAuthMock } = vi.hoisted(() => ({ requireAuthMock: vi.fn() }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
-vi.mock("@/lib/audit/write", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/audit/write")>()),
-  writeAudit: writeAuditMock,
-}));
 vi.mock("@/lib/auth/guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/guard")>()),
   requireAuth: requireAuthMock,
 }));
 
-import { FakeDb, OTHER_WS, TEST_ENCRYPTION_KEY, WS, ids, seedWorkspace } from "@/lib/integrations/test-support";
+import { OTHER_WS, TEST_ENCRYPTION_KEY, WS, ids, seedWorkspace } from "@/lib/integrations/test-support";
+import { WeeklyReportFakeDb } from "@/lib/nudges/weekly-report-test-support";
 import { generateWeeklyReport } from "@/lib/nudges/weekly-report";
 import { GET, POST } from "./route";
 
@@ -30,17 +24,15 @@ const token = (scopes: string[], workspaceId = WS): Actor =>
 const get = (qs = "") => GET(new NextRequest(`http://localhost:3000/api/reports/weekly${qs}`), NO_PARAMS);
 const post = () => POST(new NextRequest("http://localhost:3000/api/reports/weekly", { method: "POST", body: "{}" }), NO_PARAMS);
 
-let db: FakeDb;
+let db: WeeklyReportFakeDb;
 beforeEach(async () => {
   vi.stubEnv("NOPM_ENCRYPTION_KEY", TEST_ENCRYPTION_KEY);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   vi.spyOn(console, "error").mockImplementation(() => {});
-  writeAuditMock.mockReset();
-  writeAuditMock.mockResolvedValue(undefined);
   requireAuthMock.mockReset();
   requireAuthMock.mockResolvedValue(user("admin"));
-  db = new FakeDb();
+  db = new WeeklyReportFakeDb();
   state.db = db;
   seedWorkspace(db);
   db.seed("workspaces", [{ id: OTHER_WS, name: "Other" }]);
@@ -50,7 +42,7 @@ beforeEach(async () => {
     { id: "px", workspace_id: OTHER_WS, code: "FOR", name: "Foreign", owner_id: null, rag_status: "green", is_locked: false },
   ]);
   await generateWeeklyReport(WS, { now: NOW, trigger: "manual", actor: user("admin") });
-  writeAuditMock.mockClear();
+  db.audits.length = 0;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -110,13 +102,13 @@ describe("GET /api/reports/weekly", () => {
 describe("POST /api/reports/weekly (send now)", () => {
   it("lets an admin or manager send it, with one audit row", async () => {
     for (const role of ["admin", "manager"]) {
-      writeAuditMock.mockClear();
+      db.audits.length = 0;
       requireAuthMock.mockResolvedValue(user(role));
       const res = await post();
       expect(res.status).toBe(200);
       expect((await res.json()).data).toMatchObject({ week_start: "2026-10-19", report_url: "/api/reports/weekly?week=2026-10-19" });
-      expect(writeAuditMock).toHaveBeenCalledTimes(1);
-      expect(writeAuditMock.mock.calls[0][0]).toMatchObject({ action: "report.weekly.generated", after: { trigger: "manual" } });
+      expect(db.audits).toHaveLength(1);
+      expect(db.audits[0]).toMatchObject({ action: "report.weekly.generated", after: { trigger: "manual" } });
     }
   });
 
@@ -125,6 +117,6 @@ describe("POST /api/reports/weekly (send now)", () => {
       requireAuthMock.mockResolvedValue(actor);
       expect((await post()).status).toBe(403);
     }
-    expect(writeAuditMock).not.toHaveBeenCalled();
+    expect(db.audits).toHaveLength(0);
   });
 });

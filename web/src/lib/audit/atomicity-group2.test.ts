@@ -19,12 +19,17 @@ const API_DIR = join(process.cwd(), "src", "app", "api");
 const DIRS = ["documents", "decisions", "members", "invites", "tokens", "notifications", "integrations", "assistant", "me"];
 const PROJECT_SUBROUTES = ["projects/[id]/decisions", "projects/[id]/budget"];
 
-const EXCEPTIONS: Record<string, string> = {
-  "integrations/connectors#POST":
-    "audit payload is the masked public connector view built from the row the insert returns (timestamps, secret-presence flags); the wrapper builds it before the write, so this needs its own RPC",
-  "integrations/connectors/[id]#PATCH":
-    "audit payload is the masked public connector view built from the row the update returns, plus which secrets changed; needs its own RPC",
-};
+import { EXCEPTIONS as SECURITY_SLICE } from "./atomicity-exceptions-security";
+
+/**
+ * Wave-5 Pre-1: the two connector entries live in the security slice (owner W5-B) so one builder
+ * deletes them from one file when the routes become atomic. This list is derived, never edited here.
+ */
+const CONNECTOR_KEYS = ["integrations/connectors#POST", "integrations/connectors/[id]#PATCH"] as const;
+const EXCEPTIONS: Record<string, string> = Object.fromEntries(
+  CONNECTOR_KEYS.filter((k) => k in SECURITY_SLICE).map((k) => [k, SECURITY_SLICE[k].reason]),
+);
+
 
 function walk(dir: string): string[] {
   if (!existsSync(dir)) return [];

@@ -1,8 +1,9 @@
 import { route } from "@/lib/api/handler";
 import { requireScope } from "@/lib/auth/guard";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { auditedUpdate, auditedDelete } from "@/lib/audit/audited-write";
-import { noContent, ok, safeJson, validationError } from "@/lib/api/response";
+import { auditedUpdate } from "@/lib/audit/audited-write";
+import { requestDeletion } from "@/lib/governance/request-deletion";
+import { ok, safeJson, validationError } from "@/lib/api/response";
 import { NotFoundError } from "@/lib/api/errors";
 import { unknownFieldsResponse } from "@/lib/work/unknown-fields";
 import { updateProgramSchema } from "../_schema";
@@ -78,43 +79,12 @@ export const PATCH = route(async ({ actor, params, request }) => {
 });
 
 /**
- * DELETE /api/programs/[id] — a PLAIN single-step hard delete with exactly
- * one audit row. NOT routed through deletion_requests.
- *
- * Owner-locked (Decision 3, requirements/devops-wave1/README.md): the
- * four-eyes maker-checker deletion flow extends to PROJECTS ONLY. Programs
- * behave like milestones/risks/issues here — audit-only hard delete, no
- * maker-checker step, mirroring src/app/api/risks/[id]/route.ts's DELETE
- * exactly.
- *
- * Deleting a program NEVER deletes or cascades into its child projects:
- * projects.program_id is FK'd `on delete set null` (migration
- * 20260815000034), so children simply lose their program grouping and keep
- * every other field — including their legacy `program` text label — intact.
+ * DELETE /api/programs/[id] — does NOT delete the program. It raises a deletion request (scope program:write, as the
+ * direct delete had) with a required `reason` and returns 202 with the deletion_requests row. A second person approves
+ * it at POST /api/deletion-requests/:id/approve (R-176; the database refuses any other DELETE after migration 0114).
+ * A program deletion is HIGH RISK: only an admin approves it. Approving never deletes the program's projects: they
+ * lose the grouping (projects.program_id is on delete set null) and keep every other field.
  */
-export const DELETE = route(async ({ actor, params }) => {
-  requireScope(actor, "program:write");
-
-  const db = createAdminClient();
-
-  const { data: existing, error: fetchError } = await db
-    .from("programs")
-    .select("*")
-    .eq("id", params.id)
-    .eq("workspace_id", actor.workspaceId)
-    .maybeSingle();
-
-  if (fetchError) throw fetchError;
-  if (!existing) throw new NotFoundError("Program not found");
-
-  // Row and audit row are one transaction (nopm_mutate_audited).
-  await auditedDelete({
-    table: "programs",
-    actor,
-    action: "program.delete",
-    id: params.id,
-    notFoundMessage: "Program not found",
-  });
-
-  return noContent();
-});
+export const DELETE = route(async ({ actor, params, request }) =>
+  requestDeletion({ actor, request, entity: "program", id: params.id }),
+);

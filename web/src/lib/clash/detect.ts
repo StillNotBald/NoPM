@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { writeAudit } from "@/lib/audit/write";
+import { auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
+import { buildRpcAudit } from "@/lib/audit/sql-audit-insert";
 import type { Actor } from "@/lib/auth/guard";
 
 /** Clash statuses that mean "still live" (everything except resolved). */
@@ -10,6 +11,10 @@ const LIVE_CLASH_STATUSES = ["open", "investigating"];
  * allocation_pct exceeds 100% across any overlapping windows.
  *
  * Called after every allocation POST/PATCH. Audit action: clash.auto_detected.
+ *
+ * Atomic (R-165): create and update-existing go through the generic nopm_mutate_audited wrapper on
+ * `clashes`, auto-resolve through nopm_clash_auto_resolve. Each audit row is written in the same
+ * transaction as its change, with the caller whose allocation write triggered detection as the actor.
  */
 /**
  * Returns true when an over-allocation clash was detected (new or existing),
@@ -107,25 +112,14 @@ export async function detectOverAllocation(
       .in("status", LIVE_CLASH_STATUSES);
     if (liveErr) throw liveErr;
     for (const clash of (live ?? []) as { id: string }[]) {
-      const { data: resolved, error: resolveErr } = await db
-        .from("clashes")
-        .update({ status: "resolved" })
-        .eq("id", clash.id)
-        .eq("workspace_id", workspaceId)
-        .in("status", LIVE_CLASH_STATUSES)
-        .select()
-        .maybeSingle();
-      if (resolveErr) throw resolveErr;
-      if (!resolved) continue; // someone else resolved it first: no double audit
-      await writeAudit({
-        workspaceId,
-        actor,
-        action: "clash.auto_resolve",
-        targetType: "clash",
-        targetId: clash.id,
-        before: clash,
-        after: resolved,
+      // The status guard lives in SQL: when someone else resolved the clash first the RPC returns null and
+      // writes no audit row (no double audit).
+      const { error: resolveErr } = await db.rpc("nopm_clash_auto_resolve", {
+        p_workspace_id: workspaceId,
+        p_clash_id: clash.id,
+        p_audit: buildRpcAudit(actor, "clash.auto_resolve", "clash"),
       });
+      if (resolveErr) throw resolveErr;
     }
     return false;
   }
@@ -170,10 +164,13 @@ export async function detectOverAllocation(
     .maybeSingle();
 
   if (existing) {
-    // Update the existing clash
-    const { data: updated, error: updateErr } = await db
-      .from("clashes")
-      .update({
+    // Update the existing clash, audited in the same transaction.
+    await auditedUpdate({
+      table: "clashes",
+      actor,
+      workspaceId,
+      id: existing.id,
+      patch: {
         title,
         severity,
         window_start: overlapWindowStart,
@@ -181,60 +178,41 @@ export async function detectOverAllocation(
         description,
         recommended_action: recommendedAction,
         over_allocation_pct: overAllocationPct,
-      })
-      .eq("id", existing.id)
-      .eq("workspace_id", workspaceId)
-      .select()
-      .single();
-
-    if (updateErr) throw updateErr;
-
-    await writeAudit({
-      workspaceId,
-      actor,
+      },
       action: "clash.auto_detected",
       targetType: "clash",
-      targetId: existing.id,
-      before: existing,
-      after: updated,
     });
   } else {
-    // Insert a new clash
-    const { data: inserted, error: insertErr } = await db
-      .from("clashes")
-      .insert({
-        workspace_id: workspaceId,
-        title,
-        type: "resource",
-        severity,
-        resource_member_id: memberId,
-        window_start: overlapWindowStart,
-        window_end: overlapWindowEnd,
-        status: "open",
-        description,
-        recommended_action: recommendedAction,
-        over_allocation_pct: overAllocationPct,
-      })
-      .select()
-      .single();
-
-    // Two detections racing: the partial unique index (migration 0080, one live
-    // resource clash per person) refuses the second insert. Run once more so it
-    // finds the winner and updates it instead.
-    if (insertErr?.code === "23505" && !retried) {
-      return detectOverAllocation(db, workspaceId, memberId, actor, true);
+    // Insert a new clash, audited in the same transaction.
+    try {
+      await auditedInsert({
+        table: "clashes",
+        actor,
+        workspaceId,
+        patch: {
+          title,
+          type: "resource",
+          severity,
+          resource_member_id: memberId,
+          window_start: overlapWindowStart,
+          window_end: overlapWindowEnd,
+          status: "open",
+          description,
+          recommended_action: recommendedAction,
+          over_allocation_pct: overAllocationPct,
+        },
+        action: "clash.auto_detected",
+        targetType: "clash",
+      });
+    } catch (insertErr) {
+      // Two detections racing: the partial unique index (migration 0080, one live resource clash per
+      // person) refuses the second insert, and the whole transaction (clash and audit row) rolls back.
+      // Run once more so it finds the winner and updates it instead.
+      if ((insertErr as { code?: string } | null)?.code === "23505" && !retried) {
+        return detectOverAllocation(db, workspaceId, memberId, actor, true);
+      }
+      throw insertErr;
     }
-    if (insertErr) throw insertErr;
-
-    await writeAudit({
-      workspaceId,
-      actor,
-      action: "clash.auto_detected",
-      targetType: "clash",
-      targetId: inserted.id,
-      before: null,
-      after: inserted,
-    });
   }
 
   return true;

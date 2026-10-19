@@ -54,11 +54,22 @@ export const PENDING_APPROVAL_KINDS = [
   "expense_deletion",
   "document_deletion",
   "milestone_deletion",
+  "program_deletion",
+  "sprint_deletion",
+  "resource_deletion",
+  "allocation_deletion",
+  "clash_deletion",
   "change_request",
   "rebaseline",
 ];
 
+// "emergency" is a LEGACY filter value only: new emergency changes commit as approved and never sit in this status.
+// It stays so a read of old rows still validates (it leaves after the CUTOVER/12 live check shows none).
 export const CHANGE_REQUEST_STATUSES = ["raised", "under_review", "emergency", "approved", "rejected", "deferred", "implemented"];
+export const DOCUMENT_TYPES = ["charter", "plan", "raid", "status_report", "change_request", "minutes", "spec", "other"];
+export const DOCUMENT_STATUSES = ["draft", "in_review", "approved", "archived"];
+export const EVIDENCE_TYPES = ["test_result", "uat_signoff", "deploy_record", "screenshot", "other"];
+export const EVIDENCE_RESULTS = ["pass", "fail", "partial", "n/a"];
 const DECISION_STATUSES_READ = ["proposed", "accepted", "superseded", "rejected"];
 
 const DATE = "ISO date, YYYY-MM-DD";
@@ -108,6 +119,19 @@ const externalUrl = {
   format: "uri",
   maxLength: 2000,
   description: "Optional link to the record in the external system",
+};
+
+// ── Blocker reason and ETA (R-166, R-174) — mirror the task validators (blocker_reason max 500, eta a real YYYY-MM-DD date).
+// Both are nullable on the API: send null to clear.
+const BLOCKER_REASON = {
+  type: ["string", "null"],
+  maxLength: 500,
+  description: "Why the task is blocked, in words, up to 500 chars. Independent of blocked_by. null clears it.",
+};
+const ETA = {
+  type: ["string", "null"],
+  pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+  description: "Forecast finish date, YYYY-MM-DD. It is a forecast, not the baseline, and may be in the past. null clears it.",
 };
 
 // ── Optimistic concurrency (R-90) — mirrors the update Zod validators exactly
@@ -408,6 +432,8 @@ const RAW_TOOLS = [
         estimate_hours: { type: "number" },
         story_points: { type: "number" },
         acceptance_criteria: { type: "string" },
+        blocker_reason: BLOCKER_REASON,
+        eta: ETA,
         source,
         external_ref: externalRef,
         external_url: externalUrl,
@@ -436,6 +462,8 @@ const RAW_TOOLS = [
         milestone_id: { type: "string", description: "Milestone UUID" },
         due_date: { type: "string", description: DATE },
         completion_pct: { type: "number", description: "0-100 integer" },
+        blocker_reason: BLOCKER_REASON,
+        eta: ETA,
         source,
         external_ref: externalRef,
         external_url: externalUrl,
@@ -581,13 +609,129 @@ const RAW_TOOLS = [
     }),
   },
   {
+    name: "request_program_deletion",
+    description:
+      "Request deletion of a program (scope: program:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=program) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. A program deletion is high risk (an admin approves it). Its projects are kept and lose the grouping.",
+    parameters: {
+      type: "object",
+      properties: {
+        program_id: { type: "string", description: "Program UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["program_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/programs/${idSeg("program_id", args.program_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_sprint_deletion",
+    description:
+      "Request deletion of a sprint (scope: sprint:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=sprint) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. Only a planned sprint with no attached tasks can be deleted (refused with 422 otherwise).",
+    parameters: {
+      type: "object",
+      properties: {
+        sprint_id: { type: "string", description: "Sprint UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["sprint_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/sprints/${idSeg("sprint_id", args.sprint_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_resource_deletion",
+    description:
+      "Request deletion of a resource member (scope: resource:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=resource) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. Refused (422 has_timesheet_records) while the member has archived timesheets. Approving also deletes the member's allocations; they are listed on the audit trail.",
+    parameters: {
+      type: "object",
+      properties: {
+        resource_id: { type: "string", description: "Resource member UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["resource_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/resources/${idSeg("resource_id", args.resource_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_allocation_deletion",
+    description:
+      "Request deletion of an allocation (scope: allocation:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=allocation) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. The member's over-allocation is re-checked when it is approved.",
+    parameters: {
+      type: "object",
+      properties: {
+        allocation_id: { type: "string", description: "Allocation UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["allocation_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/allocations/${idSeg("allocation_id", args.allocation_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
+    name: "request_clash_deletion",
+    description:
+      "Request deletion of a clash (scope: clash:delete:request). Does NOT delete: it creates a maker-checker " +
+      "deletion request (status=pending, target_type=clash) that a DIFFERENT person holding the approve scope " +
+      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
+      "The agent preset never holds this scope. Needed for any clash, including one the system created. Resolving a clash is a status change (update through the clash PATCH), not a deletion.",
+    parameters: {
+      type: "object",
+      properties: {
+        clash_id: { type: "string", description: "Clash UUID" },
+        reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
+        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+      },
+      required: ["clash_id", "reason"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/clashes/${idSeg("clash_id", args.clash_id)}`,
+      method: "DELETE",
+      body: { reason: args.reason, ...(args.assigned_approver_id ? { assigned_approver_id: args.assigned_approver_id } : {}) },
+    }),
+  },
+  {
     // Q-GOV-27 (2026-10-17): the maker can take their own request back. This is the ONLY deletion verb
     // the agent surfaces besides requesting: it never approves or rejects (those stay human, 403 for a token).
     name: "withdraw_deletion_request",
     description:
       "Withdraw a deletion request that YOU (or the person this token acts for) raised, while it is still " +
       "pending. Use it when the request was a mistake or is no longer wanted. It cancels the request " +
-      "without deleting anything and is audited. It cannot approve or reject anything, and it only works " +
+      "without deleting anything and is audited. It works for a request of any kind (task, project, risk, issue, " +
+      "expense, document, milestone, program, sprint, resource, allocation or clash). It cannot approve or reject anything, and it only works " +
       "on your own pending request: a request someone else raised, or one already decided, is refused.",
     parameters: {
       type: "object",
@@ -867,7 +1011,8 @@ const RAW_TOOLS = [
   {
     name: "get_change_request",
     description:
-      "Get one change request in full: description, impact, the decision (who, when, rationale) and every other column the record holds. READ-ONLY.",
+      "Get one change request in full: description, impact, the decision (who, when, rationale) and every other column the record holds. " +
+      "It does not list the test or UAT evidence: that comes from the evidence route (list_documents with change_request_id, and attach_evidence to add some). READ-ONLY.",
     parameters: {
       type: "object",
       properties: { change_request_id: { type: "string", description: "Change request UUID" } },
@@ -918,6 +1063,93 @@ const RAW_TOOLS = [
       additionalProperties: false,
     },
     toRequest: (args) => ({ path: `/api/documents/${idSeg("document_id", args.document_id)}`, method: "GET" }),
+  },
+  {
+    name: "list_documents",
+    description:
+      "List documents in the workspace, newest first, optionally for one project, folder, status, type or change request " +
+      "(change_request_id lists the evidence attached to that request). Pass view=summary (default) for a lean list, " +
+      "view=full or fields=... for more, or get_document for one in full with its text body. READ-ONLY (scope: document:read).",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Only this project (UUID)" },
+        folder: { type: "string", description: "Only this folder" },
+        status: { type: "string", enum: DOCUMENT_STATUSES, description: "Only this status" },
+        doc_type: { type: "string", enum: DOCUMENT_TYPES, description: "Only this document type" },
+        change_request_id: { type: "string", description: "Only documents attached to this change request (UUID)" },
+        page,
+        limit,
+        view,
+        fields,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path:
+        `/api/documents?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}` +
+        (args.project_id !== undefined && args.project_id !== null ? `&project_id=${idSeg("project_id", args.project_id)}` : "") +
+        (args.folder !== undefined && args.folder !== null ? `&folder=${encodeURIComponent(String(args.folder))}` : "") +
+        (args.status !== undefined && args.status !== null ? `&status=${encodeURIComponent(String(args.status))}` : "") +
+        (args.doc_type !== undefined && args.doc_type !== null ? `&doc_type=${encodeURIComponent(String(args.doc_type))}` : "") +
+        (args.change_request_id !== undefined && args.change_request_id !== null
+          ? `&change_request_id=${idSeg("change_request_id", args.change_request_id)}`
+          : "") +
+        qview(args),
+      method: "GET",
+    }),
+  },
+  {
+    name: "list_rebaselines",
+    description:
+      "List a project's rebaselines, newest version first (scope: project:read): status (draft, pending_approval, approved, applied, rejected), " +
+      "reason, who asked, applied_at, and before / after (the baseline dates before and after the change). READ-ONLY. " +
+      "A rebaseline is signed off and applied by a person with the approve scope; this tool only reads. See also get_baseline_history.",
+    parameters: {
+      type: "object",
+      properties: { project_id: { type: "string", description: "Project UUID" }, page, limit },
+      required: ["project_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/rebaselines?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      method: "GET",
+    }),
+  },
+  {
+    name: "get_baseline_history",
+    description:
+      "How a project's baseline dates moved over time (scope: project:read): the same rebaseline rows as list_rebaselines, up to 100 in one call, " +
+      "newest version first. Read the rows with status applied (their applied_at is when the baseline moved), and for each compare " +
+      "before (the dates it replaced) with after (the dates it set); read them from the highest version down to follow the history backwards. READ-ONLY.",
+    parameters: {
+      type: "object",
+      properties: { project_id: { type: "string", description: "Project UUID" } },
+      required: ["project_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/rebaselines?page=1&limit=100`,
+      method: "GET",
+    }),
+  },
+  {
+    name: "list_project_dependencies",
+    description:
+      "List a project's dependencies in both directions (scope: project:read): each row has direction (depends_on or depended_on_by), " +
+      "kind (delivery, resource, decision or risk), an optional linked risk, a note, and the other project's id, code, name and declared RAG. " +
+      "Use it to see what a decision or rebaseline would knock on to. READ-ONLY.",
+    parameters: {
+      type: "object",
+      properties: { project_id: { type: "string", description: "Project UUID" } },
+      required: ["project_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/dependencies`,
+      method: "GET",
+    }),
   },
 
   // ── Clashes ───────────────────────────────────────────────────────────────
@@ -1101,8 +1333,6 @@ export const REBASELINE_VOTES = ["go", "no_go"];
 export const CHANGE_CATEGORIES = ["scope", "schedule", "cost", "quality", "resource", "other"];
 export const CHANGE_PRIORITIES = ["low", "medium", "high", "critical"];
 export const DECISION_STATUSES = ["proposed", "accepted", "superseded", "rejected"];
-export const DOCUMENT_TYPES = ["charter", "plan", "raid", "status_report", "change_request", "minutes", "spec", "other"];
-export const DOCUMENT_STATUSES = ["draft", "in_review", "approved", "archived"];
 
 /** @type {ToolRegistryEntry[]} */
 const RAW_MCP_GOVERNANCE_TOOLS = [
@@ -1207,8 +1437,66 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
     }),
   },
   {
+    name: "attach_evidence",
+    description:
+      "Attach test, UAT or deploy evidence to a change request (scope: document:write). It needs no approve or decide scope. " +
+      "Send document_id to link an existing document, or title to create a new evidence document under the request's project. " +
+      "evidence_type is required; evidence_result, tested_by, tested_at (default now) and evidence_note are optional. " +
+      "Allowed while the request is raised, under review, emergency, approved or implemented; a rejected or deferred request answers 422 evidence_not_accepted. " +
+      "A document already evidence for another request answers 422 evidence_linked_elsewhere. Audited like any document write. " +
+      "Returns the document; read the evidence back with list_documents (change_request_id).",
+    parameters: {
+      type: "object",
+      properties: {
+        change_request_id: { type: "string", description: "Change request UUID" },
+        document_id: { type: "string", description: "Existing document UUID to link (leave out when sending title)" },
+        title: { type: "string", description: "New document title, 1-500 chars (leave out when sending document_id)" },
+        doc_type: { type: "string", enum: DOCUMENT_TYPES, description: "New document only; default other" },
+        folder: { type: "string", description: "New document only; default General" },
+        summary: { type: "string", description: "New document only, up to 10,000 chars" },
+        body: { type: "string", description: "New document only, up to 100,000 chars" },
+        external_url: { type: "string", format: "uri", maxLength: 2000, description: "New document only: link to the test report, build or screenshot" },
+        evidence_type: { type: "string", enum: EVIDENCE_TYPES },
+        evidence_result: { type: "string", enum: EVIDENCE_RESULTS },
+        tested_by: { type: "string", description: "Who ran the test, up to 200 chars. The record always names the acting token or person; only an admin or manager session may name someone else, and from a token this text is kept in evidence_note as an unverified claim." },
+        tested_at: { type: "string", description: DATETIME + " (default: now)" },
+        evidence_note: { type: "string", description: "Up to 5,000 chars" },
+      },
+      required: ["change_request_id", "evidence_type"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const { change_request_id, ...body } = args;
+      return { path: `/api/change-requests/${idSeg("change_request_id", change_request_id)}/evidence`, method: "POST", body };
+    },
+  },
+  {
+    name: "implement_change_request",
+    description:
+      "Mark an APPROVED change request as implemented, that is live (scope: change:write, not change:decide). " +
+      "Allowed for the person who raised it, or any admin or manager; the token needs a recorded owner (403 no_principal otherwise). " +
+      "Stamps implemented_at and who did it in one transaction with the audit row; the database refuses an implemented_at earlier than decided_at. " +
+      "Once only: a repeat is 422 already_implemented, and a request that is not approved is 422 invalid_transition. " +
+      "An emergency change is approved when raised and can be implemented at once. This tool never decides anything.",
+    parameters: {
+      type: "object",
+      properties: {
+        change_request_id: { type: "string", description: "Change request UUID" },
+        note: { type: "string", maxLength: 2000, description: "Optional implementation note, up to 2,000 chars" },
+      },
+      required: ["change_request_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const { change_request_id, ...body } = args;
+      return { path: `/api/change-requests/${idSeg("change_request_id", change_request_id)}/implement`, method: "POST", body };
+    },
+  },
+  {
     name: "create_decision",
-    description: "Log a decision in a project's decision register (scope: decision:write). Gets a DEC-NNN reference.",
+    description:
+      "Log a decision in a project's decision register (scope: decision:write). Gets a DEC-NNN reference. " +
+      "Pass change_request_id to record which change request the decision was taken for. A manager or admin's decision defaults to accepted; anyone else's to proposed.",
     parameters: {
       type: "object",
       properties: {
@@ -1221,6 +1509,10 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
         status: { type: "string", enum: DECISION_STATUSES },
         decided_at: { type: "string", description: DATETIME },
         supersedes: { type: "string", description: "UUID of the decision this replaces" },
+        change_request_id: {
+          type: "string",
+          description: "UUID of the change request this decision was taken for (same workspace and same project as the decision)",
+        },
       },
       required: ["project_id", "title"],
       additionalProperties: false,
@@ -1234,7 +1526,9 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
     name: "create_document",
     description:
       "Create a document record (scope: document:write): a title, type, status, summary or body, optionally linked to a " +
-      "project. Gets a DOC-NNN reference. File upload is a browser step, not part of this tool.",
+      "project. Gets a DOC-NNN reference. To file it as test or UAT evidence, pass change_request_id (the request must be in the " +
+      "same project as the document) with evidence_type and, optionally, evidence_result, tested_by_label, tested_at and evidence_note; " +
+      "attach_evidence does the same from the change request's side. File upload is a browser step, not part of this tool.",
     parameters: {
       type: "object",
       properties: {
@@ -1247,6 +1541,12 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
         body: { type: "string", description: "Up to 100,000 chars" },
         external_url: { type: "string", format: "uri", maxLength: 2000 },
         owner_id: { type: "string", description: "Owner member UUID" },
+        change_request_id: { type: "string", description: "Change request this document is evidence for (UUID; same project as the document)" },
+        evidence_type: { type: "string", enum: EVIDENCE_TYPES, description: "Needs change_request_id" },
+        evidence_result: { type: "string", enum: EVIDENCE_RESULTS, description: "Needs evidence_type" },
+        tested_by_label: { type: "string", description: "Who ran the test, up to 200 chars (default: the token's name)" },
+        tested_at: { type: "string", description: DATETIME + " (default: now)" },
+        evidence_note: { type: "string", description: "Up to 5,000 chars" },
       },
       required: ["title", "doc_type"],
       additionalProperties: false,

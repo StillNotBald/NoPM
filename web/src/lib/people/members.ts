@@ -220,6 +220,32 @@ export async function memberMfaEnabled(profileIds: string[]): Promise<Set<string
   return mfa;
 }
 
+/** Lookups run this many at a time (R-167). The export is already capped, so the total is bounded. */
+export const LAST_SIGN_IN_BATCH = 10;
+
+/**
+ * Last sign-in time per person, from the auth users (R-167). Service role only, read through the admin client.
+ * This is for the admin access-review export and nothing else: it never reaches GET /api/members or the UI.
+ * Reads BY ID with getUserById, in parallel batches of LAST_SIGN_IN_BATCH, so only this workspace's people are
+ * touched (never a scan of every tenant's users). A person who never signed in has no entry. Any failed lookup
+ * throws, so an empty cell always means "never signed in" and never "the lookup failed".
+ */
+export async function memberLastSignIns(profileIds: string[]): Promise<Map<string, string>> {
+  const found = new Map<string, string>();
+  if (profileIds.length === 0) return found;
+  const db = createAdminClient();
+  for (let i = 0; i < profileIds.length; i += LAST_SIGN_IN_BATCH) {
+    const batch = profileIds.slice(i, i + LAST_SIGN_IN_BATCH);
+    const results = await Promise.all(batch.map((id) => db.auth.admin.getUserById(id)));
+    results.forEach((r, k) => {
+      if (r.error) throw r.error;
+      const at = r.data?.user?.last_sign_in_at;
+      if (at) found.set(batch[k], at);
+    });
+  }
+  return found;
+}
+
 export async function listMembers(workspaceId: string): Promise<MemberRow[]> {
   const db = createAdminClient();
   const { data, error } = await db

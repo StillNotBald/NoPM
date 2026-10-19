@@ -109,6 +109,16 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "allocation.delete", description: "A resource allocation was removed" },
   { action: "expense.create", description: "An expense was recorded" },
   { action: "expense.delete_requested", description: "Expense deletion requested (awaits a second approver)" },
+  // wave 5 Pre-2: deletion-by-request for the five remaining registers (R-176, migration 0113)
+  { action: "program.delete_requested", description: "Program deletion requested (awaits a second approver; high-risk tier)" },
+  { action: "sprint.delete_requested", description: "Sprint deletion requested (awaits a second approver)" },
+  { action: "resource.delete_requested", description: "Resource deletion requested (awaits a second approver)" },
+  { action: "allocation.delete_requested", description: "Allocation deletion requested (awaits a second approver)" },
+  { action: "clash.delete_requested", description: "Clash deletion requested (awaits a second approver)" },
+  // wave 5 Pre-2: audit-chain external anchor (R-168..R-170, migration 0112)
+  { action: "audit.anchored", description: "Audit-chain head anchored in the external anchor store (chain sequence, head hash, row count)" },
+  { action: "audit.anchor_failed", description: "Anchoring the audit-chain head failed (one row per failure streak; the chain itself is unaffected)" },
+  { action: "audit.anchor_mismatch", description: "The anchored head did not match the chain: possible tampering, investigate before trusting the trail" },
   { action: "expense.delete", description: "An expense was deleted after approval" },
   { action: "budget.update", description: "A project budget was changed" },
   { action: "snapshot.taken", description: "The nightly project snapshots were taken (counts of projects and new snapshots)" },
