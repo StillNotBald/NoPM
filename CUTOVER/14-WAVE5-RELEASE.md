@@ -179,4 +179,23 @@ Follow-up recorded at sign-off: if the `emergency_status` count in check 1.5 of 
 
 ## Run record
 
-_Not yet run._ Record: backup taken, phase 1 dry-run output, phase 1 apply output and time, ledger (110), promote time, smoke, phase 2 output, ledger (111), the ten triggers, the chain head hash, and the anchor state.
+**Run 2026-10-19, 19:46–19:52 MYT (11:46–11:52 UTC), by the owner, one shot** (`_docs/nopm-merge-and-release-2026-10-19.sh` → `_docs/nopm-release-2026-10-19-wave5.sh`, outside the repo; log `_docs/nopm-release-2026-10-19-wave5.log`). Release of main `09ae032` (= PR #12 wave 5 + PR #14 build fix + PR #13 docs), cycle 2's 0106 shipped in the same window.
+
+| Step | Result |
+|---|---|
+| Attempt 1, 19:23 | Stopped at the Vercel build on main `bf064ed`: a client component reached `next/headers` through `lib/review/deletion-target.ts` → `pending.ts` → `governance/deletion-dispatch.ts`. No migration applied, live untouched. Fixed in PR #14 (`lib/review/text.ts`, guard test `client-server-boundary.test.ts`). |
+| Backup | `~/nopm-backups/pre-0106-20261019-1947-schema.sql` (648,074 B) and `-data.sql` (357,796 B); the 19:24 pair from attempt 1 is identical in size. |
+| Group 0 (12) | ledger 102 / last 0105; 0.2 = audit 241, change_requests 9, deletion_requests 12, projects 6, tasks 114, programs 2, sprints 5, resource_members 7, allocations 9, clashes 2, user_mfa 0. |
+| Phase 1 dry run | 8 pending files applied cleanly, then ROLLED BACK (462 ms). |
+| Build | `vercel deploy --prod --skip-domain`: READY, health ok on the preview URL. |
+| Phase 1 apply | Committed 8 files in one transaction (478 ms); ledger 110 / last `20261018000113`. |
+| Group 1 (12) | 1.1 27/0 missing; 1.2 29/29 functions, both tables, 12 entities, 2 task columns; **1.3 `not_validated` 2: `cr_principal_distinct`, `deletion_principal_distinct`** (1.3b: no row breaks them, so both are enforced for new writes; follow-up: a migration that runs `validate constraint` on the two); 1.4 one locked project, `locked_by_nil_uuid` 0, `lock_without_stamp` 0; 1.5 all five zero columns 0, only `work_event_rules.update` 1 (Q7); 1.6 one workspace, 242 rows, gaps 0, unhashed 0, verify ok, head `9620944ead0c…a77c39` at seq 242; 1.7 no `user_mfa` rows; 1.8 5 triggers (the old five). |
+| Promote | 11:51:14 UTC; health ok on stillnotbald.com. |
+| Group 2 (12) | 2.1 stragglers 0; 2.2 1 audit row since, 0 requests without a row; 2.3 chain intact; 2.4 no MFA use yet; 2.5 last `snapshot.taken` 2026-10-18 17:45 UTC (next cron tonight). |
+| Phase 2 | dry run 1 pending rolled back (157 ms); Committed 1 file (161 ms); ledger 111 / last `20261018000114`. |
+| Group 3 (12) | 3.1 28/0/111; **3.2 ten triggers, 5 + 5, none disabled; 3.3 12 of 12 commit functions set the flag**; 3.4 project committed 2, task pending 2 / rejected 5 / withdrawn 3; 3.5 every 0.2 count equal, audit 241 → 242. |
+| Smoke | `auth-smoke.mjs` 23 passed, 0 failed. |
+| Tag | `v0.1.1` (annotated) on `09ae032`, pushed. |
+| Anchor | not configured (`NOPM_ANCHOR_DB_URL` unset): Trust Center reads "Not anchored". Group 4 pending CUTOVER/13. |
+
+Follow-up from 1.5: `emergency_status` is 0 on live, so the retired `emergency` status can leave the status lists next wave (see Sign-off above).

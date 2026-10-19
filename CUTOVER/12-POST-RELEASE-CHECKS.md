@@ -574,8 +574,8 @@ limit 10;
 
 | Group | Done | Date | Notes (numbers from 0.2, the head hash from 1.6) |
 |---|---|---|---|
-| 0 Baseline | | | |
-| 1 After 0107–0113 | | | |
-| 2 After the deploy | | | |
-| 3 After 0114 | | | |
-| 4 After the anchor | | | |
+| 0 Baseline | yes | 2026-10-19 | ledger 102/0105; audit 241, CR 9, deletion requests 12, projects 6, tasks 114, programs 2, sprints 5, resource_members 7, allocations 9, clashes 2, user_mfa 0 |
+| 1 After 0107–0113 | yes | 2026-10-19 | ledger 110/0113; 1.3 `not_validated` 2 (`cr_principal_distinct`, `deletion_principal_distinct`; 1.3b none) — follow-up migration to validate; 1.6 gaps 0, ok true, head `9620944ead0cd31677fc4160f249642a1ed3ccd94de51e59be3b6ea555a77c39` @ seq 242 |
+| 2 After the deploy | yes | 2026-10-19 | promote 11:51 UTC; 2.2 1 row since, 0 without audit; chain intact |
+| 3 After 0114 | yes | 2026-10-19 | ledger 111/0114; 10 triggers, 12/12 functions; counts unchanged, audit 242; smoke 23/23; tag v0.1.1 |
+| 4 After the anchor | | | pending CUTOVER/13 (`NOPM_ANCHOR_DB_URL` unset) |
