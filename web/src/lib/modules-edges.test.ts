@@ -68,7 +68,8 @@ describe("client nav hooks", () => {
     expect(r.hrefs).not.toContain("/budget");
     expect(r.hrefs).not.toContain("/resources");
     expect(r.flat).not.toContain("/clashes");
-    expect(r.sections).not.toContain("Capacity");
+    // "Capacity" keeps one item: /people (workspace members) belongs to the kernel, so the section stays.
+    expect(r.sections).toContain("Capacity");
     expect(r.choices.some((c: string) => c.startsWith("budget:") || c.startsWith("resource:"))).toBe(false);
     expect(r.agentPreset).not.toContain("budget:read");
     expect(r.agentPreset).toContain("task:write");
