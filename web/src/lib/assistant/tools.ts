@@ -26,7 +26,7 @@ export type ToolSpec = {
   };
 };
 
-// Tools of modules switched off with NOPM_MODULES (ADR 0015) are not offered to the model.
+// Tools of modules switched off with NOPM_MODULES (ADR 0019) are not offered to the model.
 export const TOOLS: ToolSpec[] = filterTools(TOOL_REGISTRY).map((t) => ({
   definition: {
     name: t.name,

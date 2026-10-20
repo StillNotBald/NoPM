@@ -103,7 +103,7 @@ const WILDCARD = /^([a-z_]+):\*$/;
  * known resource, or the global `*`. Used to validate PAT scopes at mint time.
  */
 export function isValidScope(scope: string): boolean {
-  // Module registry (ADR 0015): a disabled module's scopes cannot be minted.
+  // Module registry (ADR 0019): a disabled module's scopes cannot be minted.
   if (SCOPE_SET.has(scope)) return isScopeEnabled(scope);
   const m = scope.match(WILDCARD);
   return !!m && SCOPE_RESOURCES.has(m[1]) && isScopeEnabled(`${m[1]}:read`);

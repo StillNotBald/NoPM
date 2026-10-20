@@ -35,7 +35,7 @@ type ToolRegistryEntry = {
   toRequest: (args: Record<string, unknown>) => { path: string; method: string; body?: unknown };
 };
 
-// Tools of modules switched off with NOPM_MODULES (ADR 0015) are neither listed nor callable.
+// Tools of modules switched off with NOPM_MODULES (ADR 0019) are neither listed nor callable.
 const REGISTRY = filterTools(MCP_TOOLS as ToolRegistryEntry[]);
 
 async function callApi(

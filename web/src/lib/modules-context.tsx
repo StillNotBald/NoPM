@@ -6,7 +6,7 @@ import { ALL_NAV_ITEMS, NAV_SECTIONS, type NavItem, type NavSection } from "@/li
 import { SCOPES, agentPresetScopes, scopeChoices, type Scope } from "@/lib/auth/scopes";
 
 /**
- * Hands the server-resolved module switch (NOPM_MODULES, ADR 0015) to client
+ * Hands the server-resolved module switch (NOPM_MODULES, ADR 0019) to client
  * components. The env var is not readable in the browser, so the console layout
  * reads it once and passes the DISABLED ids here. Without a provider nothing is
  * disabled, so existing renders and tests are unchanged.

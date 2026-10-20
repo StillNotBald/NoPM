@@ -4400,7 +4400,7 @@ function documentReferenceGuard(): void {
 
 documentReferenceGuard();
 
-// Paths of modules switched off with NOPM_MODULES are omitted (ADR 0015); all-on serves `spec` unchanged.
+// Paths of modules switched off with NOPM_MODULES are omitted (ADR 0019); all-on serves `spec` unchanged.
 export const GET = route(async () => Response.json(filterOpenApi(spec)), { auth: false });
 
 // Exported for the openapi-coverage drift test only.

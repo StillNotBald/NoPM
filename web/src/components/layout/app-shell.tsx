@@ -57,7 +57,7 @@ export function AppShell({
   pendingCounts?: PendingCounts | null;
   /** Server-resolved onboarding state for the page-hint strip (null = wait for the client store). */
   onboardingSeed?: PrefsSeed | null;
-  /** Module ids switched off with NOPM_MODULES (ADR 0015); [] = everything on. */
+  /** Module ids switched off with NOPM_MODULES (ADR 0019); [] = everything on. */
   disabledModules?: readonly string[];
 }) {
   const assistantEnabled = !disabledModules.includes("assistant");

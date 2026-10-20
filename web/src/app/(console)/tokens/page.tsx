@@ -106,7 +106,7 @@ function formatRelative(iso: string | null): string {
 
 export default function TokensPage() {
   // Derived from the SCOPES registry (scopeChoices) minus modules switched off
-  // with NOPM_MODULES (ADR 0015), so the list can never drift or offer a dead scope.
+  // with NOPM_MODULES (ADR 0019), so the list can never drift or offer a dead scope.
   const { choices: ALL_SCOPES, agentPreset: AGENT_PRESET_SCOPES } = useScopeLists();
   const router = useRouter();
   const toast = useToast();

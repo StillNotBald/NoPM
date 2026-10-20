@@ -52,7 +52,7 @@ export async function proxy(request: NextRequest) {
   // same as API routes.
   const path = request.nextUrl.pathname;
 
-  // Module registry (ADR 0015): a module switched off with NOPM_MODULES is
+  // Module registry (ADR 0019): a module switched off with NOPM_MODULES is
   // unreachable. API paths answer the standard 404 envelope; console pages are
   // rewritten to a route that calls notFound() so they render the console 404.
   if (isPathDisabled(path)) {

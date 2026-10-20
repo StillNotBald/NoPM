@@ -1,5 +1,5 @@
 /**
- * Module registry — Level 1 of NoPM modularity (ADR 0015).
+ * Module registry — Level 1 of NoPM modularity (ADR 0019).
  *
  * ONE typed list says which part of the product owns each nav item, page,
  * `/api/*` route, MCP tool, scope and `llms.txt` section. A deployment turns
