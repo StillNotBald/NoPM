@@ -38,6 +38,7 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "project.update", description: "Project metadata was updated" },
   { action: "project.lock", description: "Project schedule baseline locked" },
   { action: "four_eyes.legacy_requester_unknown", description: "A legacy request with no recorded requester was decided (four-eyes could not compare people)" },
+  { action: "four_eyes.legacy_self_approval_recorded", description: "A legacy request raised and decided by the same person was recorded: its requester principal was left unrecorded and the original value kept in this row (migration 0115)" },
   { action: "project.unlock", description: "Project schedule baseline unlocked" },
   { action: "project.delete_requested", description: "Project deletion requested (awaits a second approver)" },
   { action: "project.delete_request.blocked", description: "Project deletion request refused (project is locked)" },
