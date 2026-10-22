@@ -10,7 +10,7 @@
  * only so dark mode follows for free.
  */
 import { useEffect, useRef, useState, type ReactNode, type SelectHTMLAttributes } from "react";
-import { AlertTriangle, Check, ChevronDown, Copy } from "lucide-react";
+import { AlertTriangle, Check, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useModal } from "@/components/ui/modal";
@@ -302,30 +302,8 @@ export function CopyValue({
 
 // ── Disclosure ──────────────────────────────────────────────────────────────
 
-/** Native <details> disclosure (keyboard + screen-reader support for free), collapsed by default. */
-export function Disclosure({
-  summary,
-  children,
-  className,
-}: {
-  summary: ReactNode;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <details className={cn("group rounded-md border border-border-subtle bg-surface", className)}>
-      <summary className="focus-ring flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium text-ink marker:hidden [&::-webkit-details-marker]:hidden">
-        <span className="min-w-0">{summary}</span>
-        <ChevronDown
-          size={16}
-          className="shrink-0 text-ink-muted transition-transform group-open:rotate-180"
-          aria-hidden="true"
-        />
-      </summary>
-      <div className="space-y-3 border-t border-border-subtle px-3 py-3">{children}</div>
-    </details>
-  );
-}
+// Moved to components/ui so non-integrations pages need not import this client module.
+export { Disclosure } from "@/components/ui/disclosure";
 
 // ── Confirm dialog ──────────────────────────────────────────────────────────
 

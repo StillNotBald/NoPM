@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { DownloadOnePagerButton } from "@/components/case-study/download-button";
-import { Disclosure } from "@/components/integrations/shared";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DemoLoginButton } from "@/components/demo-login-button";
 import { TerminalCard } from "@/components/ui/terminal-card";
 import { ButtonLink, marketingNavLinkClass } from "@/components/marketing/button-link";
@@ -187,8 +187,8 @@ export default function CaseStudyPage() {
         {/* A sunken well, not a coloured left rule: DESIGN.md rejects border-left accents. */}
         <blockquote className="mt-6 max-w-2xl rounded-lg border border-border-subtle bg-well px-5 py-4">
           <p className="text-sm leading-relaxed text-ink-secondary italic">
-            &ldquo;One surface for humans and agents: {metrics.endpoints} documented endpoints, OpenAPI,
-            <code className="font-mono"> llms.txt</code>, scoped tokens. No bypass.&rdquo;
+            &ldquo;One surface for humans and agents: {metrics.endpoints} documented endpoints, OpenAPI,{" "}
+            <code className="font-mono">llms.txt</code>, scoped tokens. No bypass.&rdquo;
           </p>
         </blockquote>
       </section>

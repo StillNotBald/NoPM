@@ -1,4 +1,3 @@
-import { Disclosure } from "@/components/integrations/shared";
 import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
@@ -627,7 +626,6 @@ export default async function TrustPage({
                   Rows are kept for the life of the workspace. Database triggers reject any update or delete, for every role including the service key.
                 </p>
               </div>
-              <Disclosure summary="More">
               <div>
                 <p className="text-xs font-medium text-ink">Provenance</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
@@ -637,7 +635,7 @@ export default async function TrustPage({
               <div>
                 <p className="text-xs font-medium text-ink">Fail-closed honesty</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Deletion and invite commits write the audit row in the same transaction. Other writes return an error if it fails.
+                  Deletion and invite commits write the audit row in the same transaction. Other writes persist first, then return an error if the audit row fails.
                 </p>
               </div>
               <div>
@@ -646,7 +644,6 @@ export default async function TrustPage({
                   Export the current view as CSV. The export is audited.
                 </p>
               </div>
-              </Disclosure>
             </CardBody>
           </Card>
         </div>

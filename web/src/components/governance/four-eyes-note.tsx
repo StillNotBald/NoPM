@@ -75,7 +75,7 @@ export const BLOCK_COPY: Record<FourEyesBlock, { lead: string; rest: string; det
 
 /** The sentence that states the rule when the viewer is allowed to decide. */
 export function ruleText(verb: "raised" | "submitted" = "raised"): string {
-  return `A different person from the one who ${verb} it must decide. A token counts as the person who created it, so you cannot decide what your own agent raised.`;
+  return `A different person from the one who ${verb} it must decide. A token counts as the person who created it, so you cannot decide what your own agent ${verb}.`;
 }
 
 export function FourEyesNote({

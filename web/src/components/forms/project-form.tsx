@@ -1,5 +1,6 @@
 "use client";
 
+import { STALE_RECORD_MESSAGE } from "./messages";
 import { cloneElement, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
@@ -376,8 +377,8 @@ export function ProjectForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed. Reload to see the latest.");
-        toast.error("This record changed. Reload to see the latest.");
+        setTopError(STALE_RECORD_MESSAGE);
+        toast.error(STALE_RECORD_MESSAGE);
       } else {
         applyApiError(apiErr);
         toast.error(apiErr.message ?? "Failed to save project");

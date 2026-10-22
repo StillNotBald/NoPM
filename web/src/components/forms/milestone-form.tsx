@@ -1,5 +1,6 @@
 "use client";
 
+import { STALE_RECORD_MESSAGE } from "./messages";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
@@ -122,8 +123,8 @@ export function MilestoneForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed. Reload to see the latest.");
-        toast.error("This record changed. Reload to see the latest.");
+        setTopError(STALE_RECORD_MESSAGE);
+        toast.error(STALE_RECORD_MESSAGE);
       } else if (apiErr.status === 422 && apiErr.code === "open_tasks") {
         setTopError(apiErr.message);
         setOpenTasksPrompt(true);

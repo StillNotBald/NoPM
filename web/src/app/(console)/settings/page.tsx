@@ -363,7 +363,7 @@ function AppearanceSection() {
       </CardHeader>
       <CardBody className="space-y-6">
         <p className="text-sm text-ink-secondary">
-          Display only, never audited. Theme and text size are per device.
+          Display-only, never audited. Theme and text size are per device.
           {dbSynced
             ? " Density and date format follow your account."
             : " Density and date format follow your account (not on the demo login)."}

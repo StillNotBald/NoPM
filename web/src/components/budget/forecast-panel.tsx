@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { apiPatch } from "@/lib/api-client";
-import { Disclosure } from "@/components/integrations/shared";
+import { Disclosure } from "@/components/ui/disclosure";
 
 /**
  * Forecast at completion and trend, one block per project (audit gaps B3 + B6).

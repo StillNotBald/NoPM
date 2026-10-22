@@ -497,7 +497,7 @@ export default function TokensPage() {
               className="space-y-3"
             >
               <p className="text-sm text-ink-secondary">
-                Mint a token, then paste this into <code className="font-mono text-xs">.mcp.json</code>
+                Mint a token, then paste this into <code className="font-mono text-xs">.mcp.json</code>{" "}
                 (or your client&apos;s config) and set <code className="font-mono text-xs">NOPM_TOKEN</code> to the token.
               </p>
               <pre className="overflow-x-auto rounded-md bg-canvas border border-border-subtle px-3 py-3 text-xs font-mono text-ink whitespace-pre">
