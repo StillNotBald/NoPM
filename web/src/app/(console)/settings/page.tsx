@@ -363,10 +363,10 @@ function AppearanceSection() {
       </CardHeader>
       <CardBody className="space-y-6">
         <p className="text-sm text-ink-secondary">
-          Display-only, never audited. Theme and text size stay on this device (a cookie).
+          Display-only, never audited. Theme and text size are per device.
           {dbSynced
-            ? " Density and date format also follow your account across devices."
-            : " Density and date format follow your account when you're signed in (not on the shared demo login)."}
+            ? " Density and date format follow your account."
+            : " Density and date format follow your account (not on the demo login)."}
         </p>
 
         <OptionGroup
@@ -405,7 +405,7 @@ function AppearanceSection() {
           columns={2}
         >
           <p className="text-xs text-ink-muted">
-            Relative dates (&quot;In 3d&quot;) always show the exact date on hover.
+            Hover a relative date (&quot;In 3d&quot;) for the exact date.
           </p>
         </OptionGroup>
       </CardBody>
@@ -470,10 +470,10 @@ function NavigationSection() {
       </CardHeader>
       <CardBody className="space-y-6">
         <p className="text-sm text-ink-secondary">
-          Sidebar mode and hint dismissals are display preferences — not governance data, no audit row.
+          Display preferences only, no audit row.
           {prefs.demo
-            ? " Saved on this device only — you're on the shared demo login."
-            : " Your choice follows this account across devices."}
+            ? " Saved on this device only (shared demo login)."
+            : " Follows your account."}
         </p>
 
         {mode ? (
@@ -716,8 +716,7 @@ export default function SettingsPage() {
           router.refresh();
         }}
       >
-        <p>Signing in will only need your password. Your backup codes stop working.</p>
-        <p>You can turn it on again at any time.</p>
+        <p>Signing in will only need your password. Your backup codes stop working. You can turn it on again later.</p>
         <DisableCodeField valueRef={typed} />
       </ConfirmDialog>,
       { title: "Disable 2FA", size: "sm" },
@@ -767,8 +766,8 @@ export default function SettingsPage() {
           {mfaNeed && step !== "enabled" && (
             <InlineAlert tone={mfaNeed.mustEnrol ? "danger" : "neutral"} className="mb-3">
               {mfaNeed.mustEnrol
-                ? "Admins and managers must use two-step sign-in. Turn it on below to keep using the console. API tokens are not affected."
-                : `Admins and managers must use two-step sign-in. Turn it on below within ${mfaNeed.daysLeft ?? 14} day${mfaNeed.daysLeft === 1 ? "" : "s"}.`}
+                ? "Admins and managers must use two-step sign-in. Turn it on to keep using the console. API tokens are not affected."
+                : `Admins and managers must use two-step sign-in. Turn it on within ${mfaNeed.daysLeft ?? 14} day${mfaNeed.daysLeft === 1 ? "" : "s"}.`}
             </InlineAlert>
           )}
           <Card>
@@ -792,10 +791,7 @@ export default function SettingsPage() {
               {!loading && step === "idle" && (
                 <div className="space-y-4">
                   <p className="text-sm text-ink-secondary">
-                    Two-factor authentication adds a second layer of security to your account. You will
-                    need an authenticator app (e.g. Authy, 1Password, or Google Authenticator). Once
-                    enabled, signing in will ask for a code from your app (or a backup code) before
-                    letting you into the workspace.
+                    Sign-in will ask for a code from your authenticator app (or a backup code).
                   </p>
                   {codeError && <InlineAlert>{codeError}</InlineAlert>}
                   <Button variant="primary" size="md" className="h-11 w-full sm:h-10 sm:w-auto" onClick={handleEnroll}>
@@ -816,7 +812,7 @@ export default function SettingsPage() {
               {(step === "verify" || step === "verifying") && enroll && (
                 <div className="space-y-5">
                   <p className="text-sm text-ink-secondary">
-                    Add this to your authenticator app, then enter the 6-digit code it shows to confirm.
+                    Add this to your authenticator app, then enter the 6-digit code.
                   </p>
 
                   {/* Secret display */}
@@ -894,8 +890,8 @@ export default function SettingsPage() {
               {/* ── BACKUP: one-time codes ── */}
               {step === "backup" && (
                 <ShowOncePanel
-                  heading="2FA is now active. Save your backup codes"
-                  notice="Shown once — save them now."
+                  heading="2FA is on. Save your backup codes"
+                  notice="Shown once. Save them now."
                   dismissLabel="Done — I have saved my codes"
                   onDismiss={() => {
                     setBackupCodes([]);
@@ -903,8 +899,7 @@ export default function SettingsPage() {
                   }}
                 >
                   <p className="text-sm text-ink-secondary">
-                    Keep these somewhere secure. Each code can be used once if you lose access to your
-                    authenticator.
+                    Keep these safe. Each code works once.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     {backupCodes.map((bc) => (
@@ -924,8 +919,7 @@ export default function SettingsPage() {
               {step === "enabled" && !loading && (
                 <div className="space-y-4">
                   <p className="text-sm text-ink-secondary">
-                    Your account is protected with two-factor authentication. Keep your authenticator
-                    app accessible.
+                    Two-factor authentication is on.
                   </p>
 
                   <Button

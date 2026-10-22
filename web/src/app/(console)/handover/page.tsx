@@ -154,7 +154,7 @@ export default async function HandoverPage() {
           }
         />
         <p className="-mt-3 text-sm text-ink-muted">
-          Who could not be replaced tomorrow. Open work with one owner and no named backup.
+          One owner, no backup.
         </p>
       </div>
 
@@ -174,7 +174,7 @@ export default async function HandoverPage() {
 
       {s.open_items === 0 ? (
         <Card className="px-5 py-6 text-sm text-ink-muted">
-          There is no open work yet. Name a backup owner on a project, risk, issue or task and it shows up here.
+          No open work yet.
         </Card>
       ) : (
         <>
@@ -184,7 +184,7 @@ export default async function HandoverPage() {
             </h2>
             {keyPeople.length === 0 ? (
               <Card className="px-5 py-4 text-sm text-ink-muted">
-                Nobody solely owns open work. Every owned item has a backup.
+                Every owned item has a backup.
               </Card>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

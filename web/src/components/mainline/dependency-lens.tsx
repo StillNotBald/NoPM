@@ -102,7 +102,7 @@ export function DependencyLens({ graph, dependencies }: { graph: TLGraph; depend
   if (dependencies.length === 0 || nodeIds.length === 0) {
     if (graph.projectDependencies.length > 0) return <ProjectDependencySection graph={graph} />;
     return (
-      <EmptyState purpose="No task dependencies recorded yet — add a dependency between two tasks in a project to see the Network lens." canWrite={false} />
+      <EmptyState purpose="No task dependencies yet. Add one between two tasks to see the Network lens." canWrite={false} />
     );
   }
 

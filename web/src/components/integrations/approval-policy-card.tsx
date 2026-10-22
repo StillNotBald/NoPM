@@ -16,7 +16,7 @@ import {
 import { fetchApprovalPolicy, saveApprovalPolicy } from "./api";
 import { useApiResource } from "./hooks";
 import { errorText } from "./model";
-import { CheckRow, Field, InlineAlert, LoadingRow, Select } from "./shared";
+import { CheckRow, Disclosure, Field, InlineAlert, LoadingRow, Select } from "./shared";
 
 const TIER_COPY: Record<Tier, { name: string; help: string }> = {
   routine: { name: "Routine", help: "No cost and no schedule impact." },
@@ -87,9 +87,13 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
       </CardHeader>
       <CardBody className="space-y-4">
         <p className="text-sm text-ink-secondary">
-          Who decides a request depends on its tier. A person who raised a request can never decide it. People who
-          cannot decide a tier are not asked, and the server refuses their decision.
+          A person who raised a request can never decide it.
         </p>
+        <Disclosure summary="More">
+          <p className="text-sm text-ink-secondary">
+            Who decides depends on the tier. People who cannot decide a tier are not asked, and the server refuses their decision.
+          </p>
+        </Disclosure>
 
         <div className="divide-y divide-border-subtle rounded-md border border-border-subtle">
           {TIERS.map((t) => {
@@ -149,14 +153,13 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
                     <CheckRow
                       checked={rule.auto_approve}
                       onChange={(v) => setTier(t, { auto_approve: v })}
-                      title="Approve automatically when the turnaround passes"
-                      description="Off by default. Applies to routine requests only, never to one with a cost or a schedule impact."
+                      title="Auto-approve after the turnaround"
+                      description="Off by default. Routine only, never with a cost or schedule impact."
                       disabled={!isAdmin || saving}
                     />
                     {rule.auto_approve && (
                       <InlineAlert tone="neutral" className="mt-1">
-                        With this on, a routine request nobody decides within {rule.turnaround_hours} hours is approved
-                        by policy, with no second person. It is recorded in the audit trail as an automatic approval.
+                        Routine requests nobody decides in {rule.turnaround_hours} hours are approved by policy, with no second person. The audit trail records it as automatic.
                       </InlineAlert>
                     )}
                   </div>
@@ -170,7 +173,7 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
           <Field
             id="schedule-threshold"
             label="High-risk schedule threshold (days)"
-            hint="A change that moves the schedule by more than this becomes high risk."
+            hint="Slips beyond this are high risk."
             error={daysBad ? `Use a whole number from 0 to ${MAX_SCHEDULE_THRESHOLD_DAYS}.` : undefined}
           >
             {(a11y) => (
@@ -193,7 +196,7 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
           <Field
             id="currency-threshold"
             label="High-risk cost threshold"
-            hint="A change request costing at least this much becomes high risk."
+            hint="Costs at or above this are high risk."
             error={thresholdBad ? "Use a number of 0 or more." : undefined}
           >
             {(a11y) => (
@@ -213,7 +216,7 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
             id="currency-code"
             label="Currency"
             optional
-            hint="A label, such as MYR. Costs are compared as plain numbers in your own currency; nothing is converted."
+            hint="A label such as MYR. Nothing is converted."
             error={currencyBad ? "Use a three-letter code." : undefined}
           >
             {(a11y) => (
@@ -234,7 +237,7 @@ export function ApprovalPolicyCard({ role }: { role: string | null | undefined }
             {saving ? "Saving..." : "Save"}
           </Button>
         ) : (
-          <p className="text-xs text-ink-muted">Only workspace admins can change the approval policy.</p>
+          <p className="text-xs text-ink-muted">Only admins can change the policy.</p>
         )}
       </CardBody>
     </Card>

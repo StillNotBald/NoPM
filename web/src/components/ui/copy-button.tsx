@@ -41,7 +41,7 @@ export function CopyButton({
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
-      toast.error("Couldn't copy automatically. Select the text and copy it manually.");
+      toast.error("Could not copy. Select the text and copy it.");
     }
   }
 

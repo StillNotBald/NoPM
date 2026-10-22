@@ -59,8 +59,7 @@ export default function ConsoleError({
         </h1>
 
         <p className="mb-6 text-sm text-ink-secondary">
-          This page ran into an unexpected error. Your data is safe — try
-          refreshing or go back to the dashboard.
+          This page hit an error. Your data is safe. Refresh or go back.
         </p>
 
         {/* Show the digest in dev or when Vercel provides one — never the raw stack */}

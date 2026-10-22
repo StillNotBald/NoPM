@@ -204,13 +204,10 @@ function LoginForm() {
         <Card className="mb-4">
           <CardBody className="p-6 text-center">
             <p className="text-sm font-medium text-ink">One-click demo — no password needed</p>
-            <p className="mt-1 text-xs text-ink-muted">
-              Sign in instantly as the pre-seeded demo user.
-            </p>
             <div className="mt-4 flex justify-center">
               <DemoLoginButton
                 block
-                caption="Shared account, reseeded regularly. Do not enter real data."
+                caption="Shared account. Do not enter real data."
               />
             </div>
           </CardBody>

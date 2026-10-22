@@ -251,7 +251,7 @@ function AddForm({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!dependsOn) {
-      setError("Choose the project this one depends on.");
+      setError("Pick the project this one depends on.");
       return;
     }
     setSaving(true);

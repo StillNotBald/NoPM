@@ -527,7 +527,7 @@ export function ChangeForm({
                     ))}
                   </SelectInput>
                   <p className="text-2xs text-ink-muted">
-                    Automatic picks normal, and high risk for a large cost or a long slip.
+                    Automatic picks normal, or high risk for a large cost or long slip.
                   </p>
                   <FieldError message={fieldErrors.tier} />
                 </div>
@@ -564,7 +564,7 @@ export function ChangeForm({
               <span className="min-w-0">
                 <span className="block text-sm text-ink">Emergency: commit now, no approval</span>
                 <span className="mt-0.5 block text-xs text-ink-muted">
-                  The change commits immediately with no approver and is flagged as an emergency in every report.
+                  Commits at once with no approver. Flagged as an emergency in every report.
                 </span>
               </span>
             </label>

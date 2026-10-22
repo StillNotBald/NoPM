@@ -71,7 +71,7 @@ describe("AnchorStatus: as-of line and re-baseline (W2-18, W2-08)", () => {
     expect(txt(html2(anchored, "2026-10-19T08:15:00.000Z"))).toContain("State as of the last check, 2026-10-19 08:15 UTC.");
   });
   it("says so when no check is recorded, and shows nothing extra for 'not anchored'", () => {
-    expect(txt(html2(anchored, null))).toContain("No check recorded yet");
+    expect(txt(html2(anchored, null))).toContain("No check yet");
     expect(html2(base, null)).not.toContain("anchor-as-of");
   });
   it("shows when the owner re-baselined after a restore", () => {

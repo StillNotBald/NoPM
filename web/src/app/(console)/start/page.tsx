@@ -66,17 +66,17 @@ export default async function StartPage() {
         <HowItWorksTile
           icon={<FolderKanban size={16} />}
           title="Projects → Tasks"
-          caption="Work lives under a project. Tasks move through a governed board."
+          caption="Tasks live under projects."
         />
         <HowItWorksTile
           icon={<ShieldCheck size={16} />}
           title="Every change is audited"
-          caption="Writes — including a board drag — produce one immutable audit row."
+          caption="Every write adds one audit row."
         />
         <HowItWorksTile
           icon={<Bot size={16} />}
           title="Your agent drives it"
-          caption="A scoped token lets your own AI agent call the same REST API you do."
+          caption="A scoped token, the same REST API."
         />
       </div>
 
@@ -101,7 +101,7 @@ export default async function StartPage() {
       </Card>
 
       <p className="px-1 text-xs text-ink-muted">
-        A narrative walkthrough of these same five steps:{" "}
+        Walkthrough of these steps:{" "}
         <a
           href={docUrlFor("/user-manual/operator/00-first-ten-minutes.md")}
           target="_blank"

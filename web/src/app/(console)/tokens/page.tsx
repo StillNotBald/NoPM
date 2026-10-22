@@ -17,7 +17,7 @@ import { useModal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
 import { FourEyesNote } from "@/components/governance/four-eyes-note";
 import { ShowOncePanel } from "@/components/governance/show-once-panel";
-import { ConfirmDialog, CopyButton, CopyValue, Field, InlineAlert } from "@/components/integrations/shared";
+import { ConfirmDialog, CopyButton, CopyValue, Disclosure, Field, InlineAlert } from "@/components/integrations/shared";
 import { cn } from "@/lib/cn";
 import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
 import { useRequireSession } from "@/lib/auth/use-require-session";
@@ -248,9 +248,9 @@ export default function TokensPage() {
         }}
       >
         <ul className="list-disc space-y-1 pl-5">
-          <li>Anything using this token (an agent, script or MCP client) stops working straight away.</li>
-          <li>What it already did stays in the Trust Center.</li>
-          <li>A revoked token can&apos;t be restored. Mint a new one if you need access again.</li>
+          <li>Anything using this token stops working at once.</li>
+          <li>What it did stays in the Trust Center.</li>
+          <li>A revoked token can&apos;t be restored. Mint a new one.</li>
         </ul>
       </ConfirmDialog>,
       { title: "Revoke API token", size: "sm" },
@@ -365,7 +365,7 @@ export default function TokensPage() {
         <PageHeader title="API Tokens" />
         <Card>
           <EmptyState
-            purpose="API tokens let an external agent or CI job call NoPM's governed API. Minting and revoking tokens is restricted to admins and managers so the audit trail always ties a token back to an accountable owner."
+            purpose="Tokens let an agent or CI job call the API. Only admins and managers can mint or revoke them."
             canWrite={false}
           />
         </Card>
@@ -398,7 +398,7 @@ export default function TokensPage() {
           <div>
             <CardTitle>Connect your agent</CardTitle>
             <p className="mt-0.5 text-xs text-ink-muted">
-              NoPM bundles no LLM — point your own agent, MCP client, or model at it.
+              Bring your own agent or MCP client.
             </p>
           </div>
         </CardHeader>
@@ -441,12 +441,16 @@ export default function TokensPage() {
               className="space-y-3"
             >
               <p className="text-sm text-ink-secondary">
-                Mint a token pre-scoped to least privilege: it can read every
-                register and create or edit tasks, risks, issues and projects.
-                It can lock a project (never unlock one). It cannot delete a risk
-                or issue, request or approve a deletion, decide a change
-                request, approve a rebaseline, or manage other tokens.
+                Least-privilege token for an agent.
               </p>
+              <Disclosure summary="More">
+                <p className="text-sm text-ink-secondary">
+                  It can read every register, create or edit tasks, risks, issues and projects,
+                  and lock a project (never unlock). It cannot delete a risk or issue, request
+                  or approve a deletion, decide a change request, approve a rebaseline, or
+                  manage tokens.
+                </p>
+              </Disclosure>
               <div className="flex flex-wrap gap-1">
                 {AGENT_PRESET_SCOPES.map((s) => (
                   <Badge key={s} tone="neutral">
@@ -480,7 +484,7 @@ export default function TokensPage() {
               </div>
               {mintError && <InlineAlert>{mintError}</InlineAlert>}
               <p className="text-xs text-ink-muted">
-                Shown once — copy it into your agent&apos;s environment right away.
+                Shown once. Copy it now.
               </p>
             </div>
           )}
@@ -493,18 +497,15 @@ export default function TokensPage() {
               className="space-y-3"
             >
               <p className="text-sm text-ink-secondary">
-                NoPM ships a native MCP server (<code className="font-mono text-xs">web/mcp/server.mjs</code>) —
-                any MCP client can drive it once you mint a PAT above. Paste
-                this into <code className="font-mono text-xs">.mcp.json</code> (or your client&apos;s
-                equivalent config) and set <code className="font-mono text-xs">NOPM_TOKEN</code> to the token
-                you just minted.
+                Mint a token, then paste this into <code className="font-mono text-xs">.mcp.json</code>{" "}
+                (or your client&apos;s config) and set <code className="font-mono text-xs">NOPM_TOKEN</code> to the token.
               </p>
               <pre className="overflow-x-auto rounded-md bg-canvas border border-border-subtle px-3 py-3 text-xs font-mono text-ink whitespace-pre">
                 {MCP_CONFIG_JSON}
               </pre>
               <CopyButton value={MCP_CONFIG_JSON} subject="MCP config" label="Copy config" />
               <p className="text-xs text-ink-muted">
-                Full setup + governance guarantees: <code className="font-mono text-xs">web/mcp/README.md</code>.
+                Full setup: <code className="font-mono text-xs">web/mcp/README.md</code>.
               </p>
             </div>
           )}
@@ -517,17 +518,16 @@ export default function TokensPage() {
               className="space-y-3"
             >
               <p className="text-sm text-ink-secondary">
-                Prefer chatting instead of scripting? Open the AI assistant
-                (the <span className="inline-flex items-center gap-1 font-medium text-ink">✦ Sparkles</span> icon
-                in the top navigation) and choose{" "}
-                <span className="font-medium text-ink">&ldquo;Connect your own model&rdquo;</span> to
-                paste your own OpenAI, Anthropic, or Google API key.
+                Open the AI assistant (the <span className="inline-flex items-center gap-1 font-medium text-ink">✦ Sparkles</span> icon
+                in the top navigation), choose{" "}
+                <span className="font-medium text-ink">&ldquo;Connect your own model&rdquo;</span> and
+                paste your OpenAI, Anthropic or Google key.
               </p>
-              <p className="text-xs text-ink-muted">
-                NoPM still ships no model and no key — your key drives NoPM&apos;s
-                own governed API through an ephemeral scoped token, audited
-                exactly like any other agent.
-              </p>
+              <Disclosure summary="More">
+                <p className="text-xs text-ink-muted">
+                  Your key works through a short-lived scoped token, audited like any agent.
+                </p>
+              </Disclosure>
             </div>
           )}
         </CardBody>
@@ -601,7 +601,7 @@ export default function TokensPage() {
               }}
               empty={
                 <EmptyState
-                  purpose="No tokens yet. A scoped token lets an agent or script call the NoPM API on this workspace's behalf — every action it takes is audited under the token as the actor."
+                  purpose="No tokens yet. Every action a token takes is audited under it."
                   className="py-10"
                 />
               }

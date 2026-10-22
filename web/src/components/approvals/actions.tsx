@@ -88,7 +88,7 @@ export function ApprovalActions({ requestId, decide, subject }: ApprovalActionsP
       });
       toast.success(
         confirming === "approve"
-          ? "Deletion approved and committed."
+          ? "Deletion approved."
           : confirming === "reject"
             ? "Deletion request rejected."
             : "Deletion request withdrawn.",

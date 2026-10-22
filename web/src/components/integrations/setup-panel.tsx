@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { resolveAppUrl, resolveWebhookUrls, workerEnvBlock, type CallbackUrls } from "./format";
 import { useOrigin } from "./hooks";
 import type { LarkMode } from "./model";
-import { CopyValue, InlineAlert } from "./shared";
+import { CopyValue, Disclosure, InlineAlert } from "./shared";
 
 /**
  * The two callback URLs for a hosted (webhook) connector. Not secret, so they
@@ -81,26 +81,31 @@ export function SetupPanel({
         >
           {mode === "webhook" ? "Finish setup in the Lark developer console" : "Start the relay worker"}
         </h4>
-        {showsSecret && <Badge tone="warning">Shown once — copy it now.</Badge>}
+        {showsSecret && <Badge tone="warning">Shown once. Copy it now.</Badge>}
       </div>
 
       {mode === "webhook" ? (
         <>
-          <p className="text-sm text-ink-secondary">
-            In your app&apos;s Events &amp; Callbacks settings, pick the developer-server (webhook) subscription
-            mode and paste the event URL, then paste the card URL in the callback settings.
-          </p>
+          <p className="text-sm text-ink-secondary">Paste these URLs into your Lark app.</p>
+          <Disclosure summary="Setup steps">
+            <p>
+              In Events &amp; Callbacks, pick the developer-server (webhook) subscription mode and paste the event URL. Paste the
+              card URL in the callback settings.
+            </p>
+          </Disclosure>
           <WebhookUrls connectorId={connectorId} serverUrls={serverUrls} />
         </>
       ) : (
         <>
-          <p className="text-sm text-ink-secondary">
-            In the Lark developer console pick the persistent (long) connection subscription mode, then run the
-            relay worker (<code className="font-mono text-xs">npm run lark:worker</code>, one instance
-            only) with these values plus your <code className="font-mono text-xs">LARK_APP_ID</code>,{" "}
-            <code className="font-mono text-xs">LARK_APP_SECRET</code> and{" "}
-            <code className="font-mono text-xs">LARK_REGION</code>.
-          </p>
+          <p className="text-sm text-ink-secondary">Run the relay worker with these values.</p>
+          <Disclosure summary="Setup steps">
+            <p>
+              In the Lark developer console pick the persistent (long) connection mode. Run the worker (
+              <code className="font-mono text-xs">npm run lark:worker</code>, one instance only) with these values plus your{" "}
+              <code className="font-mono text-xs">LARK_APP_ID</code>, <code className="font-mono text-xs">LARK_APP_SECRET</code> and{" "}
+              <code className="font-mono text-xs">LARK_REGION</code>.
+            </p>
+          </Disclosure>
           {appUrl && (
             <CopyValue
               label="Worker environment"

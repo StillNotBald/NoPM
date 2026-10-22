@@ -59,7 +59,7 @@ export function DecisionTable({ rows, projectMap, refMap, projects, changeLabelM
   if (rows.length === 0) {
     return (
       <EmptyState
-        purpose="The decision log records what was decided, the options considered, and why — a durable rationale trail for anyone who joins the project later."
+        purpose="The decision log records what was decided, the options considered and why."
         canWrite={canWrite}
         action={<NewDecisionButton projects={projects} />}
         docsHref="/trust"

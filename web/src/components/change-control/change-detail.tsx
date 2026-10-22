@@ -515,7 +515,7 @@ function TransitionActions({ cr, onDone }: { cr: ChangeRequest; onDone: () => vo
     <div className="mt-4 rounded-lg border border-border-subtle bg-well p-4">
       {cr.status === "deferred" && (
         <p className="mb-3 text-sm text-ink-secondary">
-          Deferred means parked, not closed. {showReopen ? "Reopen it to put it back in review." : "Its requester or a manager or admin can reopen it."}
+          Deferred means parked, not closed. {showReopen ? "Reopen it to put it back in review." : "Its requester, a manager or an admin can reopen it."}
         </p>
       )}
       {error && <InlineAlert>{error}</InlineAlert>}
@@ -576,7 +576,7 @@ function ImplementPanel({ crId, onDone }: { crId: string; onDone: () => void }) 
     <div className="mt-4 rounded-lg border border-border-subtle bg-well p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted mb-2">Go live</h3>
       <p className="mb-3 text-sm text-ink-secondary">
-        Once the approved change is in place, mark it implemented. The date and your name are recorded.
+        Mark it implemented once it is in place. The date and your name are recorded.
       </p>
       {error && <InlineAlert>{error}</InlineAlert>}
       <Field id={`${uid}-note`} label="Note" optional>

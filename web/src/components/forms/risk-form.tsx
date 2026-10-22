@@ -1,5 +1,6 @@
 "use client";
 
+import { STALE_RECORD_MESSAGE } from "./messages";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
@@ -227,8 +228,8 @@ export function RiskForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed since you opened it. Reload to see the latest.");
-        toast.error("This record changed since you opened it. Reload to see the latest.");
+        setTopError(STALE_RECORD_MESSAGE);
+        toast.error(STALE_RECORD_MESSAGE);
       } else {
         applyApiError(apiErr);
         toast.error(apiErr.message ?? "Failed to save risk");
@@ -478,7 +479,7 @@ export function RiskForm({
           <TextareaInput
             value={trigger}
             onChange={(e) => setTrigger(e.target.value)}
-            placeholder="What signals that this risk is materializing…"
+            placeholder="Signs this risk is happening…"
             rows={2}
           />
         </Field>
@@ -488,7 +489,7 @@ export function RiskForm({
           <TextareaInput
             value={residualRisk}
             onChange={(e) => setResidualRisk(e.target.value)}
-            placeholder="Risk remaining after the response is applied…"
+            placeholder="Risk left after the response…"
             rows={2}
           />
         </Field>

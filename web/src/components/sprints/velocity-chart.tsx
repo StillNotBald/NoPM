@@ -12,7 +12,7 @@ export function VelocityChart({ velocity }: { velocity: VelocityResult }) {
   if (velocity.insufficient) {
     return (
       <p className="py-4 text-center text-xs text-ink-muted">
-        Not enough history — velocity needs at least 2 closed sprints.
+        Needs at least 2 closed sprints.
       </p>
     );
   }

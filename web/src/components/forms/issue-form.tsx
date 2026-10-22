@@ -1,5 +1,6 @@
 "use client";
 
+import { STALE_RECORD_MESSAGE } from "./messages";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useInspector } from "@/components/layout/app-shell";
@@ -188,8 +189,8 @@ export function IssueForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed since you opened it. Reload to see the latest.");
-        toast.error("This record changed since you opened it. Reload to see the latest.");
+        setTopError(STALE_RECORD_MESSAGE);
+        toast.error(STALE_RECORD_MESSAGE);
       } else {
         applyApiError(apiErr);
         toast.error(apiErr.message ?? "Failed to save issue");
@@ -376,7 +377,7 @@ export function IssueForm({
             <TextareaInput
               value={impact}
               onChange={(e) => setImpact(e.target.value)}
-              placeholder="Impact of this issue on schedule, cost, scope…"
+              placeholder="Impact on schedule, cost, scope…"
               rows={2}
             />
           </Field>

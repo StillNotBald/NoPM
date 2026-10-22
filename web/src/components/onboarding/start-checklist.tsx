@@ -77,7 +77,7 @@ export function StartChecklist({ seed, ...props }: Props) {
             onClick={() => toggleDismissed(true)}
             className="focus-ring shrink-0 -my-3.5 rounded py-3.5 text-xs text-ink-muted hover:text-ink hover:underline"
           >
-            Hide this page&apos;s checklist
+            Hide checklist
           </button>
         </div>
       </CardHeader>
@@ -123,7 +123,7 @@ export function StartChecklist({ seed, ...props }: Props) {
         </ul>
         {finished && (
           <p className="border-t border-border-subtle px-5 py-3 text-center text-xs text-ink-muted">
-            You&apos;re set up — explore from the sidebar.
+            You&apos;re set up. Explore from the sidebar.
           </p>
         )}
       </CardBody>

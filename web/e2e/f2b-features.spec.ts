@@ -62,7 +62,7 @@ test.describe("f2b admin-authenticated journeys", () => {
 
       if (total === 0) {
         await expect(
-          page.getByText("No sprints yet. Create a sprint under a project to plan and track commitment."),
+          page.getByText("No sprints yet. Create one under a project."),
         ).toBeVisible();
       } else {
         await expect(page.getByRole("button", { name: /^new sprint$/i })).toBeVisible();

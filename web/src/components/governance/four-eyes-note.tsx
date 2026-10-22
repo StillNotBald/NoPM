@@ -43,25 +43,25 @@ export const CAN_DECIDE: DecideState = { canDecide: true, block: null, canWithdr
 
 export const BLOCK_COPY: Record<FourEyesBlock, { lead: string; rest: string; detail?: string }> = {
   you_raised: {
-    lead: "You raised this (directly or through your token)",
+    lead: "You raised this (or your token did)",
     rest: " — a different person must decide.",
   },
   your_token_raised: {
-    lead: "You raised this (directly or through your token)",
+    lead: "You raised this (or your token did)",
     rest: " — a different person must decide.",
-    detail: "A token you created raised it, and a token counts as the person who created it.",
+    detail: "Your token raised it, and a token counts as the person who created it.",
   },
   no_scope: {
-    lead: "Your role can view this but not decide it",
-    rest: ". Ask a member or admin to decide.",
+    lead: "Your role can view this, not decide it",
+    rest: ". Ask a member or admin.",
   },
   role_not_permitted: {
     lead: "Only managers and admins can approve",
-    rest: ". Ask a manager or admin to decide.",
+    rest: ". Ask a manager or admin.",
   },
   needs_admin: {
-    lead: "This request needs an admin to decide it",
-    rest: ". Ask an admin to decide.",
+    lead: "Only an admin can decide this",
+    rest: ". Ask an admin.",
   },
   project_locked: {
     lead: "Project is locked",
@@ -69,13 +69,13 @@ export const BLOCK_COPY: Record<FourEyesBlock, { lead: string; rest: string; det
   },
   no_principal: {
     lead: "This sign-in isn't tied to a person",
-    rest: ", so it can't decide (four-eyes). Sign in as yourself to decide.",
+    rest: ", so it can't decide (four-eyes). Sign in as yourself.",
   },
 };
 
 /** The sentence that states the rule when the viewer is allowed to decide. */
 export function ruleText(verb: "raised" | "submitted" = "raised"): string {
-  return `A different person from the one who ${verb} it must decide. A token counts as the person who created it, so you can't approve what your own agent ${verb}.`;
+  return `A different person from the one who ${verb} it must decide. A token counts as the person who created it, so you cannot decide what your own agent ${verb}.`;
 }
 
 export function FourEyesNote({

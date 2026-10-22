@@ -223,7 +223,7 @@ export default async function ResourcesPage() {
             <CardBody>
               <div className="flex flex-col items-center gap-3 py-8 text-center">
                 <p className="text-sm text-ink-muted">
-                  No team members yet. Add your first member to track capacity and cost.
+                  No team members yet. Add one to track capacity and cost.
                 </p>
                 {/* Working "Add member" button in the empty state */}
                 <ResourceActions variant="empty-state" />

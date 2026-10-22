@@ -31,14 +31,14 @@ export function FeatureFields({
         onChange={(approvalsEnabled) => onChange({ approvalsEnabled })}
         disabled={disabled}
         title="Approve from chat"
-        description="Send approval requests to linked approvers as chat cards with Approve and Reject buttons."
+        description="Send approval requests to linked approvers as chat cards."
       />
       <CheckRow
         checked={values.digestEnabled}
         onChange={(digestEnabled) => onChange({ digestEnabled })}
         disabled={disabled}
         title="Weekly digest"
-        description="Post a portfolio summary to a group chat once a week."
+        description="Weekly portfolio summary to a group chat."
       />
       {values.digestEnabled && (
         <div className="grid grid-cols-1 gap-3 pb-1 pt-2 sm:ml-7 sm:grid-cols-[minmax(0,1fr)_11rem]">

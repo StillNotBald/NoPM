@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { apiPatch } from "@/lib/api-client";
+import { Disclosure } from "@/components/ui/disclosure";
 
 /**
  * Forecast at completion and trend, one block per project (audit gaps B3 + B6).
@@ -122,7 +123,7 @@ function ForecastBlock({ row }: { row: ForecastRow }) {
         </p>
       ) : (
         <p className="text-xs text-ink-muted">
-          No RAG suggestion yet. Snapshots are taken nightly; a trend appears after the first one.
+          No RAG suggestion yet. A trend appears after the first nightly snapshot.
         </p>
       )}
 
@@ -198,13 +199,19 @@ function ForecastBlock({ row }: { row: ForecastRow }) {
           {saving ? "Saving..." : "Save forecast"}
         </Button>
         <p id={`${uid}-hint`} className="text-xs text-ink-muted sm:col-span-4">
-          Open commitments are promises not yet invoiced. Reduce this as invoices arrive; actual = expenses only, so an
-          invoiced commitment is counted once, as spent. The to-finish figure is only what comes after the open commitments.
-          Until you enter open commitments, the committed amount is used, which can count an invoiced commitment twice.
+          Open commitments are not yet invoiced. Reduce them as invoices arrive.
+          If left empty, the committed amount is used, which can count an invoiced commitment twice.
         </p>
+        <div className="sm:col-span-4">
+          <Disclosure summary="How this works">
+            <p className="text-xs text-ink-muted">
+              Actual counts expenses only, so an invoiced commitment is counted once, as spent. To-finish is only what comes after the open commitments.
+            </p>
+          </Disclosure>
+        </div>
         {bottomUpMissing && (
           <p role="status" className="text-xs text-warning-ink sm:col-span-4">
-            Bottom-up needs a to-finish estimate. Until you enter one, this project shows no forecast.
+            Bottom-up needs a to-finish estimate. Until then there is no forecast.
           </p>
         )}
         {error && (
@@ -222,7 +229,7 @@ export function ForecastPanel({ rows, trendAvailable }: { rows: ForecastRow[]; t
     <>
       {!trendAvailable && (
         <p className="border-b border-border-subtle px-5 py-3 text-xs text-ink-muted">
-          Trend history is not available yet, so no RAG is suggested.
+          No trend history yet, so no RAG is suggested.
         </p>
       )}
       <ul className="divide-y divide-border-subtle">

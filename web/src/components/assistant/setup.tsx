@@ -128,8 +128,8 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
   const heading = step === "choose" ? "Get started" : "Connect your own model";
   const subtext =
     step === "choose"
-      ? "Try the assistant instantly with the demo model — or bring your own API key. Every action it takes is scoped and audited."
-      : "Bring your own API key. The key is encrypted at rest and never logged. The assistant operates as a scoped token — every action it takes is audited.";
+      ? "Try the demo model, or bring your own API key. Every action is scoped and audited."
+      : "Bring your own API key. It is encrypted at rest and never logged. The assistant uses a scoped token and every action is audited.";
 
   return (
     <div className="flex flex-col gap-6 p-4">
@@ -160,7 +160,7 @@ export function AssistantSetup({ demoAvailable, onConnected, onUseDemo }: Assist
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-accent">Try the demo model</span>
               <span className="block font-mono text-[10px] text-ink-muted">
-                One tap · no key needed · grounded in live workspace data
+                One tap, no key, live workspace data
               </span>
             </span>
             <span className="shrink-0 font-mono text-[10px] text-ink-muted">rate-limited</span>

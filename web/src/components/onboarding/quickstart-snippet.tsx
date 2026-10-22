@@ -85,7 +85,7 @@ export function QuickstartSnippet() {
         ))}
       </pre>
       <p className="border-t border-border-subtle px-4 py-2 text-[11px] text-ink-muted">
-        Mint a token on the Tokens page first — the agent preset scopes are enough.
+        Create a token on the Tokens page first. The agent preset scopes are enough.
       </p>
     </div>
   );

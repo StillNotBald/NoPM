@@ -52,7 +52,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "project",
       title: "Create your first project",
-      caption: "Every task, risk, and audit row hangs off a project.",
+      caption: "Everything hangs off a project.",
       href: "/projects",
       done: input.projects > 0,
       kind: "write",
@@ -62,7 +62,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "task",
       title: "Add a task and move it on the board",
-      caption: "Dragging a card on the board is an audited write, same as editing the field by hand.",
+      caption: "A board drag is audited.",
       href: input.firstProjectHref ?? "/projects",
       done: input.tasks > 0,
       kind: "write",
@@ -72,7 +72,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "audit",
       title: "See the audit receipt",
-      caption: "Every mutation lands one immutable row in the Trust Center — that's the whole thesis.",
+      caption: "One immutable row per change.",
       href: "/trust",
       done: visited.includes("audit"),
       kind: "read",
@@ -82,7 +82,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "agent",
       title: "Connect your AI agent",
-      caption: "A workspace admin mints a scoped token; your agent drives NoPM through the same API you're using.",
+      caption: "Admins create a scoped token.",
       href: "/tokens#connect-agent",
       done: input.tokens > 0,
       kind: "write",
@@ -91,8 +91,8 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     },
     {
       id: "team",
-      title: "Invite a teammate (a second pair of eyes for approvals)",
-      caption: "Four-eyes deletion approvals need a second, different person in the workspace.",
+      title: "Invite a teammate",
+      caption: "Four-eyes needs a second person.",
       href: "/settings",
       done: input.members > 1,
       kind: "write",
