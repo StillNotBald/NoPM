@@ -8,7 +8,7 @@
 
 The differentiator is **institutional governance built into the data layer**: an immutable audit log, scoped Bearer tokens, and maker-checker (four-eyes) approval on destructive actions — enforced by the database, not bolted onto the UI.
 
-> Portfolio proof-piece. Live at **stillnotbald.com** · [Case study](https://stillnotbald.com/case-study) · [OpenAPI](https://stillnotbald.com/api/openapi.json) · [llms.txt](https://stillnotbald.com/llms.txt)
+> Live at **stillnotbald.com** · [Case study](https://stillnotbald.com/case-study) · [OpenAPI](https://stillnotbald.com/api/openapi.json) · [llms.txt](https://stillnotbald.com/llms.txt)
 >
 > **Try it without signing up:** open [stillnotbald.com/login](https://stillnotbald.com/login) and press **Try the live demo**. You land in a shared, seeded workspace as a manager, who can approve other people's requests but never their own.
 
