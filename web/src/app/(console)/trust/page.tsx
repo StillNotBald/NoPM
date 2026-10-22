@@ -583,7 +583,7 @@ export default async function TrustPage({
                   user
                 </span>
                 <p className="text-xs text-ink-muted">
-                  A person signed in.
+                  A person.
                 </p>
               </div>
               <div className="flex items-start gap-2">
@@ -624,8 +624,7 @@ export default async function TrustPage({
               <div>
                 <p className="text-xs font-medium text-ink">Retention</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Rows are kept for the life of the workspace. Two database triggers reject
-                  any update or delete, for every role including the service key.
+                  Rows are kept for the life of the workspace. Database triggers reject any update or delete, for every role including the service key.
                 </p>
               </div>
               <Disclosure summary="More">
@@ -638,8 +637,7 @@ export default async function TrustPage({
               <div>
                 <p className="text-xs font-medium text-ink">Fail-closed honesty</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Deletion and invite commits write their audit row in the same transaction.
-                  Other writes save first and return an error if the audit row fails.
+                  Deletion and invite commits write the audit row in the same transaction. Other writes return an error if it fails.
                 </p>
               </div>
               <div>

@@ -100,7 +100,7 @@ export default async function EmailPreviewsPage() {
           <p className="text-sm text-ink">
             <strong className="font-medium text-accent">Previews only</strong>
             {". "}
-            NoPM does not send email. This is what each recipient would get.
+            NoPM does not send email.
           </p>
         </div>
 
@@ -119,7 +119,7 @@ export default async function EmailPreviewsPage() {
           <div className="space-y-6">
             <p className="text-xs text-ink-muted">
               {isSample
-                ? "No notifications yet. These are samples, one per type."
+                ? "No notifications yet. Showing samples."
                 : notifications.length === 20
                   ? "Showing newest 20 notifications"
                   : `${notifications.length} notification${notifications.length === 1 ? "" : "s"}`}

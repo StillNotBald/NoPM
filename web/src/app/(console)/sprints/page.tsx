@@ -353,7 +353,7 @@ export default async function SprintsPage({
                   </CardHeader>
                   <CardBody>
                     {!flow || flow.sampleSize === 0 ? (
-                      <p className="text-sm text-ink-muted">No attached tasks yet — nothing to measure.</p>
+                      <p className="text-sm text-ink-muted">No attached tasks yet.</p>
                     ) : (
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-3 sm:gap-4">

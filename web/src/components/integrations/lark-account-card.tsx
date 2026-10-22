@@ -206,7 +206,7 @@ export function LarkAccountCard({
       <CardHeader>
         <div>
           <CardTitle>Your Lark account</CardTitle>
-          <p className="mt-0.5 text-xs text-ink-muted">So approval requests can reach you in chat.</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Get approval requests in chat.</p>
         </div>
       </CardHeader>
       <CardBody>{body}</CardBody>

@@ -52,7 +52,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "project",
       title: "Create your first project",
-      caption: "Tasks, risks and audit rows hang off a project.",
+      caption: "Everything hangs off a project.",
       href: "/projects",
       done: input.projects > 0,
       kind: "write",
@@ -62,7 +62,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "task",
       title: "Add a task and move it on the board",
-      caption: "A board drag is an audited write.",
+      caption: "A board drag is audited.",
       href: input.firstProjectHref ?? "/projects",
       done: input.tasks > 0,
       kind: "write",
@@ -72,7 +72,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "audit",
       title: "See the audit receipt",
-      caption: "Every change lands one immutable row in the Trust Center.",
+      caption: "One immutable row per change.",
       href: "/trust",
       done: visited.includes("audit"),
       kind: "read",
@@ -82,7 +82,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "agent",
       title: "Connect your AI agent",
-      caption: "An admin creates a scoped token. Your agent uses the same API.",
+      caption: "Admins create a scoped token.",
       href: "/tokens#connect-agent",
       done: input.tokens > 0,
       kind: "write",
@@ -92,7 +92,7 @@ export function startSteps(input: StartChecklistInput): StartStep[] {
     {
       id: "team",
       title: "Invite a teammate",
-      caption: "Four-eyes approvals need a second, different person.",
+      caption: "Four-eyes needs a second person.",
       href: "/settings",
       done: input.members > 1,
       kind: "write",

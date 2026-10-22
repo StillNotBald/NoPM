@@ -66,17 +66,17 @@ export default async function StartPage() {
         <HowItWorksTile
           icon={<FolderKanban size={16} />}
           title="Projects → Tasks"
-          caption="Work lives under a project. Tasks move on a governed board."
+          caption="Tasks live under projects."
         />
         <HowItWorksTile
           icon={<ShieldCheck size={16} />}
           title="Every change is audited"
-          caption="Every write, even a board drag, adds one immutable audit row."
+          caption="Every write adds one audit row."
         />
         <HowItWorksTile
           icon={<Bot size={16} />}
           title="Your agent drives it"
-          caption="A scoped token lets your agent call the same REST API."
+          caption="A scoped token, the same REST API."
         />
       </div>
 

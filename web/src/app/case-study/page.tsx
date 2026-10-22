@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { DownloadOnePagerButton } from "@/components/case-study/download-button";
+import { Disclosure } from "@/components/integrations/shared";
 import { DemoLoginButton } from "@/components/demo-login-button";
 import { TerminalCard } from "@/components/ui/terminal-card";
 import { ButtonLink, marketingNavLinkClass } from "@/components/marketing/button-link";
@@ -154,10 +155,9 @@ export default function CaseStudyPage() {
           I build the systems that make unclear requirements impossible.
         </h1>
         <p className="rise rise-2 mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">
-          NoPM is a lite, API-first project management tool with governance
-          (immutable audit, scoped tokens, four-eyes approval){" "}
-          <em>built into the data and API layer</em>, not the UI. Built solo
-          in eight waves with AI agents.
+          NoPM is a lite project management tool your agent operates over REST, CLI or MCP.
+          Governance (immutable audit, scoped tokens, four-eyes approval) is{" "}
+          <em>built into the data layer</em>. Built solo in eight waves with AI agents.
         </p>
         <div className="rise rise-3 mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <DemoLoginButton block />
@@ -179,23 +179,16 @@ export default function CaseStudyPage() {
           Governance belongs in the data layer.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
-          Most PM tools make audit a UI feature, so anyone with database access
-          can bypass it.
-        </p>
-        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
-          In NoPM every mutation goes through the{" "}
-          <code className="font-mono text-ink">route()</code> wrapper and calls{" "}
-          <code className="font-mono text-ink">writeAudit()</code> exactly once,
-          fail-closed. Postgres triggers keep the log append-only, so even a
-          service key cannot rewrite history. The UI uses the same governed API
-          your agent does.
+          Every mutation calls{" "}
+          <code className="font-mono text-ink">writeAudit()</code> once, fail-closed.
+          Postgres triggers keep the log append-only, so even a service key cannot
+          rewrite history. The UI uses the same API your agent does.
         </p>
         {/* A sunken well, not a coloured left rule: DESIGN.md rejects border-left accents. */}
         <blockquote className="mt-6 max-w-2xl rounded-lg border border-border-subtle bg-well px-5 py-4">
           <p className="text-sm leading-relaxed text-ink-secondary italic">
-            &ldquo;Humans and agents use the same surface: {metrics.endpoints} documented endpoints, OpenAPI,
-            an <code className="font-mono">llms.txt</code> index and scoped
-            Bearer tokens. No special mode, no bypass.&rdquo;
+            &ldquo;One surface for humans and agents: {metrics.endpoints} documented endpoints, OpenAPI,
+            <code className="font-mono"> llms.txt</code>, scoped tokens. No bypass.&rdquo;
           </p>
         </blockquote>
       </section>
@@ -223,10 +216,10 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>What was built</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          A governance spine and the registers it needs.
+          Governance spine, minimal registers.
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-ink-secondary">
-          NoPM is the governed record beside Jira, Slack and Teams, not a replacement.
+          The governed record beside Jira, Slack and Teams.
         </p>
 
         {/* terminal card */}
@@ -290,7 +283,7 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>Proof metrics</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          Numbers behind the governance.
+          Proof metrics.
         </h2>
         {/* Every numeral here is read from metrics.gen.json; nothing is typed in. */}
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -300,9 +293,8 @@ export default function CaseStudyPage() {
         </div>
         <p className="mt-6 text-sm leading-relaxed text-ink-muted">
           These counts are generated from the RTM, the test run and the API
-          route tree. CI fails if they drift. Tests target governance first:
-          can a maker self-approve? Does a missing scope return 403? Does a
-          delete without four-eyes approval fail?
+          route tree. CI fails if they drift. Tests ask first: can a maker
+          self-approve?
         </p>
         <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-ink-muted">
           Invariants (stated, not counted)
@@ -321,14 +313,13 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>Reviewed, then closed</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          Ten defects confirmed by review. Two sprints later.
+          Ten defects found, then closed.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
-          On 2026-09-06 a six-lens review tested the code and a verifier
-          confirmed ten defects. Two sprints closed or narrowed them the same
-          day. Below is the re-run, not the plan.
+          A 2026-09-06 review confirmed ten defects. Two sprints closed or
+          narrowed them the same day.
         </p>
-        <ClosedDefects />
+        <div className="mt-4"><Disclosure summary="All ten defects"><ClosedDefects /></Disclosure></div>
         <p className="mt-4 text-sm leading-relaxed text-ink-muted">
           Review, sprint receipts and re-run are in the repo under{" "}
           <code className="font-mono">docs/research</code> and{" "}
@@ -365,12 +356,12 @@ export default function CaseStudyPage() {
                 deploy, Cloudflare DNS
               </li>
               <li>
-                <span className="font-mono text-xs text-ink">jsPDF / pptxgenjs</span>{" "}
-                deck exports
-              </li>
-              <li>
                 <span className="font-mono text-xs text-ink">vitest</span>{" "}
                 {metrics.tests} tests, governance first
+              </li>
+              <li>
+                <span className="font-mono text-xs text-ink">jsPDF / pptxgenjs</span>{" "}
+                board-pack exports
               </li>
             </ul>
           </div>
@@ -383,16 +374,13 @@ export default function CaseStudyPage() {
                 Requirement traceability matrix (RTM), checked in CI
               </li>
               <li>
-                Sprint log per wave
-              </li>
-              <li>
                 Architecture decision records (ADRs)
               </li>
               <li>
-                AI multi-agent workflow
+                Sprint log per wave
               </li>
               <li>
-                Solo build
+                AI multi-agent workflow, solo build
               </li>
             </ul>
           </div>

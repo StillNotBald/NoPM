@@ -110,7 +110,7 @@ export function NudgeSettingsCard({ role }: { role: string | null | undefined })
           checked={value.nudgesEnabled}
           onChange={(v) => set({ nudgesEnabled: v })}
           title="Send stale-item nudges"
-          description="A daily check; owners are notified in the app."
+          description="Daily check. Owners are notified in the app."
           disabled={!isAdmin || saving}
         />
         <CheckRow

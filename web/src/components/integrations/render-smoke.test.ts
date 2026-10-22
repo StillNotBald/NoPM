@@ -67,7 +67,7 @@ describe("ConnectForm", () => {
   });
 
   it("marks the Encrypt Key required for the default webhook mode (no '(optional)' on it)", () => {
-    expect(markup).toContain("Required for a webhook connection");
+    expect(markup).toContain("Required for a webhook");
     expect(markup).not.toContain("(optional)");
     expect(markup).toMatch(/id="lark-encrypt-key"[^>]*aria-required="true"|aria-required="true"[^>]*id="lark-encrypt-key"/);
   });
@@ -197,17 +197,17 @@ describe("ConnectedPanel", () => {
   it("offers Resume (and says so) when paused, and disables the digest", () => {
     const markup = render(connector({ status: "paused" }));
     expect(markup).toContain("Resume");
-    expect(markup).toContain("Nothing is sent to Lark and chat buttons are ignored until you resume");
+    expect(markup).toContain("Nothing is sent to Lark and chat buttons are ignored");
     expect(markup).toMatch(/<button[^>]*\sdisabled=""[^>]*>(?:(?!<\/button>)[\s\S])*Send digest now/);
   });
 
   it("explains why the digest is off instead of leaving a dead button", () => {
     const markup = render(connector({ digest: { enabled: false, chat_id: null, weekday: 1 } }));
-    expect(markup).toContain("To send a digest, turn on the weekly digest");
+    expect(markup).toContain("To send a digest, turn it on");
   });
 
   it("warns when the server can no longer decrypt the stored credentials", () => {
-    expect(render(connector({ secrets_readable: false }))).toContain("can no longer decrypt");
+    expect(render(connector({ secrets_readable: false }))).toContain("cannot decrypt");
   });
 
   it("renders delivery health only when the API returned it", () => {

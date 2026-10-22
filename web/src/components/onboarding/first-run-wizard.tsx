@@ -188,10 +188,7 @@ export function FirstRunWizard({ seed }: { seed?: PrefsSeed | null } = {}) {
         {step === 1 && (
           <>
             <p className="text-sm text-ink">
-              NoPM tracks projects, tasks, risks and budgets. Every change is audited.
-            </p>
-            <p className="text-sm text-ink-muted">
-              Create your first project and task.
+              Every change is audited. Create your first project and task.
             </p>
             <Button
               type="button"
@@ -290,7 +287,7 @@ export function FirstRunWizard({ seed }: { seed?: PrefsSeed | null } = {}) {
           <>
             <p className="text-sm text-ink">You&apos;re set up.</p>
             <p className="text-sm text-ink-muted">
-              Explore your tasks, or connect an AI agent with its own scoped token.
+              Explore tasks, or connect an AI agent.
             </p>
             <div className="flex flex-col gap-2">
               <a href="/tasks" onClick={finish}>

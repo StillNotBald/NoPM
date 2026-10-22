@@ -70,8 +70,7 @@ export default function Landing() {
           </h1>
           <p className="rise rise-1 mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
             A lite project-management tool your AI agent operates, with governance in the data layer: immutable
-            audit, scoped tokens, four-eyes approval. It sits beside Jira, Slack and Teams, like the{" "}
-            <code className="font-mono text-ink">aws</code> CLI for project governance.
+            audit, scoped tokens, four-eyes approval. It sits beside Jira, Slack and Teams.
           </p>
           <div className="rise rise-2 mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
             <DemoLoginButton block />

@@ -182,13 +182,10 @@ export function ConnectedPanel({
         }}
       >
         <p>
-          This connection is locked to the first Lark workspace that linked an account, so people from any other
-          Lark workspace can&apos;t link to it.
+          Clearing the lock lets the next account that links choose the Lark workspace, and the connection locks to it again.
+          Until then it stays locked to the first workspace that linked, so no other Lark workspace can link.
         </p>
-        <p>
-          Clearing the lock lets the next account that links choose the workspace, and the connection locks to it
-          again. Use this only if you moved to a different Lark workspace.
-        </p>
+        <p>Use this only if you moved to a different Lark workspace.</p>
       </ConfirmDialog>,
       { title: "Clear workspace lock", size: "sm" },
     );
@@ -207,14 +204,14 @@ export function ConnectedPanel({
         }}
       >
         <ul className="list-disc space-y-1 pl-5">
-          <li>Messages to Lark stop immediately, and anything still queued is dropped.</li>
+          <li>Messages to Lark stop and queued ones are dropped.</li>
           <li>
             {linkedTotal !== null && linkedTotal > 0
-              ? `${pluralise(linkedTotal, "linked Lark account")} will be unlinked and each member has to link again after you reconnect.`
-              : "Every linked Lark account is unlinked, and members have to link again after you reconnect."}
+              ? `${pluralise(linkedTotal, "linked Lark account")} will be unlinked. Members must link again after you reconnect.`
+              : "Every linked Lark account is unlinked. Members must link again after you reconnect."}
           </li>
-          <li>Approve and Reject buttons on cards already in chat stop working. Decide in NoPM instead.</li>
-          <li>Decisions already made from Lark stay in the Trust Center.</li>
+          <li>Approve and Reject buttons on chat cards stop working. Decide in NoPM.</li>
+          <li>Past decisions stay in the Trust Center.</li>
         </ul>
       </ConfirmDialog>,
       { title: "Revoke Lark connection", size: "sm" },
@@ -288,14 +285,13 @@ export function ConnectedPanel({
 
       {!connector.secretsReadable && (
         <InlineAlert>
-          This server can no longer decrypt the stored Lark credentials (the encryption key changed). Revoke this
-          connection and connect again.
+          This server cannot decrypt the stored Lark credentials (the encryption key changed). Revoke and reconnect.
         </InlineAlert>
       )}
 
       {paused && (
         <InlineAlert tone="neutral">
-          Paused. Nothing is sent to Lark and chat buttons are ignored until you resume.
+          Paused. Nothing is sent to Lark and chat buttons are ignored.
         </InlineAlert>
       )}
 
@@ -358,7 +354,7 @@ export function ConnectedPanel({
 
       {!digestReady && (
         <p className="text-xs text-ink-muted">
-          To send a digest, turn on the weekly digest and set a group chat in Edit settings.
+          To send a digest, turn it on and set a group chat in Edit settings.
         </p>
       )}
 
@@ -407,15 +403,14 @@ export function ConnectedPanel({
         {connector.mode === "webhook" ? (
           <>
             <p className="text-sm text-ink-secondary">
-              Paste these into your app&apos;s Events &amp; Callbacks settings. They are not secret.
+              Paste into Events &amp; Callbacks. Not secret.
             </p>
             <WebhookUrls connectorId={connector.id} serverUrls={callbackUrls} />
           </>
         ) : (
           <>
             <p className="text-sm text-ink-secondary">
-              The relay worker needs these values. The relay secret was shown once when you connected; if it is
-              lost, revoke and reconnect to get a new one.
+              The worker needs these values. The relay secret was shown once; if lost, revoke and reconnect for a new one.
             </p>
             {appUrl && (
               <CopyValue

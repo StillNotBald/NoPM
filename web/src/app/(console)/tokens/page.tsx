@@ -365,7 +365,7 @@ export default function TokensPage() {
         <PageHeader title="API Tokens" />
         <Card>
           <EmptyState
-            purpose="API tokens let an agent or CI job call NoPM's API. Only admins and managers can mint or revoke them, so every token has an accountable owner."
+            purpose="Tokens let an agent or CI job call the API. Only admins and managers can mint or revoke them."
             canWrite={false}
           />
         </Card>
@@ -398,7 +398,7 @@ export default function TokensPage() {
           <div>
             <CardTitle>Connect your agent</CardTitle>
             <p className="mt-0.5 text-xs text-ink-muted">
-              NoPM has no built-in model. Use your own agent or MCP client.
+              Bring your own agent or MCP client.
             </p>
           </div>
         </CardHeader>
@@ -484,7 +484,7 @@ export default function TokensPage() {
               </div>
               {mintError && <InlineAlert>{mintError}</InlineAlert>}
               <p className="text-xs text-ink-muted">
-                Shown once. Copy it into your agent now.
+                Shown once. Copy it now.
               </p>
             </div>
           )}
@@ -497,7 +497,7 @@ export default function TokensPage() {
               className="space-y-3"
             >
               <p className="text-sm text-ink-secondary">
-                Mint a PAT above, paste this into <code className="font-mono text-xs">.mcp.json</code>
+                Mint a token, then paste this into <code className="font-mono text-xs">.mcp.json</code>
                 (or your client&apos;s config) and set <code className="font-mono text-xs">NOPM_TOKEN</code> to the token.
               </p>
               <pre className="overflow-x-auto rounded-md bg-canvas border border-border-subtle px-3 py-3 text-xs font-mono text-ink whitespace-pre">
@@ -525,7 +525,7 @@ export default function TokensPage() {
               </p>
               <Disclosure summary="More">
                 <p className="text-xs text-ink-muted">
-                  NoPM ships no model or key. Your key works through a short-lived scoped token, audited like any other agent.
+                  Your key works through a short-lived scoped token, audited like any agent.
                 </p>
               </Disclosure>
             </div>
@@ -601,7 +601,7 @@ export default function TokensPage() {
               }}
               empty={
                 <EmptyState
-                  purpose="No tokens yet. A scoped token lets an agent or script call the API. Every action is audited under the token."
+                  purpose="No tokens yet. Every action a token takes is audited under it."
                   className="py-10"
                 />
               }

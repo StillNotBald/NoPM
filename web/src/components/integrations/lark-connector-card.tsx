@@ -167,7 +167,7 @@ export function LarkConnectorCard({
       <CardHeader>
         <div>
           <CardTitle>Lark / Feishu</CardTitle>
-          <p className="mt-0.5 text-xs text-ink-muted">Approve from chat and get a weekly portfolio digest.</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Chat approvals and a weekly digest.</p>
         </div>
       </CardHeader>
       <CardBody>{body}</CardBody>

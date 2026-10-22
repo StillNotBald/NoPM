@@ -133,7 +133,7 @@ describe("ShowOncePanel", () => {
     expect(markup).toMatch(/aria-describedby="[^"]+"/);
     expect(markup).toContain('tabindex="-1"');
     expect(markup).toContain("Your new token");
-    expect(markup).toContain("Shown once — copy it now.");
+    expect(markup).toContain("Shown once. Copy it now.");
     expect(markup).toContain("npm_secret");
     expect(markup).toContain("I&#x27;ve saved it");
   });

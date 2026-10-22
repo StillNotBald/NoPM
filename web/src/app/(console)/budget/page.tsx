@@ -391,7 +391,7 @@ export default async function BudgetPage() {
           <CardHeader>
             <CardTitle>Spend alerts</CardTitle>
             <span className="text-xs text-ink-muted">
-              Warning at {alertRows[0]?.warnPct ?? DEFAULT_WARN_PCT}% of plan, over at 100%. Alerts never block spending.
+              Warns at {alertRows[0]?.warnPct ?? DEFAULT_WARN_PCT}%, over at 100%. Never blocks spending.
             </span>
           </CardHeader>
           <CardBody>
@@ -439,7 +439,7 @@ export default async function BudgetPage() {
         <CardHeader>
           <CardTitle>Earned Value (EVM)</CardTitle>
           <span className="text-xs text-ink-muted">
-            CPI = cost efficiency · SPI = schedule efficiency · ≥ 1.00 is good
+            CPI = cost, SPI = schedule. 1.00 or more is good.
           </span>
         </CardHeader>
 
@@ -482,7 +482,7 @@ export default async function BudgetPage() {
         <CardHeader>
           <CardTitle>Forecast and trend</CardTitle>
           <span className="text-xs text-ink-muted">
-            Spent + committed + to finish. The RAG suggestion is advice, never a decision.
+            Spent + committed + to finish. RAG is advice only.
           </span>
         </CardHeader>
         <ForecastPanel rows={forecastRows} trendAvailable={!snapshotError} />

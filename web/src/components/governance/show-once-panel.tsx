@@ -21,7 +21,7 @@ import { cn } from "@/lib/cn";
  */
 export function ShowOncePanel({
   heading,
-  notice = "Shown once — copy it now.",
+  notice = "Shown once. Copy it now.",
   children,
   dismissLabel = "I've saved it",
   onDismiss,

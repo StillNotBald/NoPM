@@ -22,7 +22,7 @@ export function ShowOncePanel({
   children,
   onDismiss,
   dismissLabel = "I’ve saved it",
-  notice = "Shown once — copy it now.",
+  notice = "Shown once. Copy it now.",
   className,
 }: {
   title: string;

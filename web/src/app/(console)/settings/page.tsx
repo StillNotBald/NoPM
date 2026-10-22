@@ -363,10 +363,10 @@ function AppearanceSection() {
       </CardHeader>
       <CardBody className="space-y-6">
         <p className="text-sm text-ink-secondary">
-          Display only, never audited. Theme and text size stay on this device.
+          Display only, never audited. Theme and text size are per device.
           {dbSynced
             ? " Density and date format follow your account."
-            : " Density and date format follow your account when signed in (not on the shared demo login)."}
+            : " Density and date format follow your account (not on the demo login)."}
         </p>
 
         <OptionGroup
@@ -766,8 +766,8 @@ export default function SettingsPage() {
           {mfaNeed && step !== "enabled" && (
             <InlineAlert tone={mfaNeed.mustEnrol ? "danger" : "neutral"} className="mb-3">
               {mfaNeed.mustEnrol
-                ? "Admins and managers must use two-step sign-in. Turn it on below to keep using the console. API tokens are not affected."
-                : `Admins and managers must use two-step sign-in. Turn it on below within ${mfaNeed.daysLeft ?? 14} day${mfaNeed.daysLeft === 1 ? "" : "s"}.`}
+                ? "Admins and managers must use two-step sign-in. Turn it on to keep using the console. API tokens are not affected."
+                : `Admins and managers must use two-step sign-in. Turn it on within ${mfaNeed.daysLeft ?? 14} day${mfaNeed.daysLeft === 1 ? "" : "s"}.`}
             </InlineAlert>
           )}
           <Card>
@@ -812,7 +812,7 @@ export default function SettingsPage() {
               {(step === "verify" || step === "verifying") && enroll && (
                 <div className="space-y-5">
                   <p className="text-sm text-ink-secondary">
-                    Add this to your authenticator app, then enter the 6-digit code to confirm.
+                    Add this to your authenticator app, then enter the 6-digit code.
                   </p>
 
                   {/* Secret display */}
@@ -890,8 +890,8 @@ export default function SettingsPage() {
               {/* ── BACKUP: one-time codes ── */}
               {step === "backup" && (
                 <ShowOncePanel
-                  heading="2FA is now active. Save your backup codes"
-                  notice="Shown once — save them now."
+                  heading="2FA is on. Save your backup codes"
+                  notice="Shown once. Save them now."
                   dismissLabel="Done — I have saved my codes"
                   onDismiss={() => {
                     setBackupCodes([]);
@@ -899,7 +899,7 @@ export default function SettingsPage() {
                   }}
                 >
                   <p className="text-sm text-ink-secondary">
-                    Keep these safe. Each code works once if you lose your authenticator.
+                    Keep these safe. Each code works once.
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     {backupCodes.map((bc) => (

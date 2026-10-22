@@ -177,7 +177,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
       <CardHeader>
         <div>
           <CardTitle>Calendar feed</CardTitle>
-          <p className="mt-0.5 text-xs text-ink-muted">Subscribe to milestones from any calendar app.</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Milestones in your calendar app.</p>
         </div>
       </CardHeader>
       <CardBody className="space-y-5">
