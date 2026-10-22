@@ -99,9 +99,8 @@ export default async function EmailPreviewsPage() {
           />
           <p className="text-sm text-ink">
             <strong className="font-medium text-accent">Previews only</strong>
-            {" — "}
-            NoPM does not send email. Resend runs in demo-mode; this shows exactly what would be
-            delivered to each recipient.
+            {". "}
+            NoPM does not send email. This is what each recipient would get.
           </p>
         </div>
 
@@ -120,7 +119,7 @@ export default async function EmailPreviewsPage() {
           <div className="space-y-6">
             <p className="text-xs text-ink-muted">
               {isSample
-                ? "No notifications yet, so these are samples: one per notification type, rendered with the same template."
+                ? "No notifications yet. These are samples, one per type."
                 : notifications.length === 20
                   ? "Showing newest 20 notifications"
                   : `${notifications.length} notification${notifications.length === 1 ? "" : "s"}`}

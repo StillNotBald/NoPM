@@ -8,7 +8,7 @@ import { useToast } from "@/components/ui/toast";
 import { fetchNudgeSettings, saveNudgeSettings, sendWeeklyReportNow, type NudgeSettingsView } from "./api";
 import { useApiResource } from "./hooks";
 import { errorText } from "./model";
-import { CheckRow, Field, LoadingRow, Select } from "./shared";
+import { CheckRow, Disclosure, Field, LoadingRow, Select } from "./shared";
 
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -75,12 +75,15 @@ export function NudgeSettingsCard({ role }: { role: string | null | undefined })
         <CardTitle>Nudges and weekly report</CardTitle>
       </CardHeader>
       <CardBody className="space-y-4">
-        <p className="text-sm text-ink-secondary">
-          An open task, risk or issue is stale when its last recorded change is at least this many days old. The weekly
-          report and the nudges go by that rule; the board card flag counts days in the current status. The owner gets a
-          notification (at most one a week per item). Admins and managers also get a weekly status report.
-          Nothing is emailed; the Email previews page shows what the email would look like.
-        </p>
+        <p className="text-sm text-ink-secondary">Owners get a nudge when an open item has not changed for the days below.</p>
+        <Disclosure summary="More">
+          <p>
+            An open task, risk or issue is stale when its last recorded change is that many days old. Nudges and the weekly report
+            use this rule; the board card flag counts days in the current status. The owner gets at most one notification a week
+            per item. Admins and managers also get a weekly status report. Nothing is emailed; the Email previews page shows what the
+            email would look like.
+          </p>
+        </Disclosure>
 
         <Field
           id="stale-days"
@@ -114,7 +117,7 @@ export function NudgeSettingsCard({ role }: { role: string | null | undefined })
           checked={value.weeklyReportEnabled}
           onChange={(v) => set({ weeklyReportEnabled: v })}
           title="Send the weekly status report"
-          description="To every admin and manager, on the day below in the workspace time zone."
+          description="To admins and managers, on the day below (workspace time zone)."
           disabled={!isAdmin || saving}
         />
 
@@ -150,7 +153,7 @@ export function NudgeSettingsCard({ role }: { role: string | null | undefined })
             </Button>
           )}
         </div>
-        {canSend && dirty && <p className="text-xs text-ink-muted">Save your changes before sending the report.</p>}
+        {canSend && dirty && <p className="text-xs text-ink-muted">Save before sending.</p>}
       </CardBody>
     </Card>
   );

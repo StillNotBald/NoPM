@@ -55,16 +55,16 @@ function ModuleRow({ children }: { children: React.ReactNode }) {
 // stacked finding/state pairs below it (the table needed a 640px scroller whose
 // answers column started off-screen on a phone).
 const CLOSED_DEFECTS: ReadonlyArray<readonly [string, string]> = [
-  ["Eleven mutating routes never wrote an audit row, including the BYOK key set and delete.", "Closed. A coverage test fails the build for any unaudited write; the key lifecycle is audited without the key."],
-  ["Ordinary writes persist before the audit row; only two flows are transactional.", "Open by decision. The Trust Center now says so in plain words."],
-  ["One scope both raised and decided change requests; a token requester left the DB check vacuous.", "Closed. change:decide is a separate scope agents never hold; requester and decider are typed identities checked in the API and the database."],
-  ["Unlocking a frozen baseline took no reason.", "Partly closed. A reason is required in the API, the dialog and the CLI; the same person can still unlock."],
-  ["Audit rows carried no client origin or request id.", "Partly closed. Every row records the declared client and a request id echoed on the response, including rows written inside database functions. No hash chain yet."],
-  ["No record could point at a Jira key or a Slack thread.", "Closed. Tasks, projects, risks, issues and decisions carry source, external_ref and external_url, in the API, the MCP tools and the CLI."],
-  ["No public page said the product complements Jira, Slack or Teams.", "Closed. README, landing, this page and the product doc say it."],
-  ["The lock and rebaseline flow had no navigation home; a demo page sat in the Governance section.", "Closed. Baselines lives under Governance; the demo page moved to My Work."],
+  ["Eleven mutating routes wrote no audit row, including BYOK key set and delete.", "Closed. A coverage test fails the build on any unaudited write. The key lifecycle is audited without the key."],
+  ["Ordinary writes persist before the audit row; only two flows are transactional.", "Open by decision. The Trust Center says so."],
+  ["One scope both raised and decided change requests. A token requester made the DB check vacuous.", "Closed. change:decide is a separate scope agents never hold. Requester and decider are typed identities, checked in the API and the database."],
+  ["Unlocking a frozen baseline needed no reason.", "Partly closed. A reason is required in the API, dialog and CLI. The same person can still unlock."],
+  ["Audit rows had no client origin or request id.", "Partly closed. Every row records the declared client and a request id, including rows written inside database functions. No hash chain yet."],
+  ["No record could point at a Jira key or Slack thread.", "Closed. Tasks, projects, risks, issues and decisions carry source, external_ref and external_url."],
+  ["No public page said NoPM complements Jira, Slack or Teams.", "Closed. README, landing, this page and the product doc say it."],
+  ["Lock and rebaseline had no navigation home.", "Closed. Baselines lives under Governance. The demo page moved to My Work."],
   ["The audit immutability triggers had no regression test.", "Closed. A migration-text test fails if any migration drops, disables or bypasses them."],
-  ["Tool and metric counts drifted between surfaces.", "Closed. Counts are generated and CI-checked; the pitch notes were realigned."],
+  ["Tool and metric counts drifted between surfaces.", "Closed. Counts are generated and CI-checked."],
 ];
 
 function ClosedDefects() {
@@ -154,11 +154,10 @@ export default function CaseStudyPage() {
           I build the systems that make unclear requirements impossible.
         </h1>
         <p className="rise rise-2 mt-4 max-w-2xl text-base leading-relaxed text-ink-secondary">
-          NoPM is a live, hosted proof-piece for that thesis. It is a lite,
-          API-first project management tool where governance — immutable audit,
-          scoped tokens, four-eyes approval — is{" "}
-          <em>engineered into the data and API layer</em>, not bolted onto the UI.
-          Shipped solo in eight waves using an AI multi-agent workflow.
+          NoPM is a lite, API-first project management tool with governance
+          (immutable audit, scoped tokens, four-eyes approval){" "}
+          <em>built into the data and API layer</em>, not the UI. Built solo
+          in eight waves with AI agents.
         </p>
         <div className="rise rise-3 mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
           <DemoLoginButton block />
@@ -180,27 +179,23 @@ export default function CaseStudyPage() {
           Governance belongs in the data layer.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
-          Most PM tools treat audit trails and change control as UI features —
-          export logs, activity feeds, manual history. They can be bypassed by
-          anyone with a database connection or a sufficiently permissive service
-          key.
+          Most PM tools make audit a UI feature, so anyone with database access
+          can bypass it.
         </p>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
-          NoPM inverts that. Every mutation flows through the{" "}
-          <code className="font-mono text-ink">route()</code> API wrapper and
-          calls{" "}
-          <code className="font-mono text-ink">writeAudit()</code> exactly once —
-          fail-closed. Postgres triggers enforce append-only semantics. A service
-          key cannot rewrite history. The UI is just a consumer of the same
-          governed API your agent calls.
+          In NoPM every mutation goes through the{" "}
+          <code className="font-mono text-ink">route()</code> wrapper and calls{" "}
+          <code className="font-mono text-ink">writeAudit()</code> exactly once,
+          fail-closed. Postgres triggers keep the log append-only, so even a
+          service key cannot rewrite history. The UI uses the same governed API
+          your agent does.
         </p>
         {/* A sunken well, not a coloured left rule: DESIGN.md rejects border-left accents. */}
         <blockquote className="mt-6 max-w-2xl rounded-lg border border-border-subtle bg-well px-5 py-4">
           <p className="text-sm leading-relaxed text-ink-secondary italic">
-            &ldquo;The same surface a human uses — {metrics.endpoints} documented endpoints, OpenAPI,
-            an <code className="font-mono">llms.txt</code> index, and scoped
-            Bearer tokens — is the surface an AI agent uses. No special mode,
-            no privileged bypass.&rdquo;
+            &ldquo;Humans and agents use the same surface: {metrics.endpoints} documented endpoints, OpenAPI,
+            an <code className="font-mono">llms.txt</code> index and scoped
+            Bearer tokens. No special mode, no bypass.&rdquo;
           </p>
         </blockquote>
       </section>
@@ -213,7 +208,7 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>The wedge</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          Three properties most PM tools can&apos;t claim simultaneously.
+          Three things most PM tools can&apos;t claim together.
         </h2>
         <div className="mt-6">
           <WedgeGrid />
@@ -228,10 +223,10 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>What was built</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          A governance spine and the minimum registers it needs.
+          A governance spine and the registers it needs.
         </h2>
         <p className="mt-2 text-sm leading-relaxed text-ink-secondary">
-          NoPM is the governed record beside Jira, Slack and Teams, not a replacement for them.
+          NoPM is the governed record beside Jira, Slack and Teams, not a replacement.
         </p>
 
         {/* terminal card */}
@@ -245,43 +240,43 @@ export default function CaseStudyPage() {
         <div className="mt-8 grid gap-x-8 gap-y-2 sm:grid-cols-2">
           <ul className="space-y-2">
             <ModuleRow>
-              Governed Kanban (drag = audited mutation) + read-mostly Gantt with rebaseline gate
+              Governed Kanban (drag = audited) and Gantt with rebaseline gate
             </ModuleRow>
             <ModuleRow>
-              Trust Center — immutable audit stream, provenance, PAT management
+              Trust Center: immutable audit log, provenance, tokens
             </ModuleRow>
             <ModuleRow>
-              Change-control pipeline, notifications, deck export (PDF / PPTX / HTML)
+              Change control, notifications, deck export (PDF / PPTX / HTML)
             </ModuleRow>
             <ModuleRow>
-              Link invites — role-capped, revocable, audited (no email dependency)
+              Link invites: role-capped, revocable, audited
             </ModuleRow>
             <ModuleRow>
-              Workspace → Project → Milestone → Task (typed statuses, maker-checker delete)
+              Workspace, Project, Milestone, Task (maker-checker delete)
             </ModuleRow>
             <ModuleRow>
-              Risk &amp; Issue registers with severity/likelihood scoring
+              Risk and Issue registers with scoring
             </ModuleRow>
           </ul>
           <ul className="space-y-2">
             <ModuleRow>
-              Clash engine — schedule, resource, and dependency conflicts (cross-project)
+              Clashes: schedule, resource and dependency conflicts
             </ModuleRow>
             <ModuleRow>
-              Resource, allocation, cost-rate, and capacity
+              Resources, allocation, cost rate, capacity
             </ModuleRow>
             <ModuleRow>
               Budget: planned / committed / actual / EVM (CPI, SPI, EAC, VAC)
             </ModuleRow>
             <ModuleRow>
-              Sprints — commitment snapshots, burndown, and velocity flow metrics
+              Sprints: burndown and velocity
             </ModuleRow>
             <ModuleRow>
-              BYOK governed assistant (user&apos;s own API key, AES-256-GCM at rest,
-              ephemeral scoped token — NoPM ships no model key)
+              BYOK assistant (your own API key, AES-256-GCM at rest, ephemeral
+              scoped token). NoPM ships no model.
             </ModuleRow>
             <ModuleRow>
-              Documents &amp; charter management with versioning and status workflow
+              Versioned documents and charters
             </ModuleRow>
           </ul>
         </div>
@@ -295,7 +290,7 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>Proof metrics</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          Numbers that show the governance isn&apos;t hand-waving.
+          Numbers behind the governance.
         </h2>
         {/* Every numeral here is read from metrics.gen.json; nothing is typed in. */}
         <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -304,19 +299,17 @@ export default function CaseStudyPage() {
           <Metric value={String(metrics.endpoints)} label="documented REST endpoints + OpenAPI" />
         </div>
         <p className="mt-6 text-sm leading-relaxed text-ink-muted">
-          The three counts above are not typed into this page — they are generated from
-          the RTM, the test run, and the API route tree, and CI fails if they
-          drift from reality. Every requirement has an R-ID, a status, and a
-          traceability row. Tests target the governance rules first: can a
-          maker self-approve? Does a missing scope return 403? Does a delete
-          without a four-eyes approval fail?
+          These counts are generated from the RTM, the test run and the API
+          route tree. CI fails if they drift. Tests target governance first:
+          can a maker self-approve? Does a missing scope return 403? Does a
+          delete without four-eyes approval fail?
         </p>
         <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-ink-muted">
           Invariants (stated, not counted)
         </p>
         <ul className="mt-2 space-y-1.5 text-sm text-ink-secondary">
-          <li>One immutable audit row per mutation — no exceptions.</li>
-          <li>No bundled LLM — governance ships without any model key.</li>
+          <li>One immutable audit row per mutation.</li>
+          <li>No bundled LLM. No model key ships.</li>
         </ul>
       </section>
 
@@ -328,17 +321,16 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>Reviewed, then closed</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          Ten defects an adversarial review confirmed. Two sprints later.
+          Ten defects confirmed by review. Two sprints later.
         </h2>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-ink-secondary">
-          On 2026-09-06 a six-lens review tested the thesis &ldquo;NoPM is the governed
-          record beside Jira, Slack and Teams&rdquo; against the code, and a separate
-          verifier confirmed ten defects. The same day, two sprints closed or narrowed
-          them, and the verifier re-ran. The record below is the re-run, not the plan.
+          On 2026-09-06 a six-lens review tested the code and a verifier
+          confirmed ten defects. Two sprints closed or narrowed them the same
+          day. Below is the re-run, not the plan.
         </p>
         <ClosedDefects />
         <p className="mt-4 text-sm leading-relaxed text-ink-muted">
-          The review, the sprint receipts and the re-verification are in the repo under{" "}
+          Review, sprint receipts and re-run are in the repo under{" "}
           <code className="font-mono">docs/research</code> and{" "}
           <code className="font-mono">sprint-log</code>.
         </p>
@@ -352,7 +344,7 @@ export default function CaseStudyPage() {
       <section className="mx-auto max-w-4xl px-6 py-10">
         <SectionLabel>Stack &amp; method</SectionLabel>
         <h2 className="mt-3 text-xl font-semibold text-ink">
-          Production stack, shipped with AI multi-agent assist.
+          Production stack, built with AI agents.
         </h2>
         <div className="mt-6 grid gap-6 sm:grid-cols-2">
           <div>
@@ -362,23 +354,23 @@ export default function CaseStudyPage() {
             <ul className="space-y-1.5 text-sm text-ink-secondary">
               <li>
                 <span className="font-mono text-xs text-ink">Next.js 16</span>{" "}
-                App Router + TypeScript + Tailwind v4
+                App Router, TypeScript, Tailwind v4
               </li>
               <li>
                 <span className="font-mono text-xs text-ink">Supabase</span>{" "}
-                — Postgres + RLS + Auth + Storage
+                Postgres, RLS, Auth, Storage
               </li>
               <li>
                 <span className="font-mono text-xs text-ink">Vercel</span>{" "}
-                deploy + Cloudflare DNS → stillnotbald.com
+                deploy, Cloudflare DNS
               </li>
               <li>
                 <span className="font-mono text-xs text-ink">jsPDF / pptxgenjs</span>{" "}
-                — governed deck exports
+                deck exports
               </li>
               <li>
                 <span className="font-mono text-xs text-ink">vitest</span>{" "}
-                — {metrics.tests} tests, governance-first coverage
+                {metrics.tests} tests, governance first
               </li>
             </ul>
           </div>
@@ -388,21 +380,19 @@ export default function CaseStudyPage() {
             </p>
             <ul className="space-y-1.5 text-sm text-ink-secondary">
               <li>
-                Requirement traceability matrix (RTM) — R-ID per feature,
-                verified in CI
+                Requirement traceability matrix (RTM), checked in CI
               </li>
               <li>
-                Sprint log per wave — plan, decisions, and a signed-off summary
+                Sprint log per wave
               </li>
               <li>
-                Architecture decision records (ADRs) for irreversible choices
+                Architecture decision records (ADRs)
               </li>
               <li>
-                AI multi-agent workflow — sub-agents per domain, orchestrated
-                by a wave planner
+                AI multi-agent workflow
               </li>
               <li>
-                Solo build — no team, no PM, no sprint ceremonies
+                Solo build
               </li>
             </ul>
           </div>
@@ -419,8 +409,7 @@ export default function CaseStudyPage() {
           See the governance live.
         </h2>
         <p className="mt-2 text-sm text-ink-secondary">
-          Every endpoint is documented. Every mutation is audited. The console is
-          open.
+          Every endpoint is documented. Every mutation is audited.
         </p>
         <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center">
           <DemoLoginButton block />

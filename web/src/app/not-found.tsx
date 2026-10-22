@@ -27,7 +27,7 @@ export default function NotFound() {
         </h1>
 
         <p className="mb-6 text-sm text-ink-secondary">
-          The page you&apos;re looking for doesn&apos;t exist or has moved.
+          This page does not exist or has moved.
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">

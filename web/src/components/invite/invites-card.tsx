@@ -162,7 +162,7 @@ export function InvitesCard() {
         </CardHeader>
         <CardBody>
           <EmptyState
-            purpose="Link invites are audited and revocable — minting one is restricted to admins and managers so every new member ties back to an accountable inviter."
+            purpose="Link invites are audited and revocable. Only admins and managers can create them, so every member traces to an inviter."
             canWrite={false}
           />
         </CardBody>
@@ -177,8 +177,7 @@ export function InvitesCard() {
       </CardHeader>
       <CardBody className="space-y-5">
         <p className="text-sm text-ink-secondary">
-          Send a link — no email delivery required. Accepting it creates their login AND their
-          resource-member record together, so assignment/capacity/cost work immediately.
+          Send a link. No email needed. Accepting it creates their login and resource record together.
         </p>
 
         {newInviteUrl && (

@@ -83,8 +83,7 @@ export function AuditPackPanel({ className }: { className?: string }) {
             Download CSV
           </a>
           <p className="text-xs text-ink-muted sm:basis-full">
-            Every change request raised or decided in the range, with approver, evidence, implemented date and the
-            change audit trail. The download is itself recorded in the audit log.
+            Every change request raised or decided in the range, with approver, evidence and implemented date. The download is recorded in the audit log.
           </p>
         </div>
       )}

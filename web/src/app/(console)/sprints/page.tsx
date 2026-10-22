@@ -214,7 +214,7 @@ export default async function SprintsPage({
         {sprintRows.length === 0 ? (
           <Card>
             <EmptyState
-              purpose="No sprints yet. Create a sprint under a project to plan and track commitment."
+              purpose="No sprints yet. Create one under a project."
               action={<NewSprintButton />}
               canWrite={canWrite}
             />

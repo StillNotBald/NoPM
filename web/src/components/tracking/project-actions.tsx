@@ -53,8 +53,7 @@ function LockConfirmDialog({
         <div>
           <p className="text-sm font-medium text-ink">Lock this project?</p>
           <p className="mt-1 text-sm text-ink-secondary">
-            Locking freezes the baseline — no further mutations until unlocked. This is recorded
-            in the audit log.
+            Locking freezes the baseline: no changes until it is unlocked. Recorded in the audit log.
           </p>
         </div>
       </div>
@@ -137,7 +136,7 @@ function UnlockConfirmDialog({
 
   function handleConfirm() {
     if (!reason.trim()) {
-      setFieldError("A reason is required — it is recorded on the audit trail.");
+      setFieldError("A reason is required. It goes on the audit trail.");
       return;
     }
     setFieldError(undefined);
@@ -154,7 +153,7 @@ function UnlockConfirmDialog({
         <div>
           <p className="text-sm font-medium text-ink">Unlock this project?</p>
           <p className="mt-1 text-sm text-ink-secondary">
-            Unlocking will allow edits and mutations again. This is recorded in the audit log.
+            Unlocking allows edits again. Recorded in the audit log.
           </p>
           {affected && affected.length > 0 && (
             <div role="note" className="mt-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning-ink">
@@ -231,7 +230,7 @@ function RequestDeletionDialog({
 
   function handleConfirm() {
     if (!reason.trim()) {
-      setFieldError("A reason is required — it is recorded on the audit trail.");
+      setFieldError("A reason is required. It goes on the audit trail.");
       return;
     }
     setFieldError(undefined);
@@ -248,10 +247,9 @@ function RequestDeletionDialog({
         <div>
           <p className="text-sm font-medium text-ink">Request deletion of this project?</p>
           <p className="mt-1 text-sm text-ink-secondary">
-            This does not delete the project immediately. It raises a deletion request that a{" "}
-            <span className="font-medium text-ink">different person</span> must approve
-            (four-eyes) before anything is removed — enforced at the API layer, and recorded on
-            the audit trail either way.
+            This raises a deletion request. A{" "}
+            <span className="font-medium text-ink">different person</span> must approve it
+            (four-eyes) before anything is removed. Recorded on the audit trail either way.
           </p>
         </div>
       </div>
@@ -395,7 +393,7 @@ export function ProjectActions({ project }: ProjectActionsProps) {
     try {
       await apiDelete(`/api/projects/${project.id}`, { reason });
       toast.success(
-        "Deletion requested — a different person must approve it (four-eyes) before the project is removed.",
+        "Deletion requested. A different person must approve it (four-eyes).",
       );
       router.refresh();
     } catch (err) {

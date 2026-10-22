@@ -5,7 +5,7 @@ describe("demoLoginErrorMessage", () => {
   it("explains a rejected demo sign-in and points at the retry", () => {
     const msg = demoLoginErrorMessage("demo_unavailable");
     expect(msg).toContain("could not sign you in");
-    expect(msg).toContain("try the demo again");
+    expect(msg).toContain("Try again");
   });
 
   it("explains a deployment with no demo account", () => {

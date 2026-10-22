@@ -12,7 +12,7 @@ import { createFeed, fetchFeeds, fetchProjects, fetchWorkspaceFeeds, revokeFeed,
 import { absoluteUrl, formatDate, formatRelativeTime, toWebcalUrl } from "./format";
 import { useApiResource, useNow, useOrigin } from "./hooks";
 import { errorText, type ProjectOption } from "./model";
-import { ConfirmDialog, CopyValue, Field, InlineAlert, LoadingRow, Select } from "./shared";
+import { ConfirmDialog, CopyValue, Disclosure, Field, InlineAlert, LoadingRow, Select } from "./shared";
 
 const SUBSCRIBE_HINTS: { app: string; how: string }[] = [
   { app: "Apple Calendar", how: "File, New Calendar Subscription, then paste the link." },
@@ -39,16 +39,16 @@ function CreatedPanel({ url, onDismiss }: { url: string; onDismiss: () => void }
       >
         Open in your calendar app
       </a>
-      <ul className="space-y-1 text-sm text-ink-secondary">
-        {SUBSCRIBE_HINTS.map((h) => (
-          <li key={h.app}>
-            <span className="font-medium text-ink">{h.app}:</span> {h.how}
-          </li>
-        ))}
-      </ul>
-      <p className="text-xs text-ink-muted">
-        Anyone with this link can read these milestones. Revoke the feed if it leaks.
-      </p>
+      <Disclosure summary="How to subscribe">
+        <ul className="space-y-1 text-sm text-ink-secondary">
+          {SUBSCRIBE_HINTS.map((h) => (
+            <li key={h.app}>
+              <span className="font-medium text-ink">{h.app}:</span> {h.how}
+            </li>
+          ))}
+        </ul>
+      </Disclosure>
+      <p className="text-xs text-ink-muted">Anyone with this link can read these milestones. Revoke the feed if it leaks.</p>
     </ShowOncePanel>
   );
 }
@@ -117,7 +117,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
       >
         <p>
           {isAdmin && feed.ownerName ? `This feed belongs to ${feed.ownerName}. ` : ""}
-          Calendar apps using this link stop updating right away. A revoked link can&apos;t be restored; create a new feed to subscribe again.
+          Calendar apps using this link stop updating. A revoked link cannot be restored; create a new feed instead.
         </p>
       </ConfirmDialog>,
       { title: "Revoke calendar feed", size: "sm" },
@@ -128,9 +128,9 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
   if (feeds.state.status === "loading") {
     list = <LoadingRow label={isAdmin ? "Loading feeds…" : "Loading your feeds…"} />;
   } else if (feeds.state.status === "unavailable") {
-    list = <p className="text-sm text-ink-secondary">Calendar feeds aren&apos;t available on this deployment yet.</p>;
+    list = <p className="text-sm text-ink-secondary">Calendar feeds are not available here yet.</p>;
   } else if (feeds.state.status === "forbidden") {
-    list = <p className="text-sm text-ink-secondary">Your role can&apos;t use calendar feeds.</p>;
+    list = <p className="text-sm text-ink-secondary">Your role cannot use calendar feeds.</p>;
   } else if (feeds.state.status === "error") {
     list = (
       <div className="space-y-3">
@@ -141,7 +141,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
       </div>
     );
   } else if (feeds.state.data.length === 0) {
-    list = <p className="text-sm text-ink-muted">No feeds yet. Create one above to subscribe from a calendar app.</p>;
+    list = <p className="text-sm text-ink-muted">No feeds yet. Create one above.</p>;
   } else {
     list = (
       <ul className="divide-y divide-border-subtle rounded-md border border-border-subtle" aria-label={isAdmin ? "Workspace calendar feeds" : "Your calendar feeds"}>
@@ -230,7 +230,7 @@ export function CalendarFeedsCard({ role }: { role: string | null | undefined })
             </Button>
           </form>
         ) : (
-          <InlineAlert tone="neutral">Viewers can&apos;t create calendar feeds. Ask a member or admin to create one.</InlineAlert>
+          <InlineAlert tone="neutral">Viewers cannot create feeds. Ask a member or admin.</InlineAlert>
         )}
 
         <div className="space-y-2">

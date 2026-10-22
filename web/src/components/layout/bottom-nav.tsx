@@ -205,7 +205,7 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
                   />
                 ) : (
                   <p className="px-3 py-4 text-center text-xs text-ink-muted">
-                    No shortcuts pinned — add some below.
+                    No shortcuts pinned. Add some below.
                   </p>
                 )}
 

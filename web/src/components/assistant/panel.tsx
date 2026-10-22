@@ -133,7 +133,7 @@ function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => voi
       {msg.error && (
         <div className="flex max-w-[85%] flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
           <span className="font-mono text-xs text-danger-ink">
-            Something went wrong. Your message wasn&apos;t lost.
+            Something went wrong. Your message was not lost.
           </span>
           {onRetry && (
             <button
@@ -170,7 +170,7 @@ function WelcomeState() {
       <div>
         <p className="font-mono text-sm font-semibold text-ink-secondary">AI Assistant ready</p>
         <p className="mt-0.5 font-mono text-xs text-ink-muted">
-          Ask me to create tasks, update milestones, check risks, or query your project data.
+          Ask me to create tasks, update milestones, check risks or query project data.
         </p>
       </div>
     </div>

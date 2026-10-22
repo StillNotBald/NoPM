@@ -482,7 +482,7 @@ export default async function BudgetPage() {
         <CardHeader>
           <CardTitle>Forecast and trend</CardTitle>
           <span className="text-xs text-ink-muted">
-            Spent + committed + to finish. The RAG suggestion is advice from the nightly trend, never a decision.
+            Spent + committed + to finish. The RAG suggestion is advice, never a decision.
           </span>
         </CardHeader>
         <ForecastPanel rows={forecastRows} trendAvailable={!snapshotError} />

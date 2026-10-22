@@ -238,7 +238,7 @@ export function TaskList({ tasks }: { tasks: ProjectTask[] }) {
     return (
       <EmptyState
         icon={<CheckCircle2 size={36} className="text-success-ink" strokeWidth={1.5} />}
-        purpose="No tasks assigned to you. Anything assigned to you across every project will show up here."
+        purpose="No tasks assigned to you."
       />
     );
   }

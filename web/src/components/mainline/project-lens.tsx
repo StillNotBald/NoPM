@@ -55,7 +55,7 @@ export function ProjectLens({
   }
 
   if (projects.length === 0) {
-    return <EmptyState purpose="No projects yet — the Journal lens needs at least one project to pick from." canWrite={false} />;
+    return <EmptyState purpose="No projects yet. The Journal lens needs one." canWrite={false} />;
   }
 
   return (

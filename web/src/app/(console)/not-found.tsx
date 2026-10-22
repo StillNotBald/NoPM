@@ -18,8 +18,7 @@ export default function ConsoleNotFound() {
         <h1 className="mb-1 text-base font-semibold text-ink">Page not found</h1>
 
         <p className="mb-6 text-sm text-ink-secondary">
-          This record doesn&apos;t exist or has moved. Check the link, or search for it from the
-          command palette.
+          This record does not exist or has moved. Check the link or use search.
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">

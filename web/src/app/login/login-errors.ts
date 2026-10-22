@@ -11,7 +11,7 @@
  */
 const DEMO_LOGIN_ERRORS: Record<string, string> = {
   demo_unavailable:
-    "The shared demo could not sign you in. It is reseeded regularly, so try the demo again in a minute.",
+    "The shared demo could not sign you in. Try again in a minute.",
   demo_unconfigured: "The shared demo is not set up on this deployment.",
 };
 

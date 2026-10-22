@@ -27,7 +27,7 @@ async function failureMessage(res: Response): Promise<string> {
     // not JSON: fall through to the status-based text
   }
   if (res.status === 403) {
-    return detail || "Your role can't export the board pack (it needs audit and budget read access).";
+    return detail || "Your role cannot export the board pack. It needs audit and budget read access.";
   }
   if (res.status === 401) return "Your session has expired. Sign in again to export.";
   return detail || `The server could not build the board pack (HTTP ${res.status}).`;
@@ -54,7 +54,7 @@ export function ExportBoardPack({ filtered = false }: { filtered?: boolean }) {
 
   const label = filtered ? "Export all projects" : "Export board pack";
   const scopeNote = filtered
-    ? "The board pack always covers every project; the filters on this page are not applied."
+    ? "The board pack covers every project. Page filters are not applied."
     : "Exports every project in the workspace.";
 
   // Esc closes the menu and hands focus back to the chevron; focus the first

@@ -232,7 +232,7 @@ export function IssuesView({
             purpose={
               activeFilterCount > 0
                 ? `No issues match the ${activeFilterCount} active filter${activeFilterCount > 1 ? "s" : ""}.`
-                : "The issue register tracks problems that have already happened — what broke, who owns the fix, and when it resolved."
+                : "Problems that have already happened: what broke, who fixes it, when it resolved."
             }
             canWrite={canWrite}
             action={

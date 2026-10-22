@@ -361,7 +361,7 @@ export function ProjectForm({
             }
           }
           // The project exists either way: never strand the user on the form with a half-made project.
-          if (scaffoldFailed) toast.error("Project created, but the starter milestones could not be added. Add them from the project page.");
+          if (scaffoldFailed) toast.error("Project created, but starter milestones were not added. Add them on the project page.");
         }
 
         toast.success("Project created");
@@ -376,8 +376,8 @@ export function ProjectForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed since you opened it. Reload to see the latest.");
-        toast.error("This record changed since you opened it. Reload to see the latest.");
+        setTopError("This record changed. Reload to see the latest.");
+        toast.error("This record changed. Reload to see the latest.");
       } else {
         applyApiError(apiErr);
         toast.error(apiErr.message ?? "Failed to save project");

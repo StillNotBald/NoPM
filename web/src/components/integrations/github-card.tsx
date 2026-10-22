@@ -11,7 +11,7 @@ import { apiDelete, apiGet, apiPatch, apiPost } from "@/lib/api-client";
 import { formatRelativeTime } from "./format";
 import { useApiResource } from "./hooks";
 import { errorText } from "./model";
-import { ConfirmDialog, CopyValue, Field, InlineAlert, LoadingRow, Select } from "./shared";
+import { ConfirmDialog, CopyValue, Disclosure, Field, InlineAlert, LoadingRow, Select } from "./shared";
 
 /**
  * GitHub work events (R-153, audit A1): a pull request opening or merging, or a deployment succeeding,
@@ -219,7 +219,7 @@ export function GithubCard() {
           reloadAll();
         }}
       >
-        <p>GitHub deliveries are refused from now on and no task is moved. Past events stay listed. You can connect again later with a new secret.</p>
+        <p>GitHub deliveries are refused and no task is moved. Past events stay listed. You can reconnect later with a new secret.</p>
       </ConfirmDialog>,
     );
   }
@@ -232,11 +232,13 @@ export function GithubCard() {
         <CardTitle>GitHub</CardTitle>
       </CardHeader>
       <CardBody className="space-y-5">
-        <p className="text-sm text-ink-secondary">
-          Link a task to a pull request and its status follows the work: opening the pull request starts it, merging
-          moves it to review. A deployment never completes a task; only a person marks it Completed. Only tasks whose pull request is linked are touched,
-          never on a locked project, and every change is recorded in the audit trail as the GitHub connection.
-        </p>
+        <p className="text-sm text-ink-secondary">Task status follows its linked pull request. Only a person marks a task Completed.</p>
+        <Disclosure summary="More">
+          <p>
+            Opening the pull request starts the task; merging moves it to review. Only linked tasks are touched, never on a locked
+            project. Every change is recorded in the audit trail as the GitHub connection.
+          </p>
+        </Disclosure>
 
         {secret && (
           <div className="space-y-2 rounded-md border border-border-subtle bg-well p-3">
@@ -273,10 +275,12 @@ export function GithubCard() {
             {canManage && connector.webhook_url && (
               <div className="space-y-3">
                 <CopyValue label="Webhook address (Payload URL)" value={connector.webhook_url} subject="the webhook address" />
-                <p className="text-xs text-ink-muted">
-                  In the GitHub repository settings, add a webhook with this address, content type application/json, the
-                  secret from when you connected, and the events Pull requests and Deployment statuses.
-                </p>
+                <Disclosure summary="Webhook setup">
+                  <p>
+                    In GitHub, add a webhook with this address, content type application/json, your secret, and the
+                    events Pull requests and Deployment statuses.
+                  </p>
+                </Disclosure>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                   {connector.status === "active" ? (
                     <Button size="sm" variant="secondary" disabled={busy} onClick={() => setStatus("paused")}>
@@ -322,9 +326,7 @@ export function GithubCard() {
               </Field>
             ))}
           </div>
-          <p className="text-xs text-ink-muted">
-            A task only ever moves forward: an event never reopens a completed or canceled task. A GitHub event never completes a task; only a person marks it Completed.
-          </p>
+          <p className="text-xs text-ink-muted">Tasks only move forward. Events never reopen or complete a task.</p>
           {canManage ? (
             <Button size="sm" disabled={busy || !dirty} onClick={saveRules}>
               Save mapping

@@ -253,8 +253,8 @@ export function TaskForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed since you opened it. Reload to see the latest.");
-        toast.error("This record changed since you opened it. Reload to see the latest.");
+        setTopError("This record changed. Reload to see the latest.");
+        toast.error("This record changed. Reload to see the latest.");
       } else {
         applyApiError(apiErr);
         toast.error(apiErr.message ?? "Failed to save task");
@@ -486,7 +486,7 @@ export function TaskForm({
           <TextareaInput
             value={acceptanceCriteria}
             onChange={(e) => setAcceptanceCriteria(e.target.value)}
-            placeholder="Definition of done — what must be true for this task to be accepted?"
+            placeholder="Definition of done: what must be true to accept this task?"
             rows={3}
           />
         </Field>

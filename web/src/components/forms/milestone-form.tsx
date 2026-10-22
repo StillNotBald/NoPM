@@ -122,8 +122,8 @@ export function MilestoneForm({
     } catch (err) {
       const apiErr = err as ApiError;
       if (apiErr.status === 412) {
-        setTopError("This record changed since you opened it. Reload to see the latest.");
-        toast.error("This record changed since you opened it. Reload to see the latest.");
+        setTopError("This record changed. Reload to see the latest.");
+        toast.error("This record changed. Reload to see the latest.");
       } else if (apiErr.status === 422 && apiErr.code === "open_tasks") {
         setTopError(apiErr.message);
         setOpenTasksPrompt(true);
@@ -229,7 +229,7 @@ export function MilestoneForm({
           <TextareaInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Milestone narrative — what this milestone represents and why it matters."
+            placeholder="What this milestone is and why it matters."
           />
         </Field>
 
@@ -237,7 +237,7 @@ export function MilestoneForm({
           <TextareaInput
             value={deliverable}
             onChange={(e) => setDeliverable(e.target.value)}
-            placeholder="WBS deliverable / acceptance output produced at this milestone."
+            placeholder="Deliverable or acceptance output."
           />
         </Field>
       </FormSection>

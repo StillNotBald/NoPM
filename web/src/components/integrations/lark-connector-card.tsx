@@ -26,7 +26,7 @@ function ReadOnlyStatus({ connector }: { connector: ConnectorView | null }) {
   if (!connector) {
     return (
       <p className="text-sm text-ink-secondary">
-        Lark isn&apos;t connected for this workspace. A workspace admin can connect it from this page.
+        Lark is not connected. A workspace admin can connect it here.
       </p>
     );
   }
@@ -34,8 +34,7 @@ function ReadOnlyStatus({ connector }: { connector: ConnectorView | null }) {
     <div className="space-y-1">
       <p className="text-sm text-ink">{readOnlySummary(connector)}</p>
       <p className="text-xs text-ink-muted">
-        {REGION_LABEL[connector.region]} · {MODE_LABEL[connector.mode]}. Only workspace admins can change this
-        connection.
+        {REGION_LABEL[connector.region]} · {MODE_LABEL[connector.mode]}. Only workspace admins can change it.
       </p>
     </div>
   );
@@ -76,14 +75,13 @@ export function LarkConnectorCard({
   } else if (resource.status === "unavailable") {
     body = (
       <p className="text-sm text-ink-secondary">
-        Integrations aren&apos;t available on this deployment yet.
+        Integrations are not available here yet.
       </p>
     );
   } else if (resource.status === "forbidden") {
     body = (
       <p className="text-sm text-ink-secondary">
-        Only workspace admins can see or change the Lark connection. Once an admin has connected it, link your own
-        account below to receive approval requests in chat.
+        Only workspace admins can see the Lark connection. Once it is connected, link your own account below.
       </p>
     );
   } else if (resource.status === "error") {
@@ -116,12 +114,10 @@ export function LarkConnectorCard({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0 space-y-1">
             <p className="text-sm text-ink">
-              Approve or reject deletion and change requests from a chat card. Every decision is still recorded once in
-              the Trust Center.
+              Approve or reject deletion and change requests from a chat card. Each decision is recorded once in the Trust Center.
             </p>
             <p className="text-xs text-ink-muted">
-              You&apos;ll need a self-built app from the Lark developer console: its App ID, App Secret and Verification
-              Token (plus an Encrypt Key for a webhook).
+              Bring a self-built Lark app: App ID, App Secret, Verification Token (and an Encrypt Key for a webhook).
             </p>
           </div>
           <Button

@@ -29,20 +29,20 @@ type Known = Omit<Refusal, "code">;
 const KNOWN: Record<string, { title: string; detail: string | null; stale?: boolean }> = {
   self_approval: {
     title: "A different person must decide",
-    detail: "You raised this (directly or through your token). Ask someone else to decide it.",
+    detail: "You raised this (or your token did). Ask someone else.",
   },
   no_principal: {
     title: "This sign-in isn't tied to a person",
-    detail: "Only a person can decide a request, and a token with no recorded owner can't. Sign in as yourself.",
+    detail: "Only a person can decide. A token with no recorded owner can't. Sign in as yourself.",
   },
   already_decided: {
     title: "Already decided",
-    detail: "Someone decided this while you were looking. Refresh to see the outcome.",
+    detail: "Someone decided this already. Refresh to see the outcome.",
     stale: true,
   },
   precondition_failed: {
     title: "This changed after you opened it",
-    detail: "This request changed after you opened it. Reopen it and review the new version.",
+    detail: "It changed after you opened it. Reopen it to review the new version.",
     stale: true,
   },
   project_locked: { title: "Closed: the project was locked", detail: null },

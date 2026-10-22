@@ -40,9 +40,9 @@ describe("where the flag shows", () => {
     expect(renderToStaticMarkup(createElement(Badge, { tone: "danger", size: "sm" }, "Emergency"))).toContain("Emergency");
   });
 
-  it("the raise form says it commits immediately with no approver and is flagged in every report", () => {
+  it("the raise form says it commits at once with no approver and is flagged in every report", () => {
     const s = src("components/change-control/change-form.tsx");
-    expect(s).toContain("commits immediately with no approver and is flagged as an emergency in every report");
+    expect(s).toContain("Commits at once with no approver. Flagged as an emergency in every report");
     expect(s).not.toMatch(/48 hours|approve afterwards/);
   });
 

@@ -155,7 +155,7 @@ export function ProgramForm({
 
       <FormSection
         title="Health"
-        description="Declared health — set explicitly by the program owner, shown alongside (never replaced by) the rollup computed from child projects."
+        description="Set by the program owner. Shown beside the rollup from child projects, never replacing it."
       >
         <FormGrid>
           <Field label="RAG Status" error={fieldErrors.rag_status}>

@@ -381,7 +381,7 @@ export function KanbanBoard({
       {/* Locked banner */}
       {isLocked && (
         <div className="rounded-md border border-warning/30 bg-warning/10 px-4 py-2.5 text-sm text-warning-ink">
-          Timeline locked — dates and estimates are frozen (changes need a rebaseline). Status moves still work.
+          Timeline locked: dates and estimates are frozen (rebaseline to change). Status moves still work.
         </div>
       )}
 
@@ -414,7 +414,7 @@ export function KanbanBoard({
 
       {tasks.length === 0 && !isLocked && (
         <p className="py-8 text-center text-sm text-ink-muted">
-          No tasks yet for this project. Add one on the Activity tab and it will appear in its column here.
+          No tasks yet. Add one on the Activity tab.
         </p>
       )}
     </div>

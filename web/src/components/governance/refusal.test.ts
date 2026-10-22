@@ -11,7 +11,7 @@ describe("describeRefusal", () => {
     const r = describeRefusal(apiError("Self-approval is not allowed (four-eyes)", { status: 403, code: "self_approval" }), "x");
     expect(r.code).toBe("self_approval");
     expect(r.title).toBe("A different person must decide");
-    expect(r.detail).toContain("You raised this (directly or through your token)");
+    expect(r.detail).toContain("You raised this (or your token did)");
     expect(r.terminal).toBe(true);
     expect(r.stale).toBe(false);
   });

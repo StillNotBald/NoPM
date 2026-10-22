@@ -261,8 +261,8 @@ describe("LarkConnectorCard", () => {
 
   it("the empty state is compact and says what to bring from Lark", () => {
     const markup = card({});
-    expect(markup).toContain("self-built app from the Lark developer console");
-    expect(markup).toContain("App ID, App Secret and Verification");
+    expect(markup).toContain("Bring a self-built Lark app");
+    expect(markup).toContain("App ID, App Secret, Verification Token");
     // no centred, padded EmptyState block any more
     expect(markup).not.toContain("py-8");
     expect(markup).not.toContain("text-center");
@@ -274,7 +274,7 @@ describe("LarkConnectorCard", () => {
 
   it("non-admin gets a read-only status line with no controls", () => {
     const markup = card({ isAdmin: false, resource: { status: "ready", data: connector() } });
-    expect(markup).toContain("Only workspace admins can change this connection.");
+    expect(markup).toContain("Only workspace admins can change it.");
     expect(markup).not.toContain("Test connection");
     expect(markup).not.toContain("Revoke");
   });
@@ -305,14 +305,14 @@ describe("LarkConnectorCard", () => {
   });
 
   it("non-admin with no connector is told so, and a paused one is reported as paused", () => {
-    expect(card({ isAdmin: false, resource: { status: "ready", data: null } })).toContain("isn&#x27;t connected");
+    expect(card({ isAdmin: false, resource: { status: "ready", data: null } })).toContain("Lark is not connected");
     const paused = card({ isAdmin: false, resource: { status: "ready", data: connector({ status: "paused" }) } });
     expect(paused).toContain("Lark paused · approvals on · digest on");
   });
 
   it("degrades calmly for 403, 404 and loading, and offers a retry on error", () => {
-    expect(card({ resource: { status: "forbidden", message: "no" } })).toContain("Only workspace admins can see or change");
-    expect(card({ resource: { status: "unavailable", message: "no" } })).toContain("aren&#x27;t available on this deployment");
+    expect(card({ resource: { status: "forbidden", message: "no" } })).toContain("Only workspace admins can see the Lark connection");
+    expect(card({ resource: { status: "unavailable", message: "no" } })).toContain("Integrations are not available here");
     expect(card({ resource: { status: "loading" } })).toContain("Loading the Lark connection");
     expect(card({ isAdmin: null, resource: { status: "ready", data: null } })).toContain("Loading the Lark connection");
     const failed = card({ resource: { status: "error", message: "db down" } });
@@ -368,7 +368,7 @@ describe("LarkAccountCard", () => {
 
   it("explains the prerequisite once, and offers no faded disabled button, when no connector is live", () => {
     const none = card({ connector: null, connectorKnown: true });
-    expect(none).toContain("once a workspace admin has connected Lark");
+    expect(none).toContain("once an admin has connected Lark");
     expect(none).not.toContain("Link my Lark account");
     expect(none).not.toContain("disabled");
     expect(none.match(/connected/g)?.length).toBe(1);
@@ -400,7 +400,7 @@ describe("CalendarFeedsCard", () => {
 
   it("tells a viewer they cannot create one instead of offering a form that 403s", () => {
     const markup = html(createElement(CalendarFeedsCard, { role: "viewer" }));
-    expect(markup).toContain("Viewers can&#x27;t create calendar feeds");
+    expect(markup).toContain("Viewers cannot create feeds");
     expect(markup).not.toContain("Create feed");
   });
 });
