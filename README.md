@@ -9,14 +9,18 @@
 The differentiator is **institutional governance built into the data layer**: an immutable audit log, scoped Bearer tokens, and maker-checker (four-eyes) approval on destructive actions — enforced by the database, not bolted onto the UI.
 
 > Portfolio proof-piece. Live at **stillnotbald.com** · [Case study](https://stillnotbald.com/case-study) · [OpenAPI](https://stillnotbald.com/api/openapi.json) · [llms.txt](https://stillnotbald.com/llms.txt)
+>
+> **Try it without signing up:** open [stillnotbald.com/login](https://stillnotbald.com/login) and press **Try the live demo**. You land in a shared, seeded workspace as a manager, who can approve other people's requests but never their own.
+
+![NoPM portfolio roadmap: program rollup with budget variance, capacity and open high risks above a Gantt of projects with baseline slip](docs/images/console-portfolio.png)
 
 ## Three agent surfaces, one governed API
 
 | Surface | Where | What it gives an agent |
 |---|---|---|
-| **REST API** | 82 documented endpoints, [OpenAPI 3.1](https://stillnotbald.com/api/openapi.json) + [llms.txt](https://stillnotbald.com/llms.txt) (both spec-coverage drift-tested) | Everything — every mutation audited, scopes enforced per request |
+| **REST API** | 121 documented endpoints, [OpenAPI 3.1](https://stillnotbald.com/api/openapi.json) + [llms.txt](https://stillnotbald.com/llms.txt) (both spec-coverage drift-tested) | Everything — every mutation audited, scopes enforced per request |
 | **`nopm` CLI** | [`cli/`](cli/) — zero dependencies, contract-tested | 27 command groups, `--json` machine output, `--curl` dry-run |
-| **MCP server** | [`web/mcp/`](web/mcp/) + root [`.mcp.json`](.mcp.json) | 25 tools over stdio and Streamable HTTP (the stdio server adds 7 governance tools: change request, rebaseline propose / sign-off / apply, decision, document); schemas lock-tested against the API's Zod validators |
+| **MCP server** | [`web/mcp/`](web/mcp/) + root [`.mcp.json`](.mcp.json) | 56 tools over both stdio and Streamable HTTP: the 47 the in-app assistant also uses, plus 9 governance tools only agents get (change requests and their evidence, rebaseline propose / sign-off / apply, decisions, documents, sprint close). Schemas are lock-tested against the API's Zod validators |
 
 The in-app **BYOK assistant** uses the same registry as the MCP server: your own OpenAI/Anthropic/Google/OpenRouter key (AES-256-GCM at rest) drives NoPM through an ephemeral scoped token — audited as a token actor, structurally unable to hold an approve/admin scope.
 
@@ -70,20 +74,9 @@ npm run setup                 # applies migrations, bootstraps admin + tokens (-
 ```
 Or run it in Docker instead of on Vercel: `docker build -t nopm-web ./web && docker run -p 3000:3000 --env-file web/.env.local nopm-web`, or `docker compose up --build` from the repo root. Full walkthrough, required env vars, and the Docker/manual paths: [`docs/SELF_HOSTING.md`](docs/SELF_HOSTING.md).
 
-## The governance gates travel with the clone
+## Quality gates and operations
 
-- **pre-commit** — leak gate over staged files (hashed confidential-token blocklist + secret-filename check)
-- **pre-push** — typecheck, full test suite, RTM integrity, generated-metrics freshness, CLI contract tests
-- **CI** — all of the above plus full-tree name scan, gitleaks (full history), dependency audit, and a weekly authenticated page-render smoke against the live site
-- **Proof metrics are generated, not typed** — the case-study numbers come from `web/scripts/gen-metrics.mjs` (RTM + vitest + route tree); CI fails if they drift
-
-## Operations & governance docs
-- Go-live / cutover procedure: [`CUTOVER/`](CUTOVER/README.md) — install, deploy, rollback, backup-restore, go/no-go, dry-run records
-- How the pieces fit together: [`system_architecture.md`](docs/architecture/system_architecture.md)
-- What is live right now (the production snapshot): [`PROD_DOOR.md`](docs/ops/PROD_DOOR.md)
-- Test evidence tree: [`testing-log/`](testing-log/README.md)
-- Console user manual (operator / admin / agents): [`user-manual/README.md`](user-manual/README.md)
-- Common-pattern defaults (how open product questions are decided): [`docs/adr/0015-common-pattern-defaults.md`](docs/adr/0015-common-pattern-defaults.md)
+The pre-commit leak gate, pre-push verify and CI checks travel with every clone; the cutover, rollback, architecture and test-evidence docs sit beside them. Both are listed in [`docs/ENGINEERING.md`](docs/ENGINEERING.md).
 
 ## Stack
 Next.js 16 · TypeScript · Tailwind v4 · Supabase (Postgres + Auth + RLS) · Vercel + Cloudflare DNS.
