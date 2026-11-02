@@ -271,6 +271,15 @@ export async function executeToolCall(
   };
 }
 
+/** A tool call naming a tool that was not offered this turn: refused, never sent. */
+function notOffered(tc: ToolCall): { action: Action; message: ProviderMessage } {
+  const error = `Tool not available here: ${tc.name}`;
+  return {
+    action: { tool: tc.name, args: tc.args, ok: false, summary: error },
+    message: { role: "tool", content: wrapUntrustedToolResult(tc.name, JSON.stringify({ error })), tool_call_id: tc.id },
+  };
+}
+
 /** How the tool rounds ended. */
 export type ToolRoundsOutcome =
   /** The model answered in plain text (`text` may be null when it returned nothing). */
@@ -297,6 +306,7 @@ export async function runToolRounds(opts: {
   actions: Action[];
 }): Promise<ToolRoundsOutcome> {
   const { provider, apiKey, model, system, messages, tools, ctx, actions } = opts;
+  const offered = new Set(tools.map((t) => t.name));
   let toolCallsExecuted = 0;
 
   for (let step = 0; step < MAX_STEPS; step++) {
@@ -315,7 +325,12 @@ export async function runToolRounds(opts: {
         break;
       }
       toolCallsExecuted++;
-      const { action, message } = await executeToolCall(tc, ctx);
+      // Only the tools offered this turn may run, even if the model names
+      // another one (a channel that offers read tools only must not depend
+      // on the token's scopes alone to refuse a write).
+      const { action, message } = offered.has(tc.name)
+        ? await executeToolCall(tc, ctx)
+        : notOffered(tc);
       actions.push(action);
       toolResults.push(message);
     }
