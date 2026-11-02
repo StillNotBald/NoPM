@@ -241,6 +241,12 @@ const spec = {
           "rotated, and the server stores only that hash. Send `v1=<hex>` in X-NoPM-Relay-Signature " +
           "and the unix-seconds timestamp in X-NoPM-Relay-Timestamp (accepted within +/-300 s).",
       },
+      telegramWebhook: {
+        type: "apiKey",
+        in: "header",
+        name: "X-Telegram-Bot-Api-Secret-Token",
+        description: "Called by Telegram, not by agents. The secret token registered with setWebhook for the connector, compared in constant time. Any failure is one generic 401.",
+      },
       larkWebhook: {
         type: "apiKey",
         in: "header",
@@ -2040,7 +2046,7 @@ const spec = {
           "scope: audit:read. Filters: ?target_type, ?target_id, ?action, ?actor_id, " +
           "?project_id (uuid; the project itself and every record whose audited row names it), ?person_id (uuid; that person's own actions and actions made through a token they own), " +
           "?kinds (comma list of task,risk,issue,change_request,decision,document,project), ?until (ISO 8601 timestamp, exclusive upper bound that pairs with since; 422 when malformed), " +
-          "?channel (R-82: one of ui|api|cli|mcp|assistant|lark|github, unrecognized values ignored). " +
+          "?channel (R-82: one of ui|api|cli|mcp|assistant|lark|github|telegram, unrecognized values ignored). " +
           "WAVE 4: each row also carries prev_hash, row_hash and chain_seq (the hash chain; check it with GET /audit/verify). A GitHub work event is recorded with channel github, via_connector_id and the delivery id. " +
           "R-85 cursor params for tailing the log: ?since (ISO 8601 timestamp, rows with " +
           "created_at >= since; 422 if unparsable), ?after_id (uuid of a row already seen; " +
@@ -2070,7 +2076,7 @@ const spec = {
           { name: "target_id", in: "query", schema: { type: "string", format: "uuid" } },
           { name: "action", in: "query", schema: { type: "string" } },
           { name: "actor_id", in: "query", schema: { type: "string" } },
-          { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant", "lark", "github"] } },
+          { name: "channel", in: "query", schema: { type: "string", enum: ["ui", "api", "cli", "mcp", "assistant", "lark", "github", "telegram"] } },
           { name: "since", in: "query", schema: { type: "string", format: "date-time" }, description: "R-85: rows with created_at >= since; 422 if unparsable" },
           { name: "after_id", in: "query", schema: { type: "string", format: "uuid" }, description: "R-85: rows with created_at strictly greater than this row's created_at; 404 if the row doesn't exist in this workspace" },
           { name: "order", in: "query", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "R-85: 422 if not asc|desc" },
@@ -4284,6 +4290,95 @@ const spec = {
           "413": { description: "Body larger than 1 MiB", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "429": { description: "Too many deliveries, or too many failed signatures, for this connector. Retry-After gives the seconds.", headers: { "Retry-After": { schema: { type: "integer" } } }, content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
           "503": { description: "Nothing was recorded; GitHub may redeliver safely", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/integrations/telegram/connector": {
+      get: {
+        tags: ["integrations"],
+        summary: "Read the Telegram connector (signed-in session)",
+        description:
+          "Session only: a token gets 403. data = { connector: null | TelegramConnector (members see only { name, status }), can_manage }. The bot token and the webhook secret are never returned.",
+        operationId: "getTelegramConnector",
+        responses: {
+          "200": { description: "Connector view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "A token (session only)", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      post: {
+        tags: ["integrations"],
+        summary: "Connect a Telegram bot (admin session)",
+        description:
+          "Admin session only. Body { token, name? }: the BotFather token. NoPM asks Telegram who the bot is first (a token Telegram refuses is 422 token_rejected and nothing is stored), then stores the token encrypted (AES-256-GCM) with a generated per-connector webhook secret, and registers the webhook and the command menu. The token is never returned. One live connector per workspace (422 connector_exists). Audited integration.connector.create in the same transaction as the row. data.registration = { ok } or { ok: false, step: token|webhook|menu, error }; a failed registration leaves the connector in place, so POST /integrations/telegram/{connectorId}/setup can retry it.",
+        operationId: "createTelegramConnector",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["token"], properties: { token: { type: "string", description: "The bot token from BotFather" }, name: { type: "string", minLength: 1, maxLength: 100 } } } } } },
+        responses: {
+          "201": { description: "Connector created, with the registration result", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "Malformed token, token_rejected, or connector_exists", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      patch: {
+        tags: ["integrations"],
+        summary: "Turn the Telegram bot off or on (admin session)",
+        description: "Body { status: active | paused }. A paused connector answers every chat with 'This connector is turned off'; open steps are kept. Audited integration.connector.update.",
+        operationId: "updateTelegramConnector",
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", required: ["status"], properties: { status: { type: "string", enum: ["active", "paused"] } } } } } },
+        responses: {
+          "200": { description: "Connector view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No Telegram connector", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "status is not active or paused", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+      delete: {
+        tags: ["integrations"],
+        summary: "Disconnect the Telegram bot (admin session)",
+        description: "Deletes the webhook at Telegram (best effort), revokes the connector and unlinks every chat account in one transaction (one audit row, integration.connector.revoke), then drops the open steps and erases the stored token (data.token_erased).",
+        operationId: "disconnectTelegramConnector",
+        responses: {
+          "200": { description: "Revoked connector view", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "No Telegram connector", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/integrations/telegram/{connectorId}/setup": {
+      post: {
+        tags: ["integrations"],
+        summary: "Register the Telegram webhook and command menu (admin session)",
+        description:
+          "Checks the bot token, calls setWebhook with the connector's secret token and setMyCommands for the default scope (the member menu; admins and managers get a per-chat menu once they link). Idempotent. Always 200 with data = { ok: true, bot_username } or { ok: false, step, error } (the error text has the token removed). Writes no audit row: it changes nothing in NoPM.",
+        operationId: "setupTelegramConnector",
+        parameters: [connectorIdParam],
+        responses: {
+          "200": { description: "Registration result", content: { "application/json": { schema: { $ref: "#/components/schemas/Success" } } } },
+          "403": { description: "Not an admin session", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Connector not found in this workspace", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "422": { description: "connector_revoked", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+        },
+      },
+    },
+    "/integrations/telegram/{connectorId}/webhook": {
+      post: {
+        tags: ["integrations"],
+        summary: "Telegram update endpoint (called by Telegram, not an agent)",
+        description:
+          "Public (no NoPM token): the caller is Telegram, authenticated by the per-connector secret token it echoes in X-Telegram-Bot-Api-Secret-Token (compared in constant time). The body is Telegram's Update, NOT NoPM's { data } envelope. Answers {} at once and works after the response: private-chat messages and button taps are handled, group and channel traffic gets no reply. A wrong or missing secret and an unknown or revoked connector are ONE generic 401 { error: \"Invalid request\" }; a paused connector is authenticated and the bot answers 'This connector is turned off'. A malformed id is 404. Authenticated requests are limited to 300/min per connector (NOPM_RATE_TELEGRAM_PER_MIN); failed secrets are capped at 30/min per connector. Writes made from chat go through the REST API with a per-action scoped token and are audited with channel telegram.",
+        security: [{ telegramWebhook: [] }],
+        operationId: "telegramWebhook",
+        parameters: [
+          connectorIdParam,
+          { name: "X-Telegram-Bot-Api-Secret-Token", in: "header", required: true, schema: { type: "string" }, description: "The secret token registered with setWebhook for this connector" },
+        ],
+        requestBody: { required: true, content: { "application/json": { schema: { type: "object", description: "A Telegram Update object. Max 256 KiB.", additionalProperties: true } } } },
+        responses: {
+          "200": { description: "{} (also for an authenticated body that is not JSON)", content: { "application/json": { schema: { type: "object", maxProperties: 0 } } } },
+          "401": { description: "Wrong or missing secret token, or unknown or revoked connector - one generic body", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "404": { description: "Malformed connector id only", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "413": { description: "Body larger than 256 KiB", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "429": { description: "Per-connector budget exceeded, or too many failed secrets - Retry-After gives the seconds", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+          "503": { description: "The connector's stored credentials cannot be decrypted", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
         },
       },
     },
