@@ -214,7 +214,7 @@ export default async function SprintsPage({
         {sprintRows.length === 0 ? (
           <Card>
             <EmptyState
-              purpose="No sprints yet. Create a sprint under a project to plan and track commitment."
+              purpose="No sprints yet. Create one under a project."
               action={<NewSprintButton />}
               canWrite={canWrite}
             />
@@ -353,7 +353,7 @@ export default async function SprintsPage({
                   </CardHeader>
                   <CardBody>
                     {!flow || flow.sampleSize === 0 ? (
-                      <p className="text-sm text-ink-muted">No attached tasks yet — nothing to measure.</p>
+                      <p className="text-sm text-ink-muted">No attached tasks yet.</p>
                     ) : (
                       <div className="space-y-3">
                         <div className="grid grid-cols-2 gap-3 sm:gap-4">

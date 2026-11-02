@@ -94,7 +94,7 @@ export function BackupOwnerField({
     <Field
       label={label}
       error={error}
-      hint="Who picks this up if the owner is away. Shows on the Handover page when empty."
+      hint="Covers for the owner. Shows on the Handover page when empty."
     >
       <SelectInput
         value={state.value}

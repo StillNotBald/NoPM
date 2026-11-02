@@ -58,7 +58,6 @@ async function call<T = unknown>(method: string, path: string, body?: unknown): 
 
 /** POST that also returns the response's non-blocking `warnings` (e.g. allocation over-capacity). */
 export const apiPostWithWarnings = <T = unknown>(path: string, body?: unknown) => callFull<T>("POST", path, body);
-export const apiPatchWithWarnings = <T = unknown>(path: string, body?: unknown) => callFull<T>("PATCH", path, body);
 
 export const apiGet = <T = unknown>(path: string) => call<T>("GET", path);
 

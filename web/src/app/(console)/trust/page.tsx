@@ -421,7 +421,7 @@ export default async function TrustPage({
               <div className="flex flex-col items-center gap-3 py-12 text-center">
                 <p className="max-w-sm text-sm text-ink-muted">
                   {filters.channel === "lark"
-                    ? "Nothing has come through Lark yet. A decision made from a Lark chat card is recorded here with channel “lark”."
+                    ? "Nothing from Lark yet. Decisions made on a Lark card show here with channel “lark”."
                     : hasAnyFilter || cursor
                       ? "No audit events match these filters."
                       : "No audit events recorded yet."}
@@ -582,7 +582,7 @@ export default async function TrustPage({
                   user
                 </span>
                 <p className="text-xs text-ink-muted">
-                  A human signed in via the console or OAuth session.
+                  A person.
                 </p>
               </div>
               <div className="flex items-start gap-2">
@@ -590,7 +590,7 @@ export default async function TrustPage({
                   token
                 </span>
                 <p className="text-xs text-ink-muted">
-                  A scoped PAT (Personal Access Token) used by an automated agent or the CLI.
+                  A scoped PAT (token) used by an agent or the CLI.
                 </p>
               </div>
               <div className="flex items-start gap-2">
@@ -598,8 +598,8 @@ export default async function TrustPage({
                   cli
                 </span>
                 <p className="text-xs text-ink-muted">
-                  declared client — which surface (ui/api/cli/mcp/assistant/lark) said it made the
-                  call. Token identity is authoritative; the channel is caller-asserted.
+                  declared client (ui, api, cli, mcp, assistant, lark). The token
+                  identity is authoritative; the channel is caller-asserted.
                 </p>
               </div>
               <div className="flex items-start gap-2">
@@ -607,8 +607,8 @@ export default async function TrustPage({
                   lark
                 </span>
                 <p className="text-xs text-ink-muted">
-                  a decision made from a Lark chat card. It is recorded as the NoPM person who
-                  linked that Lark account, so it shows as a user with channel lark.
+                  a decision made on a Lark card. Recorded as the person who linked that
+                  Lark account (a user, channel lark).
                 </p>
               </div>
             </CardBody>
@@ -623,29 +623,25 @@ export default async function TrustPage({
               <div>
                 <p className="text-xs font-medium text-ink">Retention</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Rows are kept for the life of the workspace and are never updated or deleted;
-                  two database triggers reject both, for every role including the service key.
+                  Rows are kept for the life of the workspace. Database triggers reject any update or delete, for every role including the service key.
                 </p>
               </div>
               <div>
                 <p className="text-xs font-medium text-ink">Provenance</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Each row names the actor, the declared client, and a request id echoed on the
-                  API response.
+                  Each row names the actor, the declared client and a request id.
                 </p>
               </div>
               <div>
                 <p className="text-xs font-medium text-ink">Fail-closed honesty</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Deletion and invite commits write their audit rows in the same database
-                  transaction as the change. Other writes persist first and return an error if the
-                  audit row cannot be written.
+                  Deletion and invite commits write the audit row in the same transaction. Other writes persist first, then return an error if the audit row fails.
                 </p>
               </div>
               <div>
                 <p className="text-xs font-medium text-ink">Export</p>
                 <p className="mt-0.5 text-xs text-ink-muted">
-                  Export the current view as CSV at any time; the export itself is audited.
+                  Export the current view as CSV. The export is audited.
                 </p>
               </div>
             </CardBody>

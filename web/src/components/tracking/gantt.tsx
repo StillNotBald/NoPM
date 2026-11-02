@@ -379,7 +379,7 @@ export function GanttChart({
       <div className="flex flex-col items-center gap-3 rounded-lg border border-border-subtle bg-surface py-20 text-center">
         <Calendar size={32} className="text-ink-muted opacity-30" />
         <p className="text-sm text-ink-secondary">No milestones or tasks yet.</p>
-        <p className="text-xs text-ink-muted">Add a milestone or task on the Activity tab and it will be scheduled here.</p>
+        <p className="text-xs text-ink-muted">Add one on the Activity tab.</p>
       </div>
     );
   }

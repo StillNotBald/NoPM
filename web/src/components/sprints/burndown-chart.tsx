@@ -11,7 +11,7 @@ import type { BurndownPoint } from "@/lib/insight/burndown";
  */
 export function BurndownChart({ points }: { points: BurndownPoint[] }) {
   if (points.length === 0) {
-    return <p className="py-4 text-center text-xs text-ink-muted">No burndown yet — start the sprint.</p>;
+    return <p className="py-4 text-center text-xs text-ink-muted">No burndown yet. Start the sprint.</p>;
   }
 
   const remaining = points.map((p, i) => ({ x: i, y: p.remaining }));

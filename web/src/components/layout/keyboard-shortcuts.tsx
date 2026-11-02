@@ -34,7 +34,7 @@ export function shortcutGroups(mod: string): ShortcutGroup[] {
     },
     {
       section: "General",
-      rows: [{ label: "Close the open dialog, sheet or panel", keys: ["Esc"] }],
+      rows: [{ label: "Close dialog, sheet or panel", keys: ["Esc"] }],
     },
   ];
 }

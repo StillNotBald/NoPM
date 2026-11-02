@@ -308,7 +308,7 @@ export function DocumentsClient({
           </>
         ) : documents.length === 0 ? (
           <EmptyState
-            purpose="Documents hold the durable artifacts of the project — charters, plans, RAID logs, status reports — versioned and linked back to the project they belong to."
+            purpose="Documents hold project charters, plans, RAID logs and status reports, versioned and linked to their project."
             canWrite={canWrite}
             action={
               <Button variant="secondary" size="sm" onClick={openNew}>

@@ -19,23 +19,21 @@ export function WedgeGrid() {
   return (
     <dl className="divide-y divide-border-subtle border-y border-border-subtle">
       <Field k="agent-native">
-        Every action is a stable REST endpoint — scoped{" "}
+        Every action is a REST endpoint: scoped{" "}
         <code className="font-mono text-xs text-ink">resource:action</code> tokens, OpenAPI, an{" "}
         <code className="font-mono text-xs text-ink">llms.txt</code> index, a{" "}
-        <code className="font-mono text-xs text-ink">nopm</code> CLI. Any agent drives it over
-        plain HTTP, identical to the console.
+        <code className="font-mono text-xs text-ink">nopm</code> CLI and MCP. Any agent drives it
+        the same way the console does.
       </Field>
       <Field k="governed">
-        Every mutation writes one append-only audit row. Deletes need four-eyes — a{" "}
+        Every mutation writes one append-only audit row. Deletes need four-eyes: a{" "}
         <em>different</em> checker approves, enforced by a Postgres{" "}
-        <code className="font-mono text-xs text-ink">CHECK</code> constraint. Even a service key
+        <code className="font-mono text-xs text-ink">CHECK</code>. Even a service key
         can&apos;t rewrite history.
       </Field>
       <Field k="governed triangle">
-        Timeline, resource and budget changes pass one audit and sign-off gate. Over-allocation
-        surfaces as a clash, spend rolls into EVM variance, a locked timeline forces a rebaseline
-        sign-off. NoPM records who changed what and who approved it; it is not a scheduler, a
-        time-tracking system or an ERP.
+        Timeline, resource and budget changes pass one audit and sign-off gate. NoPM records who
+        changed what and who approved it. It is not a scheduler, time tracker or ERP.
       </Field>
     </dl>
   );

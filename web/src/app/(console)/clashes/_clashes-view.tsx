@@ -250,7 +250,7 @@ export function ClashesView({
             purpose={
               activeFilterCount > 0
                 ? `No clashes match the ${activeFilterCount} active filter${activeFilterCount > 1 ? "s" : ""}.`
-                : "Clashes are detected automatically — schedule, resource, and dependency conflicts across every project surface here as soon as NoPM finds one."
+                : "Schedule, resource and dependency conflicts show here as soon as NoPM finds them."
             }
             canWrite={activeFilterCount > 0}
             action={

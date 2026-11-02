@@ -86,8 +86,8 @@ export function RequestDeletionDialog({
             Request deletion of {name ? <>the {entity} &ldquo;{name}&rdquo;</> : `this ${entity}`}?
           </p>
           <p className="mt-1 text-sm text-ink-secondary">
-            Nothing is deleted yet. A <span className="font-medium text-ink">different person</span> must approve the
-            request first, and it is recorded on the audit trail either way.
+            Nothing is deleted yet. A <span className="font-medium text-ink">different person</span> must approve first.
+            The request is recorded on the audit trail either way.
             {consequence ? ` ${consequence}` : ""}
           </p>
         </div>

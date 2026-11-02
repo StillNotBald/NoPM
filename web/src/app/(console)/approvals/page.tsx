@@ -267,9 +267,9 @@ export default async function ApprovalsPage({
           purpose={
             view === "pending"
               ? scope === "mine"
-                ? "Nothing is assigned to you. Switch to All to see every pending request."
-                : "All clear. No deletion requests are pending approval right now."
-              : "No deletion requests have been decided yet."
+                ? "Nothing assigned to you. Switch to All for every pending request."
+                : "All clear. No deletion requests are pending."
+              : "No deletion requests decided yet."
           }
         />
       ) : (

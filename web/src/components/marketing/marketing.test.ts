@@ -238,7 +238,7 @@ describe("public pages have landmarks and a skip link", () => {
   });
 
   it("the landing's wedge section has its own h2", () => {
-    expect(LANDING).toMatch(/<h2[^>]*>[\s\S]*Three properties/);
+    expect(LANDING).toMatch(/<h2[^>]*>[\s\S]*Three things/);
   });
 
   it("the h1s do not use the entrance animation (they are the LCP element)", () => {
@@ -310,7 +310,7 @@ describe("proof numbers are generated, not typed", () => {
   });
 
   it("the 'generated' claim is limited to counts, and the two invariants are stated as plain text", () => {
-    expect(CASE_STUDY).toContain("The three counts above are not typed into this page");
+    expect(CASE_STUDY).toContain("These counts are generated from the RTM");
     expect(CASE_STUDY).toContain("One immutable audit row per mutation");
     expect(CASE_STUDY).toContain("No bundled LLM");
   });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { gatherTimeline } from "./gather";
+import { DEFAULT_TIME_ZONE, todayInZone } from "@/lib/integrations/time-zone";
 
 type Rows = Record<string, Record<string, unknown>[]>;
 
@@ -46,10 +47,9 @@ describe("gatherTimeline today", () => {
     const graph = await gatherTimeline(fakeDb(SEED), "ws1");
     const after = new Date();
     expect(graph.axis.today).not.toBe("2026-06-09");
+    // today is the workspace zone date (no DB here, so the default zone), not the runner clock date;
     // allow the (unlikely) midnight rollover between the two clock reads
-    const ok = [before, after].map((d) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`,
-    );
+    const ok = [before, after].map((d) => todayInZone(DEFAULT_TIME_ZONE, d));
     expect(ok).toContain(graph.axis.today);
   });
 

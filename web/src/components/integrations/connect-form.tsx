@@ -132,19 +132,19 @@ export function ConnectForm({
           {
             value: "webhook",
             label: "Webhook",
-            description: "Lark calls NoPM over HTTPS. Choose this when NoPM is hosted and publicly reachable.",
+            description: "Lark calls NoPM over HTTPS. For hosted, public NoPM.",
           },
           {
             value: "long_connection",
             label: "Long connection",
-            description: "A small worker you run opens an outbound link. Choose this when NoPM is self-hosted.",
+            description: "A worker you run opens an outbound link. For self-hosted NoPM.",
           },
         ]}
       />
 
       <FormSection
         title="App credentials"
-        description="From your self-built app in the Lark developer console. Encrypted at rest and never shown again."
+        description="From your Lark app. Encrypted at rest, never shown again."
       >
         <div className="space-y-4">
           <Field id="lark-app-id" label="App ID" error={errors.appId}>
@@ -204,8 +204,8 @@ export function ConnectForm({
             error={errors.encryptKey}
             hint={
               encryptKeyRequired
-                ? "Required for a webhook connection. Set one under Events & Callbacks, Encryption Strategy."
-                : "Not needed for a long connection. Set one in Lark to also sign and encrypt incoming events."
+                ? "Required for a webhook. Under Events & Callbacks, Encryption Strategy."
+                : "Not needed for a long connection. Set one in Lark to also sign and encrypt events."
             }
           >
             {(a11y) => (

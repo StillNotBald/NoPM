@@ -78,11 +78,11 @@ export function LarkAccountCard({
   const prerequisite =
     connector === null
       ? isAdmin
-        ? "Connect Lark in the card above first. Then you can link your own account here."
-        : "You can link your account once a workspace admin has connected Lark."
+        ? "Connect Lark in the card above first. Then link your account here."
+        : "You can link once an admin has connected Lark."
       : isAdmin
-        ? "Lark is paused. Resume it above, then link your account here."
-        : "You can link your account once an admin resumes Lark.";
+        ? "Lark is paused. Resume it above, then link here."
+        : "You can link once an admin resumes Lark.";
 
   async function handleMint() {
     setMinting(true);
@@ -116,9 +116,9 @@ export function LarkAccountCard({
   if (identities.status === "loading") {
     body = <LoadingRow label="Checking your Lark link…" />;
   } else if (identities.status === "unavailable") {
-    body = <p className="text-sm text-ink-secondary">Lark linking isn&apos;t available on this deployment yet.</p>;
+    body = <p className="text-sm text-ink-secondary">Lark linking is not available here yet.</p>;
   } else if (identities.status === "forbidden") {
-    body = <p className="text-sm text-ink-secondary">Your role can&apos;t link a Lark account.</p>;
+    body = <p className="text-sm text-ink-secondary">Your role cannot link a Lark account.</p>;
   } else if (identities.status === "error") {
     body = (
       <div className="space-y-3">
@@ -160,7 +160,7 @@ export function LarkAccountCard({
         ) : mint && !expired ? (
           <div className="space-y-3 rounded-lg border border-border-subtle bg-well p-4">
             <p className="text-sm text-ink">
-              Open a direct chat with the NoPM bot in Lark and send this message:
+              In Lark, send this to the NoPM bot in a direct chat:
             </p>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <code className="block min-w-0 select-all break-all sm:flex-1 rounded-md border border-border-subtle bg-canvas px-3 py-2 font-mono text-sm text-ink">
@@ -176,7 +176,7 @@ export function LarkAccountCard({
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-ink-secondary">
-              You&apos;ll get a one-time code to send to the NoPM bot in a direct chat in Lark.
+              You get a one-time code to send to the NoPM bot in Lark.
             </p>
             {mint && expired && <InlineAlert tone="neutral">That code has expired. Create a new one.</InlineAlert>}
             {mintError && <InlineAlert>{mintError}</InlineAlert>}
@@ -206,7 +206,7 @@ export function LarkAccountCard({
       <CardHeader>
         <div>
           <CardTitle>Your Lark account</CardTitle>
-          <p className="mt-0.5 text-xs text-ink-muted">So approval requests can reach you in chat.</p>
+          <p className="mt-0.5 text-xs text-ink-muted">Get approval requests in chat.</p>
         </div>
       </CardHeader>
       <CardBody>{body}</CardBody>

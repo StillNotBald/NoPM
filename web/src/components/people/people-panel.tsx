@@ -110,8 +110,7 @@ export function PeoplePanel() {
         }}
       >
         <p className="text-sm text-ink-secondary">
-          Their authenticator is cleared and you get one-time backup codes, shown once. They are told in the app. They
-          sign in with one code, then set up their authenticator again.
+          Their authenticator is cleared. You get backup codes, shown once. They sign in with one code, then set up two-step again.
         </p>
       </ConfirmDialog>,
       { title: "Reset two-step", size: "sm" },

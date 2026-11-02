@@ -90,12 +90,12 @@ export default async function InviteAcceptPage({
                 </h1>
                 <p className="text-sm text-ink-secondary">
                   {status === "not_found"
-                    ? "Check the link your inviter sent you, or ask them to send a new one."
+                    ? "Check the link, or ask for a new one."
                     : status === "accepted"
                       ? "You have already joined. Please sign in."
                       : status === "expired"
-                        ? "Invites last 7 days. Ask whoever invited you to renew it, or to send a fresh one."
-                        : "Ask whoever invited you to send a fresh invite."}
+                        ? "Invites last 7 days. Ask for a fresh one."
+                        : "Ask for a fresh invite."}
                 </p>
                 <Link
                   href={status === "accepted" && invite?.email ? `/login?email=${encodeURIComponent(invite.email)}` : "/login"}

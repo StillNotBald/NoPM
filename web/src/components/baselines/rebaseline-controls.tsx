@@ -187,7 +187,7 @@ function SignoffDialog({
 
   async function vote(v: "go" | "no_go") {
     if (v === "no_go" && !comment.trim()) {
-      setError("Please give a reason for rejecting.");
+      setError("Give a reason for rejecting.");
       return;
     }
     setError(null);
@@ -264,7 +264,7 @@ export function RebaselineRowActions({
     setApplyError(null);
     try {
       await apiPost(`/api/rebaselines/${rebaselineId}/apply`);
-      toast.success("Rebaseline applied. The project baseline has moved.");
+      toast.success("Rebaseline applied. Baseline moved.");
       router.refresh();
     } catch (err) {
       setApplyError(errorText(err, "Failed to apply the rebaseline."));
@@ -278,7 +278,7 @@ export function RebaselineRowActions({
     setApplyError(null);
     try {
       await apiPost(`/api/rebaselines/${rebaselineId}/withdraw`);
-      toast.success("Rebaseline withdrawn. You can propose a new one.");
+      toast.success("Rebaseline withdrawn. You can propose again.");
       router.refresh();
     } catch (err) {
       setApplyError(errorText(err, "Failed to withdraw the rebaseline."));

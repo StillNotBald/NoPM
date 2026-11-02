@@ -31,7 +31,7 @@ export function ChangeTable({ rows, projectMap, projects, canWrite = true }: Cha
   if (rows.length === 0) {
     return (
       <EmptyState
-        purpose="Change control captures anything that would move scope, schedule, or cost outside the agreed plan — with an explicit approve/reject decision and rationale."
+        purpose="Change control records anything that would move scope, schedule or cost, with an approve or reject decision and a reason."
         canWrite={canWrite}
         action={<NewChangeButton projects={projects} />}
         docsHref="/trust"

@@ -186,10 +186,3 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "export.audit_pack", description: "An audit pack (change requests, evidence, approvals) was exported as CSV or PDF" },
   { action: "rate.limited", description: "A caller was rate limited" },
 ];
-
-const DESCRIPTIONS = new Map(AUDIT_ACTION_GLOSSARY.map((e) => [e.action, e.description]));
-
-/** Plain-language description for an action, or undefined if unknown. */
-export function describeAuditAction(action: string): string | undefined {
-  return DESCRIPTIONS.get(action);
-}

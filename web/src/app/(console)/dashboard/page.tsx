@@ -319,7 +319,7 @@ export default async function DashboardPage({
           {projects.length === 0 ? (
             <div className="px-5 py-10 text-center">
               <p className="text-sm text-ink-muted">
-                No projects yet. Create your first project to get started.
+                No projects yet. Create your first one.
               </p>
               {/* L-45 — first-run wizard replaces the old L-49 static pointer
                   link; the connect-agent link now lives as the wizard's own

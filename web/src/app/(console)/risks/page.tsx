@@ -107,7 +107,7 @@ export default async function RisksPage({
                 Exposure heatmap
               </h2>
               <p className="mt-0.5 text-xs text-ink-secondary">
-                Where the {rows.length} risk{rows.length === 1 ? "" : "s"} in view sit on probability and impact.
+                {rows.length} risk{rows.length === 1 ? "" : "s"} by probability and impact.
               </p>
             </div>
             <div className="px-5 py-4">

@@ -300,7 +300,7 @@ export function RiskRegister({
           />
         ) : (
           <EmptyState
-            purpose="The risk register tracks anything that could derail a project before it happens: probability, impact, and a mitigation owner."
+            purpose="What could derail a project before it happens: probability, impact, mitigation owner."
             canWrite={canWrite}
             action={emptyAction}
             docsHref="/trust"

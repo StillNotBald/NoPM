@@ -977,7 +977,7 @@ export function ActivityTable({
         <div className="flex flex-col items-center gap-4 rounded-xl border border-border-subtle bg-surface py-16 text-center">
           <Diamond size={32} className="text-ink-muted opacity-40" />
           <p className="text-sm text-ink-secondary">
-            No milestones yet — add one to start tracking.
+            No milestones yet. Add one.
           </p>
           <Button
             variant="primary"

@@ -184,7 +184,7 @@ export function TaskDetailPanel({
       router.refresh();
     } catch (err) {
       setOptimisticStatus(prevStatus);
-      toast.error((err as ApiError).message ?? "Failed to update status. Please try again.");
+      toast.error((err as ApiError).message ?? "Could not update status. Try again.");
     } finally {
       setStatusSaving(false);
     }

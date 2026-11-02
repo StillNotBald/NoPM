@@ -261,7 +261,7 @@ export default function TasksPage() {
             purpose={
               activeFilterCount > 0
                 ? `No tasks match the ${activeFilterCount} active filter${activeFilterCount > 1 ? "s" : ""}.`
-                : "Every task across every project lands here — one filterable, sortable register."
+                : "Every task across every project."
             }
             action={
               activeFilterCount > 0 ? (

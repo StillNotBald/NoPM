@@ -41,8 +41,7 @@ export default async function ReviewQueuePage() {
 
       {/* Intro line — one sentence explaining purpose */}
       <p className="text-sm text-ink-muted">
-        Every decision waiting for a human — approvals, rebaselines, risks,
-        clashes, and documents in review — in one place, priority-sorted.
+        Everything waiting for a decision, sorted by priority.
       </p>
 
       <div id="queue">

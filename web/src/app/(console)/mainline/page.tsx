@@ -157,7 +157,7 @@ export default async function MainlinePage({
 
         {workspaceEmpty ? (
           <EmptyState
-            purpose="Mainline needs at least one project with a milestone or task to draw a timeline. Add a project to get started."
+            purpose="Add a project with a milestone or task to draw a timeline."
             canWrite={false}
             docsHref="/projects"
             docsLabel="Go to Projects"

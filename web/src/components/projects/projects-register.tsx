@@ -177,7 +177,7 @@ export function ProjectsRegister({
             />
           ) : (
             <EmptyState
-              purpose="No projects yet. Create one to start tracking milestones, risks and budget."
+              purpose="No projects yet. Create one to start."
               action={<NewProjectButton />}
               canWrite={canWrite}
             />

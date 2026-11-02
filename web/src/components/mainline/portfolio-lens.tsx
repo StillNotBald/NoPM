@@ -121,7 +121,7 @@ export function PortfolioLens({ graph }: { graph: TLGraph }) {
 
   if (graph.projects.length === 0) {
     return (
-      <EmptyState purpose="Nothing scheduled across the portfolio yet — add a project with milestones or tasks to see the Subway lens." canWrite={false} />
+      <EmptyState purpose="Nothing scheduled yet. Add a project with milestones or tasks to see the Subway lens." canWrite={false} />
     );
   }
 

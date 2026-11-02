@@ -46,8 +46,7 @@ export default function RootError({
         </h1>
 
         <p className="mb-6 text-sm text-ink-secondary">
-          This page ran into an unexpected error. Try again, or head back to
-          the landing page — you can also jump straight into the live demo.
+          This page hit an error. Try again, or go back.
         </p>
 
         {/* Show the digest in dev or when Vercel provides one — never the raw stack */}

@@ -36,7 +36,7 @@ export default function GlobalError({
           <div className="w-full max-w-sm rounded-lg border border-border-subtle bg-surface p-8 text-center">
             <h1 className="mb-1 text-base font-semibold text-ink">Something went wrong</h1>
             <p className="mb-6 text-sm text-ink-secondary">
-              NoPM could not load this page. Try again, or head back to the landing page.
+              NoPM could not load this page. Try again.
             </p>
             {error.digest && (
               <p className="mb-5 font-mono text-xs text-ink-muted">ref: {error.digest}</p>

@@ -156,8 +156,8 @@ export default async function ChangesPage({ searchParams }: { searchParams: Prom
           <EmptyState
             purpose={
               filtered
-                ? "Nothing matches these filters. Widen the dates or clear a filter."
-                : "Nothing has changed yet. Every create, edit, approval and delete across your projects will appear here."
+                ? "No matches. Widen the dates or clear a filter."
+                : "No changes yet. Every create, edit, approval and delete will appear here."
             }
             docsHref="/trust"
             docsLabel="Open the Trust Center"
@@ -185,7 +185,7 @@ export default async function ChangesPage({ searchParams }: { searchParams: Prom
 
       {filters.projectId && (
         <p className="text-xs text-ink-muted">
-          A project filter covers the project itself and every task, risk, issue, change request, decision and document that belongs to it. Changes to workspace-level records with no project are not included.
+          A project filter covers the project and everything under it. Workspace-level records with no project are not included.
         </p>
       )}
 

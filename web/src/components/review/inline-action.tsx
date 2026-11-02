@@ -369,7 +369,7 @@ export function ApprovalInlineAction({ item }: ApprovalInlineActionProps) {
             rejectField: "Reason",
             rejectPlaceholder: "Why are you rejecting this deletion request?",
             rejectRequired: "A reason is required when rejecting.",
-            approved: "Deletion approved and committed.",
+            approved: "Deletion approved.",
             rejected: "Deletion request rejected.",
             subject: `deletion of ${what}`,
           }}

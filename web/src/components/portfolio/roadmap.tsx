@@ -209,12 +209,12 @@ export function PortfolioRoadmap({ projects, milestones, axisSpan, filtered = fa
         {filtered ? (
           <>
             <p className="text-sm text-ink-secondary">No projects match these filters.</p>
-            <p className="text-xs text-ink-muted">Clear the program or health filter to see the roadmap again.</p>
+            <p className="text-xs text-ink-muted">Clear the program or health filter.</p>
           </>
         ) : (
           <>
             <p className="text-sm text-ink-secondary">No projects with dates yet.</p>
-            <p className="text-xs text-ink-muted">Add start and target dates to your projects to see them here.</p>
+            <p className="text-xs text-ink-muted">Add start and target dates to projects.</p>
           </>
         )}
       </div>

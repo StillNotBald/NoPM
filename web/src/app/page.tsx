@@ -69,11 +69,8 @@ export default function Landing() {
             Project governance your AI agent can operate.
           </h1>
           <p className="rise rise-1 mt-5 max-w-2xl text-lg leading-relaxed text-ink-secondary">
-            A lite, API-first PM tool your own agent drives — like the <code className="font-mono text-ink">aws</code> or{" "}
-            <code className="font-mono text-ink">supabase</code> CLIs, but for project governance. Immutable audit,
-            scoped tokens, and four-eyes approval are enforced in the data layer, not bolted onto the UI.
-            It sits beside the tools you already run, Jira, Slack, Teams, and adds what they do not enforce:
-            an immutable audit trail, change control, and four-eyes approval.
+            A lite project-management tool your AI agent operates, with governance in the data layer: immutable
+            audit, scoped tokens, four-eyes approval. It sits beside Jira, Slack and Teams.
           </p>
           <div className="rise rise-2 mt-8 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
             <DemoLoginButton block />
@@ -91,7 +88,7 @@ export default function Landing() {
             <ProofTranscript />
           </TerminalCard>
           <p className="mt-3 text-xs text-ink-muted">
-            The same surface a human uses: {metrics.endpoints} documented endpoints, OpenAPI, <code className="font-mono">llms.txt</code>, scoped Bearer tokens.
+            Humans and agents share one surface: {metrics.endpoints} documented endpoints, OpenAPI, <code className="font-mono">llms.txt</code>, scoped Bearer tokens.
           </p>
           <p className="mt-1 text-xs text-ink-muted">
             {metrics.deps} runtime dependencies, {metrics.cliDeps}-dependency CLI.
@@ -101,7 +98,7 @@ export default function Landing() {
 
       <section aria-labelledby="wedges-heading" className="mx-auto max-w-6xl px-6 py-12">
         <h2 id="wedges-heading" className="mb-6 text-xl font-semibold text-ink">
-          Three properties most PM tools can&apos;t claim simultaneously.
+          Three things most PM tools can&apos;t claim together.
         </h2>
         <WedgeGrid />
       </section>

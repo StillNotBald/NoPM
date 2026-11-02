@@ -79,7 +79,7 @@ function statusLabel(s: string) {
 }
 
 const FLOW_EXPLAINER =
-  "Lock a project to freeze its baseline; changes then require a rebaseline with sign-off from a different approver.";
+  "Locking freezes a baseline. Changes then need a rebaseline signed off by a different approver.";
 
 export default async function BaselinesPage({
   searchParams,
@@ -200,7 +200,7 @@ export default async function BaselinesPage({
         <div className="space-y-1">
           <PageHeader title="Baselines" />
           <p className="-mt-3 text-sm text-ink-muted">
-            Locked timelines and the rebaselines that reopen them. Every step is audited.
+            Locked timelines and their rebaselines. All audited.
           </p>
           {/* The sign-off rule stays visible once there are rows; it used to show only when empty. */}
           <FourEyesNote variant="quiet" />

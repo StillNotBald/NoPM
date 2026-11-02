@@ -104,13 +104,12 @@ export function AnchorStatus({ anchor, asOf = null, className }: { anchor: Ancho
       </div>
       {a.state === "not_anchored" && (
         <p className="m-0 break-words text-ink-secondary">
-          The audit chain head is not kept outside this database. Set NOPM_ANCHOR_DB_URL to a second database to anchor it
-          daily and at every check.
+          The audit chain head is not kept outside this database. Set NOPM_ANCHOR_DB_URL to a second database to anchor it.
         </p>
       )}
       {a.state === "unreachable" && (
         <p className="m-0 break-words text-ink-secondary">
-          The outside copy could not be written or read. Work is not affected; the next daily run retries.
+          The outside copy could not be written or read. Work is not affected. The next daily run retries.
           {a.anchored_at ? ` Last anchored ${when(a.anchored_at)}.` : ""}
         </p>
       )}
@@ -119,13 +118,12 @@ export function AnchorStatus({ anchor, asOf = null, className }: { anchor: Ancho
       )}
       {a.state !== "not_anchored" && (
         <p className="m-0 break-words text-2xs text-ink-muted" data-testid="anchor-as-of">
-          {checkedAt ? `State as of the last check, ${when(checkedAt)}.` : "No check recorded yet; this is the state from the last daily run."}
+          {checkedAt ? `State as of the last check, ${when(checkedAt)}.` : "No check yet. This is the last daily run."}
         </p>
       )}
       {a.state === "mismatch" && (
         <p className="m-0 break-words text-danger-ink">
-          The audit log no longer matches the copy kept outside the database. Treat the log as altered until this is
-          explained (rows removed or rewritten).
+          The audit log no longer matches the outside copy. Treat the log as altered until this is explained.
         </p>
       )}
     </div>

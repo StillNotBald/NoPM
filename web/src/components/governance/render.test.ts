@@ -46,13 +46,13 @@ describe("FourEyesNote", () => {
   it("tells a blocked viewer why, using the shared sentence", () => {
     for (const block of ["you_raised", "your_token_raised"] as const) {
       const markup = html(createElement(FourEyesNote, { block }));
-      expect(markup).toContain("You raised this (directly or through your token)");
+      expect(markup).toContain("You raised this (or your token did)");
       expect(markup).toContain("a different person must decide.");
     }
     expect(html(createElement(FourEyesNote, { block: "your_token_raised" }))).toContain(
       "a token counts as the person who created it",
     );
-    expect(html(createElement(FourEyesNote, { block: "no_scope" }))).toContain("view this but not decide it");
+    expect(html(createElement(FourEyesNote, { block: "no_scope" }))).toContain("view this, not decide it");
   });
 
   it("is a labelled note region in its box form", () => {
@@ -76,7 +76,7 @@ describe("ApprovalActions", () => {
     const markup = render(MINE);
     expect(markup).not.toContain(">Approve<");
     expect(markup).not.toContain(">Reject<");
-    expect(markup).toContain("You raised this (directly or through your token)");
+    expect(markup).toContain("You raised this (or your token did)");
     expect(markup).toContain("Withdraw");
   });
 
@@ -91,7 +91,7 @@ describe("ApprovalActions", () => {
 describe("DecisionPanel (change request)", () => {
   it("replaces the form with the note when the viewer cannot decide", () => {
     const markup = html(createElement(DecisionPanel, { crId: "cr-1", onDecided: noop, decide: MY_TOKEN }));
-    expect(markup).toContain("You raised this (directly or through your token)");
+    expect(markup).toContain("You raised this (or your token did)");
     expect(markup).not.toContain("Submit Decision");
   });
 
@@ -133,7 +133,7 @@ describe("ShowOncePanel", () => {
     expect(markup).toMatch(/aria-describedby="[^"]+"/);
     expect(markup).toContain('tabindex="-1"');
     expect(markup).toContain("Your new token");
-    expect(markup).toContain("Shown once — copy it now.");
+    expect(markup).toContain("Shown once. Copy it now.");
     expect(markup).toContain("npm_secret");
     expect(markup).toContain("I&#x27;ve saved it");
   });
@@ -174,7 +174,7 @@ describe("ApprovalInlineAction", () => {
 
   it("withholds Approve / Reject when the viewer raised it through their token", () => {
     const markup = html(createElement(ApprovalInlineAction, { item: item(MY_TOKEN) }));
-    expect(markup).toContain("You raised this (directly or through your token)");
+    expect(markup).toContain("You raised this (or your token did)");
     expect(markup).not.toContain(">Approve<");
     expect(markup).not.toContain(">Reject<");
   });
@@ -228,7 +228,7 @@ describe("ChangeInlineAction", () => {
 
   it("states four-eyes (it used to say nothing) and withholds the form when the viewer raised it", () => {
     const markup = html(createElement(ChangeInlineAction, { item: item(MINE) }));
-    expect(markup).toContain("You raised this (directly or through your token)");
+    expect(markup).toContain("You raised this (or your token did)");
     expect(markup).not.toContain("Submit Decision");
   });
 });
