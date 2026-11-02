@@ -19,11 +19,13 @@ export type PageContext = {
   path?: string;
   /** A project in THIS workspace (the route checked it). */
   project_id?: string;
+  /** Accepted for callers, but never put in the system prompt (other people wrote it). */
   project_name?: string;
   /** IANA timezone from the browser, e.g. Asia/Singapore. */
   tz?: string;
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SAFE_PATH = /^\/[A-Za-z0-9/_\-.]{0,199}$/;
 const SAFE_TZ = /^[A-Za-z0-9_+\-/]{1,64}$/;
 const SAFE_NAME = /[^\p{L}\p{N} _.,'()&/#:-]/gu;
@@ -52,7 +54,7 @@ export function todayIn(now: Date, tz?: string): string {
  * The full system prompt for one turn: the fixed rules plus a short, factual
  * "this turn" block (A5): today's date, who is asking, where they are, and which
  * modules are switched off. Every value is server-validated and length-capped;
- * the project name is stripped to plain characters because other people wrote it.
+ * the project name is NOT included at all (other people wrote it), only the project id.
  */
 export function buildSystemPrompt(opts: {
   now?: Date;
@@ -75,8 +77,11 @@ export function buildSystemPrompt(opts: {
     lines.push(`You are talking to ${label || "the signed-in person"}${role}.${opts.who?.role === "viewer" ? " Viewers can read only; do not offer writes." : ""}`);
   }
   if (ctx.project_id) {
-    const name = (ctx.project_name ?? "").replace(SAFE_NAME, "").slice(0, 80);
-    lines.push(`The person is looking at project ${name ? `"${name}" ` : ""}(id ${ctx.project_id}). When they say "this project" or give no project, mean this one.`);
+    // The project name is written by other people, so it never enters the system prompt: the id
+    // only (a UUID the route checked). The model can call get_project for the name.
+    if (UUID_RE.test(ctx.project_id)) {
+      lines.push(`The person is looking at the project with id ${ctx.project_id}. When they say "this project" or give no project, mean this one. Call get_project if you need its name.`);
+    }
   } else if (ctx.path && SAFE_PATH.test(ctx.path)) {
     lines.push(`The person is on the page ${ctx.path}.`);
   }

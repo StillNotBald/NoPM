@@ -36,6 +36,8 @@ export function isExecutedWrite(a: Action): boolean {
   return a.ok && WRITE_TOOLS.has(a.tool);
 }
 
+const SAFE_ID = /^[0-9A-Za-z-]{1,64}$/;
+
 /** Plain-text label: other people wrote record names, so strip markup and cap the length. */
 function clean(text: string, max = 80): string {
   return text.replace(/[^\p{L}\p{N} _.,'()&/#:-]/gu, "").slice(0, max);
@@ -64,10 +66,23 @@ export function interruptedContent(actions: readonly Action[], partialReply = ""
  * Roles come from the database, so a client can no longer fake an assistant turn.
  */
 export function rowsToHistory(rows: readonly HistoryRow[]): HistoryMessage[] {
-  return rows.slice(-MAX_STORED_HISTORY).map((r) => {
+  const out: HistoryMessage[] = [];
+  for (const r of rows.slice(-MAX_STORED_HISTORY)) {
     const note = r.role === "assistant" ? toolNote(r.actions) : "";
-    return { role: r.role, content: `${r.content}${note ? `\n${note}` : ""}`.slice(0, MAX_MESSAGE_CHARS + 600) };
-  });
+    const content = `${r.content}${note ? `\n${note}` : ""}`;
+    // The window must start on a user row (some providers reject an assistant first turn).
+    if (out.length === 0 && r.role !== "user") continue;
+    const last = out[out.length - 1];
+    if (last && last.role === r.role) {
+      // A failed turn or a retry leaves two same-role rows in a row: merge them.
+      last.content = `${last.content}\n\n${content}`.slice(0, MAX_MESSAGE_CHARS + 600);
+    } else {
+      out.push({ role: r.role, content: content.slice(0, MAX_MESSAGE_CHARS + 600) });
+    }
+  }
+  // The new user message follows this history, so it must not end on a user row either.
+  while (out.length > 0 && out[out.length - 1].role === "user") out.pop();
+  return out;
 }
 
 /**
@@ -97,7 +112,8 @@ export function splitRetry(
 export function priorAttemptNote(priorActions: readonly Action[]): string | null {
   const done = priorActions.filter(isExecutedWrite);
   if (done.length === 0) return null;
-  const list = done.slice(0, 12).map((a) => `${a.tool}${a.entityId ? ` (id ${a.entityId})` : ""}: ${clean(a.summary)}`).join("; ");
+  // Tool names and ids only: record names were chosen by the model or by other people, so they stay out of the system prompt.
+  const list = done.slice(0, 12).map((a) => `${a.tool}${a.entityId && SAFE_ID.test(a.entityId) ? ` (id ${a.entityId})` : ""}`).join("; ");
   return (
     `A previous attempt at this same request already did this: ${list}. ` +
     "Do NOT run those again. Tell the user they are done, and carry on only with what is still missing; " +

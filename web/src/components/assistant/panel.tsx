@@ -62,7 +62,7 @@ type StreamEvent =
   | { type: "actions"; actions: Action[] }
   | { type: "token"; text: string }
   | { type: "done"; conversation_id: string | null; usedDemoKey: boolean; usedFallback?: boolean; provider_error?: ProviderErrorInfo }
-  | { type: "error"; message: string; provider_error?: ProviderErrorInfo };
+  | { type: "error"; message: string; conversation_id?: string | null; provider_error?: ProviderErrorInfo };
 
 interface ConversationSummary {
   id: string;
@@ -579,7 +579,11 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
             // dispatchSend and risk splicing a second reply onto whatever
             // partial text already streamed (LOCKED #6). Finalize the
             // placeholder as an inline error bubble with a retry
-            // affordance instead; the user's message stays put.
+            // affordance instead; the user's message stays put. The id of a brand-new
+            // conversation is kept so Retry reuses it (the server then knows what ran).
+            if (event.conversation_id && event.conversation_id !== activeConversationId) {
+              setActiveConversationId(event.conversation_id);
+            }
             setHistory((h) =>
               h.map((m, i) =>
                 i === placeholderIdx

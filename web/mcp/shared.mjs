@@ -147,6 +147,24 @@ export async function callApi({
  *  - failure (non-2xx or an `error` string): `{ error, status, code?,
  *    retry_after_seconds?, fields? }` with `isError: true`.
  */
+/** JSON text of `result`, always valid JSON and at most MAX_RESULT_CHARS: a list loses trailing rows. */
+function boundResultText(result) {
+  const full = JSON.stringify(result);
+  if (full.length <= MAX_RESULT_CHARS) return full;
+  const hint = "Result was too long and was cut. Use fields= or a lower limit, or fetch the next page.";
+  if (result && typeof result === "object" && Array.isArray(result.data)) {
+    const rows = result.data;
+    let keep = rows.length;
+    while (keep > 0) {
+      keep = Math.floor(keep / 2);
+      const attempt = JSON.stringify({ ...result, data: rows.slice(0, keep), truncated: true, returned: keep, hint });
+      if (attempt.length <= MAX_RESULT_CHARS) return attempt;
+    }
+  }
+  const room = Math.max(0, MAX_RESULT_CHARS - hint.length - 200);
+  return JSON.stringify({ truncated: true, original_chars: full.length, hint, partial: full.slice(0, room) });
+}
+
 export function toToolResult(res) {
   const body = res.body ?? {};
   const failed = !res.ok || typeof body.error === "string";
@@ -163,13 +181,7 @@ export function toToolResult(res) {
   if (Number.isFinite(total) && Number.isFinite(page) && Number.isFinite(limit) && page * limit < total) {
     result = { ...body, next_page: page + 1 };
   }
-  let text = JSON.stringify(result);
-  if (text.length > MAX_RESULT_CHARS) {
-    text =
-      text.slice(0, MAX_RESULT_CHARS) +
-      `\n[truncated at ${MAX_RESULT_CHARS} characters: use fields= or a lower limit, or fetch the next page]`;
-  }
-  return { content: [{ type: "text", text }], isError: false };
+  return { content: [{ type: "text", text: boundResultText(result) }], isError: false };
 }
 
 /** A tool-call result for a refused call (unknown tool, bad arguments). */

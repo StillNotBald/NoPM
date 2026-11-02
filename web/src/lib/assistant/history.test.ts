@@ -52,6 +52,26 @@ describe("history helpers (A3, A4, A9)", () => {
     expect(h.find((x) => x.role === "user")?.content).not.toContain("[tools:");
   });
 
+  it("the window starts on a user row and never has two same-role rows in a row (review N3)", () => {
+    const rows = [
+      { role: "assistant" as const, content: "stray" },
+      { role: "user" as const, content: "make it" },
+      { role: "assistant" as const, content: "(interrupted) a", actions: [write] },
+      { role: "assistant" as const, content: "second answer" },
+      { role: "user" as const, content: "u1" },
+      { role: "user" as const, content: "u2" },
+      { role: "assistant" as const, content: "fine" },
+      { role: "user" as const, content: "unanswered" },
+    ];
+    const h = rowsToHistory(rows);
+    expect(h[0].role).toBe("user");
+    for (let i = 1; i < h.length; i++) expect(h[i].role).not.toBe(h[i - 1].role);
+    expect(h.map((x) => x.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(h[1].content).toContain("second answer");
+    expect(h[2].content).toContain("u1");
+    expect(h[2].content).toContain("u2");
+  });
+
   it("splits a retry: drops the first attempt and reports what it did", () => {
     const rows = [
       { role: "user" as const, content: "earlier" },

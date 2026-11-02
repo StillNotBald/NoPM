@@ -18,6 +18,8 @@ const m = vi.hoisted(() => ({
   inserts: [] as Array<{ table: string; row: Record<string, unknown> }>,
   stored: [] as Array<Record<string, unknown>>,
   messageInsertError: null as null | { code: string },
+  assistantInsertError: null as null | { code: string },
+  newConversation: false,
 }));
 
 vi.mock("@/lib/api/rate-limit", () => ({ checkRateLimit: async () => {} }));
@@ -42,14 +44,17 @@ vi.mock("@/lib/supabase/admin", () => ({
       for (const k of ["select", "eq", "order", "limit", "range"]) b[k] = () => b;
       b.insert = (row: Record<string, unknown>) => {
         m.inserts.push({ table, row });
-        const failing = table === "assistant_messages" && row.role === "user" && m.messageInsertError;
-        const res = { data: null, error: failing ? m.messageInsertError : null };
+        const failing =
+          table === "assistant_messages" &&
+          ((row.role === "user" && m.messageInsertError) ||
+            (row.role === "assistant" && !String(row.content).startsWith("(interrupted)") && m.assistantInsertError));
+        const res = { data: null, error: failing ? (row.role === "user" ? m.messageInsertError : m.assistantInsertError) : null };
         const p = Promise.resolve(res) as Promise<typeof res> & { select: () => unknown };
         p.select = () => ({ single: async () => ({ data: { id: CONV }, error: null }) });
         return p;
       };
       b.update = () => b;
-      b.maybeSingle = async () => ({ data: table === "assistant_conversations" ? { id: CONV } : null });
+      b.maybeSingle = async () => ({ data: table === "assistant_conversations" && !m.newConversation ? { id: CONV } : null });
       // list read of stored messages (await on the builder itself)
       b.then = (resolve: (v: unknown) => void) =>
         resolve({ data: table === "assistant_messages" ? [...m.stored].reverse() : [], error: null });
@@ -80,6 +85,8 @@ beforeEach(() => {
   m.inserts.length = 0;
   m.stored.length = 0;
   m.messageInsertError = null;
+  m.assistantInsertError = null;
+  m.newConversation = false;
   m.requireAuth.mockResolvedValue(actor);
   m.resolveProvider.mockResolvedValue(RESOLVED);
   m.runAssistant.mockReset();
@@ -197,5 +204,55 @@ describe("A3/A9: an interrupted turn keeps its action record", () => {
     }));
     await (await chat({ message: "hi", stream: true })).text();
     expect(assistantRows().filter((r) => String(r.content).startsWith("(interrupted)"))).toHaveLength(0);
+  });
+});
+
+describe("review round 1", () => {
+  it("I1: the stream error event carries the conversation id, and a retry with it gets the prior-attempt note", async () => {
+    async function* chunks(): AsyncIterable<string> {
+      yield "Creating it";
+      throw new Error("stream died");
+    }
+    m.runAssistantStream.mockImplementation(async (opts: { actionLog: unknown[] }) => {
+      opts.actionLog.push(createdTask);
+      return { actions: opts.actionLog, usedDemoKey: false, textChunks: chunks(), release: async () => {} };
+    });
+    const res = await chat({ message: "create the task Ship it", stream: true });
+    const events = (await res.text()).trim().split("\n").map((l) => JSON.parse(l));
+    const err = events.find((e) => e.type === "error");
+    expect(err.conversation_id).toBe(CONV);
+
+    // the panel sends that id back with retry:true; the server finds the interrupted row
+    m.stored.push(
+      { role: "user", content: "create the task Ship it", actions: null },
+      ...assistantRows().map((r) => ({ role: "assistant", content: r.content, actions: r.actions })),
+    );
+    m.runAssistant.mockResolvedValue({ reply: "Already created.", actions: [], usedDemoKey: false });
+    await chat({ message: "create the task Ship it", conversation_id: err.conversation_id, retry: true });
+    const arg = m.runAssistant.mock.calls[0][0];
+    expect(arg.priorAttempt).toMatch(/already did this: create_task/);
+    expect(arg.priorAttempt).toContain(TASK);
+  });
+
+  it("N5: a failed assistant-row insert records an (interrupted) row with the actions (stream)", async () => {
+    async function* chunks(): AsyncIterable<string> {
+      yield "All done";
+    }
+    m.assistantInsertError = { code: "XX000" };
+    m.runAssistantStream.mockImplementation(async (opts: { actionLog: unknown[] }) => {
+      opts.actionLog.push(createdTask);
+      return { actions: opts.actionLog, usedDemoKey: false, textChunks: chunks(), release: async () => {} };
+    });
+    await (await chat({ message: "create the task Ship it", stream: true })).text();
+    const rows = assistantRows();
+    expect(rows.some((r) => String(r.content).startsWith("(interrupted) All done"))).toBe(true);
+  });
+
+  it("N5: a failed assistant-row insert records an (interrupted) row with the actions (json)", async () => {
+    m.assistantInsertError = { code: "XX000" };
+    m.runAssistant.mockResolvedValue({ reply: "All done", actions: [createdTask], usedDemoKey: false });
+    const res = await chat({ message: "create the task Ship it" });
+    expect(res.status).toBe(200);
+    expect(assistantRows().some((r) => String(r.content).startsWith("(interrupted) All done"))).toBe(true);
   });
 });

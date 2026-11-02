@@ -8,8 +8,8 @@
  *   { type: "actions",  actions: Action[] }
  *   { type: "token",    text: string }      (one or more)
  *   { type: "done",     conversation_id: string | null, usedDemoKey: boolean }
- * On any error during streaming, a SANITIZED { type: "error", message: string }
- * is emitted — never the raw provider/upstream error text.
+ * On any error during streaming, a SANITIZED { type: "error", message: string, conversation_id }
+ * (the id lets the panel's Retry reuse the conversation) is emitted — never the raw provider/upstream error text.
  * The non-stream JSON path is byte-for-byte unchanged for BYOK/non-demo users.
  *
  * Demo actors (the shared, publicly-reachable demo login — see
@@ -451,6 +451,7 @@ export const POST = route(async ({ actor, request }) => {
             emit({
               type: "error",
               message: providerError?.message ?? MID_STREAM_ERROR_MESSAGE,
+              conversation_id: capturedConversationId,
               ...(providerError ? { provider_error: providerError } : {}),
             });
             return; // outer finally closes the stream
@@ -459,13 +460,18 @@ export const POST = route(async ({ actor, request }) => {
           // Persist assistant reply + actions — skipped entirely for demo
           // actors (fresh chat, no persistence).
           if (!capturedDemo) {
-            await capturedDb.from("assistant_messages").insert({
+            const { error: saveErr } = await capturedDb.from("assistant_messages").insert({
               conversation_id: capturedConversationId,
               role: "assistant",
               content: fullReply || "Done.",
               actions: actions.length > 0 ? actions : null,
             });
-            normalPersisted = true;
+            if (saveErr) {
+              // Not saved: the finally below records an (interrupted) row instead, so the actions survive a reload.
+              console.error("[nopm][assistant] could not store the reply", { code: saveErr.code ?? "unknown" });
+            } else {
+              normalPersisted = true;
+            }
 
             await capturedDb
               .from("assistant_conversations")
@@ -497,9 +503,10 @@ export const POST = route(async ({ actor, request }) => {
               code: "rate_limited",
               retry_after_seconds: err.retryAfterSeconds,
               message: err.message,
+              conversation_id: capturedConversationId,
             });
           } else {
-            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE });
+            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE, conversation_id: capturedConversationId });
           }
         } finally {
           // A turn that stopped early (provider error after tokens, client cancel, fallback refused)
@@ -562,12 +569,16 @@ export const POST = route(async ({ actor, request }) => {
   if (!demo) {
     // Persist the assistant reply + actions — identical treatment whether
     // the reply came from the real provider or the fallback.
-    await db.from("assistant_messages").insert({
+    const { error: saveErr } = await db.from("assistant_messages").insert({
       conversation_id: conversationId,
       role: "assistant",
       content: result.reply,
       actions: result.actions.length > 0 ? result.actions : null,
     });
+    if (saveErr) {
+      console.error("[nopm][assistant] could not store the reply", { code: saveErr.code ?? "unknown" });
+      await saveInterrupted(db, conversationId, result.actions, result.reply);
+    }
 
     // Bump updated_at on the conversation
     await db

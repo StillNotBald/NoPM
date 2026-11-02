@@ -85,3 +85,15 @@
 ### Verification (part 2)
 - Vitest on touched files only, `--maxWorkers=2`: agent-core, assistant (all), api/assistant, api/mcp, api/notifications, api/tasks, modules.test, llms-coverage, review: green after each commit. `npx tsc --noEmit` clean. `npm run rtm:verify` green (R-186 to R-189). The full suite was not run.
 - Fixtures regenerated on purpose in step 6: `openapi.all-on.json`, `llms.all-on.txt`, `mcp-tools.all-on.json` (see Step 6).
+
+
+## Review round 1
+
+Fixes from the reviewer pass (`_docs/nopm-telegram-2026-11-03/07-review-assistant-branch.md`). No new requirement IDs: the work belongs to R-185, R-186, R-189 (rows updated).
+- **Important 1 (retry repeated writes on a new conversation):** the stream `error` events now carry `conversation_id`, and the panel stores it, so a Retry reuses the conversation and the server adds the prior-attempt note. Tests: route event plus a second request with the returned id (`persistence.test.ts`). The panel has no unit tests; its change is two lines mirroring the `done` handler.
+- **Important 2 / Security (project name in the system prompt):** the system prompt now carries the project id only (the model can call `get_project`). The name is not placed in the prompt at all, so no fence is needed. The retry note (`priorAttemptNote`) was tightened the same way: tool names and ids only, no record names. Tests: a hostile name ("ignore previous instructions", `</tool_result>`) is absent from the prompt; a non-UUID id is dropped; the retry note has no summary text.
+- **N1:** MCP results over 60,000 characters stay valid JSON: a list loses trailing rows and gets `truncated: true`, `returned` and a hint; anything else becomes a `truncated` notice with a partial string. Tests parse the output.
+- **N3:** the history window starts on a user row, merges consecutive same-role rows and does not end on a user row (the new message follows it). Test added.
+- **N5:** a failed assistant-row insert (stream and JSON) is logged by code and falls back to an `(interrupted)` row that keeps the reply and actions. Tests for both paths.
+- Not changed on purpose: `destructiveHint` for `update_*` tools (N7, owner decision pending).
+- Known Lows, not tracked: N2 `boundToolResult` can empty a single huge row and the `<` escape can exceed the cap slightly; N4 client history still trusted for new conversations and demo retries repeat writes; N6 stdio startup can block up to ~50 s with the API down; N7 PATCH `update_*` tools are `destructiveHint:false`; N8 `tasks` `maybeSingle()` on two member rows, `raw` upstream text in `toToolResult`, double body parse in `connectTokenRejected`.

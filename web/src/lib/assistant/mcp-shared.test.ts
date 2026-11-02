@@ -96,10 +96,23 @@ describe("toToolResult (M5, M6)", () => {
     expect(last.isError).toBe(false);
   });
 
-  it("truncates an oversized result with a hint", () => {
+  it("truncates an oversized non-list result to valid JSON with truncated:true", () => {
     const out = toToolResult({ ok: true, status: 200, body: { data: "y".repeat(MAX_RESULT_CHARS + 500) } });
-    expect(out.content[0].text).toContain("[truncated");
-    expect(out.content[0].text.length).toBeLessThan(MAX_RESULT_CHARS + 300);
+    const parsed = JSON.parse(out.content[0].text);
+    expect(parsed.truncated).toBe(true);
+    expect(out.content[0].text.length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
+  });
+
+  it("truncates an oversized list by dropping items, still valid JSON (review N1)", () => {
+    const data = Array.from({ length: 400 }, (_, i) => ({ id: i, note: "z".repeat(500) }));
+    const out = toToolResult({ ok: true, status: 200, body: { data, total: 400, page: 1, limit: 400 } });
+    const parsed = JSON.parse(out.content[0].text);
+    expect(parsed.truncated).toBe(true);
+    expect(parsed.total).toBe(400);
+    expect(parsed.data.length).toBeGreaterThan(0);
+    expect(parsed.data.length).toBeLessThan(400);
+    expect(parsed.returned).toBe(parsed.data.length);
+    expect(out.content[0].text.length).toBeLessThanOrEqual(MAX_RESULT_CHARS);
   });
 });
 
