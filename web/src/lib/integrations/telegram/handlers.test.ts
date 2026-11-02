@@ -671,7 +671,7 @@ describe("free text", () => {
   it("goes to the assistant seam; the stub points at Settings and never touches NoPM", async () => {
     const h = fakeDeps();
     await say(h, "how are we doing on Alpha?");
-    expect(lastText(h)).toBe("Free-text questions go to your assistant. Add your own model key in Settings.");
+    expect(lastText(h)).toBe(FREE_TEXT_STUB_REPLY);
     expect(h.apiCalls).toHaveLength(0);
   });
 

@@ -37,6 +37,7 @@ import {
   note,
   preview,
   projectCards,
+  replyMessages,
   taskList,
   type Rendered,
 } from "./render";
@@ -489,7 +490,7 @@ async function continueOrAsk(c: Ctx, who: Who, profile: LinkedProfile, role: Rol
     deps.log("warn", "assistant seam failed", { connectorId: ctx.connector.id, error: errMsg(e) });
     return { text: COPY.tryAgain };
   });
-  await deps.send(who.chatId, note(reply.text));
+  for (const m of replyMessages(reply.text)) await deps.send(who.chatId, m);
 }
 
 function isExpired(row: PendingRow, deps: TelegramDeps): boolean {

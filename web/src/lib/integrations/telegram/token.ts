@@ -20,6 +20,7 @@ import { writeAudit } from "@/lib/audit/write";
 import type { Actor } from "@/lib/auth/guard";
 import type { LinkedProfile } from "@/lib/integrations/identity";
 import type { ConnectorRow } from "@/lib/integrations/types";
+import { TOOL_SCOPES } from "@/lib/assistant/tools";
 
 /** A step is one REST call; a minute or two is plenty and the revoke is the real control. */
 export const ACTION_TOKEN_TTL_MS = 2 * 60 * 1000;
@@ -31,7 +32,12 @@ const WRITE_SCOPES = new Set([
   "risk:write",
   "task:delete:request",
 ]);
-const READ_SCOPES = new Set(["task:read", "project:read", "issue:read", "risk:read"]);
+/**
+ * Read scopes of the assistant's own ceiling (every `:read` in TOOL_SCOPES). A free-text turn (ADR 0020,
+ * "Free-text mode") may carry these and nothing else: no write, no delete-request, no approve, no admin.
+ */
+export const FREE_TEXT_READ_SCOPES: readonly string[] = TOOL_SCOPES.filter((s) => s.endsWith(":read"));
+const READ_SCOPES = new Set(["task:read", "project:read", "issue:read", "risk:read", ...FREE_TEXT_READ_SCOPES]);
 /** The single privileged scope a tap in /4 may carry: `<target>:delete:approve` for the tapped request. */
 const APPROVE_SCOPE_RE = /^(task|project|risk|issue|expense|document|milestone):delete:approve$/;
 
@@ -67,12 +73,12 @@ export function chatActor(connector: ConnectorRow, profile: LinkedProfile): Acto
 
 export type ActionToken = { raw: string; id: string };
 
-export async function mintActionToken(connector: ConnectorRow, profile: LinkedProfile, scopes: string[]): Promise<ActionToken> {
+export async function mintActionToken(connector: ConnectorRow, profile: LinkedProfile, scopes: string[], opts: { ttlMs?: number } = {}): Promise<ActionToken> {
   assertAllowedScopes(scopes);
   const actor = chatActor(connector, profile);
   const { raw, hash, prefix } = generateToken();
   const id = randomUUID();
-  const expiresAt = new Date(Date.now() + ACTION_TOKEN_TTL_MS).toISOString();
+  const expiresAt = new Date(Date.now() + (opts.ttlMs ?? ACTION_TOKEN_TTL_MS)).toISOString();
   await auditedInsert({
     table: "api_tokens",
     actor,

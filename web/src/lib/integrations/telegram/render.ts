@@ -35,7 +35,7 @@ export const COPY = {
   noAccess: "You do not have access to that.",
   noProject: "You do not have access to that project.",
   tryAgain: "Something went wrong. Try again in a minute, or open NoPM.",
-  freeText: "Free-text questions go to your assistant. Add your own model key in Settings.",
+  freeText: "Add your own model key in Settings → Assistant to ask questions in chat.",
   tokenFailed: "That could not be saved: the permission for this step is no longer valid. Send the command again.",
   alreadyLinked: "This Telegram account is already linked to your NoPM user. Nothing changed.",
   selfApproval: "You raised this request, so another approver has to decide it. It stays pending.",
@@ -129,4 +129,38 @@ export function approvalCard(req: ApprovalCardInput, pendingId: string, own: boo
     text: body.join("\n"),
     keyboard: [[{ text: "Approve", callback_data: cb("ap", pendingId) }, { text: "Reject", callback_data: cb("rj", pendingId) }]],
   };
+}
+
+/** Telegram refuses a message over 4096 characters. A margin is kept for the shortened-note line. */
+export const TELEGRAM_MAX_CHARS = 4096;
+const CHUNK_CHARS = 3900;
+/** A free-text answer is sent as at most this many messages. */
+export const MAX_REPLY_MESSAGES = 3;
+export const SHORTENED_NOTE = "(Shortened. Ask a narrower question for the rest.)";
+
+/** Cut point at or before `limit` that does not split a line badly or an HTML entity (`&amp;`). */
+function cutPoint(text: string, limit: number): number {
+  if (text.length <= limit) return text.length;
+  let cut = Math.max(text.lastIndexOf("\n\n", limit), text.lastIndexOf("\n", limit), text.lastIndexOf(" ", limit));
+  if (cut < limit / 2) cut = limit;
+  const amp = text.lastIndexOf("&", cut);
+  if (amp !== -1 && amp > cut - 6 && text.indexOf(";", amp) >= cut) cut = amp;
+  return Math.max(1, cut);
+}
+
+/**
+ * A free-text answer as Telegram messages: escaped (it is model text), each under 4096 characters, at most
+ * three, with a note when the rest was dropped. Never returns an empty list.
+ */
+export function replyMessages(text: string): Rendered[] {
+  let rest = esc(text, 24000).trim();
+  if (!rest) return [{ text: "Done." }];
+  const out: string[] = [];
+  while (rest && out.length < MAX_REPLY_MESSAGES) {
+    const cut = cutPoint(rest, CHUNK_CHARS);
+    out.push(rest.slice(0, cut).trimEnd());
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest) out[out.length - 1] = `${out[out.length - 1]}\n${SHORTENED_NOTE}`;
+  return out.map((t) => ({ text: t }));
 }

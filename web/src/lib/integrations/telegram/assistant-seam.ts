@@ -2,15 +2,14 @@
  * The seam between chat free text and the BYOK assistant (ADR 0004, ADR 0020).
  *
  * NoPM bundles no model. A linked user's non-command text is handed to
- * `askAssistant(actor, text)`. Until the shared assistant engine is wired in,
- * the default implementation answers with a fixed pointer to Settings. The lead
- * replaces `defaultAskAssistant` by passing `askAssistant` in `TelegramDeps`
- * (see ./wiring.ts); nothing in the handlers changes.
+ * `askAssistant(actor, text)`. `defaultAskAssistant` is the "not wired" answer
+ * (a fixed pointer to Settings) used by tests and by any host that passes no
+ * implementation; production binds ./free-text.ts (`makeAskAssistant`) in
+ * ./wiring.ts, which runs the shared engine read-only with the person's own key.
  *
- * Contract for the real implementation: act as the linked human (an ephemeral
- * token created_by = actor.profileId), carry the assistant's own scope list for
- * that role (never an approve or admin scope), and let deletes stay
- * maker-checker requests.
+ * Contract for any implementation: act as the linked human (an ephemeral
+ * token created_by = actor.profileId), carry no approve or admin scope, never
+ * write without the bot's Confirm card, and keep tool results as untrusted data.
  */
 
 import { COPY } from "./render";

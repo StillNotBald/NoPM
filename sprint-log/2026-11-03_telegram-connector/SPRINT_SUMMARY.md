@@ -64,3 +64,23 @@ Fixes for the review in `_docs/nopm-telegram-2026-11-03/08-review-telegram-branc
 
 ### Lows left as one line
 N-3 disconnect token erase has no retry sweep; N-7 weak 429-vs-401 existence oracle on unknown connector ids; N-10 link flow reuses the Lark rate-limit keys and fails open; N-12 (a) role demotion keeps the chat menu until relink, (b) one bot token can be connected in two workspaces, (c) disconnect does not clear per-chat menus, (d) empty index reads as 0, (e) no-op second replace in `redact`; N-4 index on `(connector_id, kind, created_at)` not added.
+
+## Free text (2026-11-03, Part 2)
+Requirements R-200 to R-203. Stacked on `feat/assistant-connector-polish` (PR #27), merged into this branch with `--no-ff`; the only conflict was the REQUIREMENTS rows (R-186 to R-189 from that branch kept, then R-190 onward).
+
+### Mode built: READ-ONLY
+The shared engine (`runToolRounds`) cannot pause mid-turn for a Confirm card, so free text is read-only and writes are suggested as the matching numbered command (/2, /3, /4), which already shows the preview and Confirm button. No write runs from free text.
+
+### What it does
+- `telegram/free-text.ts` (`makeAskAssistant`, bound in `wiring.ts`): loads the linked person's OWN saved key (never the demo key), mints one per-turn token with the assistant's `:read` scopes only (`FREE_TEXT_READ_SCOPES`, 5-minute TTL, mint audited, revoke without a second audit row), runs the shared engine with only the GET tools and a Telegram-specific rules block on top of the shared system prompt, and revokes in `finally`.
+- No key: "Add your own model key in Settings → Assistant to ask questions in chat." Provider errors use the typed messages (R-184); anything else is the generic try-again line. No configured app URL: nothing is minted or sent.
+- Replies: escaped, split under 4096 characters, at most three messages, with a "(Shortened...)" note.
+- Tool results stay wrapped as untrusted data (engine unchanged).
+
+### Tests
+No key; key present (mocked provider, real engine in two tests); every provider error kind; the minted scopes contain no write, approve, admin or wildcard scope and the token allow-list still refuses them; a model that asks for a write tool gets none (not offered, token cannot write); group chats ignored; long answers split and capped; tool result wrapped and the bearer is the per-turn token.
+
+### Not done
+- Write-with-confirm from free text (needs an engine stop before a write tool call).
+- No conversation history across messages: each free-text message is its own turn.
+- Live check with a real key and a real bot.

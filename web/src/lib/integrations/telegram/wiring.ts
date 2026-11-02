@@ -4,8 +4,7 @@
  * (identity, secrets, store), the module registry, Next's `after()` and the
  * database-backed rate limiter. Kept apart from ./index.ts on purpose.
  *
- * Free text is wired to the stub in ./assistant-seam.ts. To connect the shared
- * assistant engine, pass `askAssistant` here (see productionDeps).
+ * Free text runs the shared assistant engine in read-only mode (./free-text.ts).
  */
 
 import { after } from "next/server";
@@ -13,7 +12,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { consumeLinkCode, lookupIdentity } from "@/lib/integrations/identity";
 import { isModuleEnabled, isScopeEnabled } from "@/lib/modules";
 import type { ConnectorRow } from "@/lib/integrations/types";
-import { defaultAskAssistant } from "./assistant-seam";
+import { makeAskAssistant } from "./free-text";
 import { makeApiCaller, trustedApiBase } from "./api";
 import type { LogLevel, TelegramContext, TelegramDeps } from "./handlers";
 import { answerCallbackQuery, editMessageText, sendMessage } from "./http";
@@ -79,7 +78,8 @@ export function productionDeps(connector: ConnectorRow, origin: string): Telegra
     setChatMenu: async (chatId, role) => {
       await registerChatMenu(connector, chatId, role);
     },
-    askAssistant: defaultAskAssistant,
+    // Free text runs the shared engine read-only with the person's own key (see ./free-text.ts).
+    askAssistant: makeAskAssistant(connector, { origin: trustedApiBase(origin), log }),
   };
 }
 

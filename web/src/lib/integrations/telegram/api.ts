@@ -35,7 +35,7 @@ export function trustedApiBase(requestOrigin: string | null | undefined, env: Re
 export type ApiCallerDeps = {
   /** Must come from `trustedApiBase`. Null: every call fails with 503 before a token is minted. */
   origin: string | null;
-  mint?: (connector: ConnectorRow, profile: LinkedProfile, scopes: string[]) => Promise<ActionToken>;
+  mint?: (connector: ConnectorRow, profile: LinkedProfile, scopes: string[], opts?: { ttlMs?: number }) => Promise<ActionToken>;
   revoke?: (connector: ConnectorRow, profile: LinkedProfile, id: string, opts?: { audit?: boolean }) => Promise<void>;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
