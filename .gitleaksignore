@@ -13,3 +13,7 @@
 6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:380
 6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:43
 6fd8981cf50bd4a4ff9424632d5a9a89eb74123c:web/src/lib/integrations/lark/relay.test.ts:generic-api-key:44
+
+# Test fixture, not a credential: the dummy Telegram webhook secret in the
+# Telegram connector unit-test fixtures (secret_fixture_0123...).
+8cf9147f8d1b5388dfd8ec3c0daf9dba985e3fd6:web/src/lib/integrations/telegram/fixtures.ts:generic-api-key:19

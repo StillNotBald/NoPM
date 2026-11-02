@@ -169,6 +169,8 @@ export const AUDIT_ACTION_GLOSSARY: readonly AuditActionEntry[] = [
   { action: "assistant.credential.revoke", description: "An assistant API key was removed" },
   { action: "assistant.token.mint", description: "An ephemeral assistant token was issued for a chat" },
   { action: "assistant.token.revoke", description: "An ephemeral assistant token was revoked" },
+  { action: "telegram.token.mint", description: "A short-lived token was minted for one action from a Telegram chat" },
+  { action: "telegram.token.revoke", description: "A per-action Telegram token was revoked after use" },
   // Chat integrations (Lark / Feishu) and calendar feeds
   { action: "integration.connector.create", description: "A chat integration was connected" },
   { action: "integration.connector.update", description: "A chat integration's settings were changed" },

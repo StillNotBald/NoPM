@@ -13,7 +13,7 @@
  * lying about its channel gains nothing beyond a mislabeled audit row.
  */
 
-export type AuditChannel = "ui" | "api" | "cli" | "mcp" | "assistant" | "lark" | "github";
+export type AuditChannel = "ui" | "api" | "cli" | "mcp" | "assistant" | "lark" | "github" | "telegram";
 
 /**
  * Channels a caller may DECLARE via X-NoPM-Client. Connector channels

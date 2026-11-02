@@ -48,7 +48,8 @@ export const GET = route(async ({ actor, request }) => {
     .from("api_tokens")
     .select("id", { count: "exact", head: true })
     .eq("workspace_id", actor.workspaceId)
-    .neq("kind", "assistant");
+    .neq("kind", "assistant")
+    .neq("kind", "telegram");
 
   if (countError) throw countError;
 
@@ -57,6 +58,7 @@ export const GET = route(async ({ actor, request }) => {
     .select(SAFE_COLUMNS)
     .eq("workspace_id", actor.workspaceId)
     .neq("kind", "assistant")
+    .neq("kind", "telegram")
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 

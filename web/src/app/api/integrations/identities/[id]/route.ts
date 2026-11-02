@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { auditedUpdate } from "@/lib/audit/audited-write";
 import { maskedExternalRef } from "@/lib/integrations/identity";
 import { isIntegrationAdmin } from "@/lib/integrations/store";
+import { cleanupAfterUnlink } from "@/lib/integrations/telegram/setup";
+import { loadTelegramConnectorById } from "@/lib/integrations/telegram/store";
 
 export const runtime = "nodejs";
 
@@ -55,6 +57,19 @@ export const DELETE = route(async ({ actor, params }) => {
   } catch (e) {
     if (e instanceof PreconditionFailedError) throw new NotFoundError("Linked account not found");
     throw e;
+  }
+
+  // A Telegram link also has a per-chat command menu and open chat steps. Best effort after the audited unlink;
+  // the bot re-checks the link on every message and tap, so this is housekeeping, not the access control.
+  if (identity.provider === "telegram") {
+    try {
+      const connector = await loadTelegramConnectorById(identity.connector_id);
+      if (connector && connector.workspace_id === actor.workspaceId) {
+        await cleanupAfterUnlink(connector, identity.external_user_id, identity.profile_id);
+      }
+    } catch (err) {
+      console.error("[nopm][telegram] unlink cleanup failed", err instanceof Error ? err.message : "unknown");
+    }
   }
 
   return ok({ id: identity.id, revoked: true });
