@@ -109,6 +109,7 @@ describe("/api/mcp governance tools (parity with the stdio server)", () => {
   it("tools/list includes every governance tool", async () => {
     vi.stubEnv("NEXT_PUBLIC_APP_URL", "https://nopm.example.com");
     const { MCP_GOVERNANCE_TOOLS } = await import("../../../../mcp/tools.mjs");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ data: {} }), { status: 200 })));
     const res = await POST(rpc("tools/list", {}));
     const body = await res.json();
     const names = body.result.tools.map((t: { name: string }) => t.name);
