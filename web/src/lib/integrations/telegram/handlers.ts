@@ -194,14 +194,16 @@ async function processUpdate(c: Ctx, update: unknown): Promise<void> {
   if (isRec(update.message)) return processMessage(c, updateId, update.message);
 }
 
-type Who = { chatId: string; userId: string };
+type Who = { chatId: string; userId: string; username: string | null };
 
 function whoOf(from: unknown, chat: unknown): Who | null {
   if (!isRec(from) || !isRec(chat)) return null;
   if (from.is_bot === true) return null; // no bot loops
   if (chat.type !== "private") return null; // private chats only: group chatter gets no reply
   if (typeof from.id !== "number" || typeof chat.id !== "number") return null;
-  return { chatId: String(chat.id), userId: String(from.id) };
+  // The @username (letters, digits, underscore) is shown back to the member on their own settings card; nothing else is kept.
+  const username = typeof from.username === "string" && /^[A-Za-z0-9_]{3,32}$/.test(from.username) ? `@${from.username}` : null;
+  return { chatId: String(chat.id), userId: String(from.id), username };
 }
 
 /** Connector/module gate shared by messages and taps. Returns a refusal text, or null when open. */
@@ -277,6 +279,7 @@ async function doLink(c: Ctx, who: Who, code: string, updateId: number): Promise
     rawCode: code,
     externalTenant: ctx.connector.id,
     externalUserId: who.userId,
+    displayName: who.username,
     externalEventId: `tg:${updateId}`,
   });
   switch (res.status) {

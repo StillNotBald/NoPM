@@ -7,9 +7,12 @@ import { GovernanceNote } from "./governance-note";
 import { useApiResource, type ResourceState } from "./hooks";
 import { LarkAccountCard } from "./lark-account-card";
 import { LarkConnectorCard } from "./lark-connector-card";
+import { fetchTelegramConnector } from "./telegram-api";
+import { TelegramAccountCard } from "./telegram-account-card";
+import { TelegramConnectorCard } from "./telegram-connector-card";
 import { NudgeSettingsCard } from "./nudge-settings-card";
 import { TimeZoneCard } from "./time-zone-card";
-import type { IdentityView } from "./model";
+import { identitiesFor, type IdentityView } from "./model";
 
 /**
  * The Integrations page body. Owns the three reads the cards share — who I am
@@ -25,6 +28,7 @@ export function IntegrationsConsole() {
   const me = useApiResource(fetchMe);
   const connector = useApiResource(fetchConnector);
   const identities = useApiResource(fetchIdentities);
+  const telegram = useApiResource(fetchTelegramConnector);
 
   // undefined while /api/me is loading (so the calendar card doesn't guess); null if it failed or has no role.
   const role = me.state.status === "loading" ? undefined : me.state.status === "ready" ? me.state.data.role : null;
@@ -33,12 +37,17 @@ export function IntegrationsConsole() {
   const isAdmin = me.state.status === "loading" ? null : me.state.status === "ready" ? role === "admin" : false;
 
   const activeLinks =
-    identities.state.status === "ready" ? identities.state.data.filter((i: IdentityView) => !i.revoked).length : null;
+    identities.state.status === "ready"
+      ? identitiesFor(identities.state.data, "lark").filter((i: IdentityView) => !i.revoked).length
+      : null;
 
   // The identities read is "mine" for members; hold it back until /api/me
   // resolves so "is this link mine?" is never answered with an unknown id.
   const accountIdentities: ResourceState<IdentityView[]> =
     me.state.status === "loading" ? { status: "loading" } : identities.state;
+  // One list serves both chat platforms; each card sees only its own links.
+  const forPlatform = (platform: "lark" | "telegram"): ResourceState<IdentityView[]> =>
+    accountIdentities.status === "ready" ? { status: "ready", data: identitiesFor(accountIdentities.data, platform) } : accountIdentities;
 
   const refreshLinks = identities.reload;
   const refreshConnector = connector.reload;
@@ -68,7 +77,27 @@ export function IntegrationsConsole() {
           myProfileId={myId}
           connector={connector.state.status === "ready" ? connector.state.data : null}
           connectorKnown={connector.state.status === "ready"}
-          identities={accountIdentities}
+          identities={forPlatform("lark")}
+          onRetry={identities.retry}
+          onReload={refreshLinks}
+        />
+
+        <TelegramConnectorCard
+          isAdmin={isAdmin}
+          resource={telegram.state}
+          onRetry={telegram.retry}
+          onChanged={() => {
+            telegram.reload();
+            refreshLinks();
+          }}
+        />
+
+        <TelegramAccountCard
+          isAdmin={isAdmin === true}
+          myProfileId={myId}
+          connector={telegram.state.status === "ready" ? telegram.state.data.connector : null}
+          connectorKnown={telegram.state.status === "ready"}
+          identities={forPlatform("telegram")}
           onRetry={identities.retry}
           onReload={refreshLinks}
         />

@@ -97,6 +97,33 @@ export async function disconnectCleanup(workspaceId: string, connectorId: string
   }
 }
 
+/** When the bot last received an update (the newest de-dupe marker). Null if it never has. */
+export async function lastTelegramUpdateAt(connectorId: string): Promise<string | null> {
+  const { data, error } = await createAdminClient()
+    .from("chat_pending")
+    .select("created_at")
+    .eq("connector_id", connectorId)
+    .eq("kind", "seen")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data && data.length ? String((data[0] as { created_at: string }).created_at) : null;
+}
+
+/** The private chat id of the member's active link on this connector (a private chat id equals the Telegram user id). */
+export async function findLinkedChatId(workspaceId: string, connectorId: string, profileId: string): Promise<string | null> {
+  const { data, error } = await createAdminClient()
+    .from("external_identities")
+    .select("external_user_id")
+    .eq("workspace_id", workspaceId)
+    .eq("connector_id", connectorId)
+    .eq("profile_id", profileId)
+    .is("revoked_at", null)
+    .limit(1);
+  if (error) throw error;
+  return data && data.length ? String((data[0] as { external_user_id: string }).external_user_id) : null;
+}
+
 // ── chat_pending ───────────────────────────────────────────────────────────
 
 const COLUMNS = "id, workspace_id, connector_id, chat_id, kind, payload, version, status, profile_id, expires_at";

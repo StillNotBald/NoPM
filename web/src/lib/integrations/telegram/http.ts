@@ -133,3 +133,9 @@ export function deleteMyCommands(token: string, scope: CommandScope = { type: "d
 export function getMe(token: string, opts?: Opts) {
   return callTelegram<{ id: number; username?: string; is_bot: boolean }>(token, "getMe", {}, opts);
 }
+
+export type WebhookInfo = { url?: string; pending_update_count?: number; last_error_date?: number; last_error_message?: string };
+
+export function getWebhookInfo(token: string, opts?: Opts) {
+  return callTelegram<WebhookInfo>(token, "getWebhookInfo", {}, opts);
+}

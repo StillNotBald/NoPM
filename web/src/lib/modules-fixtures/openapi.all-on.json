@@ -17675,6 +17675,176 @@
         }
       }
     },
+    "/integrations/telegram/link-code": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Mint a one-time Telegram link code (signed-in session)",
+        "description": "Session only. For the signed-in member: a one-time code (NPL-XXXX-XXXX, valid 10 minutes, single use; a new code replaces the earlier unused one) and the t.me deep link that sends it to the bot as /start CODE. The code is returned once and stored only as a hash; the audit row (integration.identity.code) never contains it. 422 no_connector or connector_paused when the bot is not connected or is paused. Eight wrong tries pause linking for that Telegram user.",
+        "operationId": "mintTelegramLinkCode",
+        "responses": {
+          "201": {
+            "description": "data = { code, expires_at, connector_id, bot_username, deep_link, instructions }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A token (session only)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "no_connector or connector_paused",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/telegram/{connectorId}/status": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Telegram webhook health (admin session)",
+        "description": "Admin session only. Asks Telegram for the webhook state. data = { webhook: ok | error, detail, pending_updates, last_update_at }. ok means Telegram holds this connector's URL and reports no recent delivery error. The detail has the token removed. Read only: no audit row.",
+        "operationId": "getTelegramConnectorStatus",
+        "parameters": [
+          {
+            "name": "connectorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The integration connector's id (it is part of the callback URLs shown to the admin)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an admin session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connector not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "connector_revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/telegram/{connectorId}/test": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Send a test message to my own Telegram chat (admin session)",
+        "description": "Admin session only. Sends one short message to the calling admin's own linked chat, never to anyone else. 422 not_linked when the admin has not linked Telegram; 422 connector_paused or connector_revoked. Otherwise 200 with data = { ok: true } or { ok: false, error } (token removed). Writes no audit row.",
+        "operationId": "testTelegramConnector",
+        "parameters": [
+          {
+            "name": "connectorId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The integration connector's id (it is part of the callback URLs shown to the admin)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Send result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not an admin session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Connector not found in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "not_linked, connector_paused or connector_revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/integrations/telegram/{connectorId}/webhook": {
       "post": {
         "tags": [

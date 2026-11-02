@@ -132,6 +132,15 @@ describe("linking", () => {
     expect(h.deps.setChatMenu).toHaveBeenCalledWith("1001", "member");
   });
 
+  it("keeps only a valid @username as the display name, so the member can recognise the link", async () => {
+    const h = fakeDeps();
+    await handleTelegramUpdate(ctx(), messageUpdate({ text: "/start NPL-ABCD-2345", username: "pat_example" }), h.deps);
+    expect(h.deps.consumeLinkCode).toHaveBeenCalledWith(expect.objectContaining({ displayName: "@pat_example" }));
+    const h2 = fakeDeps();
+    await handleTelegramUpdate(ctx(), messageUpdate({ text: "/start NPL-ABCD-2345", username: "bad name!" }), h2.deps);
+    expect(h2.deps.consumeLinkCode).toHaveBeenCalledWith(expect.objectContaining({ displayName: null }));
+  });
+
   it("a code typed on its own links too (no /start needed)", async () => {
     const h = fakeDeps({ identity: null });
     await say(h, "NPL-ABCD-2345");

@@ -521,6 +521,9 @@ POST   /integrations/telegram/connector — admin session — connect a Telegram
 PATCH  /integrations/telegram/connector — admin session — { status: active|paused }; a paused bot answers "This connector is turned off" and keeps open steps
 DELETE /integrations/telegram/connector — admin session — disconnect: webhook deleted, connector revoked and every chat unlinked (one audit row), open steps dropped, token erased
 POST   /integrations/telegram/{connectorId}/setup — admin session — (re-)register the webhook and command menu with Telegram; always 200 { ok } or { ok: false, step, error }; writes no audit row
+POST   /integrations/telegram/link-code — signed-in session — mint a one-time Telegram link code for yourself (10 minutes, single use, a new code replaces the old) with the t.me deep link; 422 when the bot is not connected or is paused
+GET    /integrations/telegram/{connectorId}/status — admin session — webhook health { webhook: ok|error, detail, pending_updates, last_update_at }; read only
+POST   /integrations/telegram/{connectorId}/test — admin session — send a test message to your own linked Telegram chat; 422 not_linked; writes no audit row
 POST   /integrations/telegram/{connectorId}/webhook — public, secret token in X-Telegram-Bot-Api-Secret-Token — Telegram update endpoint. Answers {} at once (NOT { data }); one generic 401 for a wrong secret or an unknown/revoked connector; 404 only for a malformed id; 429 when throttled
 
 POST   /mcp                                — scope: your own PAT (Bearer) — remote MCP server (Streamable HTTP, stateless JSON-RPC); every tool call is forwarded to this API with YOUR token, so scopes, audit and maker-checker apply unchanged. No Bearer header = 401 { error, code: "unauthorized" } with WWW-Authenticate: Bearer realm="nopm".

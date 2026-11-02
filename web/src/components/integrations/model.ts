@@ -396,6 +396,8 @@ export interface IdentityView {
   displayName: string | null;
   linkedAt: string | null;
   revoked: boolean;
+  /** The chat platform of the link ("lark", "telegram"); null when the API omits it. */
+  provider: string | null;
 }
 
 export function normalizeIdentity(raw: unknown): IdentityView | null {
@@ -408,6 +410,7 @@ export function normalizeIdentity(raw: unknown): IdentityView | null {
     displayName: asString(firstDefined(raw.display_name, raw.displayName)),
     linkedAt: asString(firstDefined(raw.linked_at, raw.linkedAt)),
     revoked: asString(firstDefined(raw.revoked_at, raw.revokedAt)) !== null,
+    provider: asString(raw.provider),
   };
 }
 
@@ -496,4 +499,9 @@ export function normalizeProjects(list: unknown): ProjectOption[] {
       return id && name ? { id, name } : null;
     })
     .filter((p): p is ProjectOption => p !== null);
+}
+
+/** Links on a given chat platform. Rows with no provider belong to Lark, the first platform. */
+export function identitiesFor(list: IdentityView[], platform: "lark" | "telegram"): IdentityView[] {
+  return list.filter((i) => (platform === "telegram" ? i.provider === "telegram" : i.provider !== "telegram"));
 }

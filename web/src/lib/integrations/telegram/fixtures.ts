@@ -46,12 +46,12 @@ export const resetUpdateIds = () => {
   nextUpdate = 1;
 };
 
-export function messageUpdate(o: { text?: string; userId?: number; chatId?: number; chatType?: string; updateId?: number; isBot?: boolean } = {}) {
+export function messageUpdate(o: { text?: string; userId?: number; chatId?: number; chatType?: string; updateId?: number; isBot?: boolean; username?: string } = {}) {
   return {
     update_id: o.updateId ?? nextUpdate++,
     message: {
       message_id: 500,
-      from: { id: o.userId ?? FIXTURE_USER_ID, is_bot: o.isBot ?? false, first_name: "X" },
+      from: { id: o.userId ?? FIXTURE_USER_ID, is_bot: o.isBot ?? false, first_name: "X", ...(o.username ? { username: o.username } : {}) },
       chat: { id: o.chatId ?? FIXTURE_CHAT_ID, type: o.chatType ?? "private" },
       text: o.text ?? "",
     },
