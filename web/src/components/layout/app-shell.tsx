@@ -20,6 +20,7 @@ import type { PendingCounts } from "@/lib/governance/pending-counts";
 import { PageHint } from "@/components/onboarding/page-hint";
 import type { PrefsSeed } from "@/lib/onboarding/seed";
 import { MAIN_CONTENT_ID } from "@/lib/hooks/use-sheet";
+import { ModulesProvider } from "@/lib/modules-context";
 
 // ── Inspector (right push-panel) context ──────────────────────────────────────
 
@@ -47,6 +48,7 @@ export function AppShell({
   initialNavMode = "all",
   pendingCounts = null,
   onboardingSeed = null,
+  disabledModules = [],
 }: {
   children: ReactNode;
   /** Server-resolved sidebar mode (R-78) — defaults to "all" so any other caller is unaffected. */
@@ -55,7 +57,10 @@ export function AppShell({
   pendingCounts?: PendingCounts | null;
   /** Server-resolved onboarding state for the page-hint strip (null = wait for the client store). */
   onboardingSeed?: PrefsSeed | null;
+  /** Module ids switched off with NOPM_MODULES (ADR 0019); [] = everything on. */
+  disabledModules?: readonly string[];
 }) {
+  const assistantEnabled = !disabledModules.includes("assistant");
   const [collapsed, setCollapsed] = useState(false);
   const [inspector, setInspector] = useState<InspectorPayload | null>(null);
   const inspectorSeq = useRef(0);
@@ -81,6 +86,7 @@ export function AppShell({
   );
 
   return (
+    <ModulesProvider disabled={disabledModules}>
     <ToastProvider>
     <InspectorCtx.Provider value={inspectorApi}>
       <div data-shell-root className="flex h-dvh overflow-hidden bg-canvas text-ink">
@@ -148,15 +154,17 @@ export function AppShell({
                 <span className="h-1.5 w-1.5 rounded-full bg-accent" />
                 live
               </span>
-              <IconButton
-                ref={assistantTriggerRef}
-                onClick={() => setAssistantOpen((v) => !v)}
-                label="Open AI assistant"
-                aria-pressed={assistantOpen}
-                className={cn("relative", assistantOpen && "bg-well text-accent")}
-              >
-                <Sparkles size={18} />
-              </IconButton>
+              {assistantEnabled && (
+                <IconButton
+                  ref={assistantTriggerRef}
+                  onClick={() => setAssistantOpen((v) => !v)}
+                  label="Open AI assistant"
+                  aria-pressed={assistantOpen}
+                  className={cn("relative", assistantOpen && "bg-well text-accent")}
+                >
+                  <Sparkles size={18} />
+                </IconButton>
+              )}
               <NotificationBell />
               <ThemeToggle />
               {/* search entry — icon-only below sm, the existing "run command" pill sm+ */}
@@ -206,13 +214,16 @@ export function AppShell({
         </RightPushPanel>
 
         {/* AI assistant panel */}
-        <AssistantPanel
-          open={assistantOpen}
-          onClose={() => setAssistantOpen(false)}
-          triggerRef={assistantTriggerRef}
-        />
+        {assistantEnabled && (
+          <AssistantPanel
+            open={assistantOpen}
+            onClose={() => setAssistantOpen(false)}
+            triggerRef={assistantTriggerRef}
+          />
+        )}
       </div>
     </InspectorCtx.Provider>
     </ToastProvider>
+    </ModulesProvider>
   );
 }

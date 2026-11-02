@@ -35,6 +35,7 @@ Most project-management tools bolt permissions and audit trails onto the UI as a
 | [05-getting-help-and-paid-services.md](05-getting-help-and-paid-services.md) | Free vs. paid support, what the owner will and will not build, the license |
 | [06-faq.md](06-faq.md) | Answers to the questions a newcomer usually asks first |
 | [07-lark-integration.md](07-lark-integration.md) | Connect NoPM to Lark or Feishu: approval cards, weekly digest, and the self-host worker (setup for admins) |
+| [08-running-a-subset-of-nopm.md](08-running-a-subset-of-nopm.md) | Turn modules off for one deployment with `NOPM_MODULES`: which modules exist, what disappears, and what does not |
 | [../ROADMAP.md](../ROADMAP.md) | What's shipped, a menu of paid modules someone could sponsor or hire to build, what's not planned and why, and how to ask for something new |
 
 ## A word about the live demo

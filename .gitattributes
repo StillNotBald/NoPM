@@ -1,2 +1,5 @@
 # metrics.gen.json is compared byte-for-byte by gen-metrics --check
 web/src/lib/metrics.gen.json text eol=lf
+
+# module-registry golden fixtures are compared byte-for-byte against route output (LF)
+web/src/lib/modules-fixtures/* text eol=lf

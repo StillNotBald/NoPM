@@ -26,6 +26,7 @@ import { createConnectorSchema, updateConnectorSchema } from "@/app/api/integrat
 import { PENDING_KINDS, DEFAULT_LIMIT as REVIEW_DEFAULT_LIMIT, MAX_LIMIT as REVIEW_MAX_LIMIT } from "@/lib/review/pending";
 // The single tool registry shared with the stdio MCP server and the in-app assistant.
 import { TOOL_REGISTRY } from "../../../../mcp/tools.mjs";
+import { filterOpenApi } from "@/lib/modules";
 
 export const runtime = "nodejs";
 
@@ -4399,7 +4400,8 @@ function documentReferenceGuard(): void {
 
 documentReferenceGuard();
 
-export const GET = route(async () => Response.json(spec), { auth: false });
+// Paths of modules switched off with NOPM_MODULES are omitted (ADR 0019); all-on serves `spec` unchanged.
+export const GET = route(async () => Response.json(filterOpenApi(spec)), { auth: false });
 
 // Exported for the openapi-coverage drift test only.
 // Do NOT import this in production application code.

@@ -30,7 +30,8 @@ import { useInspector } from "@/components/layout/app-shell";
 import { modKeyLabel, useIsMac } from "@/components/layout/use-is-mac";
 import { IconButton } from "@/components/ui/icon-button";
 import { ProjectForm } from "@/components/forms/project-form";
-import { ALL_NAV_ITEMS, EXTRA_NAV_ITEMS } from "@/lib/nav/nav-config";
+import { EXTRA_NAV_ITEMS } from "@/lib/nav/nav-config";
+import { useAllNavItems } from "@/lib/modules-context";
 import { useDialog } from "@/lib/hooks/use-sheet";
 import type { SearchResult } from "@/app/api/search/route";
 
@@ -113,6 +114,7 @@ function CommandPalettePanel({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const allNavItems = useAllNavItems();
   // Build commands inside the component so hooks are in scope
   const allCommands: CommandItem[] = [
     {
@@ -127,7 +129,7 @@ function CommandPalettePanel({
     },
     // Navigation commands derive from the one nav list/label map, so the
     // palette can never drift from the sidebar (names, icons, reachability).
-    ...[...EXTRA_NAV_ITEMS.slice(0, 1), ...ALL_NAV_ITEMS, ...EXTRA_NAV_ITEMS.slice(1)].map(
+    ...[...EXTRA_NAV_ITEMS.slice(0, 1), ...allNavItems, ...EXTRA_NAV_ITEMS.slice(1)].map(
       ({ href, label, icon: Icon }): CommandItem => ({
         id: `nav-${href.slice(1)}`,
         icon: <Icon size={16} />,

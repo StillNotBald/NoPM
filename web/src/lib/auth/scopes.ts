@@ -16,6 +16,8 @@
  * them still authenticate — scopes are matched by name at request time, not
  * re-validated — and the retired scopes simply match nothing.
  */
+import { filterScopes, isScopeEnabled } from "@/lib/modules";
+
 export const SCOPES = [
   "project:read", "project:write",
   "program:read", "program:write", "program:delete:request",
@@ -101,9 +103,10 @@ const WILDCARD = /^([a-z_]+):\*$/;
  * known resource, or the global `*`. Used to validate PAT scopes at mint time.
  */
 export function isValidScope(scope: string): boolean {
-  if (SCOPE_SET.has(scope)) return true;
+  // Module registry (ADR 0019): a disabled module's scopes cannot be minted.
+  if (SCOPE_SET.has(scope)) return isScopeEnabled(scope);
   const m = scope.match(WILDCARD);
-  return !!m && SCOPE_RESOURCES.has(m[1]);
+  return !!m && SCOPE_RESOURCES.has(m[1]) && isScopeEnabled(`${m[1]}:read`);
 }
 
 /**
@@ -119,9 +122,11 @@ export function isValidScope(scope: string): boolean {
  * onto a scope the registry doesn't recognise; scopes.test.ts asserts the
  * least-privilege shape directly against this constant.
  */
-export const AGENT_PRESET_SCOPES: readonly Scope[] = SCOPES.filter((s) =>
-  s.endsWith(":read"),
-).concat(["task:write", "risk:write", "issue:write", "project:write"]);
+export function agentPresetScopes(scopes: readonly Scope[] = SCOPES): readonly Scope[] {
+  return scopes.filter((s) => s.endsWith(":read")).concat(["task:write", "risk:write", "issue:write", "project:write"]);
+}
+
+export const AGENT_PRESET_SCOPES: readonly Scope[] = agentPresetScopes();
 
 /**
  * Full scope choice list for the manual token-mint UI (tokens/page.tsx),
@@ -144,9 +149,9 @@ export const AGENT_PRESET_SCOPES: readonly Scope[] = SCOPES.filter((s) =>
  * via its resource wildcard, so a future scope addition can never silently
  * fail to show up in the mint UI again.
  */
-export function scopeChoices(): string[] {
+export function scopeChoices(scopes: readonly Scope[] = filterScopes(SCOPES)): string[] {
   const byResource = new Map<string, Scope[]>();
-  for (const scope of SCOPES) {
+  for (const scope of scopes) {
     const resource = scope.split(":")[0];
     const list = byResource.get(resource);
     if (list) list.push(scope);

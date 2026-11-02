@@ -7,7 +7,6 @@ import { LayoutGrid, Minimize2, Rocket } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { ProjectSwitcher } from "./project-switcher";
 import {
-  NAV_SECTIONS,
   GOVERNANCE_SECTION_LABEL,
   visibleSections,
   filterSectionsByRole,
@@ -27,6 +26,7 @@ import {
   buildNavModeCookieHeader,
 } from "@/lib/nav/nav-mode";
 import { usePreferences } from "@/lib/prefs/use-preferences";
+import { useNavSections } from "@/lib/modules-context";
 import { isActiveRoute } from "./active-route";
 
 /**
@@ -128,7 +128,8 @@ export function Sidebar({
   const pendingTotal = pendingCounts?.total ?? 0;
   const role = useMyRole();
   const canDecide = canDecideGovernance(role);
-  const roleSections = filterSectionsByRole(NAV_SECTIONS, role);
+  const navSections = useNavSections();
+  const roleSections = filterSectionsByRole(navSections, role);
   const sections = visibleSections(roleSections, mode, pathname);
   const hidden = hiddenCount(roleSections, mode, pathname);
 

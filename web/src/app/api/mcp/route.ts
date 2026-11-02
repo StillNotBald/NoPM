@@ -4,6 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { AuthError, toErrorResponse } from "@/lib/api/errors";
 import { resolveRequestId } from "@/lib/audit/channel";
 import { resolveInternalOrigin } from "@/lib/api/internal-origin";
+import { filterTools } from "@/lib/modules";
 // mcp/tools.mjs MCP_TOOLS = assistant registry + MCP-only governance tools (as the stdio server)
 // (web/mcp/server.mjs) and the in-app BYOK assistant — kept outside src/ on
 // purpose so it stays a plain-Node, no-build-step artifact for the CLI.
@@ -34,7 +35,8 @@ type ToolRegistryEntry = {
   toRequest: (args: Record<string, unknown>) => { path: string; method: string; body?: unknown };
 };
 
-const REGISTRY = MCP_TOOLS as ToolRegistryEntry[];
+// Tools of modules switched off with NOPM_MODULES (ADR 0019) are neither listed nor callable.
+const REGISTRY = filterTools(MCP_TOOLS as ToolRegistryEntry[]);
 
 async function callApi(
   origin: string,

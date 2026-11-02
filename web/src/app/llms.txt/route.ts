@@ -2,6 +2,7 @@ import { route } from "@/lib/api/handler";
 // The single tool registry shared with the stdio MCP server, the remote /mcp route and the
 // in-app assistant — the tool count below is read from it so it cannot drift.
 import { TOOL_REGISTRY } from "../../../mcp/tools.mjs";
+import { filterLlmsText, filterTools } from "@/lib/modules";
 
 export const runtime = "nodejs";
 
@@ -603,7 +604,7 @@ exposes none), so an agent can check "is live equal to main?" before trusting a 
 ## MCP server
 
 NoPM ships a native Model Context Protocol (MCP) server at web/mcp/server.mjs.
-It exposes ${TOOL_REGISTRY.length} governed tools (list/get/create/update across the core modules, plus
+It exposes ${filterTools(TOOL_REGISTRY).length} governed tools (list/get/create/update across the core modules, plus
 workspace search, budget, clashes, resources, the audit log, and list_pending_approvals) over STDIO so any
 MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agent. The same tools are served
 remotely at POST /mcp (Streamable HTTP) with your own PAT in the Authorization header.
@@ -661,7 +662,7 @@ export const textForTesting = TEXT;
 
 export const GET = route(
   async () =>
-    new Response(TEXT, {
+    new Response(filterLlmsText(TEXT), {
       headers: { "content-type": "text/plain; charset=utf-8" },
     }),
   { auth: false },

@@ -21,7 +21,7 @@ import { ConfirmDialog, CopyButton, CopyValue, Disclosure, Field, InlineAlert } 
 import { cn } from "@/lib/cn";
 import { apiDelete, apiGet, apiPost } from "@/lib/api-client";
 import { useRequireSession } from "@/lib/auth/use-require-session";
-import { AGENT_PRESET_SCOPES, scopeChoices } from "@/lib/auth/scopes";
+import { useScopeLists } from "@/lib/modules-context";
 
 /** Groups an already resource-ordered flat scope list (scopeChoices()'
  *  output) back into per-resource buckets for the mobile collapsible
@@ -42,11 +42,6 @@ function groupScopesByResource(scopes: string[]): { resource: string; scopes: st
   }
   return groups;
 }
-
-// Derived from the SCOPES registry (see scopeChoices' own doc comment) so a
-// newly registered resource/scope shows up here automatically instead of
-// requiring a second hand-maintained list that can silently drift stale.
-const ALL_SCOPES = scopeChoices();
 
 type Scope = string;
 
@@ -110,6 +105,9 @@ function formatRelative(iso: string | null): string {
 }
 
 export default function TokensPage() {
+  // Derived from the SCOPES registry (scopeChoices) minus modules switched off
+  // with NOPM_MODULES (ADR 0019), so the list can never drift or offer a dead scope.
+  const { choices: ALL_SCOPES, agentPreset: AGENT_PRESET_SCOPES } = useScopeLists();
   const router = useRouter();
   const toast = useToast();
   const modal = useModal();

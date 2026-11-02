@@ -10,6 +10,7 @@ import { ALL_NAV_ITEMS, pendingByHref, filterNavItemsByRole, canDecideGovernance
 import { useMyRole } from "@/lib/nav/use-my-role";
 import type { PendingCounts } from "@/lib/governance/pending-counts";
 import { usePreferences } from "@/lib/prefs/use-preferences";
+import { useAllNavItems } from "@/lib/modules-context";
 import { NavBadge } from "./nav-badge";
 import { isActiveRoute } from "./active-route";
 import { Portal } from "@/components/ui/portal";
@@ -64,6 +65,8 @@ function StaticShortcutSkeleton() {
 export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCounts | null }) {
   const pathname = usePathname();
   const prefs = usePreferences();
+  // Destinations of modules switched off (NOPM_MODULES) are dropped from the bar and the Apps sheet.
+  const navItems = useAllNavItems();
   const pending = pendingByHref(pendingCounts);
   const pendingTotal = pendingCounts?.total ?? 0;
   const [open, setOpen] = useState(false);
@@ -115,8 +118,11 @@ export function BottomNav({ pendingCounts = null }: { pendingCounts?: PendingCou
 
   const role = useMyRole();
   const canDecide = canDecideGovernance(role);
-  const visibleItems = filterNavItemsByRole(ALL_ITEMS, role);
-  const barItems = filterNavItemsByRole(shortcuts.map(byHref).filter(Boolean) as Item[], role);
+  const visibleItems = filterNavItemsByRole(navItems, role);
+  const barItems = filterNavItemsByRole(
+    shortcuts.map((h) => navItems.find((i) => i.href === h)).filter(Boolean) as Item[],
+    role,
+  );
   const unpinned = visibleItems.filter((i) => !shortcuts.includes(i.href));
   const atCap = shortcuts.length >= MAX_SHORTCUTS;
   const isActive = (href: string) => isActiveRoute(href, pathname);
