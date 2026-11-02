@@ -164,6 +164,21 @@ describe("linking", () => {
     expect(LINK_ATTEMPTS_PER_SENDER).toBe(8);
   });
 
+  it("too many wrong tries pauses linking for that Telegram user, with no push", async () => {
+    const h = fakeDeps({ identity: null });
+    (h.deps.consumeLinkCode as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "rate_limited", retryAfterSeconds: 300 });
+    await say(h, "/start NPL-ABCD-2345");
+    expect(lastText(h)).toContain("Linking is paused");
+    expect(h.sent).toHaveLength(1);
+  });
+
+  it("an expired code names the 10 minute lifetime", async () => {
+    const h = fakeDeps({ identity: null });
+    (h.deps.consumeLinkCode as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "expired" });
+    await say(h, "/start NPL-ABCD-2345");
+    expect(lastText(h)).toContain("10 minutes");
+  });
+
   it("never logs the code or the message text", async () => {
     const h = fakeDeps({ identity: null });
     await say(h, "/start NPL-ABCD-2345");
@@ -245,7 +260,8 @@ describe("/5 Project status and /6 Digest", () => {
   it("a project the person cannot access gets the same words as one that does not exist", async () => {
     const h = fakeDeps();
     await say(h, "/5 Zzz");
-    expect(lastText(h)).toBe("No access to that project, or it does not exist.");
+    expect(lastText(h)).toBe("You do not have access to that project.")
+    expect(lastText(h)).not.toMatch(/exist/i);
   });
 
   it("/6 sends a digest; approvers also see the waiting count; /6 on is honest", async () => {
@@ -392,6 +408,16 @@ describe("/2 Add (preview, confirm, one audited write)", () => {
     expect(h.writes()).toHaveLength(0);
     expect(h.edited[h.edited.length - 1].msg.text).toContain("turned off");
     expect([...h.rows.values()].filter((r) => r.kind === "preview")[0].status).toBe("failed");
+  });
+
+  it("a connector disabled mid-flow: the tap does not write, the row is kept, and the person is told", async () => {
+    const h = fakeDeps();
+    const card = await toPreview(h);
+    await tap(h, tapData(card, "Confirm"), ctx({ connector: fixtureConnector({ status: "paused" }) }));
+    expect(h.writes()).toHaveLength(0);
+    expect([...h.rows.values()].filter((r) => r.kind === "preview")[0].status).toBe("open");
+    await say(h, "/1", ctx({ connector: fixtureConnector({ status: "paused" }) }));
+    expect(lastText(h)).toContain("turned off");
   });
 
   it("a revoked token at confirm fails the write, tells the person and marks the row failed", async () => {

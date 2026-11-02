@@ -33,7 +33,7 @@ export const COPY = {
   cancelled: "Cancelled. Nothing was changed.",
   nothingToCancel: "Nothing to cancel.",
   noAccess: "You do not have access to that.",
-  noProject: "No access to that project, or it does not exist.",
+  noProject: "You do not have access to that project.",
   tryAgain: "Something went wrong. Try again in a minute, or open NoPM.",
   freeText: "Free-text questions go to your assistant. Add your own model key in Settings.",
   tokenFailed: "That could not be saved: the permission for this step is no longer valid. Send the command again.",

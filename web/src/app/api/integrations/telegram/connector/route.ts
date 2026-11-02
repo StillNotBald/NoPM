@@ -124,7 +124,6 @@ export const DELETE = route(async ({ actor, request }) => {
   const existing = await getLiveTelegramConnector(actor.workspaceId);
   if (!existing) throw new NotFoundError("No Telegram connector to disconnect");
 
-  await removeWebhook(existing); // best effort: stop Telegram calling us
   const db = createAdminClient();
   const nowIso = new Date().toISOString();
   // One transaction (migration 0069): connector revoked, every identity unlinked, queued deliveries
@@ -146,6 +145,10 @@ export const DELETE = route(async ({ actor, request }) => {
     if (/CONNECTOR_NOT_FOUND/.test(error.message)) throw new NotFoundError("Connector not found");
     throw error;
   }
+
+  // Only after the audited revoke committed: stop Telegram calling us (best effort). If the audit write
+  // failed we threw above, and nothing was undone.
+  await removeWebhook(existing);
 
   // Chat state and the token go with the connector (working state and the secret itself, not separate governed changes).
   const erased = await disconnectCleanup(actor.workspaceId, existing.id);

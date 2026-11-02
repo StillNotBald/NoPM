@@ -124,6 +124,12 @@ describe("PATCH", () => {
     expect(m.auditedUpdate.mock.calls[0][0].patch).toEqual({ status: "paused" });
   });
 
+  it("is atomic: when the audit write fails the update fails too", async () => {
+    m.live.mockResolvedValue(fixtureConnector());
+    m.auditedUpdate.mockRejectedValue(new Error("audit failed"));
+    expect((await PATCH(req("PATCH", { status: "paused" }), { params: Promise.resolve({}) })).status).toBeGreaterThanOrEqual(500);
+  });
+
   it("rejects anything but active or paused", async () => {
     m.live.mockResolvedValue(fixtureConnector());
     expect((await PATCH(req("PATCH", { status: "revoked" }), { params: Promise.resolve({}) })).status).toBe(422);
@@ -141,6 +147,15 @@ describe("DELETE (disconnect)", () => {
     expect(m.cleanup).toHaveBeenCalledWith(FIXTURE_WORKSPACE_ID, FIXTURE_CONNECTOR_ID);
     const body = await res.json();
     expect(body.data).toMatchObject({ status: "revoked", has_bot_token: false, token_erased: true });
+  });
+
+  it("is atomic: when the audited revoke fails the disconnect fails and nothing else is undone", async () => {
+    m.live.mockResolvedValue(fixtureConnector());
+    m.rpc.mockImplementation(async () => ({ error: { message: "audit insert failed" } }));
+    const res = await DELETE(req("DELETE"), { params: Promise.resolve({}) });
+    expect(res.status).toBeGreaterThanOrEqual(500);
+    expect(m.removeWebhook).not.toHaveBeenCalled();
+    expect(m.cleanup).not.toHaveBeenCalled();
   });
 
   it("404s when there is nothing to disconnect", async () => {
