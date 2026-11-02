@@ -53,6 +53,7 @@ import {
 } from "@/lib/assistant/index";
 import { runAssistantFallback, priorActionsNote, type FallbackResult } from "@/lib/assistant/fallback";
 import { ProviderError, providerErrorInfo, type ProviderErrorInfo } from "@/lib/assistant/providers/errors";
+import { resolvePageContext } from "@/lib/assistant/page-context";
 import { isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -116,6 +117,7 @@ export const POST = route(async ({ actor, request }) => {
     history?: unknown;
     conversation_id?: unknown;
     stream?: unknown;
+    context?: unknown;
   }>(request);
 
   if (!body || typeof body.message !== "string" || body.message.trim() === "") {
@@ -254,6 +256,9 @@ export const POST = route(async ({ actor, request }) => {
     });
   }
 
+  // Where the person is (A5): validated, workspace-checked, best effort.
+  const pageContext = await resolvePageContext(body.context, actor.workspaceId, db);
+
   const wantsStream = body.stream === true;
   // Forward the caller's own X-Request-Id (if any) into the assistant's
   // internal tool-call fetches so those audit_log rows correlate back to
@@ -309,6 +314,7 @@ export const POST = route(async ({ actor, request }) => {
               actionLog,
               quota,
               resolved,
+              pageContext,
             });
             release = stream.release;
             if (cancelled) return; // finally revokes
@@ -446,7 +452,7 @@ export const POST = route(async ({ actor, request }) => {
   let providerError: ProviderErrorInfo | null = null;
   try {
     if (!resolved) throw new Error("no provider configured");
-    result = await runAssistant({ actor, message, history, origin, requestId, conversationId, actionLog, quota, resolved });
+    result = await runAssistant({ actor, message, history, origin, requestId, conversationId, actionLog, quota, resolved, pageContext });
   } catch (turnErr) {
     providerError = noteTurnError(turnErr, "json");
     // Never surface the raw provider/upstream error to the client — answer

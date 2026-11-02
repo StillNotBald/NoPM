@@ -19,7 +19,8 @@ import {
   TOOL_CAP_NOTE,
   type Action,
 } from "@/lib/agent-core/tool-engine";
-import { ASSISTANT_SYSTEM_PROMPT } from "@/lib/agent-core/system-prompt";
+import { buildSystemPrompt, type PageContext } from "@/lib/agent-core/system-prompt";
+import { disabledModuleIds } from "@/lib/modules";
 import { mintEphemeralToken, revokeEphemeralToken } from "./token";
 
 export type { Action };
@@ -232,7 +233,14 @@ export async function resolveProvider(actor: Actor, quota: TurnQuota = newTurnQu
   return { provider: demoProvider, apiKey: demoKey, model: demoModel, usedDemoKey: true };
 }
 
-const SYSTEM_PROMPT = ASSISTANT_SYSTEM_PROMPT;
+/** The system prompt for one turn: fixed rules + date, person, page and module flags (A5). */
+function turnSystemPrompt(actor: Actor, context?: PageContext): string {
+  return buildSystemPrompt({
+    context,
+    who: { label: actor.label, role: actor.role },
+    disabledModules: disabledModuleIds(),
+  });
+}
 
 export async function runAssistant(opts: {
   actor: Actor;
@@ -251,12 +259,15 @@ export async function runAssistant(opts: {
   quota?: TurnQuota;
   /** Provider already resolved (and its quota already charged) by the caller. */
   resolved?: ResolvedProvider;
+  /** Where the person is (validated by the route). */
+  pageContext?: PageContext;
 }): Promise<AssistantResult> {
   const { actor, message, history, origin, requestId, conversationId = null } = opts;
 
   const { provider, apiKey, model, usedDemoKey } = opts.resolved ?? (await resolveProvider(actor, opts.quota));
 
   const toolDefs = TOOLS.map((t) => t.definition);
+  const system = turnSystemPrompt(actor, opts.pageContext);
 
   // Build message history for provider (bounded — never forward unbounded history)
   const providerMessages: ProviderMessage[] = [
@@ -274,7 +285,7 @@ export async function runAssistant(opts: {
       provider,
       apiKey,
       model,
-      system: SYSTEM_PROMPT,
+      system,
       messages: providerMessages,
       tools: toolDefs,
       ctx: { origin, token: ephemeral.raw, requestId, channel: "assistant" },
@@ -289,7 +300,7 @@ export async function runAssistant(opts: {
       provider,
       apiKey,
       model,
-      system: SYSTEM_PROMPT,
+      system,
       messages: [...providerMessages, {
         role: "user",
         content: "Please summarize what you have done so far.",
@@ -331,6 +342,7 @@ export async function runAssistantStream(opts: {
   actionLog?: Action[];
   quota?: TurnQuota;
   resolved?: ResolvedProvider;
+  pageContext?: PageContext;
 }): Promise<{
   actions: Action[];
   usedDemoKey: boolean;
@@ -348,6 +360,7 @@ export async function runAssistantStream(opts: {
   const { provider, apiKey, model, usedDemoKey } = opts.resolved ?? (await resolveProvider(actor, opts.quota));
 
   const toolDefs = TOOLS.map((t) => t.definition);
+  const system = turnSystemPrompt(actor, opts.pageContext);
 
   // Bounded — never forward unbounded history to the provider.
   const providerMessages: ProviderMessage[] = [
@@ -369,7 +382,7 @@ export async function runAssistantStream(opts: {
       provider,
       apiKey,
       model,
-      system: SYSTEM_PROMPT,
+      system,
       messages: providerMessages,
       tools: toolDefs,
       ctx: { origin, token: ephemeral.raw, requestId, channel: "assistant" },
@@ -409,7 +422,7 @@ export async function runAssistantStream(opts: {
             provider,
             apiKey,
             model,
-            system: SYSTEM_PROMPT,
+            system,
             messages: finalMessages!,
           });
           for await (const chunk of stream) {

@@ -22,11 +22,39 @@ export type Action = {
   ok: boolean;
   summary: string;
   href?: string;
+  /** Id of the record the call created or changed (data.id), when the API returned one. */
+  entityId?: string;
   auditId?: string;
 };
 
 /** Hard cap on how many tool calls may EXECUTE within one turn. */
 export const MAX_TOOL_CALLS_PER_TURN = 8;
+
+/** A tool result sent to the model is cut at this many characters (A10). */
+export const MAX_TOOL_RESULT_CHARS = 20_000;
+
+/**
+ * Bound a tool result before it goes back to the model (A10). A list loses
+ * trailing rows (and says so, keeping `total`); anything else is replaced by a
+ * truncation notice plus the start of the text. Always valid JSON.
+ */
+export function boundToolResult(value: unknown, max = MAX_TOOL_RESULT_CHARS): string {
+  const full = JSON.stringify(value) ?? "null";
+  if (full.length <= max) return full;
+  const hint = "Result was too long and was cut. Use fields= or view=summary, a smaller limit, or the page argument.";
+  const rec = value as Record<string, unknown> | null;
+  if (rec && typeof rec === "object" && Array.isArray(rec.data)) {
+    const rows = rec.data as unknown[];
+    let keep = rows.length;
+    while (keep > 0) {
+      keep = Math.floor(keep / 2);
+      const attempt = JSON.stringify({ ...rec, data: rows.slice(0, keep), truncated: true, returned: keep, hint });
+      if (attempt.length <= max) return attempt;
+    }
+  }
+  const room = Math.max(0, max - hint.length - 120);
+  return JSON.stringify({ truncated: true, original_chars: full.length, hint, partial: full.slice(0, room) });
+}
 
 /** Provider round-trips per turn before the model is asked for a final summary. */
 export const MAX_STEPS = 6;
@@ -102,8 +130,47 @@ export function summarize(toolName: string, args: Record<string, unknown>, resul
       const noun = total === 1 ? "pending approval" : "pending approvals";
       return `${count} ${noun}${hidden > 0 ? ` (${hidden} kind${hidden === 1 ? "" : "s"} not visible to the assistant)` : ""}`;
     }
-    default: return `${toolName} completed`;
+    default: return genericSummary(toolName, args, r, data);
   }
+}
+
+function noun(raw: string): string {
+  return raw.replace(/_/g, " ");
+}
+
+/** Fields worth naming in an update chip: the ones the caller changed, not ids or concurrency guards. */
+function changedFields(args: Record<string, unknown>): string[] {
+  return Object.keys(args).filter((k) => !/(^|_)id$/.test(k) && k !== "expected_updated_at" && args[k] !== undefined);
+}
+
+function recordLabel(data: Record<string, unknown> | null): string {
+  const v = data?.name ?? data?.title ?? data?.code;
+  return typeof v === "string" && v ? ` "${v.slice(0, 80)}"` : "";
+}
+
+/**
+ * Chip text for any tool without a hand-written line (A11), built from the
+ * tool's name: create_x, update_x, request_x_deletion, list_x, get_x. It says
+ * what happened instead of a bare "completed".
+ */
+export function genericSummary(
+  toolName: string,
+  args: Record<string, unknown>,
+  r: Record<string, unknown> | null,
+  data: Record<string, unknown> | null,
+): string {
+  let m: RegExpExecArray | null;
+  if ((m = /^create_(.+)$/.exec(toolName))) return `Created ${noun(m[1])}${recordLabel(data)}`;
+  if ((m = /^update_(.+)$/.exec(toolName))) {
+    const fields = changedFields(args);
+    return `Updated ${noun(m[1])}${recordLabel(data)}${fields.length ? ` (${fields.slice(0, 5).join(", ")})` : ""}`;
+  }
+  if ((m = /^request_(.+)_deletion$/.exec(toolName))) return `Requested deletion of ${noun(m[1])} (pending approval)`;
+  if (toolName === "withdraw_deletion_request") return "Withdrew a deletion request";
+  if ((m = /^list_(.+)$/.exec(toolName))) return `Listed ${(r?.total as number | undefined) ?? "?"} ${noun(m[1])}`;
+  if ((m = /^get_(.+)$/.exec(toolName))) return `Retrieved ${noun(m[1])}`;
+  const words = noun(toolName);
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)} done`;
 }
 
 /** Build a deep-link href for a newly created entity, if possible. */
@@ -121,6 +188,16 @@ export function buildHref(toolName: string, args: Record<string, unknown>, resul
     case "create_risk":
       return projectId ? `/projects/${projectId}/risks` : undefined;
     case "create_issue":
+      return projectId ? `/projects/${projectId}/issues` : undefined;
+    case "update_project":
+      return `/projects/${(data.id as string | undefined) ?? (args.project_id as string | undefined) ?? ""}`;
+    case "update_milestone":
+      return projectId ? `/projects/${projectId}/milestones` : undefined;
+    case "update_task":
+      return projectId ? `/projects/${projectId}/tasks` : undefined;
+    case "update_risk":
+      return projectId ? `/projects/${projectId}/risks` : undefined;
+    case "update_issue":
       return projectId ? `/projects/${projectId}/issues` : undefined;
     default:
       return undefined;
@@ -175,7 +252,9 @@ export async function executeToolCall(
     try { responseData = JSON.parse(text); } catch { responseData = { raw: text }; }
     ok = res.status >= 200 && res.status < 300;
   } catch (fetchErr) {
-    responseData = { error: String(fetchErr) };
+    // Fixed text on purpose: the raw error can carry the internal origin.
+    void fetchErr;
+    responseData = { error: "network error calling NoPM" };
     ok = false;
   }
 
@@ -183,9 +262,12 @@ export async function executeToolCall(
   const href = ok ? buildHref(tc.name, tc.args, responseData) : undefined;
   const auditId = (responseData as Record<string, unknown>)?.auditId as string | undefined;
 
+  const rawId = ((responseData as Record<string, unknown> | null)?.data as Record<string, unknown> | null | undefined)?.id;
+  const entityId = ok && typeof rawId === "string" ? rawId : undefined;
+
   return {
-    action: { tool: tc.name, args: tc.args, ok, summary, href, auditId },
-    message: { role: "tool", content: wrapUntrustedToolResult(tc.name, JSON.stringify(responseData)), tool_call_id: tc.id },
+    action: { tool: tc.name, args: tc.args, ok, summary, href, entityId, auditId },
+    message: { role: "tool", content: wrapUntrustedToolResult(tc.name, boundToolResult(responseData)), tool_call_id: tc.id },
   };
 }
 

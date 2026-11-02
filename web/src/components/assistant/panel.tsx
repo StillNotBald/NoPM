@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sparkles, X, ArrowUp, ExternalLink, Maximize2, Minimize2, Plus, ChevronLeft, MessageSquare } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ interface Action {
   ok: boolean;
   summary: string;
   href?: string;
+  entityId?: string;
   auditId?: string;
 }
 
@@ -297,6 +299,9 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
   // null = list view, string = chat view for that conversation, "new" = new chat
   const [view, setView] = useState<"list" | "chat">("list");
 
+  // A5: tell the server where the person is. Validated and workspace-checked server-side.
+  const pathname = usePathname();
+
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -488,6 +493,16 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     };
     if (activeConversationId) {
       requestBody.conversation_id = activeConversationId;
+    }
+    {
+      const project = /^\/projects\/([0-9a-f-]{36})(?:\/|$)/i.exec(pathname ?? "");
+      let tz: string | undefined;
+      try {
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        tz = undefined;
+      }
+      requestBody.context = { path: pathname ?? undefined, project_id: project?.[1], tz };
     }
 
     try {

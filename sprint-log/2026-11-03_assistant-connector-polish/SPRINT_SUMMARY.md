@@ -52,3 +52,15 @@
 
 ## Follow-ups
 - Maintainer/lead: A1 step 2 (server confirm gate, needs a `pending_actions` migration), M1 (OAuth), M3 size budget and M9 docs; none started here.
+
+---
+
+## Part 2 (audit build-order steps 5-7)
+
+### Step 5 - A5 / A10 / A11 (R-186)
+- `buildSystemPrompt` adds a "THIS TURN" block: date, person and role, current project, disabled modules, id/paging/deletion rules. The fixed rules text is unchanged and still exported as `ASSISTANT_SYSTEM_PROMPT`.
+- Default: the date is the person's calendar date when the panel sends a valid IANA timezone, otherwise UTC (stated in the prompt either way).
+- Default: page context is a hint only. The route validates it and drops anything bad instead of refusing the turn; the project name comes from the database (workspace-checked), never from the client, and is stripped to plain characters.
+- Default: user label/role come from the server-side actor, not the client.
+- A10: 20,000 chars per tool result; lists keep `total` and lose trailing rows; fixed network-error text (the raw error is never shown).
+- A11: generic chip text from the tool name for all 47 tools; `entityId` added to the action record; update tools link to the list page. Deep links with `?task=<id>` were NOT added because no such page parameter exists in the console (inventing one would be a dead link). `auditId` left as is (the API envelope still never returns it; dropping the field would change the stored record shape).
