@@ -178,6 +178,10 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
     "from:chat_pending":
       "scoped by connector id (itself bound to one workspace) and, for a tap, by the chat and the linked profile the row was made for",
   },
+  "lib/integrations/telegram/free-text.ts": {
+    "from:assistant_credentials":
+      "a model key belongs to one user (user_id = the linked person, resolved from this connector's own identity link); the same per-user lookup the web assistant uses",
+  },
   "lib/integrations/telegram/wiring.ts": { "rpc:nopm_rate_check": RATE },
   "lib/notify/publish.ts": {
     "from:notifications":
