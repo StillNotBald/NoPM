@@ -20,12 +20,23 @@ interface Action {
   auditId?: string;
 }
 
+/** Typed provider failure sent by the chat route (additive `provider_error`). */
+interface ProviderErrorInfo {
+  kind: "key_invalid" | "rate_limited" | "model_not_found" | "unavailable" | "timeout";
+  provider: string;
+  status: number;
+  message: string;
+}
+
 interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   actions?: Action[];
   usedDemoKey?: boolean;
   usedFallback?: boolean;
+  // A2: why the provider could not answer. The reply (if any) came from the
+  // read-only fallback; the banner says what to fix.
+  providerError?: ProviderErrorInfo;
   streaming?: boolean; // true while tokens are still arriving
   // Sanitized mid-stream failure (LOCKED #6): render an inline retry
   // affordance instead of clearing the transcript or splicing fallback text
@@ -38,6 +49,7 @@ interface ChatResponse {
   actions: Action[];
   usedDemoKey: boolean;
   usedFallback?: boolean;
+  provider_error?: ProviderErrorInfo;
   // Demo sessions always get conversation_id: null (fresh chat every visit,
   // no persistence).
   conversation_id: string | null;
@@ -47,8 +59,8 @@ interface ChatResponse {
 type StreamEvent =
   | { type: "actions"; actions: Action[] }
   | { type: "token"; text: string }
-  | { type: "done"; conversation_id: string | null; usedDemoKey: boolean; usedFallback?: boolean }
-  | { type: "error"; message: string };
+  | { type: "done"; conversation_id: string | null; usedDemoKey: boolean; usedFallback?: boolean; provider_error?: ProviderErrorInfo }
+  | { type: "error"; message: string; provider_error?: ProviderErrorInfo };
 
 interface ConversationSummary {
   id: string;
@@ -128,12 +140,30 @@ function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => voi
         )}
       </div>
 
+      {/* Provider banner (A2): the model provider could not answer. Names the
+          cause and the fix; any reply above came from the read-only fallback. */}
+      {msg.providerError && (
+        <div
+          role="alert"
+          data-testid="assistant-provider-banner"
+          data-kind={msg.providerError.kind}
+          className="flex max-w-[85%] flex-col gap-0.5 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2"
+        >
+          <span className="font-mono text-xs font-semibold text-danger-ink">{msg.providerError.message}</span>
+          {(msg.providerError.kind === "key_invalid" || msg.providerError.kind === "model_not_found") && (
+            <span className="font-mono text-xs text-ink-muted">
+              Use Disconnect at the bottom of this panel, then add the key again.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Inline error bubble — mid-stream {type:'error'}. The user's message
           stays in the transcript above; retry re-sends it in place. */}
       {msg.error && (
         <div className="flex max-w-[85%] flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
           <span className="font-mono text-xs text-danger-ink">
-            Something went wrong. Your message was not lost.
+            {msg.providerError ? "Your message was not lost." : "Something went wrong. Your message was not lost."}
           </span>
           {onRetry && (
             <button
@@ -542,6 +572,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                       actions: pendingActions ?? m.actions,
                       streaming: false,
                       error: true,
+                      providerError: event.provider_error,
                     }
                   : m,
               ),
@@ -576,6 +607,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                       actions: pendingActions ?? m.actions,
                       usedDemoKey: event.usedDemoKey,
                       usedFallback: event.usedFallback,
+                      providerError: event.provider_error,
                       streaming: false,
                     }
                   : m,
@@ -607,6 +639,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       actions: res.actions,
       usedDemoKey: res.usedDemoKey,
       usedFallback: res.usedFallback,
+      providerError: res.provider_error,
     };
     setHistory((h) => [...h, assistantMsg]);
   }

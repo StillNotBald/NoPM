@@ -52,8 +52,29 @@ import {
   type ResolvedProvider,
 } from "@/lib/assistant/index";
 import { runAssistantFallback, priorActionsNote, type FallbackResult } from "@/lib/assistant/fallback";
+import { ProviderError, providerErrorInfo, type ProviderErrorInfo } from "@/lib/assistant/providers/errors";
 import { isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
+
+/**
+ * A2: no provider failure is swallowed. A typed ProviderError is logged with
+ * kind + provider + HTTP status only (never the upstream body, never a key) and
+ * returned as the additive `provider_error` field so the panel can say what
+ * happened. Any other failure is logged by name only and gets no provider_error.
+ */
+function noteTurnError(err: unknown, mode: "json" | "stream"): ProviderErrorInfo | null {
+  if (err instanceof ProviderError) {
+    console.error("[nopm][assistant] provider error", {
+      kind: err.kind,
+      provider: err.provider,
+      status: err.status,
+      mode,
+    });
+    return providerErrorInfo(err);
+  }
+  console.error("[nopm][assistant] turn failed", { error: err instanceof Error ? err.name : "unknown", mode });
+  return null;
+}
 
 const MID_STREAM_ERROR_MESSAGE = "The assistant hit a problem mid-reply. Please try again.";
 
@@ -164,7 +185,10 @@ export const POST = route(async ({ actor, request }) => {
   } catch (err) {
     if (err instanceof DemoQuotaExceededError) return quotaExceededResponse(err);
     if (err instanceof ApiError) throw err; // quota store down -> 503, fail closed
-    resolved = null; // no credentials / unreadable key: the grounded fallback answers
+    // No credentials / unreadable key: the grounded fallback answers. Logged by
+    // error name only (never the message), so a broken stored key is visible.
+    console.error("[nopm][assistant] provider not resolved", { error: err instanceof Error ? err.name : "unknown" });
+    resolved = null;
   }
   // Someone on their OWN key whose provider failed is answered by the fallback without touching the shared demo allowance.
   const ownKey = resolved ? !resolved.usedDemoKey : await hasOwnCredential(db, actor.id);
@@ -271,6 +295,7 @@ export const POST = route(async ({ actor, request }) => {
           let usedFallback = false;
           let fullReply = "";
           let midStreamFailure = false;
+          let providerError: ProviderErrorInfo | null = null;
 
           try {
             if (!resolved) throw new Error("no provider configured");
@@ -301,7 +326,8 @@ export const POST = route(async ({ actor, request }) => {
               emit({ type: "token", text: chunk });
             }
             if (cancelled) return;
-          } catch {
+          } catch (turnErr) {
+            providerError = noteTurnError(turnErr, "stream");
             if (tokensFlushed) {
               // Mid-stream failure AFTER tokens already flushed — never
               // splice fallback text onto a partial reply. Sanitized error
@@ -335,7 +361,11 @@ export const POST = route(async ({ actor, request }) => {
           }
 
           if (midStreamFailure) {
-            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE });
+            emit({
+              type: "error",
+              message: providerError?.message ?? MID_STREAM_ERROR_MESSAGE,
+              ...(providerError ? { provider_error: providerError } : {}),
+            });
             return; // outer finally closes the stream
           }
 
@@ -367,6 +397,7 @@ export const POST = route(async ({ actor, request }) => {
             conversation_id: capturedConversationId,
             usedDemoKey,
             usedFallback,
+            ...(providerError ? { provider_error: providerError } : {}),
           });
         } catch (err) {
           // Catch-all safety net (e.g. the fallback itself being refused). Never
@@ -412,10 +443,12 @@ export const POST = route(async ({ actor, request }) => {
   // ── Non-streaming path ───────────────────────────────────────────────────
   let result: AssistantResult | FallbackResult;
   let usedFallback = false;
+  let providerError: ProviderErrorInfo | null = null;
   try {
     if (!resolved) throw new Error("no provider configured");
     result = await runAssistant({ actor, message, history, origin, requestId, conversationId, actionLog, quota, resolved });
-  } catch {
+  } catch (turnErr) {
+    providerError = noteTurnError(turnErr, "json");
     // Never surface the raw provider/upstream error to the client — answer
     // with the grounded, rate-limited fallback instead, keeping the list of
     // anything the failed turn had already done.
@@ -452,7 +485,7 @@ export const POST = route(async ({ actor, request }) => {
   const demoModeHeader = result.usedDemoKey || usedFallback ? "true" : "false";
 
   return ok(
-    { ...result, conversation_id: conversationId },
+    { ...result, conversation_id: conversationId, ...(providerError ? { provider_error: providerError } : {}) },
     { headers: { "X-Demo-Mode": demoModeHeader } },
   );
 });

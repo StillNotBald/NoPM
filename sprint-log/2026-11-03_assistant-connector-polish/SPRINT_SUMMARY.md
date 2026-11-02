@@ -11,6 +11,7 @@
 ## Actual outcomes
 - Step 1 (R-182): done. `web/src/lib/agent-core/tool-engine.ts` holds `executeToolCall` and `runToolRounds`; both assistant paths use it.
 - Step 2 (R-183): done. `web/mcp/shared.mjs` holds `toMcpTool` (annotations), `callApi` (25 s timeout, never throws), `toToolResult` (isError mapping, compact JSON, `next_page`, 60,000 char cap) and `filterToolsByOpenApi`; both servers use them. The remote route checks the token with one `GET /api/me` on `initialize` and `tools/list`.
+- Step 3 (R-184): done. `providers/errors.ts` defines `ProviderError`; the provider router normalises every failure; the chat route logs kind/provider/status and returns `provider_error`; the panel shows an alert banner.
 
 ## Defaults chosen (nobody to ask; industry-standard picks)
 - Engine lives in `web/src/lib/agent-core/` (new folder, plain TS, no new dependency); `summarize`, `buildHref` and `buildToolCall` moved there, `index.ts` re-exports the public names so imports and tests are unchanged.
@@ -23,13 +24,20 @@
 - M4 for stdio: filter by the server's own `/api/openapi.json` (the audit's cheapest option); fails open to the full list with a stderr warning.
 - Error results keep the body's `error`, `code`, `fields`, add `status` and `retry_after_seconds`; network errors use fixed text, never the raw error (it can carry the internal origin).
 - Not done from M-findings: M3 (trim descriptions, size budget test) and M9 (docs) are outside this slice.
+- Provider errors are normalised in the router (`providers/index.ts`) as well as at each `!res.ok` site, so timeouts and network errors are typed without editing every fetch call. Status mapping: 401/403 key_invalid, 404 model_not_found, 429 rate_limited, 408/504 timeout, else unavailable. 400 is `unavailable` (the audit lists no kind for it).
+- The upstream response body is dropped everywhere (the old messages echoed it, and it can echo request text).
+- The grounded read-only fallback is kept (it is useful, and removing it is a product change), but it is no longer silent: logged, flagged in the reply, and bannered. `OpenRouterCapacityError` now extends `ProviderError` (name and `.status` unchanged).
+- The banner reuses the existing danger-tinted inline-error pattern in the panel (no new component or token). Fix hint for a bad key points at the existing Disconnect control; no new button. `assistant_credentials.last_error` (audit "optionally") not added: it needs a migration.
+- Non-provider failures are logged by error name only, never the message.
 
 ## R-IDs touched
 - R-182 → DONE
 - R-183 → DONE
+- R-184 → DONE
 
 ## Files
 - `web/src/lib/agent-core/tool-engine.ts`, `web/src/lib/agent-core/tool-engine.test.ts`, `web/src/lib/assistant/index.ts`
+- `web/src/lib/assistant/providers/errors.ts` (+ test), `providers/index.ts` and the four providers, `web/src/app/api/assistant/chat/route.ts` (+ `provider-error.test.ts`), `web/src/components/assistant/panel.tsx`
 - `web/mcp/shared.mjs`, `web/mcp/server.mjs`, `web/src/app/api/mcp/route.ts`, `web/src/lib/assistant/mcp-shared.test.ts`, `web/src/app/api/mcp/connect.test.ts`, `web/src/app/api/mcp/route.test.ts`
 
 ## Tests / verification
