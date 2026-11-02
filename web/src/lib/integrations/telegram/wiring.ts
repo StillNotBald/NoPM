@@ -12,10 +12,9 @@ import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { consumeLinkCode, lookupIdentity } from "@/lib/integrations/identity";
 import { isModuleEnabled, isScopeEnabled } from "@/lib/modules";
-import { appBaseUrl } from "@/lib/integrations/store";
 import type { ConnectorRow } from "@/lib/integrations/types";
 import { defaultAskAssistant } from "./assistant-seam";
-import { makeApiCaller } from "./api";
+import { makeApiCaller, trustedApiBase } from "./api";
 import type { LogLevel, TelegramContext, TelegramDeps } from "./handlers";
 import { answerCallbackQuery, editMessageText, sendMessage } from "./http";
 import { readTelegramSecrets } from "./secrets";
@@ -60,7 +59,8 @@ export function productionDeps(connector: ConnectorRow, origin: string): Telegra
     store: createPendingStore(),
     lookupIdentity,
     consumeLinkCode,
-    api: makeApiCaller({ origin: appBaseUrl(origin) || origin }),
+    // The bearer goes to the configured app URL only, never to a request-derived origin (see trustedApiBase).
+    api: makeApiCaller({ origin: trustedApiBase(origin) }),
     scopeEnabled: (scope) => isScopeEnabled(scope),
     integrationsEnabled: () => isModuleEnabled("integrations"),
     rateAllowed: async (key) => (await rateCheck(key, USER_RATE_MAX)).allowed,

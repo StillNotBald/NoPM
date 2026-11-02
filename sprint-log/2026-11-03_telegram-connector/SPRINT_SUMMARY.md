@@ -19,7 +19,7 @@ Requirements: R-190 to R-197.
 
 ## Not done
 - Settings UI card (no UI in this slice).
-- Free-text wiring to the shared assistant engine.
+- Free-text wiring to the shared assistant engine (done in the Free text section below).
 - Live setup: run the migration (rehearse first, it rewrites RPC channel allow-lists), connect a real bot, call setup. The real Telegram API was never called.
 - Nothing pushed, no PR.
 
@@ -43,3 +43,24 @@ Requirements R-198 and R-199. All journey decisions below are PROPOSED; the owne
 - Webhook is "OK" only when Telegram holds this connector's URL and reports no delivery error.
 - Link-code countdown is visible but not announced every second; a separate polite live region announces ready and expired.
 - Screenshot: `settings-cards.png` from a throwaway page with static props (the settings page itself needs Supabase and a login, not available here). The throwaway page was deleted and the dev server stopped (port 3917 has no listener).
+
+## Review round 1 (2026-11-03)
+Fixes for the review in `_docs/nopm-telegram-2026-11-03/08-review-telegram-branch.md`. Each has a regression test.
+
+### Important
+- **I-1 migration.** The rewrite now matches every `channel not in (...)` list that names `'lark'` (both list forms, in `nopm_commit_*_deletion`, `nopm_decide_change_request`, `nopm_audit_insert`, `nopm_mutate_audited` and the rest) and adds `'telegram'`; it skips lists that already have it, so it can run twice. A second `DO` block ends the migration and raises if any function still lists `'lark'` without `'telegram'`. New test `telegram/migration-channels.test.ts` reads all migrations, takes the latest definition of every function, and fails if a function created after 0120 forgets `'telegram'`, or if any older one would not be fixed by the rewrite. Not run against a database. A local rehearsal with a plain `postgres` container was skipped: the functions use Supabase roles and tables, so a bare container would not load them.
+- **I-2 coverage test.** `api/integrations/telegram/[connectorId]/test` sends a message and writes nothing in NoPM; added to the audit-coverage ALLOWLIST with that reason.
+- **I-3 / SEC-1 approval card.** `/4` now shows `Delete <type> "<name>"` from the `deletion_requests.before` snapshot, key fields (project, due date, amount when present), the requester, and the reason labelled "Requester's reason (their words, not NoPM's)". Same facts as the Lark card (title, details, quoted reason). No snapshot: "Target details unavailable - approve in the web app." and no buttons. The tap handler repeats the check, so a forged `ap:` tap on such a card does nothing.
+
+### Nits fixed
+- /4 offers Approve only for the seven decidable types (`APPROVABLE_DELETION_TYPES`, pinned to the token allow-list by a test); other types say "Approve in the web app."
+- Unlink (Telegram links only) clears the chat's command menu and the person's pending rows, best effort after the audited unlink.
+- Dedupe: the `seen` row is `claimed` while processing, then `done` or `failed`; a `failed` key is reclaimed by compare-and-swap so a redelivery is processed again, and the person gets "Something went wrong" instead of silence.
+- Per-sender rate limit (60/min) inside the webhook, before the connector budget, so one flooding sender is dropped and cannot spend the shared 300/min. Taps now also count against the per-person 30/min handler budget.
+- The action bearer goes only to `trustedApiBase()`: `NEXT_PUBLIC_APP_URL` or the platform production host; a request-derived origin is accepted only if it is loopback. Nothing configured: no token is minted and nothing is sent (503). Redirects are not followed.
+- Audit volume: a read-only chat token is audited once (the mint). A write token keeps mint plus revoke, like the web assistant.
+- Revoke fallback: when the audited revoke fails the token is still killed and a fallback `telegram.token.revoke` row (`after.fallback = true`) is written. Added to the atomicity exceptions list with that reason.
+- `chat_pending` rows older than 7 days are deleted lazily on each new dedupe insert.
+
+### Lows left as one line
+N-3 disconnect token erase has no retry sweep; N-7 weak 429-vs-401 existence oracle on unknown connector ids; N-10 link flow reuses the Lark rate-limit keys and fails open; N-12 (a) role demotion keeps the chat menu until relink, (b) one bot token can be connected in two workspaces, (c) disconnect does not clear per-chat menus, (d) empty index reads as 0, (e) no-op second replace in `redact`; N-4 index on `(connector_id, kind, created_at)` not added.

@@ -22,7 +22,7 @@ The hub (ADR 0012) fans events out to one chat platform (Lark) and accepts exact
 9. **Writes go through the REST API with a per-action scoped token.** Each write mints one short-lived token (kind `telegram`, `created_by` = the linked human, scopes limited to that action; the only approve-type scope ever minted is one single <target>:delete:approve scope, alone, for a deletion request the human taps in /4, and never an admin scope), calls the documented route, then revokes the token. So every write gets exactly one audit row from the route, four-eyes compares people not tokens, and the bot holds no service-role write path. If the audit write fails, the action fails with it (atomic with the mutation, ADR 0018). A revoked or expired token fails the pending write; the user hears on their next message, with no push.
 10. **Deletes are request-only.** The bot can raise a deletion request (maker-checker) and never approve one it raised. In `/4 Approvals` a requester who taps Approve or Reject on their own request is refused and the request stays pending. Approving goes through the existing decision path used by the Lark card.
 11. **Numbered menu, digits as commands.** `/1` My work, `/2` Add, `/3` Update task, `/4` Approvals, `/5` Project status, `/6` Digest, `/0` help (`/0 all` lists everything). Hidden words still work when typed. The registered menu is role aware: the default scope is the member menu, and an admin or manager gets a per-chat scope after linking. A viewer sees read-only items. A project the user cannot access gets "no access" and the reply does not confirm the project exists.
-12. **No bundled LLM.** Free text goes to `askAssistant(actor, text)`, a seam that today returns a fixed message pointing the user at their own model key (BYOK, ADR 0004). Wiring it to the shared assistant engine is a later change; the Telegram path never mints an approve scope for free text.
+12. **No bundled LLM.** Free text goes to `askAssistant(actor, text)`, a seam that returns a fixed message pointing the user at their own model key (BYOK, ADR 0004) until the connector is wired. The Telegram path never mints an approve scope for free text. 
 13. **Additive only.** Lark code, snapshots and behaviour are untouched. The new routes live under `/api/integrations/telegram/`, inside the existing `integrations` module of the registry, so `NOPM_MODULES` switches them off with the rest.
 
 ## Defaults chosen (the maintainer was asleep)
@@ -32,9 +32,9 @@ English copy only (one table, keyed for later languages); no polling mode; no gr
 ## Consequences
 
 - A new table, a new connector kind and a new audit channel enter the schema. All are additive; nothing existing is rewritten except widened CHECKs and the channel allow-lists in audited SQL functions.
-- The allow-list widening is done by a generated `create or replace` of each function that names the lark/github channels; it has not been run against a database and must be rehearsed before release.
+- The allow-list widening rewrites, by pattern, every function whose `channel not in (...)` list names `'lark'` (both the `'lark')` and the `'lark', 'github')` forms) and adds `'telegram'`; a post-condition block raises if any such function still omits it, and a static test over `web/supabase/migrations/*.sql` fails if a later migration brings one back. It has not been run against a database and must be rehearsed before release.
 - Bot tokens are bearer secrets. Rotation is a paste of a new token; a leaked token is revoked at BotFather.
 
 ## Not in this ADR
 
-Settings card UI, wiring of the shared assistant engine for free text, push notifications (approval cards, digest delivery adapter) and live setup against the real Telegram API.
+Push notifications (approval cards, digest delivery adapter) and live setup against the real Telegram API.

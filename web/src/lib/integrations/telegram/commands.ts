@@ -113,3 +113,10 @@ export function parseInput(raw: string | null | undefined): Input {
   }
   return { kind: "text", text };
 }
+
+/**
+ * Deletion request target types a chat tap may decide. Must equal the target list in token.ts
+ * (`APPROVE_SCOPE_RE`); a test pins the two together. Any other type is decided in the web app.
+ */
+export const APPROVABLE_DELETION_TYPES = ["task", "project", "risk", "issue", "expense", "document", "milestone"] as const;
+export const isApprovableDeletionType = (t: string): boolean => (APPROVABLE_DELETION_TYPES as readonly string[]).includes(t);

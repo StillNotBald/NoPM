@@ -7,7 +7,8 @@
 --   3. api_tokens.kind accepts 'telegram' (per-action tokens minted by the bot; hidden from the Tokens list).
 --   4. chat_pending: durable state of a chat (open ask, preview, pick list, update-id dedupe).
 --
--- Not run against any database by the author. Rehearse on a copy first (step 2 rewrites functions).
+-- Not run against any database by the author. Rehearse on a copy first (step 2 rewrites functions; the
+-- post-condition block raises if any channel-checking function still omits 'telegram').
 
 -- ── 1. connector kind ──────────────────────────────────────────────────────
 alter table integration_connectors drop constraint if exists integration_connectors_kind_check;
@@ -22,13 +23,17 @@ alter table audit_log
   not valid;
 alter table audit_log validate constraint audit_channel_check;
 
--- The audited SQL functions each validate p_channel / v_channel against the list ending
--- 'lark', 'github'. Re-create every such function with 'telegram' appended. Only the literal
--- list changes; the rest of each body comes from pg_get_functiondef untouched.
+-- Every audited SQL function that validates its channel carries a literal allow-list, in either form:
+--   channel not in ('ui', ..., 'lark')                (deletion / decide / rebaseline / sign-off RPCs)
+--   channel not in ('ui', ..., 'lark', 'github')      (audit_insert, mutate_audited, tier decide)
+-- Re-create every such function with 'telegram' added to the list. Nothing is removed from any list.
+-- Only the literal changes; the rest of each body comes from pg_get_functiondef untouched. The pattern
+-- skips any list that already names telegram, so re-running the migration changes nothing.
 do $$
 declare
   r   record;
   def text;
+  new_def text;
 begin
   for r in
     select p.oid
@@ -38,10 +43,40 @@ begin
        and p.prokind = 'f'
   loop
     def := pg_get_functiondef(r.oid);
-    if position('''lark'', ''github'')' in def) > 0 and position('''telegram''' in def) = 0 then
-      execute replace(def, '''lark'', ''github'')', '''lark'', ''github'', ''telegram'')');
+    new_def := regexp_replace(
+      def,
+      'channel not in \((?![^)]*telegram)([^)]*''lark''[^)]*)\)',
+      'channel not in (\1, ''telegram'')',
+      'g'
+    );
+    if new_def <> def then
+      execute new_def;
     end if;
   end loop;
+end
+$$;
+
+-- Post-condition: no function may list 'lark' as an accepted channel without also listing 'telegram'.
+-- A function this migration could not rewrite fails the whole migration instead of failing at approval time.
+do $$
+declare
+  r       record;
+  missing text := '';
+begin
+  for r in
+    select p.proname, pg_get_functiondef(p.oid) as def
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public'
+       and p.prokind = 'f'
+  loop
+    if r.def ~ 'channel not in \((?![^)]*telegram)[^)]*''lark''[^)]*\)' then
+      missing := missing || ' ' || r.proname;
+    end if;
+  end loop;
+  if missing <> '' then
+    raise exception 'telegram channel missing from allow-list of:%', missing;
+  end if;
 end
 $$;
 

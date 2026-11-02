@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { makeApiCaller } from "./api";
+import { makeApiCaller, trustedApiBase } from "./api";
 import { assertAllowedScopes, ScopeNotAllowedError } from "./token";
 import { fixtureConnector, profile } from "./fixtures";
 import type { ApiRequest } from "./handlers";
@@ -33,7 +33,7 @@ describe("per-action token lifecycle", () => {
     expect(res).toEqual({ status: 201, body: { data: { id: "t9" } } });
     expect(order).toEqual(["mint", "fetch", "revoke"]);
     expect(mint).toHaveBeenCalledWith(expect.anything(), expect.anything(), ["task:write"]);
-    expect(revoke).toHaveBeenCalledWith(expect.anything(), expect.anything(), "tok-1");
+    expect(revoke).toHaveBeenCalledWith(expect.anything(), expect.anything(), "tok-1", { audit: true });
     const [url, init] = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://nopm.example.test/api/projects/p1/tasks");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer npm_raw_token");
@@ -112,5 +112,48 @@ describe("scopes a chat token may carry", () => {
     const src = (await import("node:fs")).readFileSync(new URL("./handlers.ts", import.meta.url), "utf8");
     const approveMentions = src.match(/delete:approve/g) ?? [];
     expect(approveMentions).toHaveLength(1); // the single template in tapDecision
+  });
+});
+
+describe("the bearer only goes to the configured app URL (review round 1, N-11)", () => {
+  it("trustedApiBase prefers NEXT_PUBLIC_APP_URL and ignores a request-derived origin", () => {
+    expect(trustedApiBase("https://evil.example.test", { NEXT_PUBLIC_APP_URL: "https://nopm.example.test/" })).toBe("https://nopm.example.test");
+    expect(trustedApiBase("https://evil.example.test", { VERCEL_PROJECT_PRODUCTION_URL: "nopm.example.test" })).toBe("https://nopm.example.test");
+  });
+
+  it("with nothing configured only a loopback origin is accepted (local development)", () => {
+    expect(trustedApiBase("http://localhost:3000", {})).toBe("http://localhost:3000");
+    expect(trustedApiBase("http://127.0.0.1:3000", {})).toBe("http://127.0.0.1:3000");
+    expect(trustedApiBase("https://evil.example.test", {})).toBeNull();
+    expect(trustedApiBase("http://localhost.evil.example.test", {})).toBeNull();
+    expect(trustedApiBase(null, {})).toBeNull();
+    expect(trustedApiBase("not a url", {})).toBeNull();
+  });
+
+  it("with no trusted base nothing is minted and nothing is sent", async () => {
+    const mint = vi.fn(async () => ({ raw: "r", id: "t" }));
+    const fetchImpl = vi.fn() as unknown as typeof fetch;
+    const call = makeApiCaller({ origin: null, mint, revoke: async () => {}, fetchImpl });
+    const res = await call(req());
+    expect(res.status).toBe(503);
+    expect(mint).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("never follows a redirect with the bearer", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    const call = makeApiCaller({ origin: "https://nopm.example.test", mint: async () => ({ raw: "r", id: "t" }), revoke: async () => {}, fetchImpl });
+    await call(req());
+    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0][1].redirect).toBe("error");
+  });
+
+  it("a read-only call revokes without a second audit row; a write audits its revoke", async () => {
+    const revoke = vi.fn(async () => {});
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 })) as unknown as typeof fetch;
+    const call = makeApiCaller({ origin: "https://nopm.example.test", mint: async () => ({ raw: "r", id: "t" }), revoke, fetchImpl });
+    await call({ ...req(), method: "GET", scopes: ["task:read"] });
+    expect(revoke).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), "t", { audit: false });
+    await call(req());
+    expect(revoke).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), "t", { audit: true });
   });
 });

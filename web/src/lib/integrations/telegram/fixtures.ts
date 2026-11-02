@@ -73,14 +73,21 @@ export function callbackUpdate(o: { data: string; userId?: number; chatId?: numb
 /** In-memory store with a real compare-and-swap, like the table's (version, status) update. */
 export function memoryStore(clock: { now: () => Date }) {
   const rows = new Map<string, PendingRow>();
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
   let n = 0;
   const store: PendingStore = {
     async dedupe(c, _chat, key) {
       const k = `${c.id}:${key}`;
-      if (seen.has(k)) return false;
-      seen.add(k);
+      if (seen.has(k)) {
+        if (seen.get(k) !== "failed") return false;
+        seen.set(k, "claimed");
+        return true;
+      }
+      seen.set(k, "claimed");
       return true;
+    },
+    async finishSeen(c, key, status) {
+      seen.set(`${c.id}:${key}`, status);
     },
     async create(c, chatId, profileId, kind, payload, ttlMs) {
       const id = `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
@@ -136,7 +143,7 @@ export function memoryStore(clock: { now: () => Date }) {
       }
     },
   };
-  return { store, rows };
+  return { store, rows, seen };
 }
 
 export type Sent = { chatId: string; msg: Rendered };
@@ -144,7 +151,7 @@ export type Sent = { chatId: string; msg: Rendered };
 export function fakeDeps(opts: Partial<TelegramDeps> & { identity?: LinkedProfile | null; clockStart?: Date } = {}) {
   const { identity: identityOpt, clockStart, ...over } = opts;
   const clock = { t: (clockStart ?? new Date("2026-11-03T10:00:00.000Z")).getTime(), now() { return new Date(this.t); } };
-  const { store, rows } = memoryStore(clock);
+  const { store, rows, seen } = memoryStore(clock);
   const sent: Sent[] = [];
   const edited: { chatId: string; messageId: number; msg: Rendered }[] = [];
   const answers: { id: string; text?: string }[] = [];
@@ -157,7 +164,7 @@ export function fakeDeps(opts: Partial<TelegramDeps> & { identity?: LinkedProfil
       return { status: 200, body: { data: [{ id: "t1", name: "Write plan", due_date: "2026-11-01", status_type: "started" }, { id: "t2", name: "Done thing", status_type: "completed" }] } };
     }
     if (req.method === "GET" && req.path.startsWith("/api/deletion-requests")) {
-      return { status: 200, body: { data: [{ id: "d1", target_type: "task", requested_by_label: "Sam", requested_principal_id: OTHER_PROFILE_ID, reason: "stale" }], total: 1 } };
+      return { status: 200, body: { data: [{ id: "d1", target_type: "task", requested_by_label: "Sam", requested_principal_id: OTHER_PROFILE_ID, reason: "stale", before: { name: "Old plan", due_date: "2026-11-30T00:00:00Z" } }], total: 1 } };
     }
     return { status: 200, body: { data: {} } };
   };
@@ -189,7 +196,7 @@ export function fakeDeps(opts: Partial<TelegramDeps> & { identity?: LinkedProfil
     ...over,
     api,
   } as unknown as TelegramDeps;
-  return { deps, sent, edited, answers, apiCalls, rows, clock, writes: () => apiCalls.filter((c) => c.method !== "GET") };
+  return { deps, sent, edited, answers, apiCalls, rows, seen, clock, writes: () => apiCalls.filter((c) => c.method !== "GET") };
 }
 
 /** All callback_data strings offered by the most recent reply (or edit). */

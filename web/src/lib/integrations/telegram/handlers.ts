@@ -26,7 +26,7 @@ import type { ConsumeLinkInput, LinkedProfile, LinkOutcome } from "@/lib/integra
 import { ALREADY_LINKED_MESSAGE } from "@/lib/integrations/identity";
 import type { ConnectorRow } from "@/lib/integrations/types";
 import { defaultAskAssistant, type AskAssistant } from "./assistant-seam";
-import { canUse, parseInput, toRole, type MenuN, type Role } from "./commands";
+import { canUse, isApprovableDeletionType, parseInput, toRole, type MenuN, type Role } from "./commands";
 import {
   COPY,
   approvalCard,
@@ -65,8 +65,14 @@ export type PendingRow = {
 
 /** Durable chat state. `advance` is a compare-and-swap on (version, status = open). */
 export type PendingStore = {
-  /** True the first time a key is seen for the connector, false for a redelivery. */
+  /**
+   * True the first time a key is seen for the connector, false for a redelivery. A key whose earlier
+   * processing FAILED is claimed again (true), so a failed update can be retried; a key that is being
+   * processed or finished is false.
+   */
   dedupe(connector: ConnectorRow, chatId: string, key: string): Promise<boolean>;
+  /** Record how processing of a de-duplicated update ended. Never throws on a missing row. */
+  finishSeen(connector: ConnectorRow, key: string, status: "done" | "failed"): Promise<void>;
   create(connector: ConnectorRow, chatId: string, profileId: string, kind: PendingKind, payload: Record<string, unknown>, ttlMs: number): Promise<PendingRow>;
   get(connectorId: string, id: string): Promise<PendingRow | null>;
   /** The newest open ask / preview / pick row of a chat for this person. */
@@ -217,12 +223,32 @@ function gate(c: Ctx): string | null {
 // Messages
 // ---------------------------------------------------------------------------
 
-async function processMessage(c: Ctx, updateId: number, message: Rec): Promise<void> {
+/**
+ * De-duplicate an update, run it, and record the outcome. A failure marks the key `failed` (so a redelivery
+ * is processed again, see PendingStore.dedupe) and tells the person to try again, then rethrows to the logger.
+ */
+async function guarded(c: Ctx, chatId: string, updateId: number, work: () => Promise<void>): Promise<void> {
   const { deps, ctx } = c;
+  const key = `u:${updateId}`;
+  if (!(await deps.store.dedupe(ctx.connector, chatId, key))) return;
+  try {
+    await work();
+  } catch (err) {
+    await deps.store.finishSeen(ctx.connector, key, "failed").catch(() => undefined);
+    await deps.send(chatId, note(COPY.tryAgain)).catch(() => undefined);
+    throw err;
+  }
+  await deps.store.finishSeen(ctx.connector, key, "done").catch(() => undefined);
+}
+
+async function processMessage(c: Ctx, updateId: number, message: Rec): Promise<void> {
   const who = whoOf(message.from, message.chat);
   if (!who) return;
-  if (!(await deps.store.dedupe(ctx.connector, who.chatId, `u:${updateId}`))) return;
+  return guarded(c, who.chatId, updateId, () => messageBody(c, updateId, who, message));
+}
 
+async function messageBody(c: Ctx, updateId: number, who: Who, message: Rec): Promise<void> {
+  const { deps, ctx } = c;
   const closed = gate(c);
   if (closed) {
     await deps.send(who.chatId, note(closed));
@@ -484,6 +510,24 @@ async function addText(c: Ctx, who: Who, profile: LinkedProfile, ask: PendingRow
 // /4 Approvals
 // ---------------------------------------------------------------------------
 
+/** Name and key facts of a deletion target, from the request-time snapshot (`deletion_requests.before`). */
+function snapshotOf(before: unknown): { label: string | null; details: string[] } {
+  if (!isRec(before)) return { label: null, details: [] };
+  const raw = before.name ?? before.title ?? before.description;
+  const label = typeof raw === "string" && raw.trim() ? raw.trim() : null;
+  const details: string[] = [];
+  const projectName = str(before.project_name);
+  if (projectName) details.push(`Project: ${projectName}`);
+  const due = str(before.due_date) || str(before.end_date) || str(before.target_date);
+  if (due) details.push(`Due: ${due.slice(0, 10)}`);
+  const amount = before.amount;
+  if (typeof amount === "number" || (typeof amount === "string" && amount.trim())) {
+    const cur = str(before.currency);
+    details.push(`Amount: ${cur ? `${cur} ` : ""}${amount}`);
+  }
+  return { label, details };
+}
+
 async function showApprovals(c: Ctx, who: Who, profile: LinkedProfile): Promise<void> {
   const rows = await readOrExplain(c, who, profile, "task:read", `/api/deletion-requests?status=pending&limit=${PICK_LIMIT}`);
   if (!rows) return;
@@ -492,15 +536,25 @@ async function showApprovals(c: Ctx, who: Who, profile: LinkedProfile): Promise<
     const requester = str(r.requested_principal_id) || str(r.requested_by_id);
     const own = requester === profile.profileId;
     const targetType = str(r.target_type) || "task";
+    const snap = snapshotOf(r.before);
+    const approvable = isApprovableDeletionType(targetType);
     const row = await c.deps.store.create(
       c.ctx.connector,
       who.chatId,
       profile.profileId,
       "approval",
-      { requestId: str(r.id), targetType, requester },
+      // `known` and `approvable` are re-checked on the tap: a card without a named target is never approvable.
+      { requestId: str(r.id), targetType, requester, known: snap.label !== null, approvable },
       STEP_TTL_MS,
     );
-    await c.deps.send(who.chatId, approvalCard({ title: `Delete ${targetType}`, requestedBy: str(r.requested_by_label) || "someone", reason: str(r.reason) || null }, row.id, own));
+    await c.deps.send(
+      who.chatId,
+      approvalCard(
+        { targetType, targetLabel: snap.label, details: snap.details, requestedBy: str(r.requested_by_label) || "someone", reason: str(r.reason) || null, approvable },
+        row.id,
+        own,
+      ),
+    );
   }
 }
 
@@ -516,12 +570,18 @@ async function processCallback(c: Ctx, updateId: number, q: Rec): Promise<void> 
   const msg = isRec(q.message) ? q.message : {};
   const who = whoOf(q.from, msg.chat);
   if (!who || !queryId) return;
-  if (!(await deps.store.dedupe(ctx.connector, who.chatId, `u:${updateId}`))) return;
+  return guarded(c, who.chatId, updateId, () => callbackBody(c, who, q, queryId, msg));
+}
+
+async function callbackBody(c: Ctx, who: Who, q: Rec, queryId: string, msg: Rec): Promise<void> {
+  const { deps, ctx } = c;
   const messageId = typeof msg.message_id === "number" ? msg.message_id : null;
   const done = (text?: string) => deps.answer(queryId, text);
 
   const closed = gate(c);
   if (closed) return done(closed);
+  // Taps count against the same per-person budget as messages (each live tap can mint a token and write audit rows).
+  if (deps.rateAllowed && !(await deps.rateAllowed(`telegram:${ctx.connector.id}:${who.userId}`))) return done(COPY.slowDown);
 
   const m = CALLBACK_RE.exec(str(q.data));
   if (!m) return done();
@@ -730,6 +790,11 @@ async function tapDecision(t: Tap, approve: boolean): Promise<void> {
   if (str(row.payload.requester) === t.profile.profileId) {
     await t.done(COPY.selfApproval);
     return;
+  }
+  // Defence in depth: the card only offers buttons for a named target of a decidable type; refuse a tap otherwise.
+  if (!isApprovableDeletionType(targetType) || row.payload.approvable !== true || row.payload.known !== true) {
+    await t.done();
+    return t.edit(note("Decide this one in the NoPM web app."));
   }
   const scope = `${targetType}:delete:approve`;
   if (!c.deps.scopeEnabled(scope)) {

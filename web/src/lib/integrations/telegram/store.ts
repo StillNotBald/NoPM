@@ -129,6 +129,31 @@ export async function findLinkedChatId(workspaceId: string, connectorId: string,
 const COLUMNS = "id, workspace_id, connector_id, chat_id, kind, payload, version, status, profile_id, expires_at";
 const SEEN_TTL_MS = 2 * 24 * 60 * 60 * 1000;
 
+/** Lazy purge, run on each new dedupe row: working state older than 7 days is never needed again. Best effort. */
+export const PURGE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+async function purgeOldRows(workspaceId: string): Promise<void> {
+  try {
+    await createAdminClient()
+      .from("chat_pending")
+      .delete()
+      .eq("workspace_id", workspaceId)
+      .lt("created_at", new Date(Date.now() - PURGE_AFTER_MS).toISOString());
+  } catch {
+    // A failed purge only leaves old rows for the next insert to remove.
+  }
+}
+
+/** On unlink: drop the person's open working state on this connector. Returns whether the delete succeeded. */
+export async function deletePendingForProfile(workspaceId: string, connectorId: string, profileId: string): Promise<boolean> {
+  const { error } = await createAdminClient()
+    .from("chat_pending")
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("connector_id", connectorId)
+    .eq("profile_id", profileId);
+  return !error;
+}
+
 function asRow(data: unknown): PendingRow {
   return data as PendingRow;
 }
@@ -145,12 +170,33 @@ export function createPendingStore(): PendingStore {
           chat_id: chatId,
           kind: "seen",
           dedupe_key: key,
-          status: "done",
+          // 'claimed' while the update is being processed; finishSeen sets done or failed.
+          status: "claimed",
           expires_at: new Date(Date.now() + SEEN_TTL_MS).toISOString(),
         });
-      if (!error) return true;
-      if (error.code === "23505") return false; // already seen
+      if (!error) {
+        await purgeOldRows(connector.workspace_id);
+        return true;
+      }
+      if (error.code === "23505") {
+        // Seen before. Only an update whose processing FAILED is taken again (compare-and-swap, so two
+        // redeliveries cannot both reclaim it).
+        const { data, error: reclaimError } = await db()
+          .from("chat_pending")
+          .update({ status: "claimed" })
+          .eq("connector_id", connector.id)
+          .eq("dedupe_key", key)
+          .eq("status", "failed")
+          .select("id");
+        if (reclaimError) throw reclaimError;
+        return !!data && data.length > 0;
+      }
       throw error; // fail closed: an update we cannot de-duplicate is not processed
+    },
+
+    async finishSeen(connector, key, status) {
+      const { error } = await db().from("chat_pending").update({ status }).eq("connector_id", connector.id).eq("dedupe_key", key);
+      if (error) throw error;
     },
 
     async create(connector, chatId, profileId, kind: PendingKind, payload, ttlMs) {

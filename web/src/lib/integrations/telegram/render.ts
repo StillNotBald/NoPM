@@ -92,14 +92,39 @@ export function projectCards(projects: { name: string; health?: string | null; s
   return { text: lines.join("\n") };
 }
 
-export function approvalCard(
-  req: { title: string; requestedBy: string; reason?: string | null },
-  pendingId: string,
-  own: boolean,
-): Rendered {
-  const body = [`<b>${esc(req.title, 120)}</b>`, `Raised by ${esc(req.requestedBy, 60)}`];
-  if (req.reason) body.push(`Reason: ${esc(req.reason, 200)}`);
+export type ApprovalCardInput = {
+  /** Singular noun for the target ("task", "project"...). */
+  targetType: string;
+  /** Name or title from the request-time snapshot; null when no snapshot was recorded. */
+  targetLabel: string | null;
+  /** Short key facts from the snapshot (project, due date, amount...). */
+  details: string[];
+  requestedBy: string;
+  reason?: string | null;
+  /** False when this chat cannot decide the type (decide it in the web app). */
+  approvable: boolean;
+};
+
+export const COPY_DETAILS_UNAVAILABLE = "Target details unavailable - approve in the web app.";
+export const COPY_DECIDE_IN_APP = "Approve in the web app.";
+
+/**
+ * Approval card for /4. Names the target from the `deletion_requests.before` snapshot (the way the Lark card
+ * names it), shows the requester, and labels the reason as the requester's own words. Approve is offered only
+ * when the target is known, the type is one a chat tap may decide, and the viewer is not the requester.
+ */
+export function approvalCard(req: ApprovalCardInput, pendingId: string, own: boolean): Rendered {
+  const hasTarget = req.targetLabel !== null;
+  const title = hasTarget ? `Delete ${esc(req.targetType, 30)} "${esc(req.targetLabel, 80)}"` : `Delete ${esc(req.targetType, 30)}`;
+  const body = [`<b>${title}</b>`];
+  for (const d of req.details) body.push(esc(d, 120));
+  body.push(`Raised by ${esc(req.requestedBy, 60)}`);
+  if (req.reason) body.push(`Requester's reason (their words, not NoPM's): "${esc(req.reason, 200)}"`);
   if (own) return { text: [...body, "You raised this request, so another approver has to decide it."].join("\n") };
+  if (!req.approvable) return { text: [...body, COPY_DECIDE_IN_APP].join("\n") };
+  if (!hasTarget) {
+    return { text: [...body, COPY_DETAILS_UNAVAILABLE].join("\n") };
+  }
   return {
     text: body.join("\n"),
     keyboard: [[{ text: "Approve", callback_data: cb("ap", pendingId) }, { text: "Reject", callback_data: cb("rj", pendingId) }]],

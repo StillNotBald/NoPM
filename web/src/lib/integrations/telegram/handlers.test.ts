@@ -561,7 +561,7 @@ describe("/4 Approvals", () => {
   it("a server-side refusal (the route repeats four-eyes) is shown and leaves nothing decided", async () => {
     const h = fakeDeps({
       identity: profile({ role: "manager" }),
-      api: async (req) => (req.method === "GET" ? { status: 200, body: { data: [{ id: "d1", target_type: "task", requested_principal_id: OTHER_PROFILE_ID }] } } : { status: 403, body: { error: "You cannot approve your own request" } }),
+      api: async (req) => (req.method === "GET" ? { status: 200, body: { data: [{ id: "d1", target_type: "task", requested_principal_id: OTHER_PROFILE_ID, before: { name: "Old plan" } }] } } : { status: 403, body: { error: "You cannot approve your own request" } }),
     });
     await say(h, "/4");
     await tap(h, tapData(last(h), "Approve"));
@@ -583,6 +583,87 @@ describe("/4 Approvals", () => {
     (h.deps.lookupIdentity as ReturnType<typeof vi.fn>).mockResolvedValue(profile({ role: "member" }));
     await tap(h, data);
     expect(h.writes()).toHaveLength(0);
+  });
+});
+
+describe("/4 approval card names the target (review round 1, I-3 / SEC-1)", () => {
+  const listOf = (rows: unknown[]) => async (req: { method: string }) => (req.method === "GET" ? { status: 200, body: { data: rows } } : { status: 200, body: {} });
+  const mgr = (rows: unknown[]) => fakeDeps({ identity: profile({ role: "manager" }), api: listOf(rows) });
+
+  it("shows the type, the name, the key fields, the requester and the reason labelled as theirs", async () => {
+    const h = mgr([
+      { id: "d1", target_type: "project", requested_by_label: "Sam", requested_principal_id: OTHER_PROFILE_ID, reason: "old test row", before: { name: "Payroll migration", due_date: "2026-12-01T00:00:00Z", amount: 5000, currency: "USD", project_name: "Payroll migration" } },
+    ]);
+    await say(h, "/4");
+    const t = lastText(h);
+    expect(t).toContain('Delete project "Payroll migration"');
+    expect(t).toContain("Due: 2026-12-01");
+    expect(t).toContain("Amount: USD 5000");
+    expect(t).toContain("Raised by Sam");
+    expect(t).toContain("Requester&#39;s reason".replace("&#39;", "'"));
+    expect(t).toContain("(their words, not NoPM's)");
+    expect(t).toContain('"old test row"');
+    expect(tapData(last(h), "Approve")).toMatch(/^ap:/);
+  });
+
+  it("escapes the target name and the reason (they are other people's text)", async () => {
+    const h = mgr([{ id: "d1", target_type: "task", requested_principal_id: OTHER_PROFILE_ID, reason: "<b>ok</b>", before: { name: "<i>x</i>" } }]);
+    await say(h, "/4");
+    expect(lastText(h)).not.toContain("<i>x</i>");
+    expect(lastText(h)).toContain("&lt;i&gt;x&lt;/i&gt;");
+    expect(lastText(h)).toContain("&lt;b&gt;ok&lt;/b&gt;");
+  });
+
+  it("with no snapshot it says details are unavailable and offers no Approve, and a forged tap does nothing", async () => {
+    const h = mgr([{ id: "d1", target_type: "task", requested_by_label: "Sam", requested_principal_id: OTHER_PROFILE_ID, reason: "stale", before: null }]);
+    await say(h, "/4");
+    expect(lastText(h)).toContain("Target details unavailable - approve in the web app");
+    expect(last(h)?.keyboard).toBeUndefined();
+    const row = [...h.rows.values()].find((r) => r.kind === "approval")!;
+    await tap(h, `ap:${row.id}`);
+    expect(h.writes()).toHaveLength(0);
+  });
+
+  it("a deletion type chat cannot decide shows 'Approve in the web app' and no buttons (N-1)", async () => {
+    const h = mgr([{ id: "d1", target_type: "sprint", requested_by_label: "Sam", requested_principal_id: OTHER_PROFILE_ID, before: { name: "Sprint 4" } }]);
+    await say(h, "/4");
+    expect(lastText(h)).toContain('"Sprint 4"');
+    expect(lastText(h)).toContain("Approve in the web app.");
+    expect(last(h)?.keyboard).toBeUndefined();
+    const row = [...h.rows.values()].find((r) => r.kind === "approval")!;
+    await tap(h, `ap:${row.id}`);
+    expect(h.writes()).toHaveLength(0);
+  });
+});
+
+describe("update de-duplication can be retried after a failure (N-5)", () => {
+  it("a failed update is marked failed, the person is told, and a redelivery is processed again", async () => {
+    const h = fakeDeps();
+    const lookup = h.deps.lookupIdentity as ReturnType<typeof vi.fn>;
+    lookup.mockRejectedValueOnce(new Error("db blip"));
+    const u = messageUpdate({ text: "/0", updateId: 91 });
+    await handleTelegramUpdate(ctx(), u, h.deps);
+    expect(lastText(h)).toContain("Something went wrong");
+    expect(h.seen.get(`${fixtureConnector().id}:u:91`)).toBe("failed");
+    await handleTelegramUpdate(ctx(), u, h.deps);
+    expect(lastText(h)).toContain("NoPM");
+    expect(h.seen.get(`${fixtureConnector().id}:u:91`)).toBe("done");
+    // a finished update is still not processed twice
+    const before = h.sent.length;
+    await handleTelegramUpdate(ctx(), u, h.deps);
+    expect(h.sent).toHaveLength(before);
+  });
+});
+
+describe("taps share the per-person budget (N-9)", () => {
+  it("a tap over budget is answered 'slow down' and does nothing", async () => {
+    const h = fakeDeps({ identity: profile({ role: "manager" }) });
+    await say(h, "/4");
+    const data = tapData(last(h), "Approve");
+    (h.deps as { rateAllowed?: unknown }).rateAllowed = async () => false;
+    await tap(h, data);
+    expect(h.writes()).toHaveLength(0);
+    expect(h.answers.some((a) => a.text?.includes("Slow down"))).toBe(true);
   });
 });
 

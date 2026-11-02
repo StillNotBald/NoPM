@@ -10,6 +10,9 @@ const { writeAuditMock, requireAuthMock } = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => state.db }));
 vi.mock("@/lib/audit/write", () => ({ writeAudit: writeAuditMock }));
+const { cleanupMock, loadTgMock } = vi.hoisted(() => ({ cleanupMock: vi.fn(async () => ({ menuCleared: true, pendingCleared: true })), loadTgMock: vi.fn() }));
+vi.mock("@/lib/integrations/telegram/setup", () => ({ cleanupAfterUnlink: cleanupMock }));
+vi.mock("@/lib/integrations/telegram/store", () => ({ loadTelegramConnectorById: loadTgMock }));
 vi.mock("@/lib/auth/guard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/auth/guard")>()),
   requireAuth: requireAuthMock,
@@ -231,5 +234,34 @@ describe("DELETE /api/integrations/identities/[id]", () => {
   it("needs a session", async () => {
     requireAuthMock.mockResolvedValue(token);
     expect((await del(mineId)).status).toBe(403);
+  });
+});
+
+describe("DELETE /api/integrations/identities/[id] for a Telegram link (review round 1, N-2)", () => {
+  it("clears the chat menu and pending rows after the audited unlink, and not for Lark", async () => {
+    cleanupMock.mockClear();
+    loadTgMock.mockReset();
+    const tg = linkIdentity(db, ids.manager, "5550001");
+    (db.rows("external_identities").find((r) => r.id === tg.id) as Record<string, unknown>).provider = "telegram";
+    loadTgMock.mockResolvedValue({ id: CONNECTOR_ID, workspace_id: WS, kind: "telegram" });
+    const res = await del(tg.id as string);
+    expect(res.status).toBe(200);
+    expect(cleanupMock).toHaveBeenCalledTimes(1);
+    expect(cleanupMock).toHaveBeenCalledWith(expect.objectContaining({ id: CONNECTOR_ID }), "5550001", ids.manager);
+
+    cleanupMock.mockClear();
+    const lark = linkIdentity(db, ids.manager2, "ou_other");
+    await del(lark.id as string);
+    expect(cleanupMock).not.toHaveBeenCalled();
+  });
+
+  it("a failing cleanup never fails the unlink", async () => {
+    const tg = linkIdentity(db, ids.manager, "5550002");
+    (db.rows("external_identities").find((r) => r.id === tg.id) as Record<string, unknown>).provider = "telegram";
+    loadTgMock.mockResolvedValue({ id: CONNECTOR_ID, workspace_id: WS, kind: "telegram" });
+    cleanupMock.mockRejectedValueOnce(new Error("telegram down"));
+    const res = await del(tg.id as string);
+    expect(res.status).toBe(200);
+    expect(db.rows("external_identities").find((r) => r.id === tg.id)!.revoked_at).not.toBeNull();
   });
 });

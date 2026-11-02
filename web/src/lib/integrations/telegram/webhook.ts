@@ -24,6 +24,12 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 /** Authenticated updates per minute per connector. */
 export const WEBHOOK_RATE_MAX = Number(process.env.NOPM_RATE_TELEGRAM_PER_MIN ?? 300);
 export const WEBHOOK_BAD_ATTEMPTS_MAX = 30;
+/**
+ * Authenticated updates per minute per Telegram sender, counted INSIDE the connector budget and before it: one
+ * noisy sender is dropped here and never spends the budget every linked member shares. Higher than the handler's
+ * own 30/min "slow down" reply, so a well-behaved person sees the polite refusal first.
+ */
+export const WEBHOOK_USER_RATE_MAX = Number(process.env.NOPM_RATE_TELEGRAM_SENDER_PER_MIN ?? 60);
 const DECOY_SECRET = "decoy-secret-token-for-constant-work";
 
 export type TelegramWebhookDeps = {
@@ -37,6 +43,14 @@ export type TelegramWebhookDeps = {
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 const json = (body: unknown, status: number, extra: Record<string, string> = {}) =>
   NextResponse.json(body, { status, headers: { ...NO_STORE, ...extra } });
+
+/** The Telegram user id that sent the update (message or tap), or null. */
+export function senderOf(update: unknown): string | null {
+  if (!update || typeof update !== "object") return null;
+  const u = update as { message?: { from?: { id?: unknown } }; callback_query?: { from?: { id?: unknown } } };
+  const id = u.message?.from?.id ?? u.callback_query?.from?.id;
+  return typeof id === "number" && Number.isFinite(id) ? String(id) : null;
+}
 
 export async function handleTelegramWebhook(request: NextRequest, rawConnectorId: string, wd: TelegramWebhookDeps): Promise<Response> {
   if (!UUID_RE.test(rawConnectorId)) return json({ error: "Not found" }, 404);
@@ -72,15 +86,24 @@ export async function handleTelegramWebhook(request: NextRequest, rawConnectorId
     return json({ error: "Invalid request" }, 401);
   }
 
-  const budget = await wd.rateCheck(`telegram:${connectorId}`, WEBHOOK_RATE_MAX);
-  if (!budget.allowed) return json({ error: "Too many requests" }, 429, { "Retry-After": String(budget.retryAfterSeconds) });
-
   let update: unknown;
   try {
     update = JSON.parse(capped.text);
   } catch {
     return json({}, 200); // authenticated but not JSON: nothing to do, and Telegram should not retry
   }
+
+  // Per-sender bucket first (a flooding sender is acknowledged and dropped), then the connector-wide budget.
+  const sender = senderOf(update);
+  if (sender) {
+    const own = await wd.rateCheck(`telegram-sender:${connectorId}:${sender}`, WEBHOOK_USER_RATE_MAX);
+    if (!own.allowed) {
+      wd.log("warn", "telegram sender over budget", { connectorId });
+      return json({}, 200);
+    }
+  }
+  const budget = await wd.rateCheck(`telegram:${connectorId}`, WEBHOOK_RATE_MAX);
+  if (!budget.allowed) return json({ error: "Too many requests" }, 429, { "Retry-After": String(budget.retryAfterSeconds) });
 
   const { ctx, deps } = wd.buildContext(connector, new URL(request.url).origin);
   const result = await handleTelegramUpdate(ctx, update, deps);

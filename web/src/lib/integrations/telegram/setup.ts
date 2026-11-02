@@ -9,6 +9,7 @@ import type { ConnectorRow } from "@/lib/integrations/types";
 import { commandList, menuDiffersFromDefault, type Role } from "./commands";
 import { deleteMyCommands, deleteWebhook, getMe, setMyCommands, setWebhook, type TgResult } from "./http";
 import { readTelegramSecrets, webhookUrl } from "./secrets";
+import { deletePendingForProfile } from "./store";
 
 export type SetupResult = { ok: true; botUsername: string | null } | { ok: false; step: "token" | "webhook" | "menu"; error: string };
 
@@ -51,4 +52,27 @@ export async function removeWebhook(connector: ConnectorRow): Promise<void> {
   } catch {
     // The token is erased next either way.
   }
+}
+
+/**
+ * After a Telegram account is unlinked: clear the chat's own command menu (an ex-linked admin must not keep the
+ * admin menu) and the person's open working state. Best effort and never throws; every tap and message
+ * re-resolves the identity anyway, so this is housekeeping, not the access control.
+ */
+export async function cleanupAfterUnlink(connector: ConnectorRow, chatId: string, profileId: string): Promise<{ menuCleared: boolean; pendingCleared: boolean }> {
+  let menuCleared = false;
+  try {
+    const { botToken } = readTelegramSecrets(connector);
+    const res = await deleteMyCommands(botToken, { type: "chat", chat_id: Number(chatId) });
+    menuCleared = res.ok;
+  } catch {
+    // unreadable secrets or a Telegram outage: the default menu returns when the person relinks
+  }
+  let pendingCleared = false;
+  try {
+    pendingCleared = await deletePendingForProfile(connector.workspace_id, connector.id, profileId);
+  } catch {
+    // swallowed on purpose
+  }
+  return { menuCleared, pendingCleared };
 }

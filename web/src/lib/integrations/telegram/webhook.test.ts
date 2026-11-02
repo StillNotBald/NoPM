@@ -85,10 +85,24 @@ describe("telegram webhook", () => {
   });
 
   it("the per-connector budget answers 429 with Retry-After", async () => {
-    const { deps } = setup(fixtureConnector(), { rateCheck: async () => ({ allowed: false, retryAfterSeconds: 12 }) });
+    const { deps } = setup(fixtureConnector(), { rateCheck: async (key) => (key.startsWith("telegram-sender:") ? { allowed: true, retryAfterSeconds: 0 } : { allowed: false, retryAfterSeconds: 12 }) });
     const res = await handleTelegramWebhook(req(messageUpdate({ text: "/0" })), FIXTURE_CONNECTOR_ID, deps);
     expect(res.status).toBe(429);
     expect(res.headers.get("Retry-After")).toBe("12");
+  });
+
+  it("a flooding sender is dropped (200, nothing handled) before it spends the connector budget", async () => {
+    const calls: string[] = [];
+    const { h, deps } = setup(fixtureConnector(), {
+      rateCheck: async (key) => {
+        calls.push(key);
+        return key.startsWith("telegram-sender:") ? { allowed: false, retryAfterSeconds: 5 } : { allowed: true, retryAfterSeconds: 0 };
+      },
+    });
+    const res = await handleTelegramWebhook(req(messageUpdate({ text: "/0", userId: 4242 })), FIXTURE_CONNECTOR_ID, deps);
+    expect(res.status).toBe(200);
+    expect(calls).toEqual([`telegram-sender:${FIXTURE_CONNECTOR_ID}:4242`]);
+    expect(h.sent).toHaveLength(0);
   });
 
   it("a malformed connector id is a 404", async () => {

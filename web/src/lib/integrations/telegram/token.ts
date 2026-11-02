@@ -16,6 +16,7 @@ import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { generateToken } from "@/lib/auth/tokens";
 import { auditedInsert, auditedUpdate } from "@/lib/audit/audited-write";
+import { writeAudit } from "@/lib/audit/write";
 import type { Actor } from "@/lib/auth/guard";
 import type { LinkedProfile } from "@/lib/integrations/identity";
 import type { ConnectorRow } from "@/lib/integrations/types";
@@ -33,6 +34,11 @@ const WRITE_SCOPES = new Set([
 const READ_SCOPES = new Set(["task:read", "project:read", "issue:read", "risk:read"]);
 /** The single privileged scope a tap in /4 may carry: `<target>:delete:approve` for the tapped request. */
 const APPROVE_SCOPE_RE = /^(task|project|risk|issue|expense|document|milestone):delete:approve$/;
+
+/** True when every scope only reads. Such a token is audited once (the mint); its revoke adds no second row. */
+export function isReadOnlyScopes(scopes: readonly string[]): boolean {
+  return scopes.length > 0 && scopes.every((s) => READ_SCOPES.has(s));
+}
 
 export class ScopeNotAllowedError extends Error {}
 
@@ -90,8 +96,28 @@ export async function mintActionToken(connector: ConnectorRow, profile: LinkedPr
   return { raw, id };
 }
 
-/** Never throws: a finally block must not hide the real result. */
-export async function revokeActionToken(connector: ConnectorRow, profile: LinkedProfile, id: string): Promise<void> {
+/**
+ * Never throws: a finally block must not hide the real result.
+ *
+ * Audit shape (matches the web assistant, which audits the mint and the revoke of its ephemeral token):
+ *   - a write token: mint row + revoke row (+ the governed write's own row);
+ *   - a read-only token (`audit: false`): the mint row only. Reads are not audited elsewhere in NoPM, and the
+ *     revoke of a read-only token changes nothing a reader could rely on, so it does not add a second row.
+ * If the audited revoke fails, the token is still killed with a plain update (security over audit for a
+ * 2-minute token) AND a fallback audit row `telegram.token.revoke` (after.fallback = true) is written; a failure
+ * of that row is logged loudly, never silent.
+ */
+export async function revokeActionToken(connector: ConnectorRow, profile: LinkedProfile, id: string, opts: { audit?: boolean } = {}): Promise<void> {
+  const audit = opts.audit !== false;
+  const db = () => createAdminClient().from("api_tokens").update({ revoked: true }).eq("id", id).eq("workspace_id", connector.workspace_id);
+  if (!audit) {
+    try {
+      await db();
+    } catch (err) {
+      console.error("[nopm][telegram] failed to revoke read-only action token", id, err instanceof Error ? err.message : "unknown");
+    }
+    return;
+  }
   try {
     await auditedUpdate({
       table: "api_tokens",
@@ -107,11 +133,25 @@ export async function revokeActionToken(connector: ConnectorRow, profile: Linked
     });
     return;
   } catch (err) {
-    console.error("[nopm][telegram] audited revoke failed; revoking without the audit row", id, err instanceof Error ? err.message : "unknown");
+    console.error("[nopm][telegram] audited revoke failed; revoking with a fallback audit row", id, err instanceof Error ? err.message : "unknown");
   }
   try {
-    await createAdminClient().from("api_tokens").update({ revoked: true }).eq("id", id).eq("workspace_id", connector.workspace_id);
+    await db();
   } catch (err) {
     console.error("[nopm][telegram] failed to revoke action token", id, err instanceof Error ? err.message : "unknown");
+    return;
+  }
+  try {
+    await writeAudit({
+      workspaceId: connector.workspace_id,
+      actor: chatActor(connector, profile),
+      action: "telegram.token.revoke",
+      targetType: "telegram_action",
+      targetId: id,
+      before: null,
+      after: { token_id: id, connector_id: connector.id, fallback: true },
+    });
+  } catch (err) {
+    console.error("[nopm][telegram] fallback revoke audit row failed", id, err instanceof Error ? err.message : "unknown");
   }
 }

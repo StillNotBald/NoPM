@@ -65,3 +65,32 @@ describe("registerChatMenu", () => {
     expect(methods(f)).toEqual(["deleteMyCommands"]);
   });
 });
+
+describe("cleanupAfterUnlink (review round 1, N-2)", () => {
+  it("clears the chat's command menu and the person's pending rows", async () => {
+    const deletePending = vi.fn(async () => true);
+    vi.doMock("./store", () => ({ deletePendingForProfile: deletePending }));
+    vi.resetModules();
+    const { cleanupAfterUnlink } = await import("./setup");
+    const f = stub(() => true);
+    const out = await cleanupAfterUnlink(fixtureConnector(), "1001", "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    expect(out).toEqual({ menuCleared: true, pendingCleared: true });
+    expect(methods(f)).toEqual(["deleteMyCommands"]);
+    expect(JSON.parse(String(f.mock.calls[0][1].body)).scope).toEqual({ type: "chat", chat_id: 1001 });
+    expect(deletePending).toHaveBeenCalledWith(fixtureConnector().workspace_id, FIXTURE_CONNECTOR_ID, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    vi.doUnmock("./store");
+  });
+
+  it("never throws when Telegram or the database fail", async () => {
+    vi.doMock("./store", () => ({
+      deletePendingForProfile: async () => {
+        throw new Error("db down");
+      },
+    }));
+    vi.resetModules();
+    const { cleanupAfterUnlink } = await import("./setup");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
+    await expect(cleanupAfterUnlink(fixtureConnector(), "1001", "p")).resolves.toEqual({ menuCleared: false, pendingCleared: false });
+    vi.doUnmock("./store");
+  });
+});
