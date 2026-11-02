@@ -66,8 +66,3 @@ export async function getNudgeSettings(workspaceId: string): Promise<NudgeSettin
     return { ...DEFAULT_NUDGE_SETTINGS };
   }
 }
-
-/** Just the stale threshold, for callers that only need the number (digest, kanban). */
-export async function getStaleDays(workspaceId: string): Promise<number> {
-  return (await getNudgeSettings(workspaceId)).stale_days;
-}

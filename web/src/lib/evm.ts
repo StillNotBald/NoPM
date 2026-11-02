@@ -71,7 +71,6 @@ export interface EvmInput {
 }
 
 export type ForecastMethod = "cpi" | "bottom_up";
-export const FORECAST_METHODS: readonly ForecastMethod[] = ["cpi", "bottom_up"];
 
 export interface EvmResult {
   /** BAC — Budget At Completion. */
