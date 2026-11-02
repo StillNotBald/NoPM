@@ -13,6 +13,7 @@ export const runtime = "nodejs";
  * GET /api/tasks — cross-project task list (L-04), scoped to the whole
  * workspace rather than one project. Filters: project_id, assignee_id,
  * status_type, priority, due_before, due_after, overdue=true, q (name ilike),
+ * assignee_id=me (the caller's own tasks),
  * source, external_ref (complement seam, R-81 — both exact-match).
  * Sort: ?sort=field:asc|desc against a whitelist (L-10) — anything else 422s.
  * Paginated (default 20, max 100).
@@ -36,6 +37,26 @@ export const GET = route(async ({ actor, request }) => {
   });
 
   const filters = parseTaskFilters(url.searchParams);
+
+  // assignee_id=me: the person behind the caller (a session user, or the human who
+  // minted a PAT), resolved to their resource_members row in THIS workspace. A person
+  // with no resource member has no assigned tasks, so the answer is an empty page.
+  if (filters.assignee_id === "me") {
+    const personId = actor.principalId ?? (actor.type === "user" ? actor.id : null);
+    let memberId: string | null = null;
+    if (personId) {
+      const { data: member, error: memberError } = await db
+        .from("resource_members")
+        .select("id")
+        .eq("workspace_id", actor.workspaceId)
+        .eq("profile_id", personId)
+        .maybeSingle();
+      if (memberError) throw new Error(memberError.message);
+      memberId = (member?.id as string | undefined) ?? null;
+    }
+    if (!memberId) return okList([], { total: 0, page, limit });
+    filters.assignee_id = memberId;
+  }
   const selection = parseListSelection(url.searchParams, "tasks"); // view=summary|full, fields= (R-129)
   // Workspace-zone date; only looked up when the overdue filter needs it.
   const todayIso = filters.overdue ? await workspaceToday(actor.workspaceId) : "";

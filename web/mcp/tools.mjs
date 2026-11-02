@@ -81,14 +81,11 @@ const page = { type: "number", description: "Page number (default 1)" };
 const view = {
   type: "string",
   enum: ["summary", "full"],
-  description:
-    "Payload size: summary (default; the columns needed to scan and link) or full (every column, including long text). " +
-    "Prefer summary, then call the matching get_* tool for one record in full.",
+  description: "summary (default, lean) or full (every column)",
 };
 const fields = {
   type: "string",
-  description:
-    "Optional comma-separated column list, e.g. \"id,name,rag_status\". Overrides view. id is always included; an unknown column is a 422.",
+  description: "Comma-separated columns, e.g. id,name. Overrides view.",
 };
 
 /** Query-string suffix for view / fields. Never throws; values are encoded so they cannot add a parameter. */
@@ -106,19 +103,19 @@ const limit = { type: "number", description: "Results per page (default 20, max 
 const source = {
   type: "string",
   pattern: "^[a-z0-9][a-z0-9_-]{0,39}$",
-  description: "System of work this record mirrors, e.g. jira, slack, teams",
+  description: "System this mirrors, e.g. jira",
 };
 const externalRef = {
   type: "string",
   minLength: 1,
   maxLength: 200,
-  description: "The id/key of this record in the external system (e.g. a Jira issue key)",
+  description: "Id/key in that system",
 };
 const externalUrl = {
   type: "string",
   format: "uri",
   maxLength: 2000,
-  description: "Optional link to the record in the external system",
+  description: "Link to it there",
 };
 
 // ── Blocker reason and ETA (R-166, R-174) — mirror the task validators (blocker_reason max 500, eta a real YYYY-MM-DD date).
@@ -126,12 +123,12 @@ const externalUrl = {
 const BLOCKER_REASON = {
   type: ["string", "null"],
   maxLength: 500,
-  description: "Why the task is blocked, in words, up to 500 chars. Independent of blocked_by. null clears it.",
+  description: "Why it is blocked (max 500 chars); null clears",
 };
 const ETA = {
   type: ["string", "null"],
   pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
-  description: "Forecast finish date, YYYY-MM-DD. It is a forecast, not the baseline, and may be in the past. null clears it.",
+  description: "Forecast finish, YYYY-MM-DD; null clears",
 };
 
 // ── Optimistic concurrency (R-90) — mirrors the update Zod validators exactly
@@ -141,9 +138,7 @@ const ETA = {
 const expectedUpdatedAt = {
   type: "string",
   format: "date-time",
-  description:
-    "Optional optimistic-concurrency guard: pass the updated_at you last read on this record. " +
-    "If the record has changed since, the update is rejected with a 412 instead of overwriting it.",
+  description: "updated_at you last read; a 412 is returned if the record changed since",
 };
 
 // ── Path safety ───────────────────────────────────────────────────────────
@@ -223,9 +218,7 @@ const RAW_TOOLS = [
   // ── Projects ─────────────────────────────────────────────────────────────
   {
     name: "list_projects",
-    description:
-      "List all projects in the workspace. Returns a lean summary by default (no charter text or lock detail); " +
-      "pass view=full or fields=... for more, or get_project for one project in full.",
+    description: "List projects (id, code, name, RAG, dates). Use first to turn a project name into its id. Lean summary by default; get_project for one in full.",
     parameters: {
       type: "object",
       properties: { page, limit, view, fields },
@@ -239,7 +232,7 @@ const RAW_TOOLS = [
   },
   {
     name: "get_project",
-    description: "Get a single project by id, including charter fields, RAG status, and dates.",
+    description: "Get one project in full: charter fields, RAG status, dates, owner. Needs project_id from list_projects.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" } },
@@ -250,7 +243,7 @@ const RAW_TOOLS = [
   },
   {
     name: "create_project",
-    description: "Create a new project in the workspace. `code` is a short unique identifier shown throughout the UI.",
+    description: "Create a project. `code` is its short unique identifier. Returns the new project with its id.",
     parameters: {
       type: "object",
       properties: {
@@ -272,7 +265,7 @@ const RAW_TOOLS = [
   },
   {
     name: "update_project",
-    description: "Update a project's fields (name, RAG status, completion, dates). Audited.",
+    description: "Update a project (name, RAG status, completion, dates, owner). Needs project_id. Audited.",
     parameters: {
       type: "object",
       properties: {
@@ -298,18 +291,12 @@ const RAW_TOOLS = [
   },
   {
     name: "request_project_deletion",
-    description:
-      "Request deletion of a project. Does NOT delete immediately — creates a maker-checker " +
-      "deletion request (status=pending, target_type=project) that must be approved by a " +
-      "DIFFERENT actor holding scope project:delete:approve. Self-approval is rejected by the " +
-      "server. Mirrors request_task_deletion; owner-locked (Decision 3, devops-wave1) — this " +
-      "four-eyes flow now covers every governed record: see request_risk_deletion, request_issue_deletion, " +
-      "request_expense_deletion, request_document_deletion, request_milestone_deletion.",
+    description: "Request deletion of a project. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Refused while the project is locked or has open work the rules protect.",
     parameters: {
       type: "object",
       properties: {
         project_id: { type: "string", description: "Project UUID" },
-        reason: { type: "string", description: "Reason for deletion (required — goes to the audit trail)" },
+        reason: { type: "string", description: "Why (required; audit trail)" },
       },
       required: ["project_id", "reason"],
       additionalProperties: false,
@@ -324,7 +311,7 @@ const RAW_TOOLS = [
   // ── Milestones ────────────────────────────────────────────────────────────
   {
     name: "list_milestones",
-    description: "List milestones for a project (lean summary by default; view=full or fields=... for more).",
+    description: "List a project's milestones (name, status, target date). Needs project_id. Lean summary by default.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
@@ -338,7 +325,7 @@ const RAW_TOOLS = [
   },
   {
     name: "create_milestone",
-    description: "Create a milestone inside a project.",
+    description: "Create a milestone in a project. Needs project_id and name; target date and status are optional. Returns the milestone with its id.",
     parameters: {
       type: "object",
       properties: {
@@ -360,10 +347,7 @@ const RAW_TOOLS = [
   },
   {
     name: "update_milestone",
-    description:
-      "Update a milestone (status, target date, completion). Audited. Completing a milestone that still has open tasks " +
-      "returns 422 open_tasks (\"N tasks are still open. Complete this milestone anyway?\"): if the person confirms, resend " +
-      "the same call with confirm_open_tasks: true.",
+    description: "Update a milestone (status, target date, completion). Completing one with open tasks returns 422 open_tasks: if the person confirms, resend with confirm_open_tasks: true.",
     parameters: {
       type: "object",
       properties: {
@@ -391,7 +375,7 @@ const RAW_TOOLS = [
   // ── Tasks ─────────────────────────────────────────────────────────────────
   {
     name: "list_tasks",
-    description: "List tasks for a project (lean summary by default; view=full or fields=... for more, get_task for one in full).",
+    description: "List one project's tasks. Needs project_id. For my work, overdue or due-soon across projects use list_workspace_tasks.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
@@ -404,8 +388,49 @@ const RAW_TOOLS = [
     }),
   },
   {
+    name: "list_workspace_tasks",
+    description: "List tasks across all projects. Use for my work, overdue or due-soon: assignee_id=\"me\", overdue=true, or a due_before/due_after window. Needs no ids. Returns a page with total.",
+    parameters: {
+      type: "object",
+      properties: {
+        assignee_id: { type: "string", description: "\"me\" for the caller's tasks, or a resource member UUID (from list_resources)" },
+        project_id: { type: "string", description: "Project UUID, to narrow to one project" },
+        status_type: { type: "string", enum: TASK_STATUS_TYPES },
+        priority: { type: "string", enum: TASK_PRIORITIES },
+        overdue: { type: "boolean", description: "true: past due and not completed or canceled" },
+        due_before: { type: "string", pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: DATE },
+        due_after: { type: "string", pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: DATE },
+        q: { type: "string", description: "Name contains this text" },
+        sort: { type: "string", enum: ["due_date:asc", "due_date:desc", "priority:desc", "created_at:desc", "name:asc"] },
+        page,
+        limit,
+        view,
+        fields,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      const params = new URLSearchParams();
+      if (args.assignee_id !== undefined && args.assignee_id !== null) {
+        if (args.assignee_id !== "me" && !UUID_RE.test(String(args.assignee_id))) {
+          throw new ToolArgError("assignee_id must be \"me\" or a UUID");
+        }
+        params.set("assignee_id", String(args.assignee_id));
+      }
+      if (args.project_id) params.set("project_id", idSeg("project_id", args.project_id));
+      for (const k of ["status_type", "priority", "due_before", "due_after", "q", "sort", "view", "fields"]) {
+        if (args[k] !== undefined && args[k] !== null && args[k] !== "") params.set(k, String(args[k]));
+      }
+      if (args.overdue === true) params.set("overdue", "true");
+      params.set("page", String(Number(args.page) || 1));
+      params.set("limit", String(Number(args.limit) || 20));
+      return { path: `/api/tasks?${params.toString()}`, method: "GET" };
+    },
+  },
+  {
     name: "get_task",
-    description: "Get a single task by id, including status, assignee, estimates, and checklist.",
+    description: "Get one task in full: status, assignee, estimates, checklist. Needs task_id from list_tasks.",
     parameters: {
       type: "object",
       properties: { task_id: { type: "string", description: "Task UUID" } },
@@ -416,7 +441,7 @@ const RAW_TOOLS = [
   },
   {
     name: "create_task",
-    description: "Create a task inside a project. status_type defaults to backlog, priority to medium.",
+    description: "Create a task in a project. Needs project_id and name; status_type defaults to backlog, priority to medium. Returns the task with its id.",
     parameters: {
       type: "object",
       properties: {
@@ -448,8 +473,7 @@ const RAW_TOOLS = [
   },
   {
     name: "update_task",
-    description:
-      "Update a task. Changing status_type IS the governed Kanban move — every change writes an immutable audit row.",
+    description: "Update a task. Changing status_type is the governed Kanban move and writes an audit row. Needs task_id.",
     parameters: {
       type: "object",
       properties: {
@@ -479,15 +503,12 @@ const RAW_TOOLS = [
   },
   {
     name: "request_task_deletion",
-    description:
-      "Request deletion of a task. Does NOT delete immediately — creates a maker-checker " +
-      "deletion request (status=pending) that must be approved by a different actor with " +
-      "scope task:delete:approve. Self-approval is rejected by the server.",
+    description: "Request deletion of a task. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs task_id.",
     parameters: {
       type: "object",
       properties: {
         task_id: { type: "string", description: "Task UUID" },
-        reason: { type: "string", description: "Reason for deletion (required — goes to the audit trail)" },
+        reason: { type: "string", description: "Why (required; audit trail)" },
       },
       required: ["task_id", "reason"],
       additionalProperties: false,
@@ -500,16 +521,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_risk_deletion",
-    description:
-      "Request deletion of a risk (scope: risk:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=risk) that a DIFFERENT person holding risk:delete:approve " +
-      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope.",
+    description: "Request deletion of a risk. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs risk_id from list_risks.",
     parameters: {
       type: "object",
       properties: {
         risk_id: { type: "string", description: "Risk UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["risk_id", "reason"],
       additionalProperties: false,
@@ -522,16 +540,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_issue_deletion",
-    description:
-      "Request deletion of an issue (scope: issue:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=issue) that a DIFFERENT person holding issue:delete:approve " +
-      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope.",
+    description: "Request deletion of an issue. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs issue_id from list_issues.",
     parameters: {
       type: "object",
       properties: {
         issue_id: { type: "string", description: "Issue UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["issue_id", "reason"],
       additionalProperties: false,
@@ -544,16 +559,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_expense_deletion",
-    description:
-      "Request deletion of an expense (a money record) (scope: expense:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=expense) that a DIFFERENT person holding expense:delete:approve " +
-      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope.",
+    description: "Request deletion of an expense (a money record). Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs expense_id from list_expenses.",
     parameters: {
       type: "object",
       properties: {
         expense_id: { type: "string", description: "Expense UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["expense_id", "reason"],
       additionalProperties: false,
@@ -566,16 +578,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_document_deletion",
-    description:
-      "Request deletion of a document (scope: document:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=document) that a DIFFERENT person holding document:delete:approve " +
-      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope. An approved document is on the manager tier like any other, and is audited; the stored file is removed on approval.",
+    description: "Request deletion of a document. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs document_id from list_documents. The stored file is removed on approval.",
     parameters: {
       type: "object",
       properties: {
         document_id: { type: "string", description: "Document UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["document_id", "reason"],
       additionalProperties: false,
@@ -588,16 +597,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_milestone_deletion",
-    description:
-      "Request deletion of a milestone (scope: milestone:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=milestone) that a DIFFERENT person holding milestone:delete:approve " +
-      "must approve (four-eyes). Self-approval is rejected by the server. The agent preset never holds this scope. Refused while the project is locked. Its tasks are kept and unlinked.",
+    description: "Request deletion of a milestone. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs milestone_id from list_milestones. Refused while the project is locked; its tasks are kept.",
     parameters: {
       type: "object",
       properties: {
         milestone_id: { type: "string", description: "Milestone UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["milestone_id", "reason"],
       additionalProperties: false,
@@ -610,17 +616,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_program_deletion",
-    description:
-      "Request deletion of a program (scope: program:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=program) that a DIFFERENT person holding the approve scope " +
-      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
-      "The agent preset never holds this scope. A program deletion is high risk (an admin approves it). Its projects are kept and lose the grouping.",
+    description: "Request deletion of a program. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs program_id from list_programs. Its projects are kept and lose the grouping.",
     parameters: {
       type: "object",
       properties: {
         program_id: { type: "string", description: "Program UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["program_id", "reason"],
       additionalProperties: false,
@@ -633,17 +635,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_sprint_deletion",
-    description:
-      "Request deletion of a sprint (scope: sprint:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=sprint) that a DIFFERENT person holding the approve scope " +
-      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
-      "The agent preset never holds this scope. Only a planned sprint with no attached tasks can be deleted (refused with 422 otherwise).",
+    description: "Request deletion of a sprint. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs sprint_id from list_sprints. Only a planned sprint with no tasks qualifies (422 otherwise).",
     parameters: {
       type: "object",
       properties: {
         sprint_id: { type: "string", description: "Sprint UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["sprint_id", "reason"],
       additionalProperties: false,
@@ -656,17 +654,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_resource_deletion",
-    description:
-      "Request deletion of a resource member (scope: resource:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=resource) that a DIFFERENT person holding the approve scope " +
-      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
-      "The agent preset never holds this scope. Refused (422 has_timesheet_records) while the member has archived timesheets. Approving also deletes the member's allocations; they are listed on the audit trail.",
+    description: "Request deletion of a resource member. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs resource_id from list_resources. Approving also deletes the member's allocations.",
     parameters: {
       type: "object",
       properties: {
         resource_id: { type: "string", description: "Resource member UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["resource_id", "reason"],
       additionalProperties: false,
@@ -679,17 +673,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_allocation_deletion",
-    description:
-      "Request deletion of an allocation (scope: allocation:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=allocation) that a DIFFERENT person holding the approve scope " +
-      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
-      "The agent preset never holds this scope. The member's over-allocation is re-checked when it is approved.",
+    description: "Request deletion of an allocation. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs allocation_id from list_allocations.",
     parameters: {
       type: "object",
       properties: {
         allocation_id: { type: "string", description: "Allocation UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["allocation_id", "reason"],
       additionalProperties: false,
@@ -702,17 +692,13 @@ const RAW_TOOLS = [
   },
   {
     name: "request_clash_deletion",
-    description:
-      "Request deletion of a clash (scope: clash:delete:request). Does NOT delete: it creates a maker-checker " +
-      "deletion request (status=pending, target_type=clash) that a DIFFERENT person holding the approve scope " +
-      "must approve (four-eyes); the route answers 202 with the deletion request. Self-approval is rejected by the server. " +
-      "The agent preset never holds this scope. Needed for any clash, including one the system created. Resolving a clash is a status change (update through the clash PATCH), not a deletion.",
+    description: "Request deletion of a clash. Does not delete: it raises a request that a DIFFERENT person must approve (four-eyes) and stays pending until then. Needs clash_id from list_clashes. To resolve a clash, update its status instead.",
     parameters: {
       type: "object",
       properties: {
         clash_id: { type: "string", description: "Clash UUID" },
         reason: { type: "string", description: "Reason for deletion (required, goes to the audit trail)" },
-        assigned_approver_id: { type: "string", description: "Optional admin or manager profile UUID this request waits for (routing only)" },
+        assigned_approver_id: { type: "string", description: "Admin/manager profile UUID to route to (optional)" },
       },
       required: ["clash_id", "reason"],
       additionalProperties: false,
@@ -727,12 +713,7 @@ const RAW_TOOLS = [
     // Q-GOV-27 (2026-10-17): the maker can take their own request back. This is the ONLY deletion verb
     // the agent surfaces besides requesting: it never approves or rejects (those stay human, 403 for a token).
     name: "withdraw_deletion_request",
-    description:
-      "Withdraw a deletion request that YOU (or the person this token acts for) raised, while it is still " +
-      "pending. Use it when the request was a mistake or is no longer wanted. It cancels the request " +
-      "without deleting anything and is audited. It works for a request of any kind (task, project, risk, issue, " +
-      "expense, document, milestone, program, sprint, resource, allocation or clash). It cannot approve or reject anything, and it only works " +
-      "on your own pending request: a request someone else raised, or one already decided, is refused.",
+    description: "Withdraw a deletion request you raised (any kind) while it is still pending, for example when it was a mistake. Deletes nothing and cannot approve or reject. Needs request_id from list_pending_approvals; someone else's request is refused.",
     parameters: {
       type: "object",
       properties: {
@@ -750,7 +731,7 @@ const RAW_TOOLS = [
   // ── Risks ─────────────────────────────────────────────────────────────────
   {
     name: "list_risks",
-    description: "List risks for a project (lean summary by default; view=full or fields=... for more).",
+    description: "List a project's risks (title, severity, status). Needs project_id. Lean summary by default.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
@@ -764,7 +745,7 @@ const RAW_TOOLS = [
   },
   {
     name: "create_risk",
-    description: "Create a risk under a project. Rated by severity x likelihood.",
+    description: "Create a risk in a project, rated by severity x likelihood. Needs project_id, title, severity and likelihood. Returns the risk with its id.",
     parameters: {
       type: "object",
       properties: {
@@ -799,9 +780,7 @@ const RAW_TOOLS = [
   },
   {
     name: "update_risk",
-    description:
-      "Update a risk (status, severity, likelihood, mitigation, resolution). Audited. Closing a risk needs a resolution note: " +
-      "a 422 asking for one means resend with resolution set.",
+    description: "Update a risk (status, severity, likelihood, mitigation, resolution). Closing needs a resolution note: on a 422 asking for one, resend with resolution set.",
     parameters: {
       type: "object",
       properties: {
@@ -838,7 +817,7 @@ const RAW_TOOLS = [
   // ── Issues ────────────────────────────────────────────────────────────────
   {
     name: "list_issues",
-    description: "List issues for a project (lean summary by default; view=full or fields=... for more).",
+    description: "List a project's issues (title, priority, status). Needs project_id. Lean summary by default.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" }, page, limit, view, fields },
@@ -852,7 +831,7 @@ const RAW_TOOLS = [
   },
   {
     name: "create_issue",
-    description: "Create an issue under a project. Ranked by priority; severity is optional detail.",
+    description: "Create an issue in a project, ranked by priority. Needs project_id, title and priority. Returns the issue with its id.",
     parameters: {
       type: "object",
       properties: {
@@ -878,9 +857,7 @@ const RAW_TOOLS = [
   },
   {
     name: "update_issue",
-    description:
-      "Update an issue (status, priority, resolution). Audited. Resolving or closing an issue needs a resolution note: " +
-      "a 422 asking for one means resend with resolution set.",
+    description: "Update an issue (status, priority, resolution). Resolving or closing needs a resolution note: on a 422 asking for one, resend with resolution set.",
     parameters: {
       type: "object",
       properties: {
@@ -909,7 +886,7 @@ const RAW_TOOLS = [
   // ── Budget ────────────────────────────────────────────────────────────────
   {
     name: "get_budget",
-    description: "Get the budget and actuals for a project (planned, committed, actual, variance, burn_pct).",
+    description: "Get a project's budget position: planned, committed, actual, variance, burn_pct. Needs project_id.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" } },
@@ -921,13 +898,7 @@ const RAW_TOOLS = [
 
   {
     name: "get_evm",
-    description:
-      "Get the earned-value numbers for a project, computed exactly as the Budget page does: BAC, AC, EV, PV, CV, SV, " +
-      "CPI, SPI, EAC, ETC, VAC plus committed. EAC follows the project's forecast_method: cpi (budget / CPI) or " +
-      "bottom_up (spent + committed + the manual estimate_to_complete). Both are returned as eac_cpi and eac_bottom_up; " +
-      "eac_bottom_up is null until someone has entered an estimate_to_complete, and eac is then null too when the " +
-      "method is bottom_up. An index is null when it is undefined (for example CPI before any cost is " +
-      "booked). schedule_basis says whether PV came from the baseline dates or only from completion (then SPI is 1.00).",
+    description: "Get a project's earned-value numbers as the Budget page shows them: BAC, AC, EV, PV, CV, SV, CPI, SPI, EAC, ETC, VAC and committed. An index is null when undefined. Needs project_id.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" } },
@@ -939,10 +910,7 @@ const RAW_TOOLS = [
 
   {
     name: "get_project_trend",
-    description:
-      "Get the daily snapshot trend of a project and the RAG it SUGGESTS (green, amber or red) with the reason, " +
-      "for example 'SPI 0.86 falling over 3 weeks'. The suggestion is advice shown beside the declared RAG; " +
-      "it never changes it. Optional n = how many days of snapshots (default 28, max 120). READ-ONLY.",
+    description: "Get a project's daily snapshot trend and the RAG it suggests, with the reason. Advice only; it never changes the declared RAG. Optional n days (default 28, max 120). Needs project_id.",
     parameters: {
       type: "object",
       properties: {
@@ -960,11 +928,7 @@ const RAW_TOOLS = [
 
   {
     name: "get_handover_report",
-    description:
-      "Handover / key-person report (\"runs without you\"): the open items (project, risks, issues, tasks) whose single " +
-      "owner has no backup owner, grouped by project and owner with counts, the open items nobody owns, and a key-person " +
-      "matrix per person (items solely owned, projects touched, bus_factor_1 flag). Optional project_id narrows it to one " +
-      "project. READ-ONLY: naming a backup owner is done on the item (update_project, update_risk, update_issue, update_task).",
+    description: "Key-person report: open items whose single owner has no backup, grouped by project and owner, plus items nobody owns and a bus-factor matrix per person. READ-ONLY. Optional project_id narrows it.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Only this project (UUID); omit for the whole workspace" } },
@@ -982,10 +946,7 @@ const RAW_TOOLS = [
   // ── Decision prep (read-only): change requests, decisions, documents ──────
   {
     name: "list_change_requests",
-    description:
-      "List change requests across the workspace, newest first, optionally for one project or one status. " +
-      "Returns a lean summary by default; pass view=full or fields=... for more, or get_change_request for one in full. " +
-      "READ-ONLY: a person decides a change request in the console.",
+    description: "List change requests, newest first, optionally for one project or status. Lean summary by default; get_change_request for one in full. A person decides them in the console.",
     parameters: {
       type: "object",
       properties: {
@@ -1010,9 +971,7 @@ const RAW_TOOLS = [
   },
   {
     name: "get_change_request",
-    description:
-      "Get one change request in full: description, impact, the decision (who, when, rationale) and every other column the record holds. " +
-      "It does not list the test or UAT evidence: that comes from the evidence route (list_documents with change_request_id, and attach_evidence to add some). READ-ONLY.",
+    description: "Get one change request in full: description, impact and the decision (who, when, rationale). Evidence comes from the evidence route: list_documents with change_request_id. Needs change_request_id.",
     parameters: {
       type: "object",
       properties: { change_request_id: { type: "string", description: "Change request UUID" } },
@@ -1026,9 +985,7 @@ const RAW_TOOLS = [
   },
   {
     name: "list_decisions",
-    description:
-      "List logged decisions across the workspace, newest first, optionally for one project or one status. " +
-      "Returns a lean summary by default (title, status, who and when); pass view=full or fields=... for context, options and rationale. READ-ONLY.",
+    description: "List logged decisions, newest first, optionally for one project or status. Lean summary by default (title, status, who, when).",
     parameters: {
       type: "object",
       properties: {
@@ -1053,9 +1010,7 @@ const RAW_TOOLS = [
   },
   {
     name: "get_document",
-    description:
-      "Get one document: metadata (type, status, version, owner), external_url, summary and the stored text body " +
-      "when the document has one. File downloads are not returned here; they are fetched by a person in the console. READ-ONLY.",
+    description: "Get one document: type, status, version, owner, external_url, summary and any stored text body. Files are not returned. Needs document_id from list_documents.",
     parameters: {
       type: "object",
       properties: { document_id: { type: "string", description: "Document UUID" } },
@@ -1066,10 +1021,7 @@ const RAW_TOOLS = [
   },
   {
     name: "list_documents",
-    description:
-      "List documents in the workspace, newest first, optionally for one project, folder, status, type or change request " +
-      "(change_request_id lists the evidence attached to that request). Pass view=summary (default) for a lean list, " +
-      "view=full or fields=... for more, or get_document for one in full with its text body. READ-ONLY (scope: document:read).",
+    description: "List documents, newest first, optionally by project, folder, status or type. change_request_id lists the evidence attached to that request. The default view is lean (summary); view=full for more.",
     parameters: {
       type: "object",
       properties: {
@@ -1102,10 +1054,7 @@ const RAW_TOOLS = [
   },
   {
     name: "list_rebaselines",
-    description:
-      "List a project's rebaselines, newest version first (scope: project:read): status (draft, pending_approval, approved, applied, rejected), " +
-      "reason, who asked, applied_at, and before / after (the baseline dates before and after the change). READ-ONLY. " +
-      "A rebaseline is signed off and applied by a person with the approve scope; this tool only reads. See also get_baseline_history.",
+    description: "List a project's rebaselines, newest version first: status, reason, requester, applied_at, before and after dates. Same data as get_baseline_history; use this one for status and reason. Needs project_id.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" }, page, limit },
@@ -1119,10 +1068,7 @@ const RAW_TOOLS = [
   },
   {
     name: "get_baseline_history",
-    description:
-      "How a project's baseline dates moved over time (scope: project:read): the same rebaseline rows as list_rebaselines, up to 100 in one call, " +
-      "newest version first. Read the rows with status applied (their applied_at is when the baseline moved), and for each compare " +
-      "before (the dates it replaced) with after (the dates it set); read them from the highest version down to follow the history backwards. READ-ONLY.",
+    description: "Show how a project's baseline dates moved over time: applied rebaselines, newest first, with the before and after dates of each. Needs project_id.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" } },
@@ -1136,10 +1082,7 @@ const RAW_TOOLS = [
   },
   {
     name: "list_project_dependencies",
-    description:
-      "List a project's dependencies in both directions (scope: project:read): each row has direction (depends_on or depended_on_by), " +
-      "kind (delivery, resource, decision or risk), an optional linked risk, a note, and the other project's id, code, name and declared RAG. " +
-      "Use it to see what a decision or rebaseline would knock on to. READ-ONLY.",
+    description: "List a project's dependencies in both directions (depends_on, depended_on_by) with kind, note and the other project's id, code, name and RAG. Use to see what a decision or rebaseline knocks on to. Needs project_id.",
     parameters: {
       type: "object",
       properties: { project_id: { type: "string", description: "Project UUID" } },
@@ -1155,7 +1098,7 @@ const RAW_TOOLS = [
   // ── Clashes ───────────────────────────────────────────────────────────────
   {
     name: "list_clashes",
-    description: "List resource/schedule/dependency clashes across the workspace.",
+    description: "List schedule, resource and dependency clashes across the workspace (type, status, projects involved). Use to find a clash id.",
     parameters: {
       type: "object",
       properties: { page, limit },
@@ -1171,7 +1114,7 @@ const RAW_TOOLS = [
   // ── Resources ─────────────────────────────────────────────────────────────
   {
     name: "list_resources",
-    description: "List resource members (people with cost rates and capacity) in the workspace.",
+    description: "List resource members (people with cost rate and capacity). Use to find a member id for assignment or request_resource_deletion; profile_id links a member to a login.",
     parameters: {
       type: "object",
       properties: { page, limit },
@@ -1184,12 +1127,79 @@ const RAW_TOOLS = [
     }),
   },
 
+  // ── Read-only id finders and inbox (R-187) ────────────────────────────────
+  {
+    name: "list_allocations",
+    description: "List resource allocations (member, project, percent, window). Use to find an allocation id for request_allocation_deletion.",
+    parameters: { type: "object", properties: { page, limit }, required: [], additionalProperties: false },
+    toRequest: (args) => ({
+      path: `/api/allocations?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      method: "GET",
+    }),
+  },
+  {
+    name: "list_programs",
+    description: "List programs (groups of projects). Use to find a program id for request_program_deletion.",
+    parameters: { type: "object", properties: { page, limit }, required: [], additionalProperties: false },
+    toRequest: (args) => ({
+      path: `/api/programs?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      method: "GET",
+    }),
+  },
+  {
+    name: "list_sprints",
+    description: "List sprints, newest first. Use to find a sprint id for close_sprint or request_sprint_deletion.",
+    parameters: {
+      type: "object",
+      properties: {
+        project_id: { type: "string", description: "Project UUID, to narrow to one project" },
+        state: { type: "string", enum: ["planned", "active", "closed"] },
+        page,
+        limit,
+      },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => {
+      let path = `/api/sprints?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`;
+      if (args.project_id) path += `&project_id=${idSeg("project_id", args.project_id)}`;
+      if (args.state) path += `&state=${encodeURIComponent(String(args.state))}`;
+      return { path, method: "GET" };
+    },
+  },
+  {
+    name: "list_expenses",
+    description: "List a project's expenses (the actuals behind its budget), newest first. Use for what was spent or to find an expense id. Needs project_id.",
+    parameters: {
+      type: "object",
+      properties: { project_id: { type: "string", description: "Project UUID (from list_projects)" }, page, limit },
+      required: ["project_id"],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/projects/${idSeg("project_id", args.project_id)}/expenses?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}`,
+      method: "GET",
+    }),
+  },
+  {
+    name: "list_notifications",
+    description: "List the notifications of the person you act for, newest first. unread_only=true for what is new.",
+    parameters: {
+      type: "object",
+      properties: { unread_only: { type: "boolean", description: "true: only unread" }, page, limit },
+      required: [],
+      additionalProperties: false,
+    },
+    toRequest: (args) => ({
+      path: `/api/notifications?page=${qnum(args.page, 1)}&limit=${qnum(args.limit, 20)}${args.unread_only === true ? "&unread=1" : ""}`,
+      method: "GET",
+    }),
+  },
+
   // ── Search ────────────────────────────────────────────────────────────────
   {
     name: "search_workspace",
-    description:
-      "Full-workspace search across projects, tasks, risks, issues, clashes, documents, " +
-      "change requests, and decisions. Returns typed results with navigation hrefs.",
+    description: "Search projects, tasks, risks, issues, clashes, documents, change requests and decisions by text. Returns typed hits with ids and hrefs. Use to resolve a name to an id.",
     parameters: {
       type: "object",
       properties: { query: { type: "string", description: "Search text (case-insensitive)" } },
@@ -1205,10 +1215,7 @@ const RAW_TOOLS = [
   // ── Audit ─────────────────────────────────────────────────────────────────
   {
     name: "query_audit",
-    description:
-      "Query the immutable audit log. Filter by target_type, target_id, action, actor_id, or " +
-      "channel. Every write in NoPM produces exactly one audit row. To tail the log, pass " +
-      "since=<last seen created_at> and order=asc.",
+    description: "Query the immutable audit log by target_type, target_id, action, actor_id or channel. To tail it, pass since=<last seen created_at> and order=asc.",
     parameters: {
       type: "object",
       properties: {
@@ -1246,18 +1253,7 @@ const RAW_TOOLS = [
   // ── Approvals (read-only) ─────────────────────────────────────────────────
   {
     name: "list_pending_approvals",
-    description:
-      "List the governed decisions waiting on a human in this workspace, oldest first: deletion requests " +
-      "(task, project, risk, issue, expense, document, milestone), change requests (raised or under review; an emergency change commits when raised and never waits), " +
-      "and rebaselines awaiting sign-off. Each item also carries removes (what approving also detaches or deletes), " +
-      "tier, approval_deadline_at and is_emergency. Each item has can_decide plus reason_if_not " +
-      "(missing scope, or four-eyes: the requester cannot decide their own request). READ-ONLY — " +
-      "there is deliberately no approve/decide tool: a person decides in the console. Use this " +
-      "to answer \"what is waiting for me?\" and to tell the user what needs their decision. " +
-      "`hidden_kinds` lists kinds this token's scopes cannot read, so an empty list is not " +
-      "proof that nothing is pending. Pass mine=true to see only the requests assigned to the person behind this token " +
-      "(each item also carries assigned_to_me and assigned_approver_id). Assignment is routing only: " +
-      "it never changes can_decide.",
+    description: "List governed decisions waiting on a person, oldest first: deletion requests, change requests and rebaselines awaiting sign-off. Each item has can_decide and reason_if_not, tier, deadline and what approval removes. READ-ONLY: there is no approve tool. hidden_kinds lists kinds this token cannot read, so an empty list is not proof nothing is pending. mine=true shows only requests assigned to the person behind this token.",
     parameters: {
       type: "object",
       properties: {
@@ -1338,12 +1334,7 @@ export const DECISION_STATUSES = ["proposed", "accepted", "superseded", "rejecte
 const RAW_MCP_GOVERNANCE_TOOLS = [
   {
     name: "create_change_request",
-    description:
-      "Raise a change request on a project (scope: change:write). Status is raised or under_review; " +
-      "approval is a separate decision by an admin or manager, never made here. The one exception is is_emergency: " +
-      "an emergency change commits as soon as it is raised, with no approver, and needs a token that holds the exact " +
-      "change:decide scope (change:write and wildcards are not enough) whose owner is a manager or admin. " +
-      "Needs a token with a recorded owner.",
+    description: "Raise a change request on a project (status raised or under_review). Approval is a separate decision by an admin or manager. An is_emergency change commits as soon as it is raised and needs a token holding change:decide whose owner is a manager or admin.",
     parameters: {
       type: "object",
       properties: {
@@ -1361,12 +1352,12 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
           type: "string",
           enum: ["routine", "normal", "high_risk", "strategic"],
           description:
-            "Approval tier. Leave out for normal. routine only with no cost and no schedule impact. The server raises it (a cost at or over the workspace threshold makes it high_risk) and never lowers it. strategic needs an admin.",
+            "Approval tier; omit for normal. The server may raise it, never lowers it. strategic needs an admin.",
         },
         is_emergency: {
           type: "boolean",
           description:
-            "Emergency flag: the change commits when it is raised and needs no approval and no retro decision. Only a manager or admin may use it, and a token also needs the change:decide scope; it stays flagged as an emergency in every list.",
+            "Commits at once, no approval. Manager or admin only; a token also needs change:decide.",
         },
       },
       required: ["project_id", "title"],
@@ -1379,10 +1370,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "propose_rebaseline",
-    description:
-      "Propose a rebaseline of a project's baseline dates (pending sign-off when the project is locked) (scope: project:write). A project may have only one " +
-      "rebaseline waiting for sign-off (409 pending_rebaseline_exists). It then needs sign-off by an admin or manager " +
-      "other than the requester and an apply step.",
+    description: "Propose a rebaseline of a project's baseline dates. Only one may await sign-off at a time (409 pending_rebaseline_exists). It then needs sign-off by an admin or manager other than the requester, and an apply step.",
     parameters: {
       type: "object",
       properties: {
@@ -1399,11 +1387,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "sign_off_rebaseline",
-    description:
-      "Cast a go / no_go sign-off vote on a rebaseline awaiting sign-off (scope: rebaseline:approve, which a wildcard " +
-      "never grants). Only works when this token's creator is currently an admin or manager and is a different person " +
-      "from the requester; otherwise the API answers 403 (role_not_permitted: \"Only managers and admins can approve\", " +
-      "or self_approval) and nothing changes. Do not retry a 403; tell the user who needs to decide.",
+    description: "Cast a go / no_go sign-off vote on a rebaseline awaiting sign-off. Needs rebaseline:approve and a token owner who is an admin or manager and not the requester; otherwise 403 and nothing changes. Do not retry a 403: tell the user who must decide.",
     parameters: {
       type: "object",
       properties: {
@@ -1421,10 +1405,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "apply_rebaseline",
-    description:
-      "Apply an approved rebaseline: milestone, task and project baseline dates become the current plan (scope: " +
-      "rebaseline:approve). Same rules as sign_off_rebaseline (token creator must be an admin or manager, different person from the " +
-      "requester); 422 project_not_locked if the project was unlocked meanwhile. 403s come back verbatim.",
+    description: "Apply an approved rebaseline so its dates become the current plan. The token owner must be an admin or manager, not the requester; 422 project_not_locked if the project was unlocked meanwhile.",
     parameters: {
       type: "object",
       properties: { rebaseline_id: { type: "string", description: "Rebaseline UUID" } },
@@ -1438,13 +1419,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "attach_evidence",
-    description:
-      "Attach test, UAT or deploy evidence to a change request (scope: document:write). It needs no approve or decide scope. " +
-      "Send document_id to link an existing document, or title to create a new evidence document under the request's project. " +
-      "evidence_type is required; evidence_result, tested_by, tested_at (default now) and evidence_note are optional. " +
-      "Allowed while the request is raised, under review, emergency, approved or implemented; a rejected or deferred request answers 422 evidence_not_accepted. " +
-      "A document already evidence for another request answers 422 evidence_linked_elsewhere. Audited like any document write. " +
-      "Returns the document; read the evidence back with list_documents (change_request_id).",
+    description: "Attach test, UAT or deploy evidence to a change request (scope: document:write). Needs no approve or decide scope. Send document_id to link an existing document, or title to create one. evidence_type is required. Allowed while the request is raised, under review, emergency, approved or implemented. Read it back with list_documents (change_request_id).",
     parameters: {
       type: "object",
       properties: {
@@ -1458,7 +1433,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
         external_url: { type: "string", format: "uri", maxLength: 2000, description: "New document only: link to the test report, build or screenshot" },
         evidence_type: { type: "string", enum: EVIDENCE_TYPES },
         evidence_result: { type: "string", enum: EVIDENCE_RESULTS },
-        tested_by: { type: "string", description: "Who ran the test, up to 200 chars. The record always names the acting token or person; only an admin or manager session may name someone else, and from a token this text is kept in evidence_note as an unverified claim." },
+        tested_by: { type: "string", description: "Who ran the test (max 200 chars). From a token it is kept as an unverified note." },
         tested_at: { type: "string", description: DATETIME + " (default: now)" },
         evidence_note: { type: "string", description: "Up to 5,000 chars" },
       },
@@ -1472,12 +1447,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "implement_change_request",
-    description:
-      "Mark an APPROVED change request as implemented, that is live (scope: change:write, not change:decide). " +
-      "Allowed for the person who raised it, or any admin or manager; the token needs a recorded owner (403 no_principal otherwise). " +
-      "Stamps implemented_at and who did it in one transaction with the audit row; the database refuses an implemented_at earlier than decided_at. " +
-      "Once only: a repeat is 422 already_implemented, and a request that is not approved is 422 invalid_transition. " +
-      "An emergency change is approved when raised and can be implemented at once. This tool never decides anything.",
+    description: "Mark an approved change request as implemented (scope: change:write, not change:decide). The database refuses an implemented_at earlier than decided_at. Allowed for its requester or any admin or manager; the token needs a recorded owner. Once only: a repeat is 422 already_implemented, a non-approved request 422 invalid_transition. Decides nothing.",
     parameters: {
       type: "object",
       properties: {
@@ -1494,9 +1464,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "create_decision",
-    description:
-      "Log a decision in a project's decision register (scope: decision:write). Gets a DEC-NNN reference. " +
-      "Pass change_request_id to record which change request the decision was taken for. A manager or admin's decision defaults to accepted; anyone else's to proposed.",
+    description: "Log a decision in a project's register (gets a DEC-NNN reference). change_request_id records which change it was for. A manager's or admin's decision defaults to accepted, anyone else's to proposed.",
     parameters: {
       type: "object",
       properties: {
@@ -1524,11 +1492,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "create_document",
-    description:
-      "Create a document record (scope: document:write): a title, type, status, summary or body, optionally linked to a " +
-      "project. Gets a DOC-NNN reference. To file it as test or UAT evidence, pass change_request_id (the request must be in the " +
-      "same project as the document) with evidence_type and, optionally, evidence_result, tested_by_label, tested_at and evidence_note; " +
-      "attach_evidence does the same from the change request's side. File upload is a browser step, not part of this tool.",
+    description: "Create a document record: title, type, status, summary or body, optionally linked to a project (gets a DOC-NNN reference). Pass change_request_id with evidence_type to file it as evidence. No file upload.",
     parameters: {
       type: "object",
       properties: {
@@ -1555,10 +1519,7 @@ const RAW_MCP_GOVERNANCE_TOOLS = [
   },
   {
     name: "close_sprint",
-    description:
-      "Close an active sprint (scope: sprint:write). If attached tasks are unfinished the API answers 422 unfinished_tasks " +
-      "and changes nothing: ask the person where they go, then resend with move_unfinished_to set to \"backlog\" or the " +
-      "UUID of another planned/active sprint of the same project. Finished tasks stay with the closed sprint. Audited.",
+    description: "Close an active sprint. If tasks are unfinished the API answers 422 unfinished_tasks and changes nothing: ask the person where they go, then resend with move_unfinished_to = \"backlog\" or another sprint's UUID. Needs sprint_id from list_sprints.",
     parameters: {
       type: "object",
       properties: {

@@ -100,6 +100,12 @@ const REPRESENTATIVE_ARGS: Record<string, Record<string, unknown>> = {
   list_rebaselines:     { project_id: FAKE_UUID },
   get_baseline_history: { project_id: FAKE_UUID },
   list_project_dependencies: { project_id: FAKE_UUID },
+  list_workspace_tasks: { assignee_id: "me", overdue: true },
+  list_allocations:     {},
+  list_programs:        {},
+  list_sprints:         { state: "active" },
+  list_expenses:        { project_id: FAKE_UUID },
+  list_notifications:   { unread_only: true },
 };
 
 // Typed view of the spec paths for easier narrowing
