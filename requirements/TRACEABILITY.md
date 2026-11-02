@@ -175,3 +175,11 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-173 | Decision-prep reads: rebaselines, baseline history, documents, dependencies | DONE | `web/mcp/tools.mjs`, `web/mcp/README.md` | `web/src/lib/assistant/tools-evidence.test.ts`, `web/src/lib/assistant/tools-path-safety.test.ts`, `web/src/lib/assistant/tools-openapi.test.ts` |
 | R-174 | Blocker reason and ETA through MCP | DONE | `web/mcp/tools.mjs` | `web/src/lib/assistant/tools-evidence.test.ts` |
 | R-177 | "Request deletion" for the five registers (UI) | DONE | `web/src/components/governance/request-deletion.tsx`, `web/src/components/sprints/sprint-transition-actions.tsx`, `web/src/app/(console)/approvals/page.tsx` | `web/src/components/governance/request-deletion.test.ts`, `web/src/app/(console)/approvals/approvals-registers.test.ts` |
+| R-190 | Telegram connector kind | PROPOSED | — | — |
+| R-191 | Telegram account link | PROPOSED | — | — |
+| R-192 | Numbered, role-aware chat menu | PROPOSED | — | — |
+| R-193 | Durable chat state | PROPOSED | — | — |
+| R-194 | Governed writes from chat | PROPOSED | — | — |
+| R-195 | Approvals in chat | PROPOSED | — | — |
+| R-196 | Telegram webhook route | PROPOSED | — | — |
+| R-197 | Free-text seam | PROPOSED | — | — |
