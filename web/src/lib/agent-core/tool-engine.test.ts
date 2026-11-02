@@ -2,7 +2,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("@/lib/assistant/providers/index", () => ({ chat: vi.fn(), chatStream: vi.fn() }));
 
-import { executeToolCall, boundToolResult, genericSummary, summarize, buildHref, MAX_TOOL_RESULT_CHARS } from "./tool-engine";
+import { executeToolCall, runToolRounds, boundToolResult, genericSummary, summarize, buildHref, MAX_TOOL_RESULT_CHARS } from "./tool-engine";
+import { chat } from "@/lib/assistant/providers/index";
+import { TOOLS } from "@/lib/assistant/tools";
 
 const UUID = "11111111-1111-4111-8111-111111111111";
 const ctx = { origin: "http://nopm.test", token: "npm_secret", requestId: "req-1", channel: "assistant" };
@@ -93,5 +95,23 @@ describe("action summaries (A11)", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: { id: UUID, name: "P" } }), { status: 201 })));
     const out = await executeToolCall({ id: "c8", name: "create_project", args: { name: "P" } }, ctx);
     expect(out.action.entityId).toBe(UUID);
+  });
+});
+
+describe("runToolRounds runs only the tools it offered", () => {
+  it("refuses a tool the model names but was not offered, without any fetch", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    const chatMock = vi.mocked(chat);
+    chatMock.mockReset();
+    chatMock
+      .mockResolvedValueOnce({ text: null, toolCalls: [{ id: "w1", name: "create_task", args: { project_id: UUID, title: "x" } }] } as never)
+      .mockResolvedValueOnce({ text: "done", toolCalls: [] } as never);
+    const readOnly = TOOLS.filter((t) => t.definition.name === "get_project").map((t) => t.definition);
+    const actions: Parameters<typeof runToolRounds>[0]["actions"] = [];
+    const out = await runToolRounds({ provider: "anthropic", apiKey: "k", model: "m", system: "s", messages: [{ role: "user", content: "hi" }], tools: readOnly, ctx, actions } as never);
+    expect(out).toEqual({ kind: "text", text: "done" });
+    expect(f).not.toHaveBeenCalled();
+    expect(actions[0]).toMatchObject({ tool: "create_task", ok: false, summary: "Tool not available here: create_task" });
   });
 });
