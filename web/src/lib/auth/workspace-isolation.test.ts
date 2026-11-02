@@ -172,6 +172,13 @@ const CHAIN_ALLOWLIST: Record<string, Record<string, string>> = {
       "the connector row IS the workspace binding (webhook URL carries only the connector uuid); secrets are verified next",
     "rpc:nopm_rate_check": RATE,
   },
+  "lib/integrations/telegram/store.ts": {
+    "from:integration_connectors":
+      "the connector row IS the workspace binding (webhook URL carries only the connector uuid); the secret token is verified next",
+    "from:chat_pending":
+      "scoped by connector id (itself bound to one workspace) and, for a tap, by the chat and the linked profile the row was made for",
+  },
+  "lib/integrations/telegram/wiring.ts": { "rpc:nopm_rate_check": RATE },
   "lib/notify/publish.ts": {
     "from:notifications":
       "rows are built with workspace_id; recipients re-checked against profiles of that workspace before the insert",

@@ -90,6 +90,8 @@ const ALLOWLIST: Record<string, string> = {
   "api/integrations/lark/[connectorId]/card": "card.action.trigger: the only mutation is a human approve/reject: handleApprovalAction (inbound.ts) -> decideApproval (decide.ts) -> approveDeletion (audited inside the nopm_commit_*_deletion RPC) | rejectDeletion | decideChangeRequest | decideTimesheet, each with its own writeAudit; channel 'lark'",
   "api/integrations/lark/[connectorId]/events": "chat event webhook: url_verification and the help/approvals/unknown DM replies write nothing; a card.action.trigger delegates to the card route; 'link <code>' -> identity.ts consumeLinkCode writes integration.identity.link for a NEW link. Open gap: re-confirming an already-linked account burns the code with no audit row",
   "api/integrations/github/[connectorId]/events": "GitHub webhook: verifies the HMAC signature, then lib/integrations/github/process.ts records the event in work_events (bookkeeping, not governed data) and moves a linked task through lib/work/apply-task-status.ts, which writes the task.update audit row as the connector actor (channel 'github'); a task on a locked project gets work_event.skipped; ping and unsupported events write nothing; its only other DB write is the nopm_rate_check counter",
+  "api/integrations/telegram/[connectorId]/webhook": "Telegram update webhook: verifies the secret token, then runs handleTelegramUpdate. It writes only chat_pending working state and the nopm_rate_check counter; every governed write is a REST call made with a per-action token (api.ts), audited by that route with channel telegram, and the link itself is audited inside nopm_link_identity",
+  "api/integrations/telegram/[connectorId]/setup": "read-style registration probe: calls the Telegram Bot API (getMe, setWebhook, setMyCommands) with the stored token; it changes nothing in NoPM",
   "api/integrations/lark/[connectorId]/relay": "self-host relay: verifies the HMAC, then runs the same handleLarkPayload as the webhook routes, so the audit row is the one named for those routes (card -> decide.ts; link -> identity.ts); its only DB write is the nopm_rate_check counter",
 };
 
@@ -408,6 +410,8 @@ const NON_BUSINESS_TABLES: Record<string, string> = {
   user_mfa: "per-user MFA state; enroll/enable/disable/challenge are audited via writeAudit in the mfa routes",
   inbound_actions: "idempotency/claim ledger for connector events; the resulting decision is audited by decide.ts",
   action_tokens: "single-use button tokens for connector cards; the resulting decision is audited by decide.ts",
+  chat_pending:
+    "working state of a chat (open step, update-id dedupe); the write a confirmed step causes is a REST call with its own audit row (channel telegram), and disconnect is audited by nopm_revoke_connector",
   integration_deliveries:
     "outbound delivery queue/status; egress itself is audited when queued (integration.digest.send etc.)",
 };
@@ -427,6 +431,8 @@ const NON_MUTATING_RPC: Record<string, string> = {
 
 /** Files (path under src/) that write business tables with no writeAudit, each with a real reason. */
 const UNAUDITED_WRITER_ALLOWLIST: Record<string, string> = {
+  "lib/integrations/telegram/store.ts":
+    "chat_pending is chat working state (non-business table); disconnectCleanup blanks secret_enc inside the audited disconnect (nopm_revoke_connector writes the integration.connector.revoke row), as erasure of that same connector's token",
   "lib/audit/anchor/receipts.ts":
     "bookkeeping of the external-anchor state per workspace (display and streak memory only, never evidence; the evidence is the anchor database); each state change carries its own audit row (audit.anchored, audit.anchor_failed, audit.anchor_mismatch) written by anchor/step.ts and the verify route (R-168..R-170)",
   "app/api/calendar/[token]/route.ts":

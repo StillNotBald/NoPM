@@ -206,7 +206,7 @@ export async function consumeLinkCode(input: ConsumeLinkInput): Promise<LinkOutc
       label,
       workspaceId: connector.workspace_id,
       role: profile.role,
-      channel: "lark",
+      channel: connector.kind === "telegram" ? "telegram" : "lark",
       viaConnectorId: connector.id,
       externalEventId: input.externalEventId ?? undefined,
       externalActorRef: externalActorRef(connector.kind, externalTenant, externalUserId),
