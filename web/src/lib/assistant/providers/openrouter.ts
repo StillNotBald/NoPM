@@ -6,6 +6,7 @@
  */
 
 import type { ToolDefinition, ProviderMessage, ToolCall, ChatResult } from "./openai";
+import { ProviderError, providerHttpError } from "./errors";
 
 export type { ToolDefinition, ProviderMessage, ToolCall, ChatResult };
 
@@ -22,12 +23,10 @@ const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
  * HTTP status — because free-tier error bodies can echo back fragments of
  * request headers/keys.
  */
-export class OpenRouterCapacityError extends Error {
-  readonly status: number;
+export class OpenRouterCapacityError extends ProviderError {
   constructor(status: number) {
-    super(`OpenRouter capacity/rate limit exceeded (HTTP ${status})`);
+    super(status === 429 ? "rate_limited" : "unavailable", status, "openrouter", `OpenRouter capacity/rate limit exceeded (HTTP ${status})`);
     this.name = "OpenRouterCapacityError";
-    this.status = status;
   }
 }
 
@@ -39,7 +38,7 @@ function throwForStatus(status: number): never {
   if (status === 429 || status === 503) {
     throw new OpenRouterCapacityError(status);
   }
-  throw new Error(`OpenRouter API error ${status}`);
+  throw providerHttpError("openrouter", status);
 }
 
 function buildHeaders(apiKey: string): Record<string, string> {

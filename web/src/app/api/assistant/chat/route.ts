@@ -8,8 +8,8 @@
  *   { type: "actions",  actions: Action[] }
  *   { type: "token",    text: string }      (one or more)
  *   { type: "done",     conversation_id: string | null, usedDemoKey: boolean }
- * On any error during streaming, a SANITIZED { type: "error", message: string }
- * is emitted — never the raw provider/upstream error text.
+ * On any error during streaming, a SANITIZED { type: "error", message: string, conversation_id }
+ * (the id lets the panel's Retry reuse the conversation) is emitted — never the raw provider/upstream error text.
  * The non-stream JSON path is byte-for-byte unchanged for BYOK/non-demo users.
  *
  * Demo actors (the shared, publicly-reachable demo login — see
@@ -52,8 +52,40 @@ import {
   type ResolvedProvider,
 } from "@/lib/assistant/index";
 import { runAssistantFallback, priorActionsNote, type FallbackResult } from "@/lib/assistant/fallback";
+import { ProviderError, providerErrorInfo, type ProviderErrorInfo } from "@/lib/assistant/providers/errors";
+import { resolvePageContext } from "@/lib/assistant/page-context";
+import {
+  MAX_MESSAGE_CHARS,
+  MAX_STORED_HISTORY,
+  boundClientHistory,
+  interruptedContent,
+  priorAttemptNote,
+  rowsToHistory,
+  splitRetry,
+  type HistoryRow,
+} from "@/lib/assistant/history";
 import { isDemoActor } from "@/lib/auth/demo";
 import { createAdminClient } from "@/lib/supabase/admin";
+
+/**
+ * A2: no provider failure is swallowed. A typed ProviderError is logged with
+ * kind + provider + HTTP status only (never the upstream body, never a key) and
+ * returned as the additive `provider_error` field so the panel can say what
+ * happened. Any other failure is logged by name only and gets no provider_error.
+ */
+function noteTurnError(err: unknown, mode: "json" | "stream"): ProviderErrorInfo | null {
+  if (err instanceof ProviderError) {
+    console.error("[nopm][assistant] provider error", {
+      kind: err.kind,
+      provider: err.provider,
+      status: err.status,
+      mode,
+    });
+    return providerErrorInfo(err);
+  }
+  console.error("[nopm][assistant] turn failed", { error: err instanceof Error ? err.name : "unknown", mode });
+  return null;
+}
 
 const MID_STREAM_ERROR_MESSAGE = "The assistant hit a problem mid-reply. Please try again.";
 
@@ -84,6 +116,33 @@ async function answerWithFallback(
   }
 }
 
+/**
+ * Record a turn that stopped early (A3/A9): an assistant row "(interrupted) ..." that keeps the
+ * partial text and the actions already run, so a reload shows what really happened and a retry
+ * knows not to repeat it. Writes nothing when the turn had done nothing. Never throws.
+ */
+async function saveInterrupted(
+  db: ReturnType<typeof createAdminClient>,
+  conversationId: string | null,
+  actionLog: Action[],
+  partialReply: string,
+): Promise<void> {
+  if (!conversationId) return;
+  const content = interruptedContent(actionLog, partialReply);
+  if (!content) return;
+  try {
+    await db.from("assistant_messages").insert({
+      conversation_id: conversationId,
+      role: "assistant",
+      content,
+      actions: actionLog.length > 0 ? actionLog : null,
+    });
+    await db.from("assistant_conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId);
+  } catch {
+    console.error("[nopm][assistant] could not record an interrupted turn");
+  }
+}
+
 export const POST = route(async ({ actor, request }) => {
   // Session-user only — token actors are rejected
   if (actor.type !== "user") {
@@ -95,6 +154,8 @@ export const POST = route(async ({ actor, request }) => {
     history?: unknown;
     conversation_id?: unknown;
     stream?: unknown;
+    context?: unknown;
+    retry?: unknown;
   }>(request);
 
   if (!body || typeof body.message !== "string" || body.message.trim() === "") {
@@ -104,6 +165,12 @@ export const POST = route(async ({ actor, request }) => {
   }
 
   const message = body.message.trim();
+  if (message.length > MAX_MESSAGE_CHARS) {
+    return validationError("Validation failed", [
+      { field: "message", message: `message must be at most ${MAX_MESSAGE_CHARS} characters` },
+    ]);
+  }
+  const isRetry = body.retry === true;
 
   // Validate history if provided
   let history: { role: "user" | "assistant"; content: string }[] = [];
@@ -164,7 +231,10 @@ export const POST = route(async ({ actor, request }) => {
   } catch (err) {
     if (err instanceof DemoQuotaExceededError) return quotaExceededResponse(err);
     if (err instanceof ApiError) throw err; // quota store down -> 503, fail closed
-    resolved = null; // no credentials / unreadable key: the grounded fallback answers
+    // No credentials / unreadable key: the grounded fallback answers. Logged by
+    // error name only (never the message), so a broken stored key is visible.
+    console.error("[nopm][assistant] provider not resolved", { error: err instanceof Error ? err.name : "unknown" });
+    resolved = null;
   }
   // Someone on their OWN key whose provider failed is answered by the fallback without touching the shared demo allowance.
   const ownKey = resolved ? !resolved.usedDemoKey : await hasOwnCredential(db, actor.id);
@@ -184,6 +254,11 @@ export const POST = route(async ({ actor, request }) => {
   // chat every visit, no cross-visit history, no migration). BYOK/non-demo
   // users are completely unchanged.
   let conversationId: string | null = demo ? null : ((body.conversation_id as string | undefined) ?? null);
+  // A4/A3: for a conversation that already exists the stored rows are the history (the client's
+  // copy can be forged or stale); a retry also learns what its first attempt already did.
+  let storedRows: HistoryRow[] | null = null;
+  let priorAttempt: string | null = null;
+  let userRowAlreadyStored = false;
 
   if (!demo) {
     if (conversationId) {
@@ -199,6 +274,23 @@ export const POST = route(async ({ actor, request }) => {
       if (!conv) {
         // Treat as "not found" — silently create a new one rather than leaking
         conversationId = null;
+      } else {
+        const { data: rows, error: rowsErr } = await db
+          .from("assistant_messages")
+          .select("role, content, actions")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: false })
+          .limit(MAX_STORED_HISTORY + 2);
+        if (!rowsErr && rows) {
+          let list = (rows as HistoryRow[]).filter((r) => r.role === "user" || r.role === "assistant").reverse();
+          if (isRetry) {
+            const split = splitRetry(list, message);
+            list = split.rows;
+            priorAttempt = priorAttemptNote(split.priorActions);
+            userRowAlreadyStored = split.dropUserRow;
+          }
+          storedRows = list;
+        }
       }
     }
 
@@ -222,13 +314,28 @@ export const POST = route(async ({ actor, request }) => {
       conversationId = newConv.id as string;
     }
 
-    // Persist the user message
-    await db.from("assistant_messages").insert({
-      conversation_id: conversationId,
-      role: "user",
-      content: message,
-    });
+    // Persist the user message. A failed insert fails the turn BEFORE any tool runs (A9),
+    // so no write can happen for a message that was never recorded. A retry whose first
+    // attempt already stored this exact message does not store it twice.
+    if (!userRowAlreadyStored) {
+      const { error: msgErr } = await db.from("assistant_messages").insert({
+        conversation_id: conversationId,
+        role: "user",
+        content: message,
+      });
+      if (msgErr) {
+        console.error("[nopm][assistant] could not store the user message", { code: msgErr.code ?? "unknown" });
+        throw new ApiError(500, "Could not save your message. Please try again.", "persist_failed");
+      }
+    }
   }
+
+  // The history the model sees: stored rows when the conversation exists, else the client's
+  // (demo sessions and brand-new conversations only), bounded per entry.
+  const turnHistory = storedRows ? rowsToHistory(storedRows) : boundClientHistory(history);
+
+  // Where the person is (A5): validated, workspace-checked, best effort.
+  const pageContext = await resolvePageContext(body.context, actor.workspaceId, db);
 
   const wantsStream = body.stream === true;
   // Forward the caller's own X-Request-Id (if any) into the assistant's
@@ -264,26 +371,31 @@ export const POST = route(async ({ actor, request }) => {
         }
 
         let tokensFlushed = false;
+        // Declared outside the try so the finally can still record an interrupted turn (A3/A9).
+        let fullReply = "";
+        let normalPersisted = false;
 
         try {
           let actions: Action[] = [];
           let usedDemoKey = false;
           let usedFallback = false;
-          let fullReply = "";
           let midStreamFailure = false;
+          let providerError: ProviderErrorInfo | null = null;
 
           try {
             if (!resolved) throw new Error("no provider configured");
             const stream = await runAssistantStream({
               actor,
               message,
-              history,
+              history: turnHistory,
               origin,
               requestId,
               conversationId: capturedConversationId,
               actionLog,
               quota,
               resolved,
+              pageContext,
+              priorAttempt,
             });
             release = stream.release;
             if (cancelled) return; // finally revokes
@@ -301,7 +413,8 @@ export const POST = route(async ({ actor, request }) => {
               emit({ type: "token", text: chunk });
             }
             if (cancelled) return;
-          } catch {
+          } catch (turnErr) {
+            providerError = noteTurnError(turnErr, "stream");
             if (tokensFlushed) {
               // Mid-stream failure AFTER tokens already flushed — never
               // splice fallback text onto a partial reply. Sanitized error
@@ -335,19 +448,30 @@ export const POST = route(async ({ actor, request }) => {
           }
 
           if (midStreamFailure) {
-            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE });
+            emit({
+              type: "error",
+              message: providerError?.message ?? MID_STREAM_ERROR_MESSAGE,
+              conversation_id: capturedConversationId,
+              ...(providerError ? { provider_error: providerError } : {}),
+            });
             return; // outer finally closes the stream
           }
 
           // Persist assistant reply + actions — skipped entirely for demo
           // actors (fresh chat, no persistence).
           if (!capturedDemo) {
-            await capturedDb.from("assistant_messages").insert({
+            const { error: saveErr } = await capturedDb.from("assistant_messages").insert({
               conversation_id: capturedConversationId,
               role: "assistant",
               content: fullReply || "Done.",
               actions: actions.length > 0 ? actions : null,
             });
+            if (saveErr) {
+              // Not saved: the finally below records an (interrupted) row instead, so the actions survive a reload.
+              console.error("[nopm][assistant] could not store the reply", { code: saveErr.code ?? "unknown" });
+            } else {
+              normalPersisted = true;
+            }
 
             await capturedDb
               .from("assistant_conversations")
@@ -367,6 +491,7 @@ export const POST = route(async ({ actor, request }) => {
             conversation_id: capturedConversationId,
             usedDemoKey,
             usedFallback,
+            ...(providerError ? { provider_error: providerError } : {}),
           });
         } catch (err) {
           // Catch-all safety net (e.g. the fallback itself being refused). Never
@@ -378,11 +503,17 @@ export const POST = route(async ({ actor, request }) => {
               code: "rate_limited",
               retry_after_seconds: err.retryAfterSeconds,
               message: err.message,
+              conversation_id: capturedConversationId,
             });
           } else {
-            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE });
+            emit({ type: "error", message: MID_STREAM_ERROR_MESSAGE, conversation_id: capturedConversationId });
           }
         } finally {
+          // A turn that stopped early (provider error after tokens, client cancel, fallback refused)
+          // but had already run tools or sent text keeps its action record (A3/A9).
+          if (!normalPersisted && !capturedDemo) {
+            await saveInterrupted(capturedDb, capturedConversationId, actionLog, fullReply);
+          }
           const r: (() => Promise<void>) | null = release;
           if (r) await r().catch(() => {});
           try {
@@ -412,10 +543,12 @@ export const POST = route(async ({ actor, request }) => {
   // ── Non-streaming path ───────────────────────────────────────────────────
   let result: AssistantResult | FallbackResult;
   let usedFallback = false;
+  let providerError: ProviderErrorInfo | null = null;
   try {
     if (!resolved) throw new Error("no provider configured");
-    result = await runAssistant({ actor, message, history, origin, requestId, conversationId, actionLog, quota, resolved });
-  } catch {
+    result = await runAssistant({ actor, message, history: turnHistory, origin, requestId, conversationId, actionLog, quota, resolved, pageContext, priorAttempt });
+  } catch (turnErr) {
+    providerError = noteTurnError(turnErr, "json");
     // Never surface the raw provider/upstream error to the client — answer
     // with the grounded, rate-limited fallback instead, keeping the list of
     // anything the failed turn had already done.
@@ -425,6 +558,7 @@ export const POST = route(async ({ actor, request }) => {
         [...actionLog],
       );
     } catch (err) {
+      if (!demo) await saveInterrupted(db, conversationId, actionLog, "");
       if (err instanceof DemoQuotaExceededError) return quotaExceededResponse(err);
       throw err;
     }
@@ -435,12 +569,16 @@ export const POST = route(async ({ actor, request }) => {
   if (!demo) {
     // Persist the assistant reply + actions — identical treatment whether
     // the reply came from the real provider or the fallback.
-    await db.from("assistant_messages").insert({
+    const { error: saveErr } = await db.from("assistant_messages").insert({
       conversation_id: conversationId,
       role: "assistant",
       content: result.reply,
       actions: result.actions.length > 0 ? result.actions : null,
     });
+    if (saveErr) {
+      console.error("[nopm][assistant] could not store the reply", { code: saveErr.code ?? "unknown" });
+      await saveInterrupted(db, conversationId, result.actions, result.reply);
+    }
 
     // Bump updated_at on the conversation
     await db
@@ -452,7 +590,7 @@ export const POST = route(async ({ actor, request }) => {
   const demoModeHeader = result.usedDemoKey || usedFallback ? "true" : "false";
 
   return ok(
-    { ...result, conversation_id: conversationId },
+    { ...result, conversation_id: conversationId, ...(providerError ? { provider_error: providerError } : {}) },
     { headers: { "X-Demo-Mode": demoModeHeader } },
   );
 });

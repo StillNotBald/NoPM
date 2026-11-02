@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Sparkles, X, ArrowUp, ExternalLink, Maximize2, Minimize2, Plus, ChevronLeft, MessageSquare } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,16 @@ interface Action {
   ok: boolean;
   summary: string;
   href?: string;
+  entityId?: string;
   auditId?: string;
+}
+
+/** Typed provider failure sent by the chat route (additive `provider_error`). */
+interface ProviderErrorInfo {
+  kind: "key_invalid" | "rate_limited" | "model_not_found" | "unavailable" | "timeout";
+  provider: string;
+  status: number;
+  message: string;
 }
 
 interface ChatMessage {
@@ -26,6 +36,9 @@ interface ChatMessage {
   actions?: Action[];
   usedDemoKey?: boolean;
   usedFallback?: boolean;
+  // A2: why the provider could not answer. The reply (if any) came from the
+  // read-only fallback; the banner says what to fix.
+  providerError?: ProviderErrorInfo;
   streaming?: boolean; // true while tokens are still arriving
   // Sanitized mid-stream failure (LOCKED #6): render an inline retry
   // affordance instead of clearing the transcript or splicing fallback text
@@ -38,6 +51,7 @@ interface ChatResponse {
   actions: Action[];
   usedDemoKey: boolean;
   usedFallback?: boolean;
+  provider_error?: ProviderErrorInfo;
   // Demo sessions always get conversation_id: null (fresh chat every visit,
   // no persistence).
   conversation_id: string | null;
@@ -47,8 +61,8 @@ interface ChatResponse {
 type StreamEvent =
   | { type: "actions"; actions: Action[] }
   | { type: "token"; text: string }
-  | { type: "done"; conversation_id: string | null; usedDemoKey: boolean; usedFallback?: boolean }
-  | { type: "error"; message: string };
+  | { type: "done"; conversation_id: string | null; usedDemoKey: boolean; usedFallback?: boolean; provider_error?: ProviderErrorInfo }
+  | { type: "error"; message: string; conversation_id?: string | null; provider_error?: ProviderErrorInfo };
 
 interface ConversationSummary {
   id: string;
@@ -128,12 +142,30 @@ function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => voi
         )}
       </div>
 
+      {/* Provider banner (A2): the model provider could not answer. Names the
+          cause and the fix; any reply above came from the read-only fallback. */}
+      {msg.providerError && (
+        <div
+          role="alert"
+          data-testid="assistant-provider-banner"
+          data-kind={msg.providerError.kind}
+          className="flex max-w-[85%] flex-col gap-0.5 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2"
+        >
+          <span className="font-mono text-xs font-semibold text-danger-ink">{msg.providerError.message}</span>
+          {(msg.providerError.kind === "key_invalid" || msg.providerError.kind === "model_not_found") && (
+            <span className="font-mono text-xs text-ink-muted">
+              Use Disconnect at the bottom of this panel, then add the key again.
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Inline error bubble — mid-stream {type:'error'}. The user's message
           stays in the transcript above; retry re-sends it in place. */}
       {msg.error && (
         <div className="flex max-w-[85%] flex-wrap items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2">
           <span className="font-mono text-xs text-danger-ink">
-            Something went wrong. Your message was not lost.
+            {msg.providerError ? "Your message was not lost." : "Something went wrong. Your message was not lost."}
           </span>
           {onRetry && (
             <button
@@ -266,6 +298,9 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   // null = list view, string = chat view for that conversation, "new" = new chat
   const [view, setView] = useState<"list" | "chat">("list");
+
+  // A5: tell the server where the person is. Validated and workspace-checked server-side.
+  const pathname = usePathname();
 
   const [history, setHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -439,13 +474,14 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
 
     const contextHistory = history.slice(0, userIdx);
     setHistory((h) => h.slice(0, assistantIdx)); // drop the errored bubble only
-    await dispatchSend(userMsg.content, contextHistory);
+    // retry: true tells the server this is a re-send, so it can see what the first attempt already did and not repeat it.
+    await dispatchSend(userMsg.content, contextHistory, { retry: true });
   }
 
   async function dispatchSend(
     text: string,
     contextHistory: ChatMessage[],
-    opts: { onTotalFailure?: () => void } = {},
+    opts: { onTotalFailure?: () => void; retry?: boolean } = {},
   ) {
     setSending(true);
     setSendError(null);
@@ -458,6 +494,17 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     };
     if (activeConversationId) {
       requestBody.conversation_id = activeConversationId;
+    }
+    if (opts.retry) requestBody.retry = true;
+    {
+      const project = /^\/projects\/([0-9a-f-]{36})(?:\/|$)/i.exec(pathname ?? "");
+      let tz: string | undefined;
+      try {
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      } catch {
+        tz = undefined;
+      }
+      requestBody.context = { path: pathname ?? undefined, project_id: project?.[1], tz };
     }
 
     try {
@@ -532,7 +579,11 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
             // dispatchSend and risk splicing a second reply onto whatever
             // partial text already streamed (LOCKED #6). Finalize the
             // placeholder as an inline error bubble with a retry
-            // affordance instead; the user's message stays put.
+            // affordance instead; the user's message stays put. The id of a brand-new
+            // conversation is kept so Retry reuses it (the server then knows what ran).
+            if (event.conversation_id && event.conversation_id !== activeConversationId) {
+              setActiveConversationId(event.conversation_id);
+            }
             setHistory((h) =>
               h.map((m, i) =>
                 i === placeholderIdx
@@ -542,6 +593,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                       actions: pendingActions ?? m.actions,
                       streaming: false,
                       error: true,
+                      providerError: event.provider_error,
                     }
                   : m,
               ),
@@ -576,6 +628,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
                       actions: pendingActions ?? m.actions,
                       usedDemoKey: event.usedDemoKey,
                       usedFallback: event.usedFallback,
+                      providerError: event.provider_error,
                       streaming: false,
                     }
                   : m,
@@ -607,6 +660,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
       actions: res.actions,
       usedDemoKey: res.usedDemoKey,
       usedFallback: res.usedFallback,
+      providerError: res.provider_error,
     };
     setHistory((h) => [...h, assistantMsg]);
   }

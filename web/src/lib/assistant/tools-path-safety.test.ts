@@ -25,6 +25,7 @@ const NIL = "00000000-0000-0000-0000-000000000000";
 /** tool name -> the argument names that become path segments. */
 const ID_ARGS: Record<string, string[]> = {
   get_project: ["project_id"],
+  list_expenses: ["project_id"],
   update_project: ["project_id"],
   request_project_deletion: ["project_id"],
   list_milestones: ["project_id"],

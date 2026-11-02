@@ -9,6 +9,7 @@ import { filterTools } from "@/lib/modules";
 // (web/mcp/server.mjs) and the in-app BYOK assistant — kept outside src/ on
 // purpose so it stays a plain-Node, no-build-step artifact for the CLI.
 import { MCP_TOOLS } from "../../../../mcp/tools.mjs";
+import { callApi, errorResult, toMcpTool, toToolResult } from "../../../../mcp/shared.mjs";
 
 export const runtime = "nodejs";
 
@@ -38,78 +39,61 @@ type ToolRegistryEntry = {
 // Tools of modules switched off with NOPM_MODULES (ADR 0019) are neither listed nor callable.
 const REGISTRY = filterTools(MCP_TOOLS as ToolRegistryEntry[]);
 
-async function callApi(
-  origin: string,
-  token: string,
-  path: string,
-  method: string,
-  body: unknown,
-  requestId: string | null,
-) {
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    "Content-Type": "application/json",
-    "X-NoPM-Client": "mcp",
-  };
-  // Forward the caller's own X-Request-Id (if present) so the eventual
-  // audit_log row correlates back to this MCP request rather than getting
-  // a freshly generated id at the internal REST hop (R-82).
-  if (requestId) headers["X-Request-Id"] = requestId;
-
-  const res = await fetch(new URL(path, origin), {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  try {
-    return await res.json();
-  } catch {
-    return { error: `Non-JSON response (HTTP ${res.status})` };
-  }
-}
-
 function buildServer(origin: string, token: string, requestId: string | null): Server {
   const server = new Server({ name: "nopm", version: "1.0.0" }, { capabilities: { tools: {} } });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: REGISTRY.map(({ name, description, parameters }) => ({
-      name,
-      description,
-      inputSchema: parameters,
-    })),
+    tools: REGISTRY.map(toMcpTool),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args = {} } = request.params;
 
     const tool = REGISTRY.find((t) => t.name === name);
-    if (!tool) {
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
-        isError: true,
-      };
-    }
+    if (!tool) return errorResult(`Unknown tool: ${name}`);
 
     let req: { path: string; method: string; body?: unknown };
     try {
       req = tool.toRequest(args);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return {
-        content: [{ type: "text", text: JSON.stringify({ error: `Bad arguments: ${message}` }) }],
-        isError: true,
-      };
+      return errorResult(`Bad arguments: ${err instanceof Error ? err.message : String(err)}`);
     }
 
-    const result = await callApi(origin, token, req.path, req.method, req.body, requestId);
-    const isError = typeof (result as { error?: unknown }).error === "string";
-    return {
-      content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      isError,
-    };
+    // Forward the caller's own X-Request-Id so the eventual audit_log row
+    // correlates back to this MCP request (R-82).
+    return toToolResult(
+      await callApi({
+        baseUrl: origin,
+        token,
+        path: req.path,
+        method: req.method,
+        body: req.body,
+        requestId: requestId ?? undefined,
+      }),
+    );
   });
 
   return server;
+}
+
+/**
+ * M7: a wrong or revoked token must fail at connect, not on the first tool
+ * call. On `initialize` and `tools/list` make ONE GET /api/me with the token;
+ * a 401 is answered with the standard 401. Any other outcome (including a
+ * network failure) lets the request through: only a definite 401 blocks.
+ */
+async function connectTokenRejected(request: Request, origin: string, token: string): Promise<boolean> {
+  if (request.method !== "POST") return false;
+  let methods: unknown[] = [];
+  try {
+    const parsed = await request.clone().json();
+    methods = (Array.isArray(parsed) ? parsed : [parsed]).map((m) => (m as { method?: unknown } | null)?.method);
+  } catch {
+    return false;
+  }
+  if (!methods.some((m) => m === "initialize" || m === "tools/list")) return false;
+  const me = await callApi({ baseUrl: origin, token, path: "/api/me", method: "GET" });
+  return me.status === 401;
 }
 
 async function handle(request: Request): Promise<Response> {
@@ -147,6 +131,15 @@ async function handle(request: Request): Promise<Response> {
   // it is a safe token, else generated here — forwarded to every internal
   // tool-call fetch and echoed on the response, exactly like route() does.
   const requestId = resolveRequestId(request.headers);
+
+  if (await connectTokenRejected(request, origin, token)) {
+    const rejected = toErrorResponse(
+      new AuthError("This token was rejected. Create a new scoped npm_ PAT in NoPM → Settings → API Tokens."),
+    );
+    rejected.headers.set("WWW-Authenticate", 'Bearer realm="nopm", error="invalid_token"');
+    rejected.headers.set("X-Request-Id", requestId);
+    return rejected;
+  }
 
   const server = buildServer(origin, token, requestId);
   const transport = new WebStandardStreamableHTTPServerTransport({

@@ -4,6 +4,7 @@
  */
 
 import type { ToolDefinition, ProviderMessage, ToolCall, ChatResult } from "./openai";
+import { providerHttpError } from "./errors";
 
 export type { ToolDefinition, ProviderMessage, ToolCall, ChatResult };
 
@@ -80,8 +81,8 @@ export async function* chatStream(opts: {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Google AI API error ${res.status}: ${err}`);
+    // Status only: the upstream body can echo request text or key fragments.
+    throw providerHttpError("google", res.status);
   }
 
   if (!res.body) throw new Error("Google AI streaming response has no body");
@@ -207,8 +208,8 @@ export async function chat(opts: {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Google AI API error ${res.status}: ${err}`);
+    // Status only: the upstream body can echo request text or key fragments.
+    throw providerHttpError("google", res.status);
   }
 
   const json = await res.json() as {

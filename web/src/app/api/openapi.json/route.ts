@@ -1439,7 +1439,7 @@ const spec = {
           { name: "limit", in: "query", schema: { type: "integer", default: 20, minimum: 1, maximum: 100 } },
           { name: "sort", in: "query", schema: { type: "string" }, description: "field:asc|desc — see description for the field whitelist" },
           { name: "project_id", in: "query", schema: { type: "string", format: "uuid" } },
-          { name: "assignee_id", in: "query", schema: { type: "string", format: "uuid" } },
+          { name: "assignee_id", in: "query", schema: { type: "string" }, description: "A resource member UUID, or the literal me for the caller's own tasks (resolved through resource_members.profile_id; empty page when the person has no member row)" },
           { name: "status_type", in: "query", schema: { type: "string" } },
           { name: "priority", in: "query", schema: { type: "string" } },
           { name: "due_before", in: "query", schema: { type: "string", format: "date" } },
@@ -2383,7 +2383,7 @@ const spec = {
       get: {
         tags: ["notifications"],
         summary: "List notifications for the current user",
-        description: "scope: notification:read. Optional ?unread=1 to filter unread only.",
+        description: "scope: notification:read. Returns the notifications of the person behind the caller (for a bearer token, the human who minted it), workspace-scoped. Optional ?unread=1 to filter unread only.",
         operationId: "listNotifications",
         parameters: [
           { name: "page", in: "query", schema: { type: "integer", default: 1 } },

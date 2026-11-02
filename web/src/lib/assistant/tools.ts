@@ -52,6 +52,10 @@ export const TOOLS: ToolSpec[] = filterTools(TOOL_REGISTRY).map((t) => ({
  * (M6 / R-140) needs report:read (the weekly-report scope, read only), added here in the wave-3 fix pass.
  * get_project_trend (W3-C) needs project:read only; list_pending_approvals gained mine=true (same change:read etc. scopes). Locked by
  * tools-openapi.test.ts, scopes.test.ts and review/tool.test.ts.
+ *
+ * sprint:read, program:read and notification:read serve the read-only id finders and inbox
+ * (list_sprints, list_programs, list_notifications; R-187). READ scopes only: no write, approve
+ * or admin scope was added.
  */
 export const TOOL_SCOPES = [
   "project:read",
@@ -84,6 +88,9 @@ export const TOOL_SCOPES = [
   "decision:read",
   "document:read",
   "report:read",
+  "sprint:read",
+  "program:read",
+  "notification:read",
 ] as const;
 
 export type ToolScope = (typeof TOOL_SCOPES)[number];
