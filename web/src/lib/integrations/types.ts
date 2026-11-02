@@ -147,7 +147,7 @@ export type ConnectorStatus = "active" | "paused" | "revoked";
 export type ConnectorRow = {
   id: string;
   workspace_id: string;
-  kind: "lark";
+  kind: "lark" | "telegram";
   name: string;
   status: ConnectorStatus;
   config: LarkConfig;

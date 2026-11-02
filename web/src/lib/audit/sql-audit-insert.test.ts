@@ -80,7 +80,7 @@ describe("migration 0107 audit insert helper", () => {
   it("the channel list matches the TypeScript list and keeps the 0103 error code", () => {
     const m = sql.match(/v_channel not in \(([^)]*)\)/);
     expect(m).not.toBeNull();
-    expect(m![1].split(",").map((c) => c.trim().replace(/'/g, ""))).toEqual([...AUDIT_INSERT_CHANNELS]);
+    expect(m![1].split(",").map((c) => c.trim().replace(/'/g, ""))).toEqual(AUDIT_INSERT_CHANNELS.filter((c) => c !== "telegram")); // telegram joins in migration 0120
     expect(sql).toMatch(/raise exception 'invalid_channel' using errcode = 'p0005'/);
   });
 

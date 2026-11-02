@@ -23,6 +23,8 @@ export type Actor = {
   role?: string; // member_role for users
   scopes?: string[]; // for tokens
   tokenId?: string;
+  /** api_tokens.kind of a Bearer actor ("user", "assistant", "telegram"). */
+  tokenKind?: string;
   /** Declared client (caller-asserted via X-NoPM-Client; provenance only —
    *  never an authorization input). See @/lib/audit/channel. */
   channel?: AuditChannel;
@@ -73,7 +75,10 @@ export async function requireAuth(request: Request): Promise<Actor> {
   const authz = request.headers.get("authorization");
   if (authz?.toLowerCase().startsWith("bearer ")) {
     const actor = await verifyBearer(authz.slice(7).trim(), request.headers);
-    return { ...actor, ...resolveClientMeta(request.headers, "token") };
+    const meta = resolveClientMeta(request.headers, "token");
+    // A per-action chat token (kind "telegram") is the chat connector acting: the channel comes from the
+    // credential, never from a header the caller chose (ADR 0020).
+    return { ...actor, ...meta, ...(actor.tokenKind === "telegram" ? { channel: "telegram" as const } : {}) };
   }
   const actor = await verifySession();
   const full: Actor = { ...actor, ...resolveClientMeta(request.headers, "user") };
@@ -195,7 +200,7 @@ async function verifyBearer(raw: string, headers: Headers = new Headers()): Prom
 
   const { data, error } = await admin
     .from("api_tokens")
-    .select("id, workspace_id, name, scopes, revoked, expires_at, created_by, last_used_at")
+    .select("id, workspace_id, name, scopes, revoked, expires_at, created_by, last_used_at, kind")
     .eq("token_hash", hashToken(raw))
     .maybeSingle();
 
@@ -260,6 +265,7 @@ async function verifyBearer(raw: string, headers: Headers = new Headers()): Prom
     label: data.name,
     workspaceId: data.workspace_id,
     scopes: data.scopes ?? [],
+    tokenKind: typeof data.kind === "string" ? data.kind : undefined,
     // The human who minted this token (api_tokens.created_by). Four-eyes
     // compares HUMANS, never actor ids: a person's token is that person, so
     // it can never approve what the person (or another of their tokens)

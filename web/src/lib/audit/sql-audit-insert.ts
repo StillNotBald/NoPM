@@ -24,7 +24,7 @@ export const AUDIT_INSERT_PARAMS = ["p_workspace_id", "p_audit", "p_target_id", 
 export const AUDIT_ACTION_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
 
 /** The channels the SQL helper accepts (same set as migration 0103 and audit/channel.ts). */
-export const AUDIT_INSERT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant", "lark", "github"] as const;
+export const AUDIT_INSERT_CHANNELS = ["ui", "api", "cli", "mcp", "assistant", "lark", "github", "telegram"] as const;
 
 /** The exact argument object of nopm_audit_insert. */
 export type AuditInsertArgs = {

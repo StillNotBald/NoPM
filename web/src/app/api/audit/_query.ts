@@ -31,7 +31,7 @@ export type AuditFilters = {
 };
 
 /** The only channel values the DB check constraint accepts (R-82; "lark" added by 0046, "github" by 0105). */
-const VALID_CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant", "lark", "github"]);
+const VALID_CHANNELS = new Set(["ui", "api", "cli", "mcp", "assistant", "lark", "github", "telegram"]);
 
 const VALID_ORDERS = new Set(["asc", "desc"]);
 
