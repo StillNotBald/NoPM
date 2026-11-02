@@ -13,6 +13,7 @@
 
 import { chat, type ProviderMessage, type ToolCall, type ToolDefinition, type Provider } from "@/lib/assistant/providers/index";
 import { TOOLS, type ToolSpec } from "@/lib/assistant/tools";
+import { wrapUntrustedToolResult } from "./untrusted";
 
 /** A single governed action the assistant took. */
 export type Action = {
@@ -140,7 +141,7 @@ export async function executeToolCall(
   if (!spec) {
     return {
       action: { tool: tc.name, args: tc.args, ok: false, summary: `Unknown tool: ${tc.name}` },
-      message: { role: "tool", content: JSON.stringify({ error: `Unknown tool: ${tc.name}` }), tool_call_id: tc.id },
+      message: { role: "tool", content: wrapUntrustedToolResult(tc.name, JSON.stringify({ error: `Unknown tool: ${tc.name}` })), tool_call_id: tc.id },
     };
   }
 
@@ -148,7 +149,7 @@ export async function executeToolCall(
   if (!built.ok) {
     return {
       action: { tool: tc.name, args: tc.args, ok: false, summary: built.message },
-      message: { role: "tool", content: JSON.stringify({ error: built.message }), tool_call_id: tc.id },
+      message: { role: "tool", content: wrapUntrustedToolResult(tc.name, JSON.stringify({ error: built.message })), tool_call_id: tc.id },
     };
   }
   const { path, method, body } = built;
@@ -184,7 +185,7 @@ export async function executeToolCall(
 
   return {
     action: { tool: tc.name, args: tc.args, ok, summary, href, auditId },
-    message: { role: "tool", content: JSON.stringify(responseData), tool_call_id: tc.id },
+    message: { role: "tool", content: wrapUntrustedToolResult(tc.name, JSON.stringify(responseData)), tool_call_id: tc.id },
   };
 }
 

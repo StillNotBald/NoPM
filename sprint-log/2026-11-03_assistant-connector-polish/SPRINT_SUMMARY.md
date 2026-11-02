@@ -12,6 +12,7 @@
 - Step 1 (R-182): done. `web/src/lib/agent-core/tool-engine.ts` holds `executeToolCall` and `runToolRounds`; both assistant paths use it.
 - Step 2 (R-183): done. `web/mcp/shared.mjs` holds `toMcpTool` (annotations), `callApi` (25 s timeout, never throws), `toToolResult` (isError mapping, compact JSON, `next_page`, 60,000 char cap) and `filterToolsByOpenApi`; both servers use them. The remote route checks the token with one `GET /api/me` on `initialize` and `tools/list`.
 - Step 3 (R-184): done. `providers/errors.ts` defines `ProviderError`; the provider router normalises every failure; the chat route logs kind/provider/status and returns `provider_error`; the panel shows an alert banner.
+- Step 4 (R-185): done. `agent-core/system-prompt.ts` holds the prompt with the confirm-before-write and tool-results-are-data rules; `agent-core/untrusted.ts` wraps every tool result in `<tool_result untrusted="true">` delimiters.
 
 ## Defaults chosen (nobody to ask; industry-standard picks)
 - Engine lives in `web/src/lib/agent-core/` (new folder, plain TS, no new dependency); `summarize`, `buildHref` and `buildToolCall` moved there, `index.ts` re-exports the public names so imports and tests are unchanged.
@@ -29,19 +30,25 @@
 - The grounded read-only fallback is kept (it is useful, and removing it is a product change), but it is no longer silent: logged, flagged in the reply, and bannered. `OpenRouterCapacityError` now extends `ProviderError` (name and `.status` unchanged).
 - The banner reuses the existing danger-tinted inline-error pattern in the panel (no new component or token). Fix hint for a bad key points at the existing Disconnect control; no new button. `assistant_credentials.last_error` (audit "optionally") not added: it needs a migration.
 - Non-provider failures are logged by error name only, never the message.
+- Wrapper escapes every `<` in the JSON as a backslash-u escape (still valid JSON, same value), the cheapest breakout-proof delimiter that needs no parser on the model side. The tool name in the tag is restricted to `[A-Za-z0-9_-]`.
+- The confirm rule is a prompt rule only, with the audit's exception wording ("unless the latest message already names every field and says to do it"). All results are wrapped, including server-made error results, for one uniform rule.
+- The existing index test that parsed a tool message as raw JSON now unwraps it first; that is the intended behaviour change.
+- The server-side confirm gate (`pending_actions`, Confirm/Cancel chips) is step 2 of A1 and was not started (needs a migration).
 
 ## R-IDs touched
 - R-182 → DONE
 - R-183 → DONE
 - R-184 → DONE
+- R-185 → DONE
 
 ## Files
 - `web/src/lib/agent-core/tool-engine.ts`, `web/src/lib/agent-core/tool-engine.test.ts`, `web/src/lib/assistant/index.ts`
+- `web/src/lib/agent-core/system-prompt.ts`, `web/src/lib/agent-core/untrusted.ts` (+ test)
 - `web/src/lib/assistant/providers/errors.ts` (+ test), `providers/index.ts` and the four providers, `web/src/app/api/assistant/chat/route.ts` (+ `provider-error.test.ts`), `web/src/components/assistant/panel.tsx`
 - `web/mcp/shared.mjs`, `web/mcp/server.mjs`, `web/src/app/api/mcp/route.ts`, `web/src/lib/assistant/mcp-shared.test.ts`, `web/src/app/api/mcp/connect.test.ts`, `web/src/app/api/mcp/route.test.ts`
 
 ## Tests / verification
-- `vitest run` on `agent-core`, `assistant/index.test.ts`, `api/assistant/chat/route.test.ts`, `assistant/fallback.test.ts` (65 tests green); `rtm:verify`.
+- Per step, `vitest run --maxWorkers=2` on only the touched files (agent-core, assistant index/fallback/providers, api/assistant, api/mcp, mcp-shared, tools-openapi, tools-mcp-governance): all green. `npx tsc --noEmit` clean. `npm run rtm:verify` green after each commit. The full suite and gen-metrics were not run (lead runs them).
 
 ## Follow-ups
-- None yet.
+- Maintainer/lead: A1 step 2 (server confirm gate, needs a `pending_actions` migration), M1 (OAuth), M3 size budget and M9 docs; none started here.

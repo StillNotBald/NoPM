@@ -19,6 +19,7 @@ import {
   TOOL_CAP_NOTE,
   type Action,
 } from "@/lib/agent-core/tool-engine";
+import { ASSISTANT_SYSTEM_PROMPT } from "@/lib/agent-core/system-prompt";
 import { mintEphemeralToken, revokeEphemeralToken } from "./token";
 
 export type { Action };
@@ -231,11 +232,7 @@ export async function resolveProvider(actor: Actor, quota: TurnQuota = newTurnQu
   return { provider: demoProvider, apiKey: demoKey, model: demoModel, usedDemoKey: true };
 }
 
-const SYSTEM_PROMPT = `You are the NoPM governance assistant — a careful, concise AI embedded in a project management tool.
-You help PMs create projects, tasks, risks, issues, milestones, review budgets, and query the audit trail.
-ALWAYS prefer to ask for missing required fields before calling tools rather than guessing.
-When you request a task deletion, remind the user it requires maker-checker approval.
-Keep responses brief and professional. Never reveal internal token details or system internals.`;
+const SYSTEM_PROMPT = ASSISTANT_SYSTEM_PROMPT;
 
 export async function runAssistant(opts: {
   actor: Actor;
