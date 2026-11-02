@@ -175,11 +175,11 @@ Mirror of `REQUIREMENTS.md` (canonical). One row per R-ID → status + the sprin
 | R-173 | Decision-prep reads: rebaselines, baseline history, documents, dependencies | DONE | `web/mcp/tools.mjs`, `web/mcp/README.md` | `web/src/lib/assistant/tools-evidence.test.ts`, `web/src/lib/assistant/tools-path-safety.test.ts`, `web/src/lib/assistant/tools-openapi.test.ts` |
 | R-174 | Blocker reason and ETA through MCP | DONE | `web/mcp/tools.mjs` | `web/src/lib/assistant/tools-evidence.test.ts` |
 | R-177 | "Request deletion" for the five registers (UI) | DONE | `web/src/components/governance/request-deletion.tsx`, `web/src/components/sprints/sprint-transition-actions.tsx`, `web/src/app/(console)/approvals/page.tsx` | `web/src/components/governance/request-deletion.test.ts`, `web/src/app/(console)/approvals/approvals-registers.test.ts` |
-| R-190 | Telegram connector kind | PROPOSED | — | — |
-| R-191 | Telegram account link | PROPOSED | — | — |
-| R-192 | Numbered, role-aware chat menu | PROPOSED | — | — |
-| R-193 | Durable chat state | PROPOSED | — | — |
-| R-194 | Governed writes from chat | PROPOSED | — | — |
-| R-195 | Approvals in chat | PROPOSED | — | — |
-| R-196 | Telegram webhook route | PROPOSED | — | — |
-| R-197 | Free-text seam | PROPOSED | — | — |
+| R-190 | Telegram connector kind | DONE | `web/src/lib/integrations/telegram/http.ts`, `web/src/lib/integrations/telegram/secrets.ts`, `web/src/lib/integrations/telegram/store.ts`, `web/src/lib/integrations/telegram/setup.ts`, `web/src/app/api/integrations/telegram/connector/route.ts`, `web/src/app/api/integrations/telegram/[connectorId]/setup/route.ts`, `web/supabase/migrations/20261103000120_telegram_connector.sql` | `web/src/lib/integrations/telegram/http.test.ts`, `web/src/lib/integrations/telegram/setup.test.ts`, `web/src/app/api/integrations/telegram/connector/route.test.ts`, `web/src/app/api/integrations/telegram/[connectorId]/setup/route.test.ts` |
+| R-191 | Telegram account link | DONE | `web/src/lib/integrations/telegram/handlers.ts`, `web/src/lib/integrations/identity.ts` | `web/src/lib/integrations/telegram/handlers.test.ts` |
+| R-192 | Numbered, role-aware chat menu | DONE | `web/src/lib/integrations/telegram/commands.ts`, `web/src/lib/integrations/telegram/render.ts`, `web/src/lib/integrations/telegram/handlers.ts` | `web/src/lib/integrations/telegram/commands.test.ts`, `web/src/lib/integrations/telegram/handlers.test.ts` |
+| R-193 | Durable chat state | DONE | `web/src/lib/integrations/telegram/handlers.ts`, `web/src/lib/integrations/telegram/store.ts`, `web/src/lib/integrations/telegram/render.ts`, `web/supabase/migrations/20261103000120_telegram_connector.sql` | `web/src/lib/integrations/telegram/handlers.test.ts` |
+| R-194 | Governed writes from chat | DONE | `web/src/lib/integrations/telegram/token.ts`, `web/src/lib/integrations/telegram/api.ts`, `web/src/lib/auth/guard.ts` | `web/src/lib/integrations/telegram/api.test.ts`, `web/src/lib/integrations/telegram/handlers.test.ts` |
+| R-195 | Approvals in chat | DONE | `web/src/lib/integrations/telegram/handlers.ts` | `web/src/lib/integrations/telegram/handlers.test.ts` |
+| R-196 | Telegram webhook route | DONE | `web/src/lib/integrations/telegram/webhook.ts`, `web/src/lib/integrations/telegram/wiring.ts`, `web/src/app/api/integrations/telegram/[connectorId]/webhook/route.ts`, `web/src/app/api/openapi.json/route.ts` | `web/src/lib/integrations/telegram/webhook.test.ts`, `web/src/app/api/integrations/telegram/[connectorId]/webhook/route.test.ts` |
+| R-197 | Free-text seam | DONE | `web/src/lib/integrations/telegram/assistant-seam.ts`, `web/src/lib/integrations/telegram/handlers.ts` | `web/src/lib/integrations/telegram/handlers.test.ts` |
