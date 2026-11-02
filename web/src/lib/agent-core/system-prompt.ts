@@ -61,6 +61,8 @@ export function buildSystemPrompt(opts: {
   who?: { label?: string; role?: string };
   /** Module ids switched off with NOPM_MODULES. */
   disabledModules?: readonly string[];
+  /** Server-made note: a first attempt at this same request already ran these writes (retry). */
+  priorAttempt?: string | null;
 } = {}): string {
   const now = opts.now ?? new Date();
   const ctx = opts.context ?? {};
@@ -86,5 +88,6 @@ export function buildSystemPrompt(opts: {
       "List tools return one page: check `total` and ask before paging further. " +
       "After a deletion request, say it waits for a different person's approval and give the request id.",
   );
+  if (opts.priorAttempt) lines.push(opts.priorAttempt);
   return `${ASSISTANT_SYSTEM_PROMPT}\n\nTHIS TURN\n${lines.join("\n")}`;
 }

@@ -474,13 +474,14 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
 
     const contextHistory = history.slice(0, userIdx);
     setHistory((h) => h.slice(0, assistantIdx)); // drop the errored bubble only
-    await dispatchSend(userMsg.content, contextHistory);
+    // retry: true tells the server this is a re-send, so it can see what the first attempt already did and not repeat it.
+    await dispatchSend(userMsg.content, contextHistory, { retry: true });
   }
 
   async function dispatchSend(
     text: string,
     contextHistory: ChatMessage[],
-    opts: { onTotalFailure?: () => void } = {},
+    opts: { onTotalFailure?: () => void; retry?: boolean } = {},
   ) {
     setSending(true);
     setSendError(null);
@@ -494,6 +495,7 @@ export function AssistantPanel({ open, onClose, triggerRef }: AssistantPanelProp
     if (activeConversationId) {
       requestBody.conversation_id = activeConversationId;
     }
+    if (opts.retry) requestBody.retry = true;
     {
       const project = /^\/projects\/([0-9a-f-]{36})(?:\/|$)/i.exec(pathname ?? "");
       let tz: string | undefined;

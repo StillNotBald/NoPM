@@ -234,9 +234,10 @@ export async function resolveProvider(actor: Actor, quota: TurnQuota = newTurnQu
 }
 
 /** The system prompt for one turn: fixed rules + date, person, page and module flags (A5). */
-function turnSystemPrompt(actor: Actor, context?: PageContext): string {
+function turnSystemPrompt(actor: Actor, context?: PageContext, priorAttempt?: string | null): string {
   return buildSystemPrompt({
     context,
+    priorAttempt,
     who: { label: actor.label, role: actor.role },
     disabledModules: disabledModuleIds(),
   });
@@ -261,13 +262,15 @@ export async function runAssistant(opts: {
   resolved?: ResolvedProvider;
   /** Where the person is (validated by the route). */
   pageContext?: PageContext;
+  /** Retry only: what the first attempt already did (server-made, from the stored action record). */
+  priorAttempt?: string | null;
 }): Promise<AssistantResult> {
   const { actor, message, history, origin, requestId, conversationId = null } = opts;
 
   const { provider, apiKey, model, usedDemoKey } = opts.resolved ?? (await resolveProvider(actor, opts.quota));
 
   const toolDefs = TOOLS.map((t) => t.definition);
-  const system = turnSystemPrompt(actor, opts.pageContext);
+  const system = turnSystemPrompt(actor, opts.pageContext, opts.priorAttempt);
 
   // Build message history for provider (bounded — never forward unbounded history)
   const providerMessages: ProviderMessage[] = [
@@ -343,6 +346,7 @@ export async function runAssistantStream(opts: {
   quota?: TurnQuota;
   resolved?: ResolvedProvider;
   pageContext?: PageContext;
+  priorAttempt?: string | null;
 }): Promise<{
   actions: Action[];
   usedDemoKey: boolean;
@@ -360,7 +364,7 @@ export async function runAssistantStream(opts: {
   const { provider, apiKey, model, usedDemoKey } = opts.resolved ?? (await resolveProvider(actor, opts.quota));
 
   const toolDefs = TOOLS.map((t) => t.definition);
-  const system = turnSystemPrompt(actor, opts.pageContext);
+  const system = turnSystemPrompt(actor, opts.pageContext, opts.priorAttempt);
 
   // Bounded — never forward unbounded history to the provider.
   const providerMessages: ProviderMessage[] = [
