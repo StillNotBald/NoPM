@@ -3,6 +3,8 @@
  * Uses raw fetch — no new npm dependencies.
  */
 
+import { providerHttpError } from "./errors";
+
 export type ToolDefinition = {
   name: string;
   description: string;
@@ -62,8 +64,8 @@ export async function* chatStream(opts: {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI API error ${res.status}: ${err}`);
+    // Status only: the upstream body can echo request text or key fragments.
+    throw providerHttpError("openai", res.status);
   }
 
   if (!res.body) throw new Error("OpenAI streaming response has no body");
@@ -143,8 +145,8 @@ export async function chat(opts: {
   });
 
   if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`OpenAI API error ${res.status}: ${err}`);
+    // Status only: the upstream body can echo request text or key fragments.
+    throw providerHttpError("openai", res.status);
   }
 
   const json = await res.json() as {

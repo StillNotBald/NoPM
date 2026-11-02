@@ -5272,9 +5272,9 @@
             "name": "assignee_id",
             "in": "query",
             "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
+              "type": "string"
+            },
+            "description": "A resource member UUID, or the literal me for the caller's own tasks (resolved through resource_members.profile_id; empty page when the person has no member row)"
           },
           {
             "name": "status_type",
@@ -10175,7 +10175,7 @@
           "notifications"
         ],
         "summary": "List notifications for the current user",
-        "description": "scope: notification:read. Optional ?unread=1 to filter unread only.",
+        "description": "scope: notification:read. Returns the notifications of the person behind the caller (for a bearer token, the human who minted it), workspace-scoped. Optional ?unread=1 to filter unread only.",
         "operationId": "listNotifications",
         "parameters": [
           {
@@ -17402,7 +17402,7 @@
           "mcp"
         ],
         "summary": "Remote MCP server (Streamable HTTP) — JSON-RPC",
-        "description": "scope: the caller's own scoped PAT (Authorization: Bearer npm_...), read on EVERY request and forwarded verbatim to this same origin's REST API — so scopes, audit and maker-checker are enforced there, unchanged; this route holds no credentials of its own. Exposes the same 47 governed tools as the stdio server (web/mcp/server.mjs); none can approve or decide. Stateless: a fresh server per request, so there is no session to resume. Send Accept: application/json, text/event-stream and a JSON-RPC body. A tool-level failure surfaces as a normal { error } tool result. A missing Authorization header is a 401 in the standard { error, code } contract with code unauthorized, a WWW-Authenticate: Bearer realm=\"nopm\" challenge and an X-Request-Id correlation header (the caller's own when it is a safe token).",
+        "description": "scope: the caller's own scoped PAT (Authorization: Bearer npm_...), read on EVERY request and forwarded verbatim to this same origin's REST API — so scopes, audit and maker-checker are enforced there, unchanged; this route holds no credentials of its own. Exposes the same 53 governed tools as the stdio server (web/mcp/server.mjs); none can approve or decide. Stateless: a fresh server per request, so there is no session to resume. Send Accept: application/json, text/event-stream and a JSON-RPC body. A tool-level failure surfaces as a normal { error } tool result. A missing Authorization header is a 401 in the standard { error, code } contract with code unauthorized, a WWW-Authenticate: Bearer realm=\"nopm\" challenge and an X-Request-Id correlation header (the caller's own when it is a safe token).",
         "security": [
           {
             "bearerAuth": []

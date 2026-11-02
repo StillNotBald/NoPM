@@ -56,6 +56,7 @@ import {
   MAX_HISTORY_MESSAGES,
   MAX_TOOL_CALLS_PER_TURN,
 } from "./index";
+import { unwrapToolResult } from "@/lib/agent-core/untrusted";
 import { TOOLS } from "./tools";
 
 function testActor(): Actor {
@@ -401,7 +402,7 @@ describe("runAssistant / runAssistantStream — refused tool arguments", () => {
     const secondCall = mockChat.mock.calls[1][0] as { messages: { role: string; content: string; tool_call_id?: string }[] };
     const toolMsg = secondCall.messages.find((m) => m.role === "tool")!;
     expect(toolMsg.tool_call_id).toBe("call_bad");
-    expect(JSON.parse(toolMsg.content)).toEqual({ error: "Bad arguments: project_id must be a UUID" });
+    expect(unwrapToolResult(toolMsg.content)).toEqual({ error: "Bad arguments: project_id must be a UUID" });
     expect(revokeEphemeralToken).toHaveBeenCalledTimes(1);
   });
 

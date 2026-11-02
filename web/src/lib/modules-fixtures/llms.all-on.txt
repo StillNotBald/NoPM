@@ -596,7 +596,7 @@ exposes none), so an agent can check "is live equal to main?" before trusting a 
 ## MCP server
 
 NoPM ships a native Model Context Protocol (MCP) server at web/mcp/server.mjs.
-It exposes 47 governed tools (list/get/create/update across the core modules, plus
+It exposes 53 governed tools (list/get/create/update across the core modules, plus
 workspace search, budget, clashes, resources, the audit log, and list_pending_approvals) over STDIO so any
 MCP client (Claude Desktop, Claude Code, Cursor, etc.) can drive NoPM as an agent. The same tools are served
 remotely at POST /mcp (Streamable HTTP) with your own PAT in the Authorization header.

@@ -23,6 +23,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { MCP_TOOLS } from "./tools.mjs";
+import { callApi, errorResult, filterToolsByOpenApi, toMcpTool, toToolResult } from "./shared.mjs";
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -37,28 +38,18 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// ── HTTP helper ───────────────────────────────────────────────────────────────
+// ── Tool list (module-filtered, parity with the remote route) ────────────────
 
-async function callApi(path, method, body) {
-  const url = API_URL + path;
-  const headers = {
-    Authorization: `Bearer ${TOKEN}`,
-    "Content-Type": "application/json",
-    "X-NoPM-Client": "mcp",
-  };
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  let json;
-  try {
-    json = await res.json();
-  } catch {
-    json = { error: `Non-JSON response (HTTP ${res.status})` };
-  }
-  // Return the full envelope so { error } (incl. 403 scope errors) is visible.
-  return json;
+const warn = (msg) => process.stderr.write(`[nopm-mcp] warning: ${msg}
+`);
+const TOOLS = await filterToolsByOpenApi(MCP_TOOLS, { baseUrl: API_URL, warn });
+
+// Check the token once at startup so a wrong or revoked token is reported now,
+// not on the first tool call. A network failure only warns.
+{
+  const me = await callApi({ baseUrl: API_URL, token: TOKEN, path: "/api/me", method: "GET" });
+  if (me.status === 401) warn("NOPM_TOKEN was rejected (HTTP 401): create a new token in Settings > API Tokens.");
+  else if (me.status === 0) warn(`could not reach ${API_URL} (NOPM_API_URL); tool calls will fail until it is reachable.`);
 }
 
 // ── MCP Server ────────────────────────────────────────────────────────────────
@@ -70,49 +61,32 @@ const server = new Server(
 
 // tools/list
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: MCP_TOOLS.map(({ name, description, parameters }) => ({
-    name,
-    description,
-    inputSchema: parameters,
-  })),
+  tools: TOOLS.map(toMcpTool),
 }));
 
 // tools/call
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args = {} } = request.params;
 
-  const tool = MCP_TOOLS.find((t) => t.name === name);
-  if (!tool) {
-    return {
-      content: [{ type: "text", text: JSON.stringify({ error: `Unknown tool: ${name}` }) }],
-      isError: true,
-    };
-  }
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) return errorResult(`Unknown tool: ${name}`);
 
   let req;
   try {
     req = tool.toRequest(args);
   } catch (err) {
-    return {
-      content: [{ type: "text", text: JSON.stringify({ error: `Bad arguments: ${err.message}` }) }],
-      isError: true,
-    };
+    return errorResult(`Bad arguments: ${err.message}`);
   }
 
-  const result = await callApi(req.path, req.method, req.body);
-
-  // Surface { error } as a visible tool result (not a thrown exception) so the
-  // MCP client can see governance failures (403 scope, 422 maker-checker, etc.)
-  // rather than receiving an opaque transport error.
-  const isError = typeof result.error === "string";
-  return {
-    content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-    isError,
-  };
+  // Failures (403 scope, 422 maker-checker, 429, timeouts) come back as a
+  // visible isError result, never a thrown exception.
+  return toToolResult(
+    await callApi({ baseUrl: API_URL, token: TOKEN, path: req.path, method: req.method, body: req.body }),
+  );
 });
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-process.stderr.write(`[nopm-mcp] server ready — ${MCP_TOOLS.length} tools, API: ${API_URL}\n`);
+process.stderr.write(`[nopm-mcp] server ready — ${TOOLS.length} tools, API: ${API_URL}\n`);
