@@ -6,6 +6,7 @@ import { Sparkles, X, ArrowUp, ExternalLink, Maximize2, Minimize2, Plus, Chevron
 import { Spinner } from "@/components/ui/spinner";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
+import { renderMarkdown } from "@/lib/markdown/render";
 import { useEscapeClose } from "@/lib/hooks/use-sheet";
 import { apiGet, apiDelete, apiPost } from "@/lib/api-client";
 import { AssistantSetup, type CredentialStatus } from "./setup";
@@ -120,7 +121,7 @@ function ActionChip({ action }: { action: Action }) {
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 
-function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => void }) {
+export function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => void }) {
   const isUser = msg.role === "user";
 
   return (
@@ -134,7 +135,13 @@ function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => voi
         )}
       >
         {msg.content ? (
-          <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+          isUser ? (
+            <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+          ) : (
+            <div className="min-w-0 break-words">
+              {renderMarkdown(msg.content, { tables: true, linkPolicy: "strict", inBubble: true })}
+            </div>
+          )
         ) : null}
         {/* Streaming cursor — shown while tokens are still arriving */}
         {msg.streaming && (
