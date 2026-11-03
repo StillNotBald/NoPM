@@ -98,6 +98,12 @@ Fixes from the reviewer pass (`_docs/nopm-telegram-2026-11-03/07-review-assistan
 - Not changed on purpose: `destructiveHint` for `update_*` tools (N7, owner decision pending).
 - Known Lows, not tracked: N2 `boundToolResult` can empty a single huge row and the `<` escape can exceed the cap slightly; N4 client history still trusted for new conversations and demo retries repeat writes; N6 stdio startup can block up to ~50 s with the API down; N7 PATCH `update_*` tools are `destructiveHint:false`; N8 `tasks` `maybeSingle()` on two member rows, `raw` upstream text in `toToolResult`, double body parse in `connectTokenRejected`.
 
+## Post-release fix (live test)
+
+- **R-183 (e), stdio server listed 0 tools against a real server:** `filterToolsByOpenApi` compared absolute tool paths (`/api/projects`) with OpenAPI paths, which are relative to the spec's server URL (`servers[0].url` ends in `/api`, paths are `/projects`). Nothing matched, so `tools/list` was empty. The filter now matches a template with and without the server's base path. Tests: a spec shaped like NoPM's (server `.../api`, relative paths) and the real `specForTesting` with every module on, which must keep every MCP tool. Both fail on the old code. Live check: `scripts/mcp-smoke.mjs` against stillnotbald.com went from 0 tools to 62.
+- The unit test had used a fake spec with `/api` in each path, which hid the mismatch.
+- Review of #29 (3 Important, all fixed): the filter now falls open with a warning when the spec loads but nothing matches, or when `list_projects` (kernel module, never switched off) is dropped, so a future spec change cannot silently empty the listing again; the real-spec test asserts no warning (so the fail-open path cannot make it pass); a parity test runs the real spec with `sprints` switched off and expects exactly the remote route's `filterTools` list. Also: server URL variables are tolerated, templates are split once, doc blocks fixed.
+
 ## Post-release fix: demo error copy (live test)
 
 - **R-184:** on the shared demo key, a provider failure told the visitor to "choose another model in the assistant settings" or fix a key they do not have. `providerErrorMessage` takes `{ demo }`; the chat route passes `resolved.usedDemoKey` on both the JSON and stream paths, and demo visitors now get "The demo model is unavailable right now / busy / took too long". Own-key users keep the provider-named copy. Tests: every kind on the demo path has no key, settings or provider wording; the route sends demo copy on JSON and stream.
