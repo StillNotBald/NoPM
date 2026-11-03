@@ -191,44 +191,60 @@ export function errorResult(message) {
 
 const UUID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Does the OpenAPI `paths` object serve this concrete route (ids matched to `{param}` segments)? */
-/** The path part of the spec's first server URL ("https://host/api" -> "/api"); "" when absent. */
+/**
+ * The path part of the spec's first server URL ("https://host/api" -> "/api"); "" when absent.
+ * OpenAPI server variables ("https://{host}/api") are replaced by a placeholder before parsing.
+ */
 function serverBasePath(spec) {
   const url = Array.isArray(spec.servers) ? spec.servers[0]?.url : undefined;
   if (typeof url !== "string") return "";
   try {
-    return new URL(url, "http://base.invalid").pathname.replace(/\/$/, "");
+    return new URL(url.replace(/\{[^}]+\}/g, "x"), "http://base.invalid").pathname.replace(/\/$/, "");
   } catch {
     return "";
   }
 }
 
 /**
- * OpenAPI paths are relative to the server URL (NoPM's spec: server ".../api",
- * paths "/projects"), while tool paths are absolute ("/api/projects"). Match a
- * template both with and without the server's base path.
+ * The spec's path templates, split into segments once. OpenAPI paths are relative
+ * to the server URL (NoPM's spec: server ".../api", paths "/projects"), while tool
+ * paths are absolute ("/api/projects"), so each template is kept with and without
+ * the server's base path.
  */
-function servesPath(openApiPaths, path, basePath = "") {
+function templatesOf(openApiPaths, basePath) {
+  const out = [];
+  for (const tpl of Object.keys(openApiPaths)) {
+    out.push(tpl.split("/"));
+    if (basePath !== "") out.push((basePath + tpl).split("/"));
+  }
+  return out;
+}
+
+/** Does one of the split templates serve this concrete route (ids matched to `{param}` segments)? */
+function servesPath(templates, path) {
   const cut = path.indexOf("?");
   const segs = (cut === -1 ? path : path.slice(0, cut)).split("/");
-  const matches = (tpl) => {
-    const t = tpl.split("/");
-    return (
+  return templates.some(
+    (t) =>
       t.length === segs.length &&
-      t.every((seg, i) => seg === segs[i] || (/^\{.+\}$/.test(seg) && UUID_SEG.test(segs[i])))
-    );
-  };
-  return Object.keys(openApiPaths).some((tpl) => matches(tpl) || (basePath !== "" && matches(basePath + tpl)));
+      t.every((seg, i) => seg === segs[i] || (/^\{.+\}$/.test(seg) && UUID_SEG.test(segs[i]))),
+  );
 }
+
+/** list_projects is in the kernel "work" module, which cannot be switched off: a spec that does not serve it was not understood, not filtered. */
+const ALWAYS_SERVED_TOOL = "list_projects";
 
 /**
  * Stdio parity with the remote route (audit M4). The remote route filters with
  * NOPM_MODULES through lib/modules.ts, which a plain-Node file cannot import.
  * The server's own /api/openapi.json is already filtered the same way, so keep
- * only tools whose route that spec still serves. If the spec cannot be read,
- * keep every tool (fail open: a listing is never worse than before).
+ * only tools whose route that spec still serves. Fail open (keep every tool, with
+ * a warning) when the spec cannot be read, or when nothing matched or the
+ * always-served tool was dropped: that means the paths were not understood, and
+ * a full listing is never worse than an empty one.
  */
 export async function filterToolsByOpenApi(tools, { baseUrl, fetchImpl = fetch, warn = () => {} }) {
+  let kept;
   try {
     const res = await fetchImpl(String(baseUrl).replace(/\/$/, "") + "/api/openapi.json", {
       signal: AbortSignal.timeout(API_TIMEOUT_MS),
@@ -236,10 +252,16 @@ export async function filterToolsByOpenApi(tools, { baseUrl, fetchImpl = fetch, 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const spec = await res.json();
     if (!spec || typeof spec.paths !== "object" || spec.paths === null) throw new Error("no paths");
-    const basePath = serverBasePath(spec);
-    return tools.filter((t) => servesPath(spec.paths, t.toRequest({}).path, basePath));
+    const templates = templatesOf(spec.paths, serverBasePath(spec));
+    kept = tools.filter((t) => servesPath(templates, t.toRequest({}).path));
   } catch (err) {
     warn(`could not read /api/openapi.json (${err instanceof Error ? err.message : "error"}); listing every tool`);
     return tools;
   }
+  const lostCore = tools.some((t) => t.name === ALWAYS_SERVED_TOOL) && !kept.some((t) => t.name === ALWAYS_SERVED_TOOL);
+  if (tools.length > 0 && (kept.length === 0 || lostCore)) {
+    warn(`/api/openapi.json paths did not match the tool routes (${kept.length} of ${tools.length} kept); listing every tool`);
+    return tools;
+  }
+  return kept;
 }

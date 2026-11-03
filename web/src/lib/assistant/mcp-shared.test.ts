@@ -10,6 +10,7 @@ import {
   MAX_RESULT_CHARS,
 } from "../../../mcp/shared.mjs";
 import { specForTesting as realSpec } from "@/app/api/openapi.json/route";
+import { MODULE_IDS, filterOpenApi, filterTools } from "@/lib/modules";
 
 type Tool = (typeof MCP_TOOLS)[number];
 const method = (t: Tool) => String(t.toRequest({}).method).toUpperCase();
@@ -139,10 +140,52 @@ describe("filterToolsByOpenApi (M4)", () => {
     expect(kept.map((t: { name: string }) => t.name)).toEqual(["a"]);
   });
 
-  it("keeps every MCP tool against the real spec with all modules on", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(realSpec), { status: 200 }));
-    const kept = await filterToolsByOpenApi(MCP_TOOLS as never[], { baseUrl: "http://h", fetchImpl: fetchImpl as never });
-    expect(kept.map((t: { name: string }) => t.name)).toEqual((MCP_TOOLS as Tool[]).map((t) => t.name));
+  const served = (body: unknown) => vi.fn().mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+  const names = (list: readonly { name: string }[]) => list.map((t) => t.name);
+
+  it("keeps every MCP tool against the real spec with all modules on, without falling open", async () => {
+    const warn = vi.fn();
+    const kept = await filterToolsByOpenApi(MCP_TOOLS as never[], { baseUrl: "http://h", fetchImpl: served(realSpec) as never, warn });
+    expect(names(kept)).toEqual(names(MCP_TOOLS as Tool[]));
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("matches the remote route when a module is switched off (real spec, sprints off)", async () => {
+    const enabled = new Set(MODULE_IDS.filter((id) => id !== "sprints"));
+    const warn = vi.fn();
+    const kept = await filterToolsByOpenApi(MCP_TOOLS as never[], {
+      baseUrl: "http://h",
+      fetchImpl: served(filterOpenApi(realSpec, enabled)) as never,
+      warn,
+    });
+    expect(names(kept)).toEqual(names(filterTools(MCP_TOOLS as Tool[], enabled)));
+    expect(names(kept)).not.toContain("list_sprints");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("falls open with a warning when the spec loads but nothing matches", async () => {
+    const warn = vi.fn();
+    const kept = await filterToolsByOpenApi(tools, { baseUrl: "http://h", fetchImpl: served({ servers: [{ url: "https://h/v9" }], paths: { "/elsewhere": {} } }) as never, warn });
+    expect(kept).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("did not match"));
+  });
+
+  it("falls open when the always-served list_projects is dropped", async () => {
+    const warn = vi.fn();
+    const two = [
+      { name: "list_projects", toRequest: () => ({ path: "/api/projects", method: "GET" }) },
+      { name: "list_risks", toRequest: () => ({ path: "/api/risks", method: "GET" }) },
+    ] as never[];
+    const kept = await filterToolsByOpenApi(two, { baseUrl: "http://h", fetchImpl: served({ paths: { "/api/risks": {} } }) as never, warn });
+    expect(kept).toHaveLength(2);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("reads the base path from a server URL with variables", async () => {
+    for (const url of ["https://{host}/api", "{scheme}://h/api"]) {
+      const kept = await filterToolsByOpenApi(tools, { baseUrl: "http://h", fetchImpl: served({ servers: [{ url }], paths: { "/projects": {} } }) as never });
+      expect(names(kept), url).toEqual(["a"]);
+    }
   });
 
   it("fails open and warns when the spec cannot be read", async () => {
