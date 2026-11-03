@@ -98,6 +98,50 @@ describe("provider failures are visible (A2)", () => {
     expect(JSON.stringify(body)).not.toContain("sk-secret-key");
   });
 
+  it("demo key: the provider_error message is demo copy, with no key or settings advice", async () => {
+    m.resolveProvider.mockResolvedValue({ ...RESOLVED, provider: "openrouter", usedDemoKey: true });
+    m.runAssistant.mockRejectedValue(new ProviderError("model_not_found", 404, "openrouter"));
+    const json = await chat({});
+    const body = (await json.json()) as { data?: Record<string, unknown> } & Record<string, unknown>;
+    const msg = ((body.data ?? body) as { provider_error: { message: string } }).provider_error.message;
+    expect(msg).toContain("demo model");
+    expect(msg).not.toMatch(/settings|key/i);
+
+    m.runAssistantStream.mockRejectedValue(new ProviderError("model_not_found", 404, "openrouter"));
+    const res = await chat({ stream: true });
+    const events = (await res.text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+    const done = events.find((e) => e.type === "done") as { provider_error?: { message: string; demo?: boolean; provider: string } };
+    expect(done.provider_error?.message).toContain("demo model");
+    expect(done.provider_error?.message).not.toMatch(/settings|key/i);
+    expect(done.provider_error?.demo).toBe(true);
+    expect(done.provider_error?.provider).toBe("demo");
+    expect(JSON.stringify(events)).not.toContain("openrouter");
+  });
+
+  it("demo key: a mid-stream failure carries demo copy on the error event", async () => {
+    m.resolveProvider.mockResolvedValue({ ...RESOLVED, provider: "openrouter", usedDemoKey: true });
+    async function* chunks() {
+      yield "partial ";
+      throw new ProviderError("model_not_found", 404, "openrouter");
+    }
+    m.runAssistantStream.mockResolvedValue({ actions: [], usedDemoKey: true, textChunks: chunks(), release: async () => {} });
+    const res = await chat({ stream: true });
+    const events = (await res.text()).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>);
+    const err = events.find((e) => e.type === "error") as { provider_error?: { message: string; demo?: boolean }; message: string };
+    expect(err.provider_error?.demo).toBe(true);
+    expect(err.message).toContain("demo model");
+    expect(err.message).not.toMatch(/settings|key/i);
+  });
+
+  it("own key: provider_error has no demo flag and names the provider", async () => {
+    m.runAssistant.mockRejectedValue(new ProviderError("model_not_found", 404, "openai"));
+    const res = await chat({});
+    const body = (await res.json()) as { data?: Record<string, unknown> } & Record<string, unknown>;
+    const pe = ((body.data ?? body) as { provider_error: { demo?: boolean; provider: string } }).provider_error;
+    expect(pe.demo).toBeUndefined();
+    expect(pe.provider).toBe("openai");
+  });
+
   it("JSON path: an untyped failure is logged by name, with no provider_error", async () => {
     m.runAssistant.mockRejectedValue(new Error("boom with secret sk-secret-key"));
     const res = await chat({});

@@ -28,6 +28,8 @@ interface ProviderErrorInfo {
   provider: string;
   status: number;
   message: string;
+  /** Set on the shared demo key: there is no key of the visitor's to fix. */
+  demo?: boolean;
 }
 
 interface ChatMessage {
@@ -152,7 +154,7 @@ function MessageBubble({ msg, onRetry }: { msg: ChatMessage; onRetry?: () => voi
           className="flex max-w-[85%] flex-col gap-0.5 rounded-lg border border-danger/30 bg-danger/5 px-3 py-2"
         >
           <span className="font-mono text-xs font-semibold text-danger-ink">{msg.providerError.message}</span>
-          {(msg.providerError.kind === "key_invalid" || msg.providerError.kind === "model_not_found") && (
+          {!msg.providerError.demo && (msg.providerError.kind === "key_invalid" || msg.providerError.kind === "model_not_found") && (
             <span className="font-mono text-xs text-ink-muted">
               Use Disconnect at the bottom of this panel, then add the key again.
             </span>
