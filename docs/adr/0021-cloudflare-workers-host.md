@@ -1,0 +1,44 @@
+# ADR 0021 - Cloudflare Workers as an alternative host (OpenNext)
+
+- **Status:** Proposed. Vercel stays the current host until a cutover is separately approved. If accepted, this supersedes the **host** part of ADR 0001 only (stack, governance and auth in ADR 0001 are unchanged).
+- **Date:** 2026-11-03
+- **Builds on:** ADR 0001 (stack and host), ADR 0011 (security headers and CSP), ADR 0012 (integration hub)
+- **Outcome served:** none of the three product outcomes. This is hosting risk and cost, recorded because a host change is an infra decision.
+
+## Context
+
+ADR 0001 chose Vercel because the OpenNext adapter layer added instability risk for a live, employer-facing demo, and rejected Cloudflare Workers. Two things have moved since June:
+
+1. **Vercel Hobby is "non-commercial personal use only".** NoPM is a portfolio proof-piece and a possible SaaS, so the demo sits in a grey zone of that clause. The compliant Vercel option is Pro at USD 20 a month.
+2. **The adapter matured.** `@opennextjs/cloudflare` supports Next.js 16 and, since 1.20.3, the Node-runtime `proxy.ts` that NoPM needs (every page request runs it). A build probe on 2026-11-03 with adapter 1.20.15 and wrangler 4.156 built NoPM with no app-code change and bundled the Node middleware (4.99 MiB gzip, under the 10 MiB Workers Paid cap). The same adapter already hosts another production app of the maintainer's.
+
+Workers Paid costs USD 5 a month (10 M requests and 30 M CPU ms included, no egress charge). The Free plan is not usable (10 ms CPU limit breaks server rendering).
+
+## Decision
+
+Prepare, but do not switch, the Cloudflare Workers host:
+
+- Add the OpenNext config, a `wrangler.jsonc`, a custom Worker entry with a `scheduled()` handler for the two cron jobs, and a `_headers` file, all inert on Vercel.
+- Trust `CF-Connecting-IP` for the pre-auth client-IP rate limits **only** when `NOPM_TRUST_CF_CONNECTING_IP=1` is set (Cloudflare overwrites that header at its edge). Vercel's logic is unchanged.
+- Keep Vercel as the production host. Cutover (DNS) is a separate owner decision after a preview Worker passes the checklist in `docs/ops/CLOUDFLARE_WORKERS.md`.
+- Keep Cloudflare DNS, Supabase and the cron route code exactly as they are. The cron routes still verify `Authorization: Bearer $CRON_SECRET`; the Worker supplies it.
+
+## Consequences
+
+- **Cost:** USD 5 a month (Workers Paid) instead of USD 0 (Hobby, grey zone) or USD 20 (Vercel Pro). Cost of the move: about 3 to 4 working days to a tested cutover, most of it testing.
+- **Experimental Node middleware (main risk).** Node-runtime middleware in the adapter is labelled experimental, and the OpenNext docs page still says it is not supported. `proxy.ts` runs on every page request and calls Supabase, so a defect would break every page, not one route. Mitigation: a preview Worker on a `workers.dev` URL, with login, MFA redirect and the nonce CSP checked before any DNS change; Vercel stays live throughout.
+- **CPU time, not wall time.** PDF and PPTX export (`jspdf`, `pptxgenjs`) are the heaviest routes and must be measured on the preview.
+- **`after()` becomes `waitUntil`.** Webhook follow-up work (Telegram, Lark, integration emit) gets about 30 seconds after the response. Failed deliveries are re-queued by the daily cron, so loss is bounded.
+- **Region.** Vercel is pinned to `sin1`. Workers run near the caller, so the config sets a placement region of `aws:ap-southeast-1` to run next to Supabase.
+- **Builds on Linux only.** A Windows OpenNext build looks alive but fails at runtime. Builds run in WSL or Linux CI.
+- **No per-PR previews** (Vercel has them built in). Preview Workers are manual or a CI follow-up.
+- **Two hosts to keep working.** The normal `next build` and the Vercel config are untouched and still gate every PR; the Cloudflare build is opt-in (`npm run cf:build`).
+- **Docs to update at cutover:** `docs/ops/PROD_DOOR.md`, `docs/architecture/system_architecture.md`, `docs/SELF_HOSTING.md`.
+
+## Rollback
+
+Point the DNS record for the app hostname back at Vercel. The Vercel project stays deployed and its crons stay enabled until the Worker's cron has run successfully once after cutover and two quiet weeks have passed. No data moves (Supabase is the same on both hosts), so rollback is a DNS change only. Disable the Worker's cron triggers when rolling back so two schedulers never run together (the jobs are idempotent, but avoid it).
+
+## Not decided here
+
+The cutover date, the custom-domain attachment, deleting the Vercel project, and any CI deploy job. Each needs its own go-ahead.

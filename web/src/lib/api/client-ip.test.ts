@@ -190,3 +190,37 @@ describe("the one-time warning when no proxy is trusted (CR-gov P2-17)", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe("Cloudflare Workers host: CF-Connecting-IP behind NOPM_TRUST_CF_CONNECTING_IP=1 (ADR 0021)", () => {
+  const CF = { NOPM_TRUST_CF_CONNECTING_IP: "1" };
+
+  it("ignores CF-Connecting-IP when the flag is unset or not exactly 1", () => {
+    expect(clientIp(h({ "cf-connecting-ip": "198.51.100.9" }), {})).toBeNull();
+    expect(clientIp(h({ "cf-connecting-ip": "198.51.100.9" }), { NOPM_TRUST_CF_CONNECTING_IP: "0" })).toBeNull();
+    expect(clientIp(h({ "cf-connecting-ip": "198.51.100.9" }), { NOPM_TRUST_CF_CONNECTING_IP: "true" })).toBeNull();
+    // With hops configured the flag-off path still reads x-forwarded-for, never the CF header.
+    expect(clientIp(h({ "cf-connecting-ip": "6.6.6.6", "x-forwarded-for": "198.51.100.9" }), { NOPM_TRUSTED_PROXY_HOPS: "1" })).toBe("198.51.100.9");
+  });
+
+  it("uses CF-Connecting-IP when the flag is 1, and ignores x-forwarded-for", () => {
+    expect(clientIp(h({ "cf-connecting-ip": "198.51.100.9", "x-forwarded-for": "6.6.6.6, 7.7.7.7" }), CF)).toBe("198.51.100.9");
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("rejects an invalid value and does not fall back to a header the caller could write", () => {
+    expect(clientIp(h({ "cf-connecting-ip": "not-an-ip", "x-forwarded-for": "6.6.6.6" }), CF)).toBeNull();
+    expect(clientIp(h({ "cf-connecting-ip": "1.2.3.4, 5.6.7.8" }), CF)).toBeNull();
+    expect(clientIp(h({ "x-forwarded-for": "6.6.6.6", "x-real-ip": "7.7.7.7" }), CF)).toBeNull();
+  });
+
+  it("accepts IPv6 and keys it on the /64 like any other address", () => {
+    expect(clientIp(h({ "cf-connecting-ip": "2001:DB8:0:1::5" }), CF)).toBe("2001:db8:0:1::5");
+    expect(ipRateKey(h({ "cf-connecting-ip": "2001:db8:0:1:aaaa:bbbb:cccc:dddd" }), CF)).toBe("2001:db8:0:1::/64");
+  });
+
+  it("leaves Vercel unchanged even if the flag is also set", () => {
+    const env = { VERCEL: "1", NOPM_TRUST_CF_CONNECTING_IP: "1" };
+    expect(clientIp(h({ "x-vercel-forwarded-for": "198.51.100.9", "cf-connecting-ip": "6.6.6.6" }), env)).toBe("198.51.100.9");
+    expect(clientIp(h({ "cf-connecting-ip": "6.6.6.6" }), env)).toBeNull();
+  });
+});

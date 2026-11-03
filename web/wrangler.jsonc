@@ -1,0 +1,27 @@
+// Cloudflare Workers host for NoPM (ADR 0021, off by default; Vercel ignores this file).
+// Secrets are NOT here: set them with `wrangler secret put` / `wrangler secret bulk`
+// (docs/ops/CLOUDFLARE_WORKERS.md). No routes or custom domain until cutover.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nopm-web",
+  "main": "cloudflare/worker.ts",
+  "compatibility_date": "2026-10-23",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Run near Supabase (ap-southeast-1) instead of near the caller: every page does DB calls.
+  "placement": { "mode": "targeted", "region": "aws:ap-southeast-1" },
+
+  "observability": { "enabled": true },
+
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+
+  // Must equal "crons" in vercel.json; src/lib/host/cloudflare-cron.test.ts fails if they drift.
+  "triggers": { "crons": ["7 1 * * *", "37 17 * * *"] },
+
+  // Non-secret only. Cloudflare overwrites CF-Connecting-IP at its edge, so the
+  // client-IP rate limits may trust it (src/lib/api/client-ip.ts).
+  "vars": {
+    "NOPM_TRUST_CF_CONNECTING_IP": "1",
+    "NEXT_PUBLIC_APP_URL": "https://stillnotbald.com"
+  }
+}

@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Cloudflare host build output (ADR 0021): generated, never linted.
+    ".open-next/**",
+    ".wrangler/**",
   ]),
 ]);
 
