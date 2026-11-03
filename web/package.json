@@ -52,7 +52,7 @@
     "supabase": "^2.120.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4.1.11",
+    "vitest": "^4.1.12",
     "wrangler": "4.156.0"
   },
   "overrides": {
