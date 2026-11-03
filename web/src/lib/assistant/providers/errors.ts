@@ -78,7 +78,7 @@ export function providerErrorMessage(kind: ProviderErrorKind, provider: string, 
   if (opts.demo) {
     switch (kind) {
       case "rate_limited":
-        return "The demo model is busy or has used its free requests for today. Try again later.";
+        return "The demo model is busy right now. Try again in a minute.";
       case "timeout":
         return "The demo model took too long to answer. Try again.";
       default:
@@ -100,9 +100,15 @@ export function providerErrorMessage(kind: ProviderErrorKind, provider: string, 
   }
 }
 
-/** What goes to the client alongside the reply (additive field `provider_error`). */
-export type ProviderErrorInfo = { kind: ProviderErrorKind; provider: string; status: number; message: string };
+/**
+ * What goes to the client alongside the reply (additive field `provider_error`).
+ * On the demo key `demo` is true and `provider` is "demo" (the maintainer's
+ * provider is not shown), so the panel can drop its own key advice.
+ */
+export type ProviderErrorInfo = { kind: ProviderErrorKind; provider: string; status: number; message: string; demo?: true };
 
 export function providerErrorInfo(e: ProviderError, opts: { demo?: boolean } = {}): ProviderErrorInfo {
-  return { kind: e.kind, provider: e.provider, status: e.status, message: providerErrorMessage(e.kind, e.provider, opts) };
+  const message = providerErrorMessage(e.kind, e.provider, opts);
+  if (opts.demo) return { kind: e.kind, provider: "demo", status: e.status, message, demo: true };
+  return { kind: e.kind, provider: e.provider, status: e.status, message };
 }

@@ -80,6 +80,7 @@ function noteTurnError(err: unknown, mode: "json" | "stream", demo: boolean): Pr
       provider: err.provider,
       status: err.status,
       mode,
+      demo,
     });
     return providerErrorInfo(err, { demo });
   }
