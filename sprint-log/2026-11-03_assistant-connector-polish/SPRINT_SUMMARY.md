@@ -97,3 +97,8 @@ Fixes from the reviewer pass (`_docs/nopm-telegram-2026-11-03/07-review-assistan
 - **N5:** a failed assistant-row insert (stream and JSON) is logged by code and falls back to an `(interrupted)` row that keeps the reply and actions. Tests for both paths.
 - Not changed on purpose: `destructiveHint` for `update_*` tools (N7, owner decision pending).
 - Known Lows, not tracked: N2 `boundToolResult` can empty a single huge row and the `<` escape can exceed the cap slightly; N4 client history still trusted for new conversations and demo retries repeat writes; N6 stdio startup can block up to ~50 s with the API down; N7 PATCH `update_*` tools are `destructiveHint:false`; N8 `tasks` `maybeSingle()` on two member rows, `raw` upstream text in `toToolResult`, double body parse in `connectTokenRejected`.
+
+## Post-release fix: demo error copy (live test)
+
+- **R-184:** on the shared demo key, a provider failure told the visitor to "choose another model in the assistant settings" or fix a key they do not have. `providerErrorMessage` takes `{ demo }`; the chat route passes `resolved.usedDemoKey` on both the JSON and stream paths, and demo visitors now get "The demo model is unavailable right now / busy / took too long". Own-key users keep the provider-named copy. Tests: every kind on the demo path has no key, settings or provider wording; the route sends demo copy on JSON and stream.
+- Found because OpenRouter retired the free demo model id (`nvidia/nemotron-3-super-120b-a12b:free`): every demo turn hit `model_not_found` and fell back. That is an env change (`NOPM_DEMO_LLM_MODEL`), not code.

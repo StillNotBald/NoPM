@@ -73,7 +73,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * returned as the additive `provider_error` field so the panel can say what
  * happened. Any other failure is logged by name only and gets no provider_error.
  */
-function noteTurnError(err: unknown, mode: "json" | "stream"): ProviderErrorInfo | null {
+function noteTurnError(err: unknown, mode: "json" | "stream", demo: boolean): ProviderErrorInfo | null {
   if (err instanceof ProviderError) {
     console.error("[nopm][assistant] provider error", {
       kind: err.kind,
@@ -81,7 +81,7 @@ function noteTurnError(err: unknown, mode: "json" | "stream"): ProviderErrorInfo
       status: err.status,
       mode,
     });
-    return providerErrorInfo(err);
+    return providerErrorInfo(err, { demo });
   }
   console.error("[nopm][assistant] turn failed", { error: err instanceof Error ? err.name : "unknown", mode });
   return null;
@@ -414,7 +414,7 @@ export const POST = route(async ({ actor, request }) => {
             }
             if (cancelled) return;
           } catch (turnErr) {
-            providerError = noteTurnError(turnErr, "stream");
+            providerError = noteTurnError(turnErr, "stream", resolved?.usedDemoKey === true);
             if (tokensFlushed) {
               // Mid-stream failure AFTER tokens already flushed — never
               // splice fallback text onto a partial reply. Sanitized error
@@ -548,7 +548,7 @@ export const POST = route(async ({ actor, request }) => {
     if (!resolved) throw new Error("no provider configured");
     result = await runAssistant({ actor, message, history: turnHistory, origin, requestId, conversationId, actionLog, quota, resolved, pageContext, priorAttempt });
   } catch (turnErr) {
-    providerError = noteTurnError(turnErr, "json");
+    providerError = noteTurnError(turnErr, "json", resolved?.usedDemoKey === true);
     // Never surface the raw provider/upstream error to the client — answer
     // with the grounded, rate-limited fallback instead, keeping the list of
     // anything the failed turn had already done.

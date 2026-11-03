@@ -69,8 +69,22 @@ export function providerLabel(provider: string): string {
   return PROVIDER_LABEL[provider] ?? provider;
 }
 
-/** The clear message sent to the client. No upstream text, no key. */
-export function providerErrorMessage(kind: ProviderErrorKind, provider: string): string {
+/**
+ * The clear message sent to the client. No upstream text, no key. A demo
+ * visitor runs on the maintainer's key, so they get no "fix your key or model"
+ * advice they cannot act on.
+ */
+export function providerErrorMessage(kind: ProviderErrorKind, provider: string, opts: { demo?: boolean } = {}): string {
+  if (opts.demo) {
+    switch (kind) {
+      case "rate_limited":
+        return "The demo model is busy or has used its free requests for today. Try again later.";
+      case "timeout":
+        return "The demo model took too long to answer. Try again.";
+      default:
+        return "The demo model is unavailable right now. Try again later.";
+    }
+  }
   const who = providerLabel(provider);
   switch (kind) {
     case "key_invalid":
@@ -89,6 +103,6 @@ export function providerErrorMessage(kind: ProviderErrorKind, provider: string):
 /** What goes to the client alongside the reply (additive field `provider_error`). */
 export type ProviderErrorInfo = { kind: ProviderErrorKind; provider: string; status: number; message: string };
 
-export function providerErrorInfo(e: ProviderError): ProviderErrorInfo {
-  return { kind: e.kind, provider: e.provider, status: e.status, message: providerErrorMessage(e.kind, e.provider) };
+export function providerErrorInfo(e: ProviderError, opts: { demo?: boolean } = {}): ProviderErrorInfo {
+  return { kind: e.kind, provider: e.provider, status: e.status, message: providerErrorMessage(e.kind, e.provider, opts) };
 }

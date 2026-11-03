@@ -27,6 +27,14 @@ describe("provider error kinds (A2)", () => {
     expect(providerErrorMessage("rate_limited", "openai")).toContain("rate limiting");
     expect(providerErrorMessage("model_not_found", "google")).toContain("model");
   });
+
+  it("a demo visitor gets no key or settings advice they cannot act on", () => {
+    for (const kind of ["key_invalid", "model_not_found", "rate_limited", "timeout", "unavailable"] as const) {
+      const msg = providerErrorMessage(kind, "openrouter", { demo: true });
+      expect(msg, kind).toContain("demo model");
+      expect(msg, kind).not.toMatch(/key|settings|OpenRouter/i);
+    }
+  });
 });
 
 describe.each(["openai", "anthropic", "google", "openrouter"] as const)("provider router, %s", (provider) => {
