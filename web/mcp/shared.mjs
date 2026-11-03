@@ -192,16 +192,33 @@ export function errorResult(message) {
 const UUID_SEG = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Does the OpenAPI `paths` object serve this concrete route (ids matched to `{param}` segments)? */
-function servesPath(openApiPaths, path) {
+/** The path part of the spec's first server URL ("https://host/api" -> "/api"); "" when absent. */
+function serverBasePath(spec) {
+  const url = Array.isArray(spec.servers) ? spec.servers[0]?.url : undefined;
+  if (typeof url !== "string") return "";
+  try {
+    return new URL(url, "http://base.invalid").pathname.replace(/\/$/, "");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * OpenAPI paths are relative to the server URL (NoPM's spec: server ".../api",
+ * paths "/projects"), while tool paths are absolute ("/api/projects"). Match a
+ * template both with and without the server's base path.
+ */
+function servesPath(openApiPaths, path, basePath = "") {
   const cut = path.indexOf("?");
   const segs = (cut === -1 ? path : path.slice(0, cut)).split("/");
-  return Object.keys(openApiPaths).some((tpl) => {
+  const matches = (tpl) => {
     const t = tpl.split("/");
     return (
       t.length === segs.length &&
       t.every((seg, i) => seg === segs[i] || (/^\{.+\}$/.test(seg) && UUID_SEG.test(segs[i])))
     );
-  });
+  };
+  return Object.keys(openApiPaths).some((tpl) => matches(tpl) || (basePath !== "" && matches(basePath + tpl)));
 }
 
 /**
@@ -219,7 +236,8 @@ export async function filterToolsByOpenApi(tools, { baseUrl, fetchImpl = fetch, 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const spec = await res.json();
     if (!spec || typeof spec.paths !== "object" || spec.paths === null) throw new Error("no paths");
-    return tools.filter((t) => servesPath(spec.paths, t.toRequest({}).path));
+    const basePath = serverBasePath(spec);
+    return tools.filter((t) => servesPath(spec.paths, t.toRequest({}).path, basePath));
   } catch (err) {
     warn(`could not read /api/openapi.json (${err instanceof Error ? err.message : "error"}); listing every tool`);
     return tools;

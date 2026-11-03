@@ -97,3 +97,8 @@ Fixes from the reviewer pass (`_docs/nopm-telegram-2026-11-03/07-review-assistan
 - **N5:** a failed assistant-row insert (stream and JSON) is logged by code and falls back to an `(interrupted)` row that keeps the reply and actions. Tests for both paths.
 - Not changed on purpose: `destructiveHint` for `update_*` tools (N7, owner decision pending).
 - Known Lows, not tracked: N2 `boundToolResult` can empty a single huge row and the `<` escape can exceed the cap slightly; N4 client history still trusted for new conversations and demo retries repeat writes; N6 stdio startup can block up to ~50 s with the API down; N7 PATCH `update_*` tools are `destructiveHint:false`; N8 `tasks` `maybeSingle()` on two member rows, `raw` upstream text in `toToolResult`, double body parse in `connectTokenRejected`.
+
+## Post-release fix (live test)
+
+- **R-183 (e), stdio server listed 0 tools against a real server:** `filterToolsByOpenApi` compared absolute tool paths (`/api/projects`) with OpenAPI paths, which are relative to the spec's server URL (`servers[0].url` ends in `/api`, paths are `/projects`). Nothing matched, so `tools/list` was empty. The filter now matches a template with and without the server's base path. Tests: a spec shaped like NoPM's (server `.../api`, relative paths) and the real `specForTesting` with every module on, which must keep every MCP tool. Both fail on the old code. Live check: `scripts/mcp-smoke.mjs` against stillnotbald.com went from 0 tools to 62.
+- The unit test had used a fake spec with `/api` in each path, which hid the mismatch.

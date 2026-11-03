@@ -9,6 +9,7 @@ import {
   DESTRUCTIVE_TOOLS,
   MAX_RESULT_CHARS,
 } from "../../../mcp/shared.mjs";
+import { specForTesting as realSpec } from "@/app/api/openapi.json/route";
 
 type Tool = (typeof MCP_TOOLS)[number];
 const method = (t: Tool) => String(t.toRequest({}).method).toUpperCase();
@@ -128,6 +129,20 @@ describe("filterToolsByOpenApi (M4)", () => {
     expect(kept.map((t: { name: string }) => t.name)).toEqual(["a"]);
     const both = await filterToolsByOpenApi(tools, { baseUrl: "http://h", fetchImpl: spec({ "/api/projects": {}, "/api/risks/{id}": {} }) as never });
     expect(both).toHaveLength(2);
+  });
+
+  it("matches paths relative to the server base path (NoPM's spec: server .../api, paths /projects)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ servers: [{ url: "https://h/api" }], paths: { "/projects": {} } }), { status: 200 }),
+    );
+    const kept = await filterToolsByOpenApi(tools, { baseUrl: "http://h", fetchImpl: fetchImpl as never });
+    expect(kept.map((t: { name: string }) => t.name)).toEqual(["a"]);
+  });
+
+  it("keeps every MCP tool against the real spec with all modules on", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(realSpec), { status: 200 }));
+    const kept = await filterToolsByOpenApi(MCP_TOOLS as never[], { baseUrl: "http://h", fetchImpl: fetchImpl as never });
+    expect(kept.map((t: { name: string }) => t.name)).toEqual((MCP_TOOLS as Tool[]).map((t) => t.name));
   });
 
   it("fails open and warns when the spec cannot be read", async () => {
