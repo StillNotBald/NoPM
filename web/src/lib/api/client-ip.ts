@@ -16,6 +16,12 @@ import { isIP } from "node:net";
  *    the client sent. We read `x-vercel-forwarded-for`, then `x-real-ip`, then
  *    the LAST `x-forwarded-for` entry (the one Vercel's edge appended). Never
  *    the first.
+ *  - On Cloudflare Workers (OpenNext host, ADR 0021) set `NOPM_TRUST_CF_CONNECTING_IP=1`.
+ *    Cloudflare's edge sets `CF-Connecting-IP` itself and overwrites any value the
+ *    client sent, so it is trusted ONLY behind that flag; without the flag the
+ *    header is ignored (anywhere else a caller could write it). Only that header
+ *    is read in this mode: a missing or invalid value gives null, never a
+ *    fallback to a header the caller could have written. Vercel wins if both apply.
  *  - Anywhere else (self-host, Docker, local dev) NOTHING is trusted by default:
  *    any of those headers could be written by the caller, and the app cannot
  *    see the socket address. Set `NOPM_TRUSTED_PROXY_HOPS=<n>` to the number of
@@ -47,6 +53,9 @@ export function clientIp(headers: Headers, env: Record<string, string | undefine
       validIp(headers.get("x-real-ip")) ??
       fromForwardedFor(headers.get("x-forwarded-for"), 1)
     );
+  }
+  if (env.NOPM_TRUST_CF_CONNECTING_IP === "1") {
+    return validIp(headers.get("cf-connecting-ip"));
   }
   const hops = trustedProxyHops(env.NOPM_TRUSTED_PROXY_HOPS);
   if (hops === 0) {

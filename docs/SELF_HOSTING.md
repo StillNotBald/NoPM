@@ -91,6 +91,8 @@ docker run -p 3000:3000 -e NOPM_TRUSTED_PROXY_HOPS=1 ... nopm-web      # nginx /
 
 Leave it unset if you publish the container's port straight to the internet with no proxy (there is no trustworthy header to read). Do not set it higher than the proxies you really run: a number that is too high lets the caller choose its own address. It has no effect on Vercel, which supplies the address itself.
 
+**Cloudflare Workers (ADR 0021, off by default).** If you host on Cloudflare Workers instead, set `NOPM_TRUST_CF_CONNECTING_IP=1` (a plain `vars` entry in `web/wrangler.jsonc`, not a secret). Cloudflare sets `CF-Connecting-IP` itself and overwrites any value the caller sent, so the app then reads the client address from it. Set it only when every request really arrives through Cloudflare; anywhere else the header is caller-written and is ignored unless this flag is `1`. Vercel and the proxy-hops setting above are unaffected. See `docs/ops/CLOUDFLARE_WORKERS.md`.
+
 ## Manual
 
 Clone, `npm install --prefix web`, copy `web/.env.example` to `web/.env.local` and fill it in, then `npm run migrate` and `node web/scripts/bootstrap.mjs` (or the combined `npm run setup`), then `npm run dev` / `npm run build && npm start`. The step-by-step version, written for someone who has never used Supabase or Next.js, with a full env-variable glossary and a troubleshooting section, lives in [`docs/guide/02-run-it-yourself.md`](guide/02-run-it-yourself.md) — start there if the fast paths above skip a step you need spelled out. Running behind nginx, Caddy or a load balancer? Set `NOPM_TRUSTED_PROXY_HOPS` as described under Docker above.
