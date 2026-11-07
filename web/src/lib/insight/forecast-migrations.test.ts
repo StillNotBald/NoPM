@@ -1,3 +1,4 @@
+import { CRON_ROUTES } from "@/lib/host/cloudflare-cron";
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -69,12 +70,11 @@ describe("migration 0098 project snapshots", () => {
   });
 });
 
-describe("vercel.json crons", () => {
-  const cfg = JSON.parse(readFileSync(resolve(__dirname, "../../../vercel.json"), "utf8")) as {
-    crons: { path: string; schedule: string }[];
-  };
+// Crons live on the Cloudflare Worker (wrangler.jsonc triggers.crons, mapped to
+// routes by CRON_ROUTES; cloudflare-cron.test.ts keeps the two in sync).
+describe("Worker cron triggers", () => {
   it("keeps the daily integrations tick and adds the snapshot tick", () => {
-    expect(cfg.crons).toContainEqual({ path: "/api/integrations/cron", schedule: "7 1 * * *" });
-    expect(cfg.crons.map((c) => c.path)).toContain("/api/cron/snapshots");
+    expect(CRON_ROUTES["7 1 * * *"]).toBe("/api/integrations/cron");
+    expect(Object.values(CRON_ROUTES)).toContain("/api/cron/snapshots");
   });
 });

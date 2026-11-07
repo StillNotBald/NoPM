@@ -1,6 +1,6 @@
 # ADR 0021 - Cloudflare Workers as an alternative host (OpenNext)
 
-- **Status:** Proposed. Vercel stays the current host until a cutover is separately approved. If accepted, this supersedes the **host** part of ADR 0001 only (stack, governance and auth in ADR 0001 are unchanged).
+- **Status:** Accepted (2026-11-07). Cutover done; Cloudflare Workers is the production host and this supersedes the **host** part of ADR 0001 only (stack, governance and auth in ADR 0001 are unchanged). Cutover log: `docs/ops/CLOUDFLARE_WORKERS.md`.
 - **Date:** 2026-11-03
 - **Builds on:** ADR 0001 (stack and host), ADR 0011 (security headers and CSP), ADR 0012 (integration hub)
 - **Outcome served:** none of the three product outcomes. This is hosting risk and cost, recorded because a host change is an infra decision.
@@ -32,13 +32,20 @@ Prepare, but do not switch, the Cloudflare Workers host:
 - **Region.** Vercel is pinned to `sin1`. Workers run near the caller, so the config sets a placement region of `aws:ap-southeast-1` to run next to Supabase.
 - **Builds on Linux only.** A Windows OpenNext build looks alive but fails at runtime. Builds run in WSL or Linux CI.
 - **No per-PR previews** (Vercel has them built in). Preview Workers are manual or a CI follow-up.
-- **Two hosts to keep working.** The normal `next build` and the Vercel config are untouched and still gate every PR; the Cloudflare build is opt-in (`npm run cf:build`).
-- **Docs to update at cutover:** `docs/ops/PROD_DOOR.md`, `docs/architecture/system_architecture.md`, `docs/SELF_HOSTING.md`.
+- **Two hosts to keep working.** The normal `next build` still gates every PR, and `web/vercel.json` is kept for Vercel self-hosters (a test keeps its crons equal to the Worker's). The maintainer no longer has a Vercel project, so the Vercel path is no longer exercised in production; the Cloudflare build is `npm run cf:build`.
+- **Docs updated at cutover (2026-11-07):** `docs/ops/PROD_DOOR.md`, `docs/architecture/system_architecture.md`, `docs/SELF_HOSTING.md`.
 
 ## Rollback
 
-Point the DNS record for the app hostname back at Vercel. The Vercel project stays deployed and its crons stay enabled until the Worker's cron has run successfully once after cutover and two quiet weeks have passed. No data moves (Supabase is the same on both hosts), so rollback is a DNS change only. Disable the Worker's cron triggers when rolling back so two schedulers never run together (the jobs are idempotent, but avoid it).
+Superseded 2026-11-07: the owner chose to delete both Vercel projects on 2026-11-07, before the two-week soak and before Telegram/Lark `after()`, the MFA redirect, MCP with a PAT and the first Worker cron run were tested. This is an accepted risk. There is no fallback host: rollback is `wrangler rollback` to an earlier Worker version only (which shares the same runtime), so the plan is fix forward. No data moves (Supabase is the same), so a rollback never touches the database.
+
+Open checks, still untested on Workers (run them against production and record the result in `docs/ops/CLOUDFLARE_WORKERS.md`):
+
+- [ ] Telegram and Lark signed events with the `after()` follow-up (`waitUntil`).
+- [ ] The MFA challenge redirect.
+- [ ] `/api/mcp` with a PAT.
+- [ ] The first real cron run (17:37 UTC on 2026-11-07), both routes returning 200.
 
 ## Not decided here
 
-The cutover date, the custom-domain attachment, deleting the Vercel project, and any CI deploy job. Each needs its own go-ahead.
+Done on 2026-11-07: the cutover and deleting the Vercel projects. Still open: a CI deploy job (needs its own go-ahead).

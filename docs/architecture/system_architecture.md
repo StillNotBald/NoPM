@@ -17,7 +17,7 @@ flowchart LR
     Assistant["BYOK assistant (in-app)"]
   end
 
-  subgraph Vercel["Vercel — Next.js 16 App Router"]
+  subgraph Workers["Cloudflare Workers — Next.js 16 App Router (OpenNext)"]
     Route["app/api/**/route.ts\nwrapped by route()"]
     Auth["1. auth\nrequireAuth — session or Bearer PAT"]
     RateLimit["2. rate limit\ncheckRateLimit — DB-backed, fail-open+audited"]
@@ -32,7 +32,7 @@ flowchart LR
     RPC["Governed RPCs\nnopm_commit_task_deletion,\nnopm_commit_project_deletion,\nnopm_rate_check"]
   end
 
-  Cloudflare["Cloudflare — DNS only\n(no Workers/OpenNext)"]
+  Cloudflare["Cloudflare — DNS + Worker route\nstillnotbald.com/*"]
   Resend["Resend — demo-mode only\n(rendered previews, never sent)"]
 
   Browser --> Route
@@ -42,13 +42,13 @@ flowchart LR
   Handler --> RLS
   Handler --> RPC
   Audit --> Triggers
-  Cloudflare -.DNS.-> Vercel
+  Cloudflare -.route.-> Route
   Handler -.render only, no send.-> Resend
 ```
 
 Per-request pipeline (`web/src/lib/api/handler.ts`): **auth → rate-limit → handler → audit**, in that order — rate limiting runs *after* the actor is resolved (so it can key on `workspace_id + actor type`) and *before* the handler runs. `/api/health`, `/api/openapi.json`, `/llms.txt`, and the pre-`route()` auth endpoints are the only surfaces exempt (public/liveness, no workspace-scoped actor to key a limiter on — see that file's own comment).
 
-Host split (`docs/adr/0001-stack-host-scope.md`): **Vercel** hosts the app (first-party Next.js, chosen over Cloudflare Workers/OpenNext specifically to avoid adapter-layer instability risk on a live employer-facing demo). **Cloudflare** is DNS-only. **Resend** stays demo-mode — rendered email previews only, never sent (`CLAUDE.md` "Do NOT build").
+Host split (`docs/adr/0001-stack-host-scope.md`): **Cloudflare Workers** (OpenNext) hosts the app since 2026-11-07 (`docs/adr/0021-cloudflare-workers-host.md`, which supersedes the host part of ADR 0001; ADR 0001 originally chose Vercel). **Cloudflare** also holds DNS. **Resend** stays demo-mode — rendered email previews only, never sent (`CLAUDE.md` "Do NOT build").
 
 ## 2. The governance backbone
 

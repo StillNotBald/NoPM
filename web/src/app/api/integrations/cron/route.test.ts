@@ -121,26 +121,20 @@ describe("operator signals", () => {
   });
 });
 
-describe("vercel.json cron entry", () => {
+describe("Worker cron entry (CRON_ROUTES = wrangler.jsonc triggers)", () => {
   it("calls this route daily, off the hour and half-hour (Lark sheds load at :00/:30)", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { join } = await import("node:path");
-    const config = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as {
-      crons?: { path: string; schedule: string }[];
-    };
-    const entry = config.crons?.find((c) => c.path === "/api/integrations/cron");
-    expect(entry).toBeDefined();
-    const [minute, hour, dom, month, dow] = (entry as { schedule: string }).schedule.split(/\s+/);
+    const { CRON_ROUTES } = await import("@/lib/host/cloudflare-cron");
+    const schedule = Object.keys(CRON_ROUTES).find((k) => CRON_ROUTES[k] === "/api/integrations/cron");
+    expect(schedule).toBeDefined();
+    const [minute, hour, dom, month, dow] = (schedule as string).split(/\s+/);
     expect(/^\d+$/.test(minute) && /^\d+$/.test(hour)).toBe(true); // once a day
     expect([dom, month, dow]).toEqual(["*", "*", "*"]);
     expect(["0", "30"]).not.toContain(minute);
   });
 
-  it("is the schedule the route documents, not the older 0 1 * * * it used to claim", () => {
-    const config = JSON.parse(readFileSync(join(process.cwd(), "vercel.json"), "utf8")) as {
-      crons?: { path: string; schedule: string }[];
-    };
-    const schedule = config.crons?.find((c) => c.path === "/api/integrations/cron")?.schedule;
+  it("is the schedule the route documents, not the older 0 1 * * * it used to claim", async () => {
+    const { CRON_ROUTES } = await import("@/lib/host/cloudflare-cron");
+    const schedule = Object.keys(CRON_ROUTES).find((k) => CRON_ROUTES[k] === "/api/integrations/cron");
     const doc = readFileSync(join(__dirname, "route.ts"), "utf8");
     expect(doc).toContain(`\`${schedule}\``);
     expect(doc).not.toContain("0 1 * * *");

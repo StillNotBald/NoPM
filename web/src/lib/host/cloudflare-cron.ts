@@ -1,15 +1,15 @@
 /**
  * Cron mapping for the Cloudflare Workers host (ADR 0021).
  *
- * Vercel reads `crons` from vercel.json and calls each route with
+ * Vercel (self-host) reads `crons` from vercel.json and calls each route with
  * `Authorization: Bearer $CRON_SECRET`. A Worker has no such scheduler: Cloudflare
  * Cron Triggers call a `scheduled()` handler with the cron expression that fired.
  * This module is the pure part of that handler: expression -> route -> request.
  * `cloudflare/worker.ts` wires it to the OpenNext fetch handler.
  *
  * The routes are untouched: they already verify the bearer secret in constant
- * time (`verifyCronAuth`). The expressions here MUST equal vercel.json and
- * wrangler.jsonc `triggers.crons`; `cloudflare-cron.test.ts` fails if they drift.
+ * time (`verifyCronAuth`). The expressions here MUST equal wrangler.jsonc
+ * `triggers.crons` (the maintainer's host) and vercel.json (the Vercel self-host config); `cloudflare-cron.test.ts` fails if they drift.
  */
 
 export const CRON_ROUTES: Readonly<Record<string, string>> = {
