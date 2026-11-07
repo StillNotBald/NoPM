@@ -9,7 +9,7 @@ This elaborates — but does not replace — the existing self-hosted **STUB** s
 
 ## Today's actual (maintainer's) deployment, for contrast
 
-The live **stillnotbald.com** instance runs on **Cloudflare Workers** (Next.js via OpenNext, since 2026-11-07, ADR 0021) + **Supabase-managed** (Postgres + Auth + Realtime + RLS) + **Cloudflare** (DNS). Nothing below is required to run *that* product — it's for anyone who wants their own copy of NoPM.
+The live **stillnotbald.com** instance runs on **Cloudflare Workers** (Next.js via OpenNext, since 2026-11-07, ADR 0021) + **Supabase-managed** (Postgres + Auth + Realtime + RLS) + **Cloudflare** (DNS). The maintainer's instance runs on Cloudflare Workers; Vercel is still a supported self-host target (`web/vercel.json` keeps its region and the two crons for the Deploy with Vercel button). If you copy `web/wrangler.jsonc` for your own Worker, change or remove its `routes` entry (it is the maintainer's `stillnotbald.com` zone and a deploy elsewhere fails) and set `workers_dev` to `true` if you have no zone. Nothing below is required to run *that* product — it's for anyone who wants their own copy of NoPM.
 
 ## Fastest path: Vercel button + `npm run setup`
 

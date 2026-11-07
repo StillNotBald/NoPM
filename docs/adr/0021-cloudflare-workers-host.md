@@ -32,12 +32,19 @@ Prepare, but do not switch, the Cloudflare Workers host:
 - **Region.** Vercel is pinned to `sin1`. Workers run near the caller, so the config sets a placement region of `aws:ap-southeast-1` to run next to Supabase.
 - **Builds on Linux only.** A Windows OpenNext build looks alive but fails at runtime. Builds run in WSL or Linux CI.
 - **No per-PR previews** (Vercel has them built in). Preview Workers are manual or a CI follow-up.
-- **Two hosts to keep working.** The normal `next build` and the Vercel config are untouched and still gate every PR; the Cloudflare build is opt-in (`npm run cf:build`).
+- **Two hosts to keep working.** The normal `next build` still gates every PR, and `web/vercel.json` is kept for Vercel self-hosters (a test keeps its crons equal to the Worker's). The maintainer no longer has a Vercel project, so the Vercel path is no longer exercised in production; the Cloudflare build is `npm run cf:build`.
 - **Docs updated at cutover (2026-11-07):** `docs/ops/PROD_DOOR.md`, `docs/architecture/system_architecture.md`, `docs/SELF_HOSTING.md`.
 
 ## Rollback
 
-Superseded 2026-11-07: both Vercel projects were deleted at cutover, so there is no Vercel rollback. Rollback is fix forward, or redeploy a previous Worker version (`wrangler rollback`). No data moves (Supabase is the same), so a rollback never touches the database.
+Superseded 2026-11-07: the owner chose to delete both Vercel projects on 2026-11-07, before the two-week soak and before Telegram/Lark `after()`, the MFA redirect, MCP with a PAT and the first Worker cron run were tested. This is an accepted risk. There is no fallback host: rollback is `wrangler rollback` to an earlier Worker version only (which shares the same runtime), so the plan is fix forward. No data moves (Supabase is the same), so a rollback never touches the database.
+
+Open checks, still untested on Workers (run them against production and record the result in `docs/ops/CLOUDFLARE_WORKERS.md`):
+
+- [ ] Telegram and Lark signed events with the `after()` follow-up (`waitUntil`).
+- [ ] The MFA challenge redirect.
+- [ ] `/api/mcp` with a PAT.
+- [ ] The first real cron run (17:37 UTC on 2026-11-07), both routes returning 200.
 
 ## Not decided here
 

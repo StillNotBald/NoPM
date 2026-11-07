@@ -14,6 +14,7 @@ Done from the Mac (travel mode) between about 08:50 and 08:58 UTC.
 - Both Vercel projects (`web`, `your-brand-demo`) were deleted by the owner's choice, so there is no Vercel rollback any more.
 - Checked on stillnotbald.com: health, demo login to dashboard, security headers identical to the old Vercel set, 401 on `/api/projects`, `/api/mcp` and the cron route with a wrong secret.
 - macOS native OpenNext build worked. npm 11 skipped the install scripts of esbuild and workerd and the build still worked.
+- `www.stillnotbald.com` has no DNS record (checked 2026-11-07), so it is not served; the route covers the apex only. Add a route and record if www is ever wanted.
 - **Not yet tested on Workers:** Telegram/Lark signed event with `after()`, the MFA redirect, `/api/mcp` with a PAT, and the first real cron run (due 17:37 UTC on 2026-11-07).
 
 ## What is in the repo
@@ -100,7 +101,7 @@ Generate `CRON_SECRET` as at least 32 random characters. The routes refuse every
 
 ## 5. Preview Worker test (no DNS)
 
-To test before a production deploy, use a `*.workers.dev` preview that leaves the real domain alone: `npm run cf:preview` runs it locally first; a `wrangler deploy` to `workers.dev` is an owner-approved step. Point the preview at the same Supabase and set `NEXT_PUBLIC_APP_URL` to the preview URL for the test.
+**A bare `npx wrangler deploy` is a production deploy:** `routes` is in `wrangler.jsonc`, so it replaces the live version on stillnotbald.com. To test first, run `npm run cf:preview` locally, then `npx wrangler versions upload --var NEXT_PUBLIC_BUILD_SHA:<sha>` (owner-approved). That uploads a version with its own preview URL and shifts no traffic; the checklist runs against that URL. Promote with `npx wrangler versions deploy` (step 6). Point the preview at the same Supabase and set `NEXT_PUBLIC_APP_URL` to the preview URL for the test.
 
 Checklist, in this order (stop at the first failure):
 
@@ -121,7 +122,7 @@ Log of the result goes in a sprint log, with the numbers.
 ## 6. Deploy to production (owner-run)
 
 1. Build from the approved commit with `NEXT_PUBLIC_BUILD_SHA=<sha>` set (step 2).
-2. Deploy with the build SHA as a runtime var so `/api/health` reports it: `npx wrangler deploy --var NEXT_PUBLIC_BUILD_SHA:<sha>`. Do not put the SHA in `wrangler.jsonc`.
+2. Deploy with the build SHA as a runtime var so `/api/health` reports it: `npx wrangler deploy --var NEXT_PUBLIC_BUILD_SHA:<sha>` (goes straight to production), or, after a preview upload (step 5), promote that version with `npx wrangler versions deploy`. Do not put the SHA in `wrangler.jsonc`.
 3. Check `/api/health`, a demo login, and the security headers on https://stillnotbald.com.
 4. Telegram and Lark webhook URLs stay valid because the hostname does not change.
 

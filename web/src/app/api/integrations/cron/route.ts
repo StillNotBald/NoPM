@@ -11,11 +11,11 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * GET /api/integrations/cron — the daily scheduler tick (Vercel Cron, `7 1 * * *`
- * in wrangler.jsonc triggers.crons: 01:07 UTC, off the hour and half-hour because Lark sheds load
+ * GET /api/integrations/cron — the daily scheduler tick (`7 1 * * *`: a Cloudflare
+ * Cron Trigger in wrangler.jsonc, or a Vercel Cron in vercel.json for Vercel self-hosters; 01:07 UTC, off the hour and half-hour because Lark sheds load
  * at :00/:30). NOT a user/token route (`auth: false`): the only credential is
- * `Authorization: Bearer $CRON_SECRET`, which Vercel attaches to its own cron
- * calls and which is compared in constant time. An unset CRON_SECRET authorises
+ * `Authorization: Bearer $CRON_SECRET`, which the Worker scheduler (or Vercel Cron) attaches to its own
+ * cron calls and which is compared in constant time. An unset CRON_SECRET authorises
  * nobody (and is logged, because it otherwise looks like a cron that merely
  * never runs). It drains deliveries that are due for retry, posts each
  * connector's weekly digest on its configured weekday, nudges the owners of

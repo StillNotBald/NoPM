@@ -20,7 +20,11 @@
   // Production door: a Worker route on the zone (not a custom_domain), so the apex DNS record
   // is only a placeholder. src/lib/host/cloudflare-cron.test.ts fails if the crons below drift
   // from CRON_ROUTES.
+  // FORKERS: change or remove `routes` before you deploy. This is the maintainer's zone and a
+  // deploy to any other account fails. Keep it at top level: an env block would rename the Worker.
   "routes": [{ "pattern": "stillnotbald.com/*", "zone_name": "stillnotbald.com" }],
+  // Explicit: routes are set, so the workers.dev subdomain stays off (set true for a forker without a zone).
+  "workers_dev": false,
   "triggers": { "crons": ["7 1 * * *", "37 17 * * *"] },
 
   // Non-secret only. Cloudflare overwrites CF-Connecting-IP at its edge, so the

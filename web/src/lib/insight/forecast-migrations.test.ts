@@ -73,11 +73,8 @@ describe("migration 0098 project snapshots", () => {
 // Crons live on the Cloudflare Worker (wrangler.jsonc triggers.crons, mapped to
 // routes by CRON_ROUTES; cloudflare-cron.test.ts keeps the two in sync).
 describe("Worker cron triggers", () => {
-  const cfg = {
-    crons: Object.entries(CRON_ROUTES).map(([schedule, path]) => ({ path, schedule })),
-  };
   it("keeps the daily integrations tick and adds the snapshot tick", () => {
-    expect(cfg.crons).toContainEqual({ path: "/api/integrations/cron", schedule: "7 1 * * *" });
-    expect(cfg.crons.map((c) => c.path)).toContain("/api/cron/snapshots");
+    expect(CRON_ROUTES["7 1 * * *"]).toBe("/api/integrations/cron");
+    expect(Object.values(CRON_ROUTES)).toContain("/api/cron/snapshots");
   });
 });

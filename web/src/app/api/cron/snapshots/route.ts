@@ -8,8 +8,8 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
- * GET /api/cron/snapshots: the nightly project-snapshot tick (Vercel Cron, `37 17 * * *`
- * in wrangler.jsonc triggers.crons: 17:37 UTC, which is 01:37 the next day in the default Kuala Lumpur
+ * GET /api/cron/snapshots: the nightly project-snapshot tick (`37 17 * * *`: a Cloudflare
+ * Cron Trigger in wrangler.jsonc, or a Vercel Cron in vercel.json for Vercel self-hosters; 17:37 UTC, which is 01:37 the next day in the default Kuala Lumpur
  * zone, off the hour and half-hour). NOT a user/token route (`auth: false`): the only
  * credential is `Authorization: Bearer $CRON_SECRET`, compared in constant time, the
  * same check as the integrations cron. An unset CRON_SECRET authorises nobody.

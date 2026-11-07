@@ -31,6 +31,12 @@ describe("cron expression to route", () => {
     expect(resolveCronRoute("__proto__")).toBeNull();
   });
 
+  it("matches vercel.json crons exactly (same expression, same path)", () => {
+    const vercel = JSON.parse(readFileSync(resolve(root, "vercel.json"), "utf8")) as { crons: { path: string; schedule: string }[] };
+    const fromVercel = Object.fromEntries(vercel.crons.map((c) => [c.schedule, c.path]));
+    expect(CRON_ROUTES).toEqual(fromVercel);
+  });
+
   it("matches wrangler.jsonc triggers.crons exactly", () => {
     const text = readFileSync(resolve(root, "wrangler.jsonc"), "utf8")
       .split(/\r?\n/)

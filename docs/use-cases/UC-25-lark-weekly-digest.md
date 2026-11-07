@@ -12,7 +12,7 @@
 
 ## Main flow
 
-1. **Daily tick.** Vercel Cron calls `GET /api/integrations/cron` with `Authorization: Bearer <CRON_SECRET>` once a day at 01:07 UTC (off the hour and half-hour, when the platform sheds load). The secret is checked in constant time.
+1. **Daily tick.** The scheduler (a Cloudflare Cron Trigger on the maintainer's Worker; Vercel Cron for Vercel self-hosters) calls `GET /api/integrations/cron` with `Authorization: Bearer <CRON_SECRET>` once a day at 01:07 UTC (off the hour and half-hour, when the platform sheds load). The secret is checked in constant time.
 2. **Select connectors.** For each active Lark connector whose digest weekday is today, the hub checks its deliveries for a digest already sent in this ISO week. If none exists, a digest is due.
 3. **Build.** The hub assembles the digest from the workspace's governed data (`digest-data.ts`). The content is fixed in code. An admin does not write it.
 4. **Send.** The hub renders the digest card and sends it to the group chat. It records a `digest` delivery with the outcome and the attempt count.

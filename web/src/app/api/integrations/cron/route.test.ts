@@ -124,10 +124,9 @@ describe("operator signals", () => {
 describe("Worker cron entry (CRON_ROUTES = wrangler.jsonc triggers)", () => {
   it("calls this route daily, off the hour and half-hour (Lark sheds load at :00/:30)", async () => {
     const { CRON_ROUTES } = await import("@/lib/host/cloudflare-cron");
-    const config = { crons: Object.entries(CRON_ROUTES).map(([schedule, path]) => ({ path, schedule })) };
-    const entry = config.crons?.find((c) => c.path === "/api/integrations/cron");
-    expect(entry).toBeDefined();
-    const [minute, hour, dom, month, dow] = (entry as { schedule: string }).schedule.split(/\s+/);
+    const schedule = Object.keys(CRON_ROUTES).find((k) => CRON_ROUTES[k] === "/api/integrations/cron");
+    expect(schedule).toBeDefined();
+    const [minute, hour, dom, month, dow] = (schedule as string).split(/\s+/);
     expect(/^\d+$/.test(minute) && /^\d+$/.test(hour)).toBe(true); // once a day
     expect([dom, month, dow]).toEqual(["*", "*", "*"]);
     expect(["0", "30"]).not.toContain(minute);
@@ -135,8 +134,7 @@ describe("Worker cron entry (CRON_ROUTES = wrangler.jsonc triggers)", () => {
 
   it("is the schedule the route documents, not the older 0 1 * * * it used to claim", async () => {
     const { CRON_ROUTES } = await import("@/lib/host/cloudflare-cron");
-    const config = { crons: Object.entries(CRON_ROUTES).map(([schedule, path]) => ({ path, schedule })) };
-    const schedule = config.crons?.find((c) => c.path === "/api/integrations/cron")?.schedule;
+    const schedule = Object.keys(CRON_ROUTES).find((k) => CRON_ROUTES[k] === "/api/integrations/cron");
     const doc = readFileSync(join(__dirname, "route.ts"), "utf8");
     expect(doc).toContain(`\`${schedule}\``);
     expect(doc).not.toContain("0 1 * * *");

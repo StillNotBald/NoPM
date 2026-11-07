@@ -70,7 +70,7 @@ select nopm_apply_tier_decisions();  -- second run: all zeros, no audit rows
 ### Scope and schedule changes in wave 3
 
 - **New scope `report:read`.** It opens `GET /api/reports/weekly`. It is not privileged, and the `report:*` wildcard covers it. A token that reads the weekly report needs the scope added by name.
-- **Second Vercel cron.** `web/vercel.json` runs `/api/cron/snapshots` at `37 17 * * *` (17:37 UTC, 01:37 in Asia/Kuala_Lumpur). It sits beside `/api/integrations/cron` at `7 1 * * *`. Both authenticate with `CRON_SECRET`, which must be set in the production environment before the first run.
+- **Second cron.** The maintainer's Worker runs `/api/cron/snapshots` at `37 17 * * *` (17:37 UTC, 01:37 in Asia/Kuala_Lumpur) from `web/wrangler.jsonc` `triggers.crons`. It sits beside `/api/integrations/cron` at `7 1 * * *`. Both authenticate with `CRON_SECRET`, which must be set as a Worker secret (`wrangler secret put CRON_SECRET`) before the first run. Vercel self-hosters get the same two crons from `web/vercel.json`.
 
 ### Wave 3 checks and smoke
 

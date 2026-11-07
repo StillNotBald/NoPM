@@ -54,7 +54,7 @@ Set before the build; environment changes need a new build.
 
 | Name | Need | Value / note |
 |---|---|---|
-| `CRON_SECRET` | **required, new** | `openssl rand -base64 32`, at least 32 characters, no spaces; `vercel env add CRON_SECRET production`. Unset: `/api/integrations/cron` refuses every call, the weekly digest never sends, nothing is pruned (cards still send). Vercel attaches it to its own cron call; `web/vercel.json` declares the cron (`/api/integrations/cron`, `7 1 * * *`), registered when the deployment is promoted. |
+| `CRON_SECRET` | **required, new** | `openssl rand -base64 32`, at least 32 characters, no spaces; `npx wrangler secret put CRON_SECRET` (Worker `nopm-web`; Vercel self-hosters use `vercel env add CRON_SECRET production`). Unset: `/api/integrations/cron` refuses every call, the weekly digest never sends, nothing is pruned (cards still send). The Worker's `scheduled()` handler attaches it to the cron call; `web/wrangler.jsonc` `triggers.crons` declares the cron (`/api/integrations/cron`, `7 1 * * *`). Vercel self-hosters: `web/vercel.json` declares it. |
 | `NOPM_ENCRYPTION_KEY` | **required, verify present** | 32-byte base64; the previous build already needs it for MFA. Connector secrets are AES-256-GCM under the same key; if it is missing, creating a connector returns 503. Never change it. |
 | `NEXT_PUBLIC_APP_URL` | recommended | `https://stillnotbald.com`. It wins over `VERCEL_PROJECT_PRODUCTION_URL` for calendar-feed URLs and card deep links. Must not be a localhost value. |
 | `NOPM_RATE_CAL_PER_MIN`, `NOPM_RATE_CAL_IP_PER_MIN` | optional | calendar feed limits per feed / per client address per minute (defaults 60 / 120) |
@@ -89,7 +89,7 @@ The window is the time between the commit of step 3 and the promote of step 6. D
    ```
 2. Run `postcheck.sql` again; rows 21 and 22 read 0.
 3. `curl https://stillnotbald.com/api/health`, then `cd web && node scripts/auth-smoke.mjs` (same pass count as the 0048 smoke).
-4. Cron: the Vercel dashboard (project → Settings → Cron Jobs) lists `/api/integrations/cron  7 1 * * *`. Call it once: `curl -sS -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $CRON_SECRET" https://stillnotbald.com/api/integrations/cron` expects 200; without the header 401.
+4. Cron: `web/wrangler.jsonc` `triggers.crons` lists `7 1 * * *` (Cloudflare dashboard → Workers → `nopm-web` → Settings → Triggers; Vercel self-hosters: project → Settings → Cron Jobs). Call it once: `curl -sS -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer $CRON_SECRET" https://stillnotbald.com/api/integrations/cron` expects 200; without the header 401.
 5. Optional governed smoke (creates real audit rows, use a throwaway task): person A raises a task deletion, person B approves it; person A approving with a token they minted gets 403 self-approval; create a calendar feed and fetch its URL; the Tokens list hides only assistant tokens.
 6. Connecting Lark is a separate step in the console and is not part of this window.
 
@@ -169,7 +169,7 @@ Times are UTC. Code: PRs #7 and #9 merged; main is `ba1044c`.
 |---|---|
 | Backup (section 2) | A schema dump and a data dump were taken before the apply and are stored outside the repo. |
 | Pre-check (section 2) | Read-only `precheck.sql` passed every hard gate. The F1–F4 history counts were 6, 1, 0 and 0 (F1 deletion requests, F2 change requests, F3 timesheets, F4 unknowable requester). |
-| Environment (section 3) | `CRON_SECRET` added to Vercel production. |
+| Environment (section 3) | `CRON_SECRET` set as a Worker secret (Vercel self-host: added to Vercel production). |
 | Dry run (section 4, step 2) | `--atomic --dry-run`: "Dry run complete in 623 ms: 9 pending file(s) applied cleanly, then ROLLED BACK. Nothing changed." |
 | Apply (section 4, step 3) | `apply-migrations.mjs --atomic`: 0045–0047 and 0049–0054 committed in one transaction at 06:04:26–06:04:27 UTC: "Committed 9 file(s) in one transaction (495 ms)." |
 | Promote (section 4, step 6) | New build promoted at 06:04:50 UTC. The previous build ran against the new schema for about 25 s. |
