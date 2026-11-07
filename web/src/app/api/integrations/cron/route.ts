@@ -12,7 +12,7 @@ export const maxDuration = 60;
 
 /**
  * GET /api/integrations/cron — the daily scheduler tick (Vercel Cron, `7 1 * * *`
- * in vercel.json: 01:07 UTC, off the hour and half-hour because Lark sheds load
+ * in wrangler.jsonc triggers.crons: 01:07 UTC, off the hour and half-hour because Lark sheds load
  * at :00/:30). NOT a user/token route (`auth: false`): the only credential is
  * `Authorization: Bearer $CRON_SECRET`, which Vercel attaches to its own cron
  * calls and which is compared in constant time. An unset CRON_SECRET authorises
