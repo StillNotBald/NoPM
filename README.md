@@ -79,7 +79,7 @@ Or run it in Docker instead of on Vercel: `docker build -t nopm-web ./web && doc
 The pre-commit leak gate, pre-push verify and CI checks travel with every clone; the cutover, rollback, architecture and test-evidence docs sit beside them. Both are listed in [`docs/ENGINEERING.md`](docs/ENGINEERING.md).
 
 ## Stack
-Next.js 16 · TypeScript · Tailwind v4 · Supabase (Postgres + Auth + RLS) · Vercel + Cloudflare DNS.
+Next.js 16 · TypeScript · Tailwind v4 · Supabase (Postgres + Auth + RLS) · Cloudflare Workers (OpenNext) + Cloudflare DNS; Vercel and Docker also work for self-hosting.
 
 ## License
 Apache License, Version 2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). Everything in this repository is open source; paid offerings are services only (implementation guide, change requests, setup help) — see [`docs/guide/05-getting-help-and-paid-services.md`](docs/guide/05-getting-help-and-paid-services.md).

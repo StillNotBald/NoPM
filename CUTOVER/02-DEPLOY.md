@@ -1,6 +1,6 @@
 # 02 · Deploy
 
-**Status: ACTIVE**
+**Status: ACTIVE for the Supabase migration steps; the Vercel deploy steps below are RETIRED (2026-11-07).** Production deploys now go through the Worker runbook, [`docs/ops/CLOUDFLARE_WORKERS.md`](../docs/ops/CLOUDFLARE_WORKERS.md), and rollback is a Worker rollback (no Vercel alias). Keep the Vercel text below only as history or for a self-hosted Vercel copy.
 
 NoPM's Vercel deploys are **manual** — there is no git-push→deploy hook wired up (verified: `sprint-log/2026-08-13_oss-finetune/SPRINT_SUMMARY.md`, "Vercel was NOT hooked to git pushes"). Every production release is a deliberate `vercel deploy` from a checked-out commit you've already tested locally.
 

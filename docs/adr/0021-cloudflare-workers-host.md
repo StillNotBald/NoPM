@@ -1,6 +1,6 @@
 # ADR 0021 - Cloudflare Workers as an alternative host (OpenNext)
 
-- **Status:** Proposed. Vercel stays the current host until a cutover is separately approved. If accepted, this supersedes the **host** part of ADR 0001 only (stack, governance and auth in ADR 0001 are unchanged).
+- **Status:** Accepted (2026-11-07). Cutover done; Cloudflare Workers is the production host and this supersedes the **host** part of ADR 0001 only (stack, governance and auth in ADR 0001 are unchanged). Cutover log: `docs/ops/CLOUDFLARE_WORKERS.md`.
 - **Date:** 2026-11-03
 - **Builds on:** ADR 0001 (stack and host), ADR 0011 (security headers and CSP), ADR 0012 (integration hub)
 - **Outcome served:** none of the three product outcomes. This is hosting risk and cost, recorded because a host change is an infra decision.
@@ -33,12 +33,12 @@ Prepare, but do not switch, the Cloudflare Workers host:
 - **Builds on Linux only.** A Windows OpenNext build looks alive but fails at runtime. Builds run in WSL or Linux CI.
 - **No per-PR previews** (Vercel has them built in). Preview Workers are manual or a CI follow-up.
 - **Two hosts to keep working.** The normal `next build` and the Vercel config are untouched and still gate every PR; the Cloudflare build is opt-in (`npm run cf:build`).
-- **Docs to update at cutover:** `docs/ops/PROD_DOOR.md`, `docs/architecture/system_architecture.md`, `docs/SELF_HOSTING.md`.
+- **Docs updated at cutover (2026-11-07):** `docs/ops/PROD_DOOR.md`, `docs/architecture/system_architecture.md`, `docs/SELF_HOSTING.md`.
 
 ## Rollback
 
-Point the DNS record for the app hostname back at Vercel. The Vercel project stays deployed and its crons stay enabled until the Worker's cron has run successfully once after cutover and two quiet weeks have passed. No data moves (Supabase is the same on both hosts), so rollback is a DNS change only. Disable the Worker's cron triggers when rolling back so two schedulers never run together (the jobs are idempotent, but avoid it).
+Superseded 2026-11-07: both Vercel projects were deleted at cutover, so there is no Vercel rollback. Rollback is fix forward, or redeploy a previous Worker version (`wrangler rollback`). No data moves (Supabase is the same), so a rollback never touches the database.
 
 ## Not decided here
 
-The cutover date, the custom-domain attachment, deleting the Vercel project, and any CI deploy job. Each needs its own go-ahead.
+Done on 2026-11-07: the cutover and deleting the Vercel projects. Still open: a CI deploy job (needs its own go-ahead).

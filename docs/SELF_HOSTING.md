@@ -9,7 +9,7 @@ This elaborates — but does not replace — the existing self-hosted **STUB** s
 
 ## Today's actual (maintainer's) deployment, for contrast
 
-The live **stillnotbald.com** instance runs **Vercel** (Next.js host) + **Supabase-managed** (Postgres + Auth + Realtime + RLS) + **Cloudflare** (DNS). Nothing below is required to run *that* product — it's for anyone who wants their own copy of NoPM.
+The live **stillnotbald.com** instance runs on **Cloudflare Workers** (Next.js via OpenNext, since 2026-11-07, ADR 0021) + **Supabase-managed** (Postgres + Auth + Realtime + RLS) + **Cloudflare** (DNS). Nothing below is required to run *that* product — it's for anyone who wants their own copy of NoPM.
 
 ## Fastest path: Vercel button + `npm run setup`
 
@@ -91,7 +91,7 @@ docker run -p 3000:3000 -e NOPM_TRUSTED_PROXY_HOPS=1 ... nopm-web      # nginx /
 
 Leave it unset if you publish the container's port straight to the internet with no proxy (there is no trustworthy header to read). Do not set it higher than the proxies you really run: a number that is too high lets the caller choose its own address. It has no effect on Vercel, which supplies the address itself.
 
-**Cloudflare Workers (ADR 0021, off by default).** If you host on Cloudflare Workers instead, set `NOPM_TRUST_CF_CONNECTING_IP=1` (a plain `vars` entry in `web/wrangler.jsonc`, not a secret). Cloudflare sets `CF-Connecting-IP` itself and overwrites any value the caller sent, so the app then reads the client address from it. Set it only when every request really arrives through Cloudflare; anywhere else the header is caller-written and is ignored unless this flag is `1`. Vercel and the proxy-hops setting above are unaffected. See `docs/ops/CLOUDFLARE_WORKERS.md`.
+**Cloudflare Workers (ADR 0021, the maintainer's production host).** If you host on Cloudflare Workers instead, set `NOPM_TRUST_CF_CONNECTING_IP=1` (a plain `vars` entry in `web/wrangler.jsonc`, not a secret). Cloudflare sets `CF-Connecting-IP` itself and overwrites any value the caller sent, so the app then reads the client address from it. Set it only when every request really arrives through Cloudflare; anywhere else the header is caller-written and is ignored unless this flag is `1`. Vercel and the proxy-hops setting above are unaffected. See `docs/ops/CLOUDFLARE_WORKERS.md`.
 
 ## Manual
 

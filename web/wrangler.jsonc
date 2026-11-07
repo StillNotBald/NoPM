@@ -1,6 +1,8 @@
-// Cloudflare Workers host for NoPM (ADR 0021, off by default; Vercel ignores this file).
+// Cloudflare Workers host for NoPM (ADR 0021). LIVE since 2026-11-07: this Worker serves
+// https://stillnotbald.com through the route below.
 // Secrets are NOT here: set them with `wrangler secret put` / `wrangler secret bulk`
-// (docs/ops/CLOUDFLARE_WORKERS.md). No routes or custom domain until cutover.
+// (docs/ops/CLOUDFLARE_WORKERS.md). NEXT_PUBLIC_BUILD_SHA is not here either: build with it
+// set and deploy with `--var NEXT_PUBLIC_BUILD_SHA:<sha>` so /api/health reports the commit.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nopm-web",
@@ -15,7 +17,10 @@
 
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
 
-  // Must equal "crons" in vercel.json; src/lib/host/cloudflare-cron.test.ts fails if they drift.
+  // Production door: a Worker route on the zone (not a custom_domain), so the apex DNS record
+  // is only a placeholder. src/lib/host/cloudflare-cron.test.ts fails if the crons below drift
+  // from CRON_ROUTES.
+  "routes": [{ "pattern": "stillnotbald.com/*", "zone_name": "stillnotbald.com" }],
   "triggers": { "crons": ["7 1 * * *", "37 17 * * *"] },
 
   // Non-secret only. Cloudflare overwrites CF-Connecting-IP at its edge, so the
